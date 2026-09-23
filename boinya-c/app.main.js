@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115997";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115998";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -535,7 +535,7 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• Сверху вкладки «Расчёт» и «Подбор».\n• Расчёт: итоговый (ПП) и розница — отдельные составы.\n• Подбор: тип → анкета → один состав, правь строки → «В расчёт».\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
+      priceScreen: "Расчёт\n• Сверху вкладки «Расчёт» и «Подбор».\n• Расчёт: подписка и розница — отдельные составы.\n• Подбор: тип → анкета → один состав, правь строки → «В расчёт».\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → вкладка «Подбор» на экране Расчёт.",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
@@ -19820,7 +19820,7 @@
 
     function runPricePickFromAnket_() {
       if (!pricePickTarget_) {
-        showToast("Сначала выбери: БП1, БП2, итоговый или розница");
+        showToast("Сначала выбери: БП1, БП2, подписка или розница");
         return;
       }
       var ta = document.getElementById("pricePickPaste");
@@ -23911,7 +23911,7 @@
       if (k === "bp1") return "БП1";
       if (k === "bp2") return "БП2";
       if (k === "retail") return "Розница";
-      return "Итоговый (ПП)";
+      return "Подписка";
     }
 
     function isPricePpLikeMode_(mode) {
@@ -25731,7 +25731,7 @@
 
     async function openDirectPpEnrollFromPrice() {
       if (priceMode !== "pp") {
-        showToast("Сначала режим «Итоговый» (ПП)");
+        showToast("Сначала режим «Подписка»");
         return;
       }
       stashPriceActiveBasket();
@@ -25834,7 +25834,7 @@
       var tid = await ensureTelegramId();
       if (!tid) return;
       if (priceMode === "retail") {
-        showToast("Для внесения в ПП нужен режим «Подписка ПП»");
+        showToast("Для внесения в ПП нужен режим «Подписка»");
         return;
       }
       stashPriceActiveBasket();

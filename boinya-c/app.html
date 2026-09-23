@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115997" as="script">
+  <link rel="preload" href="app.main.js?v=71115998" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115997";
+      var APP_VER = "v71115998";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2493,10 +2493,10 @@
         <div class="form-group">
           <label>Режим</label>
           <div class="seg-row" style="flex-wrap:wrap;gap:6px;">
-            <button type="button" class="seg-btn active" id="priceModePp" onclick="setPriceMode('pp')">Итоговый (ПП)</button>
+            <button type="button" class="seg-btn active" id="priceModePp" onclick="setPriceMode('pp')">Подписка</button>
             <button type="button" class="seg-btn" id="priceModeRet" onclick="setPriceMode('retail')">Розница</button>
           </div>
-          <div class="muted" style="font-size:12px;margin-top:6px;">Два слота состава: итоговый и розница. Подбор — вкладка сверху.</div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">Два слота состава: подписка и розница. Подбор — вкладка сверху.</div>
         </div>
         <div class="form-group">
           <label>Собаки</label>
@@ -2666,7 +2666,7 @@
               <button type="button" class="seg-btn" id="pricePickTargetBp1" onclick="setPricePickTarget_('bp1')">БП1</button>
               <button type="button" class="seg-btn" id="pricePickTargetBp2" onclick="setPricePickTarget_('bp2')">БП2</button>
               <button type="button" class="seg-btn" id="pricePickTargetRet" onclick="setPricePickTarget_('retail')">Розница</button>
-              <button type="button" class="seg-btn" id="pricePickTargetPp" onclick="setPricePickTarget_('pp')">Итоговый</button>
+              <button type="button" class="seg-btn" id="pricePickTargetPp" onclick="setPricePickTarget_('pp')">Подписка</button>
             </div>
           </div>
           <div class="form-group" style="margin-bottom:8px;">
@@ -2721,7 +2721,7 @@
           <div id="productCardsRoot"><p class="muted">Загрузка ассортимента…</p></div>
         </div>
         <div id="templatesPaneAi" style="display:none;">
-          <p class="muted" style="margin:0 0 10px;">Подбор — отдельная вкладка на экране <b>Расчёт</b>: тип (БП1 / БП2 / розница / итоговый) → анкета → один состав → в расчёт.</p>
+          <p class="muted" style="margin:0 0 10px;">Подбор — отдельная вкладка на экране <b>Расчёт</b>: тип (БП1 / БП2 / розница / подписка) → анкета → один состав → в расчёт.</p>
           <button type="button" class="btn-action btn-orange" style="margin:0;" onclick="openPricePickFromTemplates_()">Открыть Подбор</button>
           <p class="muted" style="font-size:12px;margin:10px 0 0;">Полный ИИ по журналу «Обучение_События» — отдельно (нет готовой базы матчей в репо).</p>
         </div>
@@ -2928,7 +2928,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71115997"></script>
-  <script src="app.main.js?v=71115997" defer></script>
+  <script src="courier-maps.js?v=71115998"></script>
+  <script src="app.main.js?v=71115998" defer></script>
 </body>
 </html>
