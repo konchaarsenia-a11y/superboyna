@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115999" as="script">
+  <link rel="preload" href="app.main.js?v=71116000" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115999";
+      var APP_VER = "v71116000";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -394,7 +394,13 @@
     .basket-card.powder { border-left-color: #ac8e68; }
     .basket-card.veg { border-left-color: var(--success-color); }
     .basket-card.crumb { border-left-color: #8d6e63; }
-    .crumb-src-row { display:flex; gap:6px; align-items:center; margin-top:6px; }
+    .crumb-src-row { display:flex; gap:8px; align-items:center; margin-top:6px; }
+    .crumb-src-row select { flex:1 1 auto; width:auto; min-width:0; }
+    .crumb-src-del {
+      flex:0 0 auto; width:auto; min-width:44px; height:46px; padding:0 12px; margin:0;
+      border:none; border-radius:10px; background:#3a3a3c; color:#fff;
+      font-size:14px; font-weight:600; cursor:pointer;
+    }
     .basket-info { font-size: 15px; font-weight: 600; margin-bottom: 4px; padding-right: 70px; }
     .basket-sub { font-size: 13px; color: var(--text-muted); }
     .btn-inline-del {
@@ -2933,7 +2939,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71115999"></script>
-  <script src="app.main.js?v=71115999" defer></script>
+  <script src="courier-maps.js?v=71116000"></script>
+  <script src="app.main.js?v=71116000" defer></script>
 </body>
 </html>
