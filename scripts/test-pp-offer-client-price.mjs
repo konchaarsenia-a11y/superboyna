@@ -318,8 +318,8 @@ assert(
   "stats passes retail=0 so cost is not client-capped"
 );
 assert(
-  /schClamp === "RAW26"/.test(gsSrc) && /capFact/.test(gsSrc) && /calcIn/.test(gsSrc),
-  "GAS saveSubscription RAW26 clamps stated to capped fact"
+  /schClamp === "RAW26"/.test(gsSrc) && /keepRaw26StatedOnSave_/.test(gsSrc) && /calcIn/.test(gsSrc),
+  "GAS saveSubscription RAW26 keeps manual stated; cap stays on calc"
 );
 assert(
   !/subTotal = \(isFinite\(stated\).*stated/.test(uiSrc),
@@ -671,8 +671,8 @@ assert(
   "Worker save clamps RAW26 stated/fact to cap"
 );
 assert(
-  /Number\(factCost\) > capFact/.test(gsSrc),
-  "GAS save clamps RAW26 stated above cap"
+  /function keepRaw26StatedOnSave_/.test(gsSrc) && /function keepRaw26StatedOnSave_/.test(wSrc),
+  "GAS+worker keep manual stated; 92% cap stays on calcFactCost"
 );
 assert(
   /uncappedFloor/.test(gsSrc) && /uncappedFloor/.test(wSrc) && /uncappedFloor/.test(uiSrc),
@@ -681,6 +681,57 @@ assert(
 assert(
   !/cutG2/.test(gsSrc) && !/cutG2/.test(wSrc) && !/cutG2/.test(uiSrc),
   "no second goods cut below raw+recover"
+);
+
+assert(gsCtx.ppOfferClientPrice_("RAW26", 157.5, 145, "1") === 145, "GS RAW26 statedTouched \"1\" keeps 145");
+assert(uiCtx.ppOfferClientPrice_("RAW26", 157.5, 145, "1") === 145, "UI RAW26 statedTouched \"1\" keeps 145");
+assert(wCtx.ppOfferClientPriceD1_("RAW26", 157.5, 145, "1") === 145, "worker RAW26 statedTouched \"1\" keeps 145");
+assert(gsCtx.ppOfferClientPrice_("RAW26", 157.5, 166, false) === 157.5, "untouched 166 still uses calc fact");
+
+function checkKeep_(fn, label) {
+  const keptLow = fn({ statedCost: 145, factCost: 145, statedTouched: "1" }, 157.5);
+  assert(Number(keptLow.statedCost) === 145, label + " stated 145, got " + keptLow.statedCost);
+  assert(Number(keptLow.factCost) === 145, label + " column fact 145, got " + keptLow.factCost);
+  assert(Number(keptLow.calcFactCost) === 157.5, label + " calc 157.5, got " + keptLow.calcFactCost);
+  assert(keptLow.statedTouched === "1", label + " statedTouched survives");
+  const keptHigh = fn({ statedCost: 166, factCost: 166, statedTouched: "1" }, 157.5);
+  assert(Number(keptHigh.statedCost) === 166 && Number(keptHigh.calcFactCost) === 157.5, label + " stated 166 not capped");
+  const filled = fn({ statedCost: "", factCost: "", statedTouched: "0" }, 157.5);
+  assert(Number(filled.statedCost) === 157.5 && Number(filled.factCost) === 157.5, label + " empty fills from calc");
+  assert(filled.statedTouched === "0", label + " untouched fill stays 0");
+}
+const gsKeep = vm.createContext({ Math: Math, Number: Number, String: String, isFinite: isFinite, Object: Object });
+vm.runInContext(extractFn(gsSrc, "keepRaw26StatedOnSave_"), gsKeep);
+checkKeep_(gsKeep.keepRaw26StatedOnSave_, "GAS");
+const wKeep = vm.createContext({ Math: Math, Number: Number, String: String, isFinite: isFinite, Object: Object });
+vm.runInContext(
+  [extractFn(wSrc, "keepRaw26StatedOnSave_"), extractFn(wSrc, "sanitizeRaw26CalcFactCost_")].join("\n"),
+  wKeep
+);
+checkKeep_(wKeep.keepRaw26StatedOnSave_, "worker");
+const rowManual = {
+  scheme: "RAW26",
+  statedCost: 145,
+  factCost: 145,
+  calcFactCost: 157.5,
+  statedTouched: "1",
+  clientPrice: 157.5
+};
+wKeep.sanitizeRaw26CalcFactCost_(rowManual);
+assert(Number(rowManual.calcFactCost) === 157.5, "sanitize must not pull calc down to stated 145");
+assert(Number(rowManual.clientPrice) === 145, "client price follows stated 145");
+const rowStale = { scheme: "RAW26", factCost: 157.5, calcFactCost: 161.18, statedTouched: "0", clientPrice: 161.18 };
+wKeep.sanitizeRaw26CalcFactCost_(rowStale);
+assert(Number(rowStale.calcFactCost) === 157.5, "stale calc 161.18 still clamps to fact when not manual");
+
+const renderPick = extractFn(uiSrc, "renderPricePickPreview_");
+const trialAt = renderPick.indexOf("if (trialPick)");
+const cardAt = renderPick.indexOf("basket-card");
+const retAt = renderPick.indexOf("return;", trialAt);
+assert(trialAt > 0 && retAt > trialAt && cardAt > retAt, "BP pick returns before position cards");
+assert(
+  /if \(!statedSave && factSave && !_subDetailStatedTouched\)/.test(uiSrc),
+  "filled stated is not replaced by fact on save"
 );
 
 console.log("ok pp-offer-client-price");

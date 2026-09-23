@@ -12840,10 +12840,10 @@ async function handleCutover_(a, params, env, ctx) {
             );
             if (factFullEn && factFullEn.factCost != null) {
               if (
-                !statedTouchedEn ||
-                enrollFact == null ||
-                enrollFact === "" ||
-                Number(enrollFact) > Number(factFullEn.factCost) + 0.001
+                !statedTouchedEn &&
+                (enrollFact == null ||
+                  enrollFact === "" ||
+                  Number(enrollFact) > Number(factFullEn.factCost) + 0.001)
               ) {
                 enrollFact = factFullEn.factCost;
               }
@@ -17423,20 +17423,36 @@ function subscriptionMatch_(it, nickKey, sheetWant, subId) {
   return nickOk;
 }
 
-/** RAW26: calcFactCost/clientPrice не выше fact (stale 161.18 после #335). */
+/** RAW26: stale calc выше капа режем. Ручная указанная ниже calc не затирает calcFactCost. */
 function sanitizeRaw26CalcFactCost_(row) {
   if (!row || typeof row !== "object") return row;
   const scheme = String(row.scheme || row.ppScheme || "").toUpperCase();
   const wishes = String(row.wishes || row.note || "");
   const isRaw = scheme === "RAW26" || /\[SCHEME:\s*RAW26\]/i.test(wishes);
   if (!isRaw) return row;
+  const touched = row.statedTouched === true || row.statedTouched === 1 || row.statedTouched === "1";
+  const statedN = Number(row.statedCost);
   const fact = Number(
     row.factCost != null && row.factCost !== "" ? row.factCost : row.statedCost
   );
-  if (!(isFinite(fact) && fact > 0)) return row;
   const calc = Number(row.calcFactCost);
-  if (isFinite(calc) && calc > fact + 0.001) row.calcFactCost = fact;
+  const manualBelowCalc =
+    touched &&
+    isFinite(statedN) &&
+    statedN > 0 &&
+    isFinite(calc) &&
+    calc > statedN + 0.001;
+  if (!manualBelowCalc && isFinite(fact) && fact > 0 && isFinite(calc) && calc > fact + 0.001) {
+    row.calcFactCost = fact;
+  }
   const client = Number(row.clientPrice);
+  if (touched && isFinite(statedN) && statedN > 0) {
+    if (isFinite(client) && client > 0 && Math.abs(client - statedN) > 0.001) {
+      row.clientPrice = Math.round(statedN * 100) / 100;
+    }
+    return row;
+  }
+  if (!(isFinite(fact) && fact > 0)) return row;
   if (isFinite(client) && client > fact + 0.001) row.clientPrice = fact;
   return row;
 }
@@ -19460,6 +19476,35 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
   };
 }
 
+/**
+ * Указанная сохраняется как ввёл менеджер.
+ * Пустую (и не тронутую) можно заполнить capFact.
+ * Кап 92% остаётся на calcFactCost, не на ручной stated/factCost.
+ */
+function keepRaw26StatedOnSave_(params, capFact) {
+  const next = Object.assign({}, params || {});
+  const cap = Number(capFact);
+  const touched = next.statedTouched === true || next.statedTouched === 1 || next.statedTouched === "1";
+  const statedEmpty = next.statedCost == null || String(next.statedCost).trim() === "";
+  const factEmpty = next.factCost == null || String(next.factCost).trim() === "";
+  if (isFinite(cap) && cap > 0) next.calcFactCost = cap;
+  if (statedEmpty && !touched && isFinite(cap) && cap > 0) next.statedCost = cap;
+  if (!statedEmpty || touched) {
+    if (!statedEmpty) next.factCost = next.statedCost;
+    else if (factEmpty && isFinite(cap) && cap > 0) next.factCost = cap;
+  } else if (
+    isFinite(cap) &&
+    cap > 0 &&
+    (factEmpty || (isFinite(Number(next.factCost)) && Number(next.factCost) > cap + 0.001))
+  ) {
+    next.factCost = cap;
+  }
+  const kept = Number(String(next.statedCost == null ? "" : next.statedCost).replace(",", "."));
+  const differs = isFinite(kept) && isFinite(cap) && cap > 0 && Math.abs(kept - cap) > 0.001;
+  next.statedTouched = touched || differs ? "1" : "0";
+  return next;
+}
+
 async function clampRaw26SubscriptionWriteD1_(params, env, ctx) {
   params = params || {};
   const sheet = String(params.sheet || params.segment || "").trim().toUpperCase();
@@ -19481,21 +19526,7 @@ async function clampRaw26SubscriptionWriteD1_(params, env, ctx) {
       snapCosts.costs || {}
     );
     if (!fact || !(Number(fact.factCost) > 0)) return params;
-    const capFact = Number(fact.factCost);
-    const next = Object.assign({}, params);
-    const statedN = Number(next.statedCost);
-    const factN = Number(next.factCost);
-    if (next.statedCost == null || next.statedCost === "" || (isFinite(statedN) && statedN > capFact + 0.001)) {
-      next.statedCost = capFact;
-    }
-    if (next.factCost == null || next.factCost === "" || (isFinite(factN) && factN > capFact + 0.001)) {
-      next.factCost = capFact;
-    }
-    next.calcFactCost = capFact;
-    if (Number(next.statedCost) <= capFact + 0.001 && Number(next.statedCost) >= capFact - 0.001) {
-      next.statedTouched = 0;
-    }
-    return next;
+    return keepRaw26StatedOnSave_(params, Number(fact.factCost));
   } catch (eC) {
     return params;
   }
@@ -20857,7 +20888,7 @@ function ppOfferClientPriceD1_(scheme, factCost, statedCost, statedTouched) {
     if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
     return 0;
   }
-  if (statedTouched === true && isFinite(stated) && stated > 0) {
+  if (statedTouchedFlagD1_(statedTouched) && isFinite(stated) && stated > 0) {
     return Math.round(stated * 100) / 100;
   }
   if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;

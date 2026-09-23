@@ -92,7 +92,18 @@ const code = [
   "pricePickPushSku_",
   "pricePickLungAnchor_",
   "pricePickOfferLines_",
-  "pricePickComposeForTarget_"
+  "pricePickCatalogLines_",
+  "pricePickFlags_",
+  "pricePickExampleScore_",
+  "pricePickCanonExamples_",
+  "pricePickReadStoredExamples_",
+  "pricePickWriteStoredExamples_",
+  "pricePickFindExample_",
+  "pricePickFromExample_",
+  "pricePickComposeForTarget_",
+  "pricePickSkuTitle_",
+  "pricePickSectionTitle_",
+  "pricePickOfferText_"
 ].map(extract).join("\n");
 
 const fns = {};
@@ -103,7 +114,7 @@ new Function(
   "exports",
   "function priceModeKey(mode){var m=String(mode||'').toLowerCase();if(m==='retail')return 'retail';if(m==='bp1')return 'bp1';if(m==='bp2')return 'bp2';return 'pp';}\n" +
     code +
-    ";\nexports.parseAnketSignals_=parseAnketSignals_;\nexports.pricePickComposeForTarget_=pricePickComposeForTarget_;"
+    ";\nexports.parseAnketSignals_=parseAnketSignals_;\nexports.pricePickComposeForTarget_=pricePickComposeForTarget_;\nexports.pricePickOfferText_=pricePickOfferText_;\nexports.pricePickFindExample_=pricePickFindExample_;\nexports.pricePickExampleScore_=pricePickExampleScore_;\nexports.pricePickFlags_=pricePickFlags_;"
 )(buildIgKnownMap, igAliasResolve, parseIgLinesToItems, fns);
 
 {
@@ -245,6 +256,37 @@ function grams(payload, name) {
   const ret = fns.pricePickComposeForTarget_(sig, "retail");
   assert.equal(grams(ret, "ЛЁГКОЕ"), 300);
   assert.equal(grams(ret, "БЫЧИЙ КОРЕНЬ"), 4);
+}
+
+{
+  const sig = fns.parseAnketSignals_("Нужно лёгкое; не трахея. Аллергия на рыбу.");
+  assert.ok(sig.must.includes("ЛЁГКОЕ"), "must lung");
+  assert.ok(!sig.must.includes("ТРАХЕЯ"), "negation is not must: " + JSON.stringify(sig.must));
+  assert.ok(sig.disliked.includes("ТРАХЕЯ"), "hate trachea");
+  assert.ok(sig.familyNotes.includes("рыба"));
+}
+
+{
+  const sig = fns.parseAnketSignals_(
+    "1. Ирина, питомец Джей\n2. Венгерская выжла, 6 лет, 35 кг\n5. Давали лёгкое. Не понравилась трахея\n6. Аллергия на рыбу\n7. Нужно лёгкое\n10. Бюджет 50-80\n11. Мелкие кубики"
+  );
+  sig.lineItems = [
+    { cat: "other", main: "ВЕНГЕРСКАЯ ВЫЖЛА, 6 ЛЕТ,", value: 35000, val: 35000 },
+    { cat: "other", main: "РАСХОД", value: 700, val: 700 },
+    { cat: "other", main: "БЮДЖЕТ 50", value: 80, val: 80 }
+  ];
+  const bp1 = fns.pricePickComposeForTarget_(sig, "bp1");
+  assert.ok(bp1.items.length >= 4, "numbered anketa still composes");
+  assert.equal(grams(bp1, "ЛЁГКОЕ"), 40);
+  assert.ok(bp1.items.some((it) => it.main === "ЛОП ХРЯЩ шт." || it.main === "АОРТА"));
+  assert.ok(bp1.items.some((it) => it.cat === "veg"));
+  assert.ok(!bp1.items.some((it) => /БЮДЖЕТ|РАСХОД|ВЫЖЛА/.test(String(it.main || ""))));
+  assert.ok(!bp1.items.some((it) => it.main === "ТРАХЕЯ"));
+  const offer = fns.pricePickOfferText_(sig, "bp1", bp1.items);
+  assert.ok(/Дрессура/.test(offer) && /Жевалки/.test(offer));
+  assert.ok(/Как вам такой состав/.test(offer));
+  assert.ok(!/BYN|бел\.?\s*руб|₽/i.test(offer), offer);
+  assert.equal(bp1.target, "bp1");
 }
 
 console.log("test-price-pick: OK");

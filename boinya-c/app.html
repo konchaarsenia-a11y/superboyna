@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115998" as="script">
+  <link rel="preload" href="app.main.js?v=71115999" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115998";
+      var APP_VER = "v71115999";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2243,7 +2243,7 @@
               <input type="number" id="subDetailStatedPrice" step="0.01" inputmode="decimal"
                 style="font-size:20px;font-weight:700;color:#ffd60a;"
                 placeholder="вручную" oninput="onSubDetailStatedPriceInput_()">
-              <div class="muted" id="subDetailStatedHint" style="font-size:12px;margin-top:6px;">RAW26: синхрон с фактом · LEGACY: с листа, вручную</div>
+              <div class="muted" id="subDetailStatedHint" style="font-size:12px;margin-top:6px;">как ввёл менеджер · в столбец «Факт стоимость» · расчёт отдельно</div>
             </div>
             <button type="button" class="btn-action btn-orange" id="btnMigratePpScheme"
               style="display:none;margin-top:10px;width:100%;"
@@ -2673,15 +2673,20 @@
             <label>Ответы анкеты (вставь из Instagram)</label>
             <textarea id="pricePickPaste" class="ig-paste" rows="10" placeholder="Ответы клиента по пунктам…&#10;&#10;Лайки, исключения (курица/рыба), обязательное (лёгкое, бычий корень), бюджет, вес, нарезка.&#10;Можно строками: ЛЁГКОЕ — 100 г (среднее)"></textarea>
           </div>
-          <div class="muted" id="pricePickHint" style="font-size:12px;margin:0 0 10px;">Сначала тип. «Подобрать» собирает один состав на этой странице — граммы можно менять. «В расчёт» кладёт его в слот.</div>
+          <div class="muted" id="pricePickHint" style="font-size:12px;margin:0 0 10px;">Сначала тип. «Подобрать» собирает состав. БП1 и БП2 — один текст клиенту и «Готов оффер», без списка позиций. Подписка и розница — список и «В расчёт».</div>
           <div class="batch-bar-row" style="margin:0;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn-action btn-orange" style="flex:1.4;margin:0;" id="btnPricePickRun" onclick="runPricePickFromAnket_()">Подобрать</button>
             <button type="button" class="btn-action" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearPricePickPanel_()">Очистить</button>
           </div>
         </div>
         <div id="pricePickEditor" style="display:none;">
-          <div class="section-title">Состав подбора</div>
+          <div class="section-title" id="pricePickListTitle">Состав подбора</div>
           <div id="pricePickPreview"></div>
+          <div id="pricePickOfferWrap" style="display:none;margin-top:8px;">
+            <div class="section-title">Текст клиенту</div>
+            <textarea id="pricePickOffer" class="ig-paste" rows="14" oninput="pricePickOfferEdited_()"></textarea>
+            <div class="muted" style="font-size:12px;margin:6px 0 0;">Один текст. «Готов оффер» копирует его клиенту, без цены и без списка позиций.</div>
+          </div>
           <div class="batch-bar-row" style="margin:4px 0 0;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn-action btn-orange" style="flex:1.4;margin:0;" id="btnPricePickApply" onclick="applyPricePickToCalc_()">В расчёт</button>
             <button type="button" class="btn-action btn-blue" style="flex:1;margin:0;" id="btnPricePickAgain" onclick="pricePickAgain_()">Подобрать ещё</button>
@@ -2928,7 +2933,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71115998"></script>
-  <script src="app.main.js?v=71115998" defer></script>
+  <script src="courier-maps.js?v=71115999"></script>
+  <script src="app.main.js?v=71115999" defer></script>
 </body>
 </html>
