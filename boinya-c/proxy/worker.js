@@ -2,13 +2,15 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-26 fix-xfer-place-cut-flags-h1
- * (prior: subs-dedupe-ig-nick-h1 / heal-flamant-transfer-h1 / tz-p0-crumbs-h1 / pp-rit-murr-one-r-h2 / preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-26 fix-xfer-place-cors-h1
+ * (prior: fix-xfer-place-cut-flags-h1 / subs-dedupe-ig-nick-h1 / heal-flamant-transfer-h1 / tz-p0-crumbs-h1 / pp-rit-murr-one-r-h2 / preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  // Cache-Control: старый app.main.js шлёт его в POST write (placeTransferTask/moveClient…).
+  // Без него preflight падает → fetch TypeError → UI «network_waiting_sheets».
+  "Access-Control-Allow-Headers": "Content-Type, Cache-Control",
   "Access-Control-Max-Age": "86400"
 };
 
