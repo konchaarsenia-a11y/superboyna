@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116007";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116008";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20341,6 +20341,7 @@
       var retail = calcRetailBasketTotal(month, { deliveriesN: nDel });
       var monthly = 0, goods = NaN, fixed = NaN;
       var approx = false;
+      var model = null;
       try {
         var slim = month.map(function (it) { return serializeBasketItem_(it); });
         var res = await fetchPpCalcPrice_(slim, {
@@ -20355,6 +20356,19 @@
           monthly = Number(raw26ApiFactPrice_(res)) || Number(res.factCost) || 0;
           fixed = (Number(res.deliveryByn) || 0) + (Number(res.packagesByn) || 0);
           goods = res.goodsByn != null ? Number(res.goodsByn) : monthly - fixed;
+          if (monthly > 0) {
+            var unit = {};
+            (res.lines || []).forEach(function (L) {
+              var lv = Number(L && (L.val != null ? L.val : L.value)) || 0;
+              if (lv > 0) unit[String(L.name || L.main || "") + "|" + String(L.sub || "")] = (Number(L.cost) || 0) / lv;
+            });
+            model = {
+              factBefore: Number(res.factBeforeCap) > 0 ? Number(res.factBeforeCap) : monthly,
+              goodsBefore: Number(res.goodsBeforeCap) > 0 ? Number(res.goodsBeforeCap) : goods,
+              coef: Number(res.coef) > 0 ? Number(res.coef) : getPricePpCoef(),
+              unit: unit
+            };
+          }
         }
       } catch (eEst) { monthly = 0; }
       if (!(monthly > 0)) {
@@ -20373,8 +20387,160 @@
         retailMonthly: Number(retail.total) || 0,
         deliveriesN: nDel,
         basis: "ПП",
-        approx: approx
+        approx: approx,
+        model: approx ? null : model
       };
+    }
+
+    function pricePickTrimKey_(it) {
+      return String((it && (it.main || it.name)) || "") + "|" + String((it && it.sub) || "");
+    }
+
+    function pricePickIsPieceItem_(it) {
+      return !!it && (it.cat === "chew" || (typeof isPieceSkuName === "function" && isPieceSkuName(it.main || it.name)));
+    }
+
+    /**
+     * Локальная оценка месячной ПП без запроса: от последнего живого calcPrice (anchor) вычитаем
+     * снятое сырьё × coef + recover + наценку фракций; потолок 92% розницы — точно по локальному прайсу.
+     * Упаковку не моделируем — итог всегда подтверждаем живым calcPrice.
+     */
+    function pricePickLocalMonthly_(list, anchorList, anchor) {
+      var month = pricePickMonthlyItems_(list);
+      var monthA = pricePickMonthlyItems_(anchorList);
+      var retail = calcRetailBasketTotal(month, { deliveriesN: PRICE_PICK_MONTH_DELIVERIES });
+      var capRate = typeof PP_RAW26_RETAIL_CAP === "number" ? PP_RAW26_RETAIL_CAP : 0.92;
+      var capAt = Math.round((Number(retail.total) || 0) * capRate * 100) / 100;
+      var m = anchor && anchor.model;
+      var monthly, goods;
+      if (m) {
+        var rec100 = typeof PP_RAW26_RECOVER_100 === "number" ? PP_RAW26_RECOVER_100 : 3.9;
+        var recPc = typeof PP_RAW26_RECOVER_PIECE === "number" ? PP_RAW26_RECOVER_PIECE : 0.5;
+        var qty = {};
+        month.forEach(function (it) { qty[pricePickTrimKey_(it)] = Number(it.value) || 0; });
+        var dGoods = 0;
+        monthA.forEach(function (it) {
+          var k = pricePickTrimKey_(it);
+          var d = (Number(it.value) || 0) - (qty[k] || 0);
+          if (!d) return;
+          var piece = pricePickIsPieceItem_(it);
+          dGoods += d * ((m.unit[k] || 0) * m.coef + (piece ? recPc : rec100 / 100));
+        });
+        var dFrac = 0;
+        try {
+          if (typeof calcDressuraFractionMarkup === "function") {
+            var rates = typeof getPriceFracRates === "function" ? getPriceFracRates() : undefined;
+            dFrac = (Number(calcDressuraFractionMarkup(monthA, rates).total) || 0) -
+              (Number(calcDressuraFractionMarkup(month, rates).total) || 0);
+          }
+        } catch (eFr) { dFrac = 0; }
+        monthly = m.factBefore - dGoods - dFrac;
+        goods = m.goodsBefore - dGoods;
+      } else {
+        var ratio = anchor && anchor.retailMonthly > 0 ? (Number(retail.total) || 0) / anchor.retailMonthly : 1;
+        monthly = ((anchor && anchor.monthly) || 0) * ratio;
+        goods = ((anchor && anchor.goods) || 0) * ratio;
+      }
+      if (capAt > 0 && monthly > capAt) monthly = capAt;
+      return {
+        monthly: Math.round(monthly * 100) / 100,
+        goods: Math.round(Math.max(0, goods) * 100) / 100
+      };
+    }
+
+    /**
+     * Один минимальный шаг урезания: −5 г (или −1 шт у штучных с >1 шт).
+     * Очередь: граммовые не-лайки/не-обязательные → штучные не-лайки → граммовые лайки → штучные лайки.
+     * Внутри группы — позиция, которую урезали меньше всего (доля от исходного веса), при равенстве — самый большой вес,
+     * затем дороже за 100 г: урезаем равномерно, а не одну позицию до пола. Пол: 10 г (или исходный вес, если меньше), 1 шт.
+     */
+    function pricePickTrimStep_(items, floors, signals, orig) {
+      var keep = {};
+      ((signals && signals.must) || []).concat((signals && signals.liked) || []).forEach(function (n) {
+        keep[String(n).toUpperCase()] = true;
+      });
+      function room(it) {
+        var v = Number(it.value != null ? it.value : it.val) || 0;
+        var f = floors[pricePickTrimKey_(it)];
+        return v - (f != null ? f : (pricePickIsPieceItem_(it) ? 1 : 10));
+      }
+      function per100(it) {
+        try {
+          return Number(retailLineCost(it.main || it.name, it.sub || "", pricePickIsPieceItem_(it) ? 1 : 100, it.cat, {}).cost) || 0;
+        } catch (eP) { return 0; }
+      }
+      var tiers = [[false, false], [false, true], [true, false], [true, true]];
+      for (var t = 0; t < tiers.length; t++) {
+        var wantKeep = tiers[t][0], wantPiece = tiers[t][1];
+        var best = -1, bestR = -1, bestV = -1, bestP = -1;
+        items.forEach(function (it, i) {
+          var nm = String(it.main || it.name || "").toUpperCase();
+          if (!!keep[nm] !== wantKeep) return;
+          if (pricePickIsPieceItem_(it) !== wantPiece) return;
+          if (room(it) <= 0) return;
+          var v = Number(it.value != null ? it.value : it.val) || 0;
+          var pr = per100(it);
+          var o = orig && orig[pricePickTrimKey_(it)];
+          var ratio = o > 0 ? v / o : 1;
+          if (ratio > bestR + 1e-9 || (Math.abs(ratio - bestR) <= 1e-9 && (v > bestV || (v === bestV && pr > bestP)))) {
+            best = i; bestR = ratio; bestV = v; bestP = pr;
+          }
+        });
+        if (best >= 0) {
+          return items.map(function (it, i) {
+            var copy = Object.assign({}, it);
+            if (i === best) {
+              var step = wantPiece ? 1 : 5;
+              var nv = Math.max((Number(copy.value != null ? copy.value : copy.val) || 0) - step,
+                (Number(copy.value != null ? copy.value : copy.val) || 0) - room(copy));
+              copy.value = nv;
+              copy.val = nv;
+            }
+            return copy;
+          });
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Урезаем маленькими шагами до первого попадания ≤ бюджета (близко к верху бюджета).
+     * Шаги считаем локально, живой calcPrice — только на кандидате; при промахе локальной оценки
+     * шагаем назад по непроверенным состояниям. null — даже пол (10 г / 1 шт) не влезает.
+     */
+    async function pricePickTrimToBudget_(base, signals, max, est, val) {
+      var floors = {}, orig = {};
+      base.forEach(function (it) {
+        var v = Number(it.value != null ? it.value : it.val) || 0;
+        orig[pricePickTrimKey_(it)] = v;
+        floors[pricePickTrimKey_(it)] = pricePickIsPieceItem_(it) ? Math.min(v, 1) : Math.min(v, 10);
+      });
+      var cur = base;
+      var curE = await est(cur);
+      if (val(curE) <= max) return { items: cur, e: curE };
+      var anchorList = cur, anchor = curE, trail = [cur];
+      for (var guard = 0; guard < 600; guard++) {
+        var nxt = pricePickTrimStep_(cur, floors, signals, orig);
+        if (!nxt) {
+          // пол достигнут, а локально всё ещё выше — одна живая проверка пола, чтобы не убирать позицию зря
+          if (cur === anchorList) return null;
+          var eFl = await est(cur);
+          return val(eFl) <= max ? { items: cur, e: eFl } : null;
+        }
+        cur = nxt;
+        trail.push(cur);
+        if (val(pricePickLocalMonthly_(cur, anchorList, anchor)) > max) continue;
+        var e = await est(cur);
+        if (val(e) <= max) {
+          for (var j = trail.length - 2, back = 0; j >= 1 && back < 4; j--, back++) {
+            var eb = await est(trail[j]);
+            if (val(eb) <= max) { cur = trail[j]; e = eb; } else break;
+          }
+          return { items: cur, e: e };
+        }
+        anchorList = cur; anchor = e; trail = [cur];
+      }
+      return null;
     }
 
     /** Масштаб граммов/штук; пол — 10 г (или меньше, если было меньше), 1 шт. */
@@ -20417,7 +20583,8 @@
 
     /**
      * Бюджет: месячная ПП (состав ×4, 2 доставки, живой calcPrice pp) ≤ верх бюджета — для всех типов оффера.
-     * Сначала граммы (до 10 г / 1 шт в недельном наборе), потом убираем самые дорогие не-лайки/не-обязательные.
+     * Сначала маленькими шагами урезаем граммы (−5 г, с самых больших не-лайков) до первого попадания ≤ бюджета;
+     * только если пол 10 г / 1 шт не влезает — убираем самые дорогие не-лайки/не-обязательные.
      * Только если даже минимальный набор с доставкой не влезает — бюджет на товар (goodsOnly) + minMonthly для менеджера.
      */
     async function pricePickFitBudget_(payload) {
@@ -20427,7 +20594,6 @@
       var sig = payload.signals || {};
       var b = sig.budget;
       if (!b || !(b.max > 0)) return null;
-      var aim = Math.min(b.max, b.kind === "upto" ? b.max * 0.9 : (b.kind === "single" ? b.max * 0.92 : b.mid));
       var cache = {};
       async function est(list) {
         var k = pricePickItemsKey_(list);
@@ -20437,43 +20603,40 @@
       var goodsOnly = false;
       function val(e) { return goodsOnly ? e.goods : e.monthly; }
 
-      // самый маленький разумный набор: одна дрессура (лучше из лайков) на 10 г
       var base0 = pricePickCloneItems_(payload.items);
-      var minimal = base0.slice();
-      var guard = 0;
-      while (minimal.length > 1 && guard++ < 20) {
-        var d = pricePickDropPriciest_(minimal, sig);
-        if (!d) break;
-        minimal = d;
-      }
-      minimal = pricePickScaleForBudget_(minimal, 0.01);
-      var minEst = await est(minimal);
-      if (!(minEst.monthly > 0)) return null;
-      var minMonthly = minEst.monthly;
-      if (minMonthly > b.max) goodsOnly = true;
-
-      var base = base0;
       var result = null;
-      for (var round = 0; round < 12 && !result; round++) {
-        var e1 = await est(base);
-        if (val(e1) <= b.max) { result = { items: base, e: e1 }; break; }
-        var floorList = pricePickScaleForBudget_(base, 0.01);
-        var eF = await est(floorList);
-        if (val(eF) > b.max) {
+      var minEst = null, minMonthly = null;
+      var e0 = await est(base0);
+      if (!(e0.monthly > 0)) return null;
+      if (e0.monthly <= b.max) {
+        result = { items: base0, e: e0 };
+      } else {
+        // самый маленький разумный набор: одна дрессура (лучше из лайков) на 10 г
+        var minimal = base0.slice();
+        var guard = 0;
+        while (minimal.length > 1 && guard++ < 20) {
+          var d = pricePickDropPriciest_(minimal, sig);
+          if (!d) break;
+          minimal = d;
+        }
+        minimal = pricePickScaleForBudget_(minimal, 0.01);
+        minEst = await est(minimal);
+        if (!(minEst.monthly > 0)) return null;
+        minMonthly = minEst.monthly;
+        if (minMonthly > b.max) goodsOnly = true;
+
+        var base = base0;
+        for (var round = 0; round < 12 && !result; round++) {
+          var e1 = await est(base);
+          if (val(e1) <= b.max) { result = { items: base, e: e1 }; break; }
+          result = await pricePickTrimToBudget_(base, sig, b.max, est, val);
+          if (result) break;
+          // даже 10 г / 1 шт не влезает — убираем самую дорогую не-лайк позицию и снова урезаем с исходных граммов
+          var floorList = pricePickScaleForBudget_(base, 0.01);
           var dropped = pricePickDropPriciest_(base, sig);
-          if (!dropped) { result = { items: floorList, e: eF }; break; }
+          if (!dropped) { result = { items: floorList, e: await est(floorList) }; break; }
           base = dropped;
-          continue;
         }
-        var lo = 0.01, hi = 1, okL = floorList, okE = eF;
-        for (var it = 0; it < 7; it++) {
-          var mid = (lo + hi) / 2;
-          var l = pricePickScaleForBudget_(base, mid);
-          var e = await est(l);
-          if (val(e) <= aim) { lo = mid; okL = l; okE = e; }
-          else hi = mid;
-        }
-        result = { items: okL, e: okE };
       }
       if (!result) return null;
       var r = result.e;
@@ -20485,7 +20648,7 @@
         retailMonthly: r.retailMonthly,
         deliveriesN: r.deliveriesN,
         minMonthly: minMonthly,
-        minFixed: minEst.fixed,
+        minFixed: minEst ? minEst.fixed : null,
         goodsOnly: goodsOnly,
         budget: b,
         basis: r.basis,
