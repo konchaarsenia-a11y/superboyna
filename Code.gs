@@ -2234,6 +2234,38 @@ function doGet(e) {
       confirm: e.parameter.confirm || e.parameter.confirmWipe || ""
     }, callback, false);
   }
+  if (action === "partnerSuggestPartner") {
+    return handlePartnerSuggestPartner({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      userName: e.parameter.userName ? decodeURIComponent(e.parameter.userName) : "",
+      type: e.parameter.type || e.parameter.suggestType || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      cityAddress: e.parameter.cityAddress ? decodeURIComponent(e.parameter.cityAddress) : "",
+      contact: e.parameter.contact ? decodeURIComponent(e.parameter.contact) : "",
+      comment: e.parameter.comment ? decodeURIComponent(e.parameter.comment) : "",
+      locationId: e.parameter.locationId || e.parameter.pointId || "",
+      locationName: e.parameter.locationName ? decodeURIComponent(e.parameter.locationName) : "",
+      pointName: e.parameter.pointName ? decodeURIComponent(e.parameter.pointName) : "",
+      networkId: e.parameter.networkId || "",
+      networkName: e.parameter.networkName ? decodeURIComponent(e.parameter.networkName) : "",
+      id: e.parameter.id || e.parameter.clientSuggestionId || "",
+      clientSuggestionId: e.parameter.clientSuggestionId || "",
+      skipPartnerNotify: e.parameter.skipPartnerNotify || ""
+    }, callback, false);
+  }
+  if (action === "partnerListSuggestions") {
+    return handlePartnerListSuggestions({
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
+  if (action === "partnerSetSuggestionStatus") {
+    return handlePartnerSetSuggestionStatus({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || e.parameter.suggestionId || "",
+      status: e.parameter.status ? decodeURIComponent(e.parameter.status) : ""
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2968,6 +3000,15 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerWipeOrderHistories") {
     return handlePartnerWipeOrderHistories(json, callback, fromPost);
+  }
+  if (action === "partnerSuggestPartner") {
+    return handlePartnerSuggestPartner(json, callback, fromPost);
+  }
+  if (action === "partnerListSuggestions") {
+    return handlePartnerListSuggestions(json, callback, fromPost);
+  }
+  if (action === "partnerSetSuggestionStatus") {
+    return handlePartnerSetSuggestionStatus(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -21549,6 +21590,26 @@ function getPartnerOrdersSheet_() {
   return sh;
 }
 
+var PARTNER_SUGGEST_SHEET_ = "Предложения_партнёров";
+var PARTNER_SUGGEST_HEADERS_ = [
+  "id", "createdAt", "type", "typeLabel", "name", "cityAddress",
+  "contact", "comment", "authorTid", "authorNick", "authorName",
+  "pointId", "pointName", "networkId", "networkName", "status"
+];
+
+function getPartnerSuggestionsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(PARTNER_SUGGEST_SHEET_);
+  if (!sh) {
+    sh = ss.insertSheet(PARTNER_SUGGEST_SHEET_);
+    sh.getRange(1, 1, 1, PARTNER_SUGGEST_HEADERS_.length).setValues([PARTNER_SUGGEST_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNER_SUGGEST_HEADERS_);
+  }
+  return sh;
+}
+
 function partnerDefaultSeedPack_() {
   return {
     networks: [
@@ -23901,6 +23962,304 @@ function handlePartnerSetNotifyRecipients(json, callback, fromPost) {
   var saved = writePartnerNotifyRecipients_(list);
   var ok = { status: "success", notifyRecipients: saved, count: saved.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function partnerSuggestTypeLabel_(type) {
+  var t = String(type || "").trim();
+  if (t === "second_project") return "Мой второй проект";
+  if (t === "same_network_point") return "Новая точка той же сети под моим управлением";
+  if (t === "new_location") return "Предложить новую локацию";
+  return "";
+}
+
+function partnerSuggestStatusOk_(status) {
+  var s = String(status || "").trim().toLowerCase();
+  if (s === "новое" || s === "new") return "новое";
+  if (s === "просмотрено" || s === "seen" || s === "viewed") return "просмотрено";
+  if (s === "в работе" || s === "progress" || s === "in_progress") return "в работе";
+  if (s === "отклонено" || s === "rejected" || s === "declined") return "отклонено";
+  return "";
+}
+
+function partnerSuggestClip_(s, max) {
+  return String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function partnerSuggestAuthorLabel_(row) {
+  var nick = String((row && (row.authorNick || row.username)) || "").replace(/^@/, "").trim();
+  if (nick) return "@" + nick;
+  var name = String((row && (row.authorName || row.userName)) || "").trim();
+  if (name) return name;
+  var tid = String((row && (row.authorTid || row.telegramId)) || "").trim();
+  return tid || "партнёр";
+}
+
+function partnerSuggestNotifyText_(row) {
+  var typeLabel = String((row && (row.typeLabel || partnerSuggestTypeLabel_(row.type))) || "").trim();
+  var name = String((row && row.name) || "").trim();
+  var place = String((row && (row.cityAddress || row.place)) || "").trim();
+  var contact = String((row && row.contact) || "").trim() || "контакт не указан";
+  return "Новое предложение партнёра: " + typeLabel + " — " + name + ", " + place + ", " + contact + ", от " + partnerSuggestAuthorLabel_(row);
+}
+
+function partnerSuggestNewCount_(items) {
+  var n = 0;
+  var list = items || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].status || "") === "новое") n++;
+  }
+  return n;
+}
+
+function partnerSuggestNormalize_(json) {
+  json = json || {};
+  var type = String(json.type || json.suggestType || "").trim();
+  var typeLabel = partnerSuggestTypeLabel_(type);
+  if (!typeLabel) return { ok: false, message: "need_type" };
+  var name = partnerSuggestClip_(json.name || json.title, 120);
+  if (!name) return { ok: false, message: "need_name" };
+  var cityAddress = partnerSuggestClip_(json.cityAddress || json.address || json.place, 240);
+  if (!cityAddress) return { ok: false, message: "need_place" };
+  var contact = partnerSuggestClip_(json.contact, 160);
+  var comment = partnerSuggestClip_(json.comment || json.note, 500);
+  var authorTid = partnerSuggestClip_(json.telegramId || json.authorTid, 32);
+  var authorNick = partnerSuggestClip_(String(json.username || json.authorNick || "").replace(/^@/, ""), 64);
+  var authorName = partnerSuggestClip_(json.userName || json.authorName || json.displayName, 80);
+  if (!authorTid && !authorNick) return { ok: false, message: "need_user" };
+  var id = partnerSuggestClip_(json.id || json.clientSuggestionId, 40);
+  if (!id || !/^ps_[a-z0-9]+$/i.test(id)) {
+    id = "ps_" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+  }
+  return {
+    ok: true,
+    row: {
+      id: id,
+      type: type,
+      typeLabel: typeLabel,
+      name: name,
+      cityAddress: cityAddress,
+      contact: contact,
+      comment: comment,
+      authorTid: authorTid,
+      authorNick: authorNick,
+      authorName: authorName,
+      pointId: partnerSuggestClip_(json.locationId || json.pointId, 64),
+      pointName: partnerSuggestClip_(json.locationName || json.pointName, 120),
+      networkId: partnerSuggestClip_(json.networkId, 64),
+      networkName: partnerSuggestClip_(json.networkName, 80),
+      status: "новое"
+    }
+  };
+}
+
+/** Пуш Арсению и ответственным за заявки — бот Бойни (getTelegramToken_), не @GOODBOY_LG. */
+function partnerSuggestNotifyIds_() {
+  var ids = [];
+  try { ids = getPartnerOrderNotifyIds_() || []; } catch (eIds) { ids = []; }
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < ids.length; i++) {
+    var id = String(ids[i] || "").trim();
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    out.push(id);
+  }
+  if (!seen["650923866"]) out.push("650923866");
+  return out;
+}
+
+function partnerNotifySuggestion_(row) {
+  try {
+    partnerTelegramSendMany_(partnerSuggestNotifyIds_(), partnerSuggestNotifyText_(row));
+  } catch (eN) {}
+}
+
+function partnerSuggestKnownActor_(username, tid) {
+  if (partnerIsCanonOwner_(username, tid)) return true;
+  try { if (tid && partnerRequireOwner_(tid)) return true; } catch (eOwn) {}
+  var hit = null;
+  try { hit = partnerFindActiveAccess_(username, tid); } catch (eHit) { hit = null; }
+  return !!hit;
+}
+
+function partnerSuggestCanManage_(tid) {
+  var actor = String(tid || "").trim();
+  if (!actor) return false;
+  try { if (partnerRequireOwner_(actor)) return true; } catch (eOwn) {}
+  var row = null;
+  try { row = findAccessById_(actor); } catch (eRow) { row = null; }
+  if (!row) return false;
+  var role = String(row.role || "").toLowerCase();
+  var st = String(row.status || "").toLowerCase();
+  if (st === "denied" || st === "pending") return false;
+  return role === "manager" || role === "owner" || role === "all";
+}
+
+function partnerSuggestEnrichAuthor_(row, username, tid) {
+  var hit = null;
+  try { hit = partnerFindActiveAccess_(username, tid); } catch (eHit) { hit = null; }
+  if (hit) {
+    if (!row.authorNick) row.authorNick = hit.username || "";
+    if (!row.authorName) row.authorName = hit.name || "";
+    if (!row.authorTid) row.authorTid = String(hit.telegramId || tid || "");
+    if (!row.networkId) row.networkId = hit.networkId || "";
+    if (!row.pointId && hit.pointIds && hit.pointIds.length) row.pointId = String(hit.pointIds[0] || "");
+  }
+  if (!row.pointName && row.pointId) {
+    try {
+      var pts = readPartnerPoints_();
+      for (var i = 0; i < pts.length; i++) {
+        if (String(pts[i].id || "") === String(row.pointId)) {
+          row.pointName = pts[i].name || "";
+          if (!row.networkId) row.networkId = pts[i].networkId || "";
+          break;
+        }
+      }
+    } catch (ePts) {}
+  }
+  if (!row.networkName && row.networkId) {
+    try {
+      var nets = readPartnerNetworks_();
+      for (var j = 0; j < nets.length; j++) {
+        if (String(nets[j].id || "") === String(row.networkId)) {
+          row.networkName = nets[j].name || "";
+          break;
+        }
+      }
+    } catch (eNets) {}
+  }
+  return row;
+}
+
+function partnerSuggestFindRow_(sh, id) {
+  var want = String(id || "").trim();
+  if (!want) return 0;
+  var data = sh.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0] || "").trim() === want) return r + 1;
+  }
+  return 0;
+}
+
+function partnerSuggestCell_(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]") {
+    try { return Utilities.formatDate(v, "Europe/Minsk", "yyyy-MM-dd HH:mm"); } catch (eD) {}
+  }
+  return String(v == null ? "" : v).trim();
+}
+
+function readPartnerSuggestions_() {
+  var sh = getPartnerSuggestionsSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var id = String(data[r][0] || "").trim();
+    if (!id) continue;
+    out.push({
+      id: id,
+      createdAt: partnerSuggestCell_(data[r][1]),
+      type: String(data[r][2] || ""),
+      typeLabel: String(data[r][3] || ""),
+      name: String(data[r][4] || ""),
+      cityAddress: String(data[r][5] || ""),
+      contact: String(data[r][6] || ""),
+      comment: String(data[r][7] || ""),
+      authorTid: String(data[r][8] || ""),
+      authorNick: String(data[r][9] || ""),
+      authorName: String(data[r][10] || ""),
+      pointId: String(data[r][11] || ""),
+      pointName: String(data[r][12] || ""),
+      networkId: String(data[r][13] || ""),
+      networkName: String(data[r][14] || ""),
+      status: partnerSuggestStatusOk_(data[r][15]) || String(data[r][15] || "новое") || "новое"
+    });
+  }
+  out.sort(function (a, b) {
+    var as = String(a.createdAt || "");
+    var bs = String(b.createdAt || "");
+    if (as < bs) return 1;
+    if (as > bs) return -1;
+    return 0;
+  });
+  return out;
+}
+
+function handlePartnerSuggestPartner(json, callback, fromPost) {
+  var norm = partnerSuggestNormalize_(json || {});
+  if (!norm.ok) {
+    var bad = { status: "error", message: norm.message };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var username = partnerNormUser_((json && (json.username || json.authorNick)) || "");
+  var tid = String((json && (json.telegramId || json.authorTid)) || "").trim();
+  if (!partnerSuggestKnownActor_(username, tid)) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var row = partnerSuggestEnrichAuthor_(norm.row, username, tid);
+  var sh = getPartnerSuggestionsSheet_();
+  if (partnerSuggestFindRow_(sh, row.id)) {
+    var already = { status: "success", suggestion: row, sheet: PARTNER_SUGGEST_SHEET_, duplicate: true };
+    return fromPost ? jsonpText(callback, already) : jsonp(callback, already);
+  }
+  row.createdAt = Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd HH:mm");
+  sh.appendRow([
+    row.id, row.createdAt, row.type, row.typeLabel, row.name, row.cityAddress,
+    row.contact, row.comment, row.authorTid, row.authorNick, row.authorName,
+    row.pointId, row.pointName, row.networkId, row.networkName, row.status
+  ]);
+  if (String((json && json.skipPartnerNotify) || "") !== "1") {
+    partnerNotifySuggestion_(row);
+  }
+  var okSug = {
+    status: "success",
+    suggestion: row,
+    sheet: PARTNER_SUGGEST_SHEET_,
+    message: "Предложение сохранено"
+  };
+  return fromPost ? jsonpText(callback, okSug) : jsonp(callback, okSug);
+}
+
+function handlePartnerListSuggestions(json, callback, fromPost) {
+  if (!partnerSuggestCanManage_((json && json.telegramId) || "")) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var items = [];
+  try { items = readPartnerSuggestions_(); } catch (eRead) { items = []; }
+  var okList = {
+    status: "success",
+    suggestions: items,
+    newCount: partnerSuggestNewCount_(items),
+    sheet: PARTNER_SUGGEST_SHEET_
+  };
+  return fromPost ? jsonpText(callback, okList) : jsonp(callback, okList);
+}
+
+function handlePartnerSetSuggestionStatus(json, callback, fromPost) {
+  if (!partnerSuggestCanManage_((json && json.telegramId) || "")) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var id = String((json && (json.id || json.suggestionId)) || "").trim();
+  var status = partnerSuggestStatusOk_(json && (json.status || json.suggestionStatus));
+  if (!id) {
+    var badId = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, badId) : jsonp(callback, badId);
+  }
+  if (!status) {
+    var badSt = { status: "error", message: "bad_status" };
+    return fromPost ? jsonpText(callback, badSt) : jsonp(callback, badSt);
+  }
+  var sh = getPartnerSuggestionsSheet_();
+  var rowNum = partnerSuggestFindRow_(sh, id);
+  if (!rowNum) {
+    var miss = { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  sh.getRange(rowNum, 16).setValue(status);
+  var okSt = { status: "success", id: id, suggestionStatus: status, sheet: PARTNER_SUGGEST_SHEET_ };
+  return fromPost ? jsonpText(callback, okSt) : jsonp(callback, okSt);
 }
 
 function handlePartnerGetMe(json, callback, fromPost) {

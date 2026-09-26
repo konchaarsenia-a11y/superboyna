@@ -347,6 +347,7 @@ function isWriteAction_(a) {
     a === "partnerListAdmin" ||
     a === "partnerGetMe" ||
     a === "partnerListMyOrders" ||
+    a === "partnerListSuggestions" ||
     a === "composeWarehouseBuyMessage" ||
     a === "previewWeekCloseWarehouse" ||
     a === "gbBootstrap"
@@ -13679,6 +13680,12 @@ async function handleCutover_(a, params, env, ctx) {
       }
       return staffRes;
     }
+    if (/^partnerSuggestPartner$/i.test(a)) {
+      return partnerSuggestPartnerWorker_(params, env);
+    }
+    if (/^partnerSetSuggestionStatus$/i.test(a)) {
+      return partnerSetSuggestionStatusWorker_(params, env);
+    }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     try {
@@ -13717,6 +13724,9 @@ async function handleCutover_(a, params, env, ctx) {
   // getWeekDayCounts — всегда GAS: после finishFullWeek D1 иначе месяцами врёт даты
   // getMyAccess — отдельно: D1 snap по telegramId + SWR (иначе TG ждёт GAS ~4с на каждый вход)
   // getViewCompare — D1+SWR ниже
+  if (a === "partnerListSuggestions") {
+    return partnerListSuggestionsWorker_(params, env, ctx);
+  }
   if (a === "telegramStatus") {
     return telegramStatusD1_(params, env);
   }
@@ -21732,6 +21742,306 @@ async function partnerNotifySlotFastWorker_(order, env) {
   try {
     await telegramSendPartnerBot_(env, partnerTid, text);
   } catch (e) {}
+}
+
+function partnerSuggestTypeLabel_(type) {
+  var t = String(type || "").trim();
+  if (t === "second_project") return "Мой второй проект";
+  if (t === "same_network_point") return "Новая точка той же сети под моим управлением";
+  if (t === "new_location") return "Предложить новую локацию";
+  return "";
+}
+
+function partnerSuggestStatusOk_(status) {
+  var s = String(status || "").trim().toLowerCase();
+  if (s === "новое" || s === "new") return "новое";
+  if (s === "просмотрено" || s === "seen" || s === "viewed") return "просмотрено";
+  if (s === "в работе" || s === "progress" || s === "in_progress") return "в работе";
+  if (s === "отклонено" || s === "rejected" || s === "declined") return "отклонено";
+  return "";
+}
+
+function partnerSuggestClip_(s, max) {
+  return String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function partnerSuggestAuthorLabel_(row) {
+  var nick = String((row && (row.authorNick || row.username)) || "").replace(/^@/, "").trim();
+  if (nick) return "@" + nick;
+  var name = String((row && (row.authorName || row.userName)) || "").trim();
+  if (name) return name;
+  var tid = String((row && (row.authorTid || row.telegramId)) || "").trim();
+  return tid || "партнёр";
+}
+
+function partnerSuggestNotifyText_(row) {
+  var typeLabel = String((row && (row.typeLabel || partnerSuggestTypeLabel_(row.type))) || "").trim();
+  var name = String((row && row.name) || "").trim();
+  var place = String((row && (row.cityAddress || row.place)) || "").trim();
+  var contact = String((row && row.contact) || "").trim() || "контакт не указан";
+  return "Новое предложение партнёра: " + typeLabel + " — " + name + ", " + place + ", " + contact + ", от " + partnerSuggestAuthorLabel_(row);
+}
+
+function partnerSuggestNewCount_(items) {
+  var n = 0;
+  var list = items || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].status || "") === "новое") n++;
+  }
+  return n;
+}
+
+function partnerSuggestNormalize_(json) {
+  json = json || {};
+  var type = String(json.type || json.suggestType || "").trim();
+  var typeLabel = partnerSuggestTypeLabel_(type);
+  if (!typeLabel) return { ok: false, message: "need_type" };
+  var name = partnerSuggestClip_(json.name || json.title, 120);
+  if (!name) return { ok: false, message: "need_name" };
+  var cityAddress = partnerSuggestClip_(json.cityAddress || json.address || json.place, 240);
+  if (!cityAddress) return { ok: false, message: "need_place" };
+  var contact = partnerSuggestClip_(json.contact, 160);
+  var comment = partnerSuggestClip_(json.comment || json.note, 500);
+  var authorTid = partnerSuggestClip_(json.telegramId || json.authorTid, 32);
+  var authorNick = partnerSuggestClip_(String(json.username || json.authorNick || "").replace(/^@/, ""), 64);
+  var authorName = partnerSuggestClip_(json.userName || json.authorName || json.displayName, 80);
+  if (!authorTid && !authorNick) return { ok: false, message: "need_user" };
+  var id = partnerSuggestClip_(json.id || json.clientSuggestionId, 40);
+  if (!id || !/^ps_[a-z0-9]+$/i.test(id)) {
+    id = "ps_" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+  }
+  return {
+    ok: true,
+    row: {
+      id: id,
+      type: type,
+      typeLabel: typeLabel,
+      name: name,
+      cityAddress: cityAddress,
+      contact: contact,
+      comment: comment,
+      authorTid: authorTid,
+      authorNick: authorNick,
+      authorName: authorName,
+      pointId: partnerSuggestClip_(json.locationId || json.pointId, 64),
+      pointName: partnerSuggestClip_(json.locationName || json.pointName, 120),
+      networkId: partnerSuggestClip_(json.networkId, 64),
+      networkName: partnerSuggestClip_(json.networkName, 80),
+      status: "новое"
+    }
+  };
+}
+
+/** Кому слать предложение: Арсений + ответственные за заявки. Бот Бойни, не @GOODBOY_LG. */
+async function partnerSuggestNotifyIdsWorker_(env) {
+  var ids = [PARTNER_ARSENIY_TID];
+  try {
+    var admin = await getSnapRaw_(env, "partnerListAdmin");
+    var rec = (admin && admin.notifyRecipients) || [];
+    for (var i = 0; i < rec.length; i++) {
+      var rid = String((rec[i] && (rec[i].telegramId || rec[i].id)) || rec[i] || "").trim();
+      if (rid) ids.push(rid);
+    }
+  } catch (eR) {}
+  var out = [];
+  var seen = {};
+  for (var j = 0; j < ids.length; j++) {
+    var id = String(ids[j] || "").trim();
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    out.push(id);
+  }
+  return out;
+}
+
+async function partnerNotifySuggestionWorker_(row, env) {
+  var text = partnerSuggestNotifyText_(row);
+  var ids = await partnerSuggestNotifyIdsWorker_(env);
+  var tasks = [];
+  for (var i = 0; i < ids.length; i++) {
+    tasks.push(telegramSendTextWorker_(env, ids[i], text, null));
+  }
+  if (tasks.length) await Promise.all(tasks);
+}
+
+async function partnerSuggestionsUpsertSnap_(env, row) {
+  if (!env || !env.DB || !row || !row.id) return;
+  var snap = null;
+  try { snap = await getSnapRaw_(env, "partnerSuggestions"); } catch (eS) { snap = null; }
+  var items = snap && Array.isArray(snap.suggestions) ? snap.suggestions.slice() : [];
+  var next = [];
+  var seen = {};
+  next.push(row);
+  seen[row.id] = true;
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (!it || !it.id || seen[it.id]) continue;
+    seen[it.id] = true;
+    next.push(it);
+  }
+  await putSnap_(env, "partnerSuggestions", {
+    status: "success",
+    suggestions: next.slice(0, 200),
+    newCount: partnerSuggestNewCount_(next),
+    cachedAt: new Date().toISOString(),
+    _d1TouchedAt: Date.now()
+  });
+}
+
+async function partnerSuggestPartnerWorker_(params, env) {
+  var norm = partnerSuggestNormalize_(params || {});
+  if (!norm.ok) {
+    return { status: "error", message: norm.message, cutover: true, action: "partnerSuggestPartner" };
+  }
+  var canTg = hasTelegramToken_(env);
+  var gasParams = Object.assign({}, params || {}, {
+    id: norm.row.id,
+    clientSuggestionId: norm.row.id,
+    type: norm.row.type,
+    name: norm.row.name,
+    cityAddress: norm.row.cityAddress,
+    contact: norm.row.contact,
+    comment: norm.row.comment,
+    skipPartnerNotify: canTg ? "1" : ""
+  });
+  var live = null;
+  try {
+    live = await gasProxy_("partnerSuggestPartner", gasParams, env, { write: true });
+  } catch (eG) {
+    live = null;
+  }
+  if (live && live.status === "success") {
+    var saved = live.suggestion || norm.row;
+    if (canTg) {
+      try { await partnerNotifySuggestionWorker_(saved, env); } catch (eT) {}
+    }
+    try { await partnerSuggestionsUpsertSnap_(env, saved); } catch (eU) {}
+    live.cutover = true;
+    live.fromGas = true;
+    live.sheet = live.sheet || "Предложения_партнёров";
+    return live;
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    return live;
+  }
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerSuggestPartner" };
+}
+
+async function partnerSuggestCanManageWorker_(params, env) {
+  var tid = String((params && params.telegramId) || "").trim();
+  if (!tid) return false;
+  try {
+    if (await actorIsOwnerRetail_(params, env)) return true;
+  } catch (eO) {}
+  try {
+    var acc = await getSnapRaw_(env, "access:" + tid);
+    if (acc && /^(owner|all|manager)$/i.test(String(acc.role || ""))) return true;
+  } catch (eA) {}
+  try {
+    var list = await getSnapRaw_(env, "listAccess");
+    var people = (list && list.people) || [];
+    for (var i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid && /^(owner|all|manager)$/i.test(String(people[i].role || ""))) {
+        return true;
+      }
+    }
+  } catch (eL) {}
+  return false;
+}
+
+async function partnerSuggestionsRefreshFromGas_(params, env) {
+  var live = null;
+  try {
+    live = await gasProxy_("partnerListSuggestions", params || {}, env, { write: false });
+  } catch (eG) {
+    live = null;
+  }
+  if (live && live.status === "success" && Array.isArray(live.suggestions) && env && env.DB) {
+    try {
+      await putSnap_(env, "partnerSuggestions", Object.assign({}, live, {
+        newCount: partnerSuggestNewCount_(live.suggestions),
+        cachedAt: new Date().toISOString(),
+        _d1TouchedAt: Date.now()
+      }));
+    } catch (eP) {}
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    if (Array.isArray(live.suggestions) && live.newCount == null) {
+      live.newCount = partnerSuggestNewCount_(live.suggestions);
+    }
+    return live;
+  }
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerListSuggestions" };
+}
+
+async function partnerListSuggestionsWorker_(params, env, ctx) {
+  var snap = null;
+  try { snap = await getSnapRaw_(env, "partnerSuggestions"); } catch (eS) { snap = null; }
+  var touched = Number((snap && snap._d1TouchedAt) || 0);
+  var fresh = !!(snap && snap.status === "success" && Array.isArray(snap.suggestions) && touched && (Date.now() - touched < 60000));
+  var can = false;
+  try { can = await partnerSuggestCanManageWorker_(params, env); } catch (eC) { can = false; }
+  if (can && fresh) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(partnerSuggestionsRefreshFromGas_(params, env));
+    }
+    return Object.assign({}, snap, {
+      cutover: true,
+      fromD1: true,
+      newCount: partnerSuggestNewCount_(snap.suggestions)
+    });
+  }
+  return partnerSuggestionsRefreshFromGas_(params, env);
+}
+
+async function partnerSetSuggestionStatusWorker_(params, env) {
+  var id = String((params && (params.id || params.suggestionId)) || "").trim();
+  var status = partnerSuggestStatusOk_(params && (params.status || params.suggestionStatus));
+  if (!id) return { status: "error", message: "need_id", cutover: true };
+  if (!status) return { status: "error", message: "bad_status", cutover: true };
+  var live = null;
+  try {
+    live = await gasProxy_(
+      "partnerSetSuggestionStatus",
+      Object.assign({}, params || {}, { id: id, status: status }),
+      env,
+      { write: true }
+    );
+  } catch (eG) {
+    live = null;
+  }
+  if (live && live.status === "success") {
+    try {
+      var snap = await getSnapRaw_(env, "partnerSuggestions");
+      var items = snap && Array.isArray(snap.suggestions) ? snap.suggestions.slice() : [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i] && items[i].id === id) items[i] = Object.assign({}, items[i], { status: status });
+      }
+      if (env && env.DB) {
+        await putSnap_(env, "partnerSuggestions", {
+          status: "success",
+          suggestions: items,
+          newCount: partnerSuggestNewCount_(items),
+          cachedAt: new Date().toISOString(),
+          _d1TouchedAt: Date.now()
+        });
+      }
+    } catch (eS) {}
+    live.cutover = true;
+    live.fromGas = true;
+    live.suggestionStatus = status;
+    return live;
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    return live;
+  }
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerSetSuggestionStatus" };
 }
 
 async function telegramStatusD1_(params, env) {

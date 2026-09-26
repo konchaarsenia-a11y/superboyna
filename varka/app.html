@@ -601,6 +601,7 @@
           placeholder="Например: позвонить за час, оставить у охраны…"
           style="resize:vertical;min-height:64px;margin-bottom:0;"></textarea>
       </div>
+      <button class="btn ghost block" type="button" id="btnSuggestPartner" onclick="openPartnerSuggest_()" style="margin-top:12px;">Предложить партнёра</button>
     </div>
 
     <!-- Точки (шаг 2 заказа — после корзины) -->
@@ -612,6 +613,31 @@
       <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки · выберите точку для заявки</div>
       <div id="pointsCartHint" class="okmsg" style="display:none;"></div>
       <div id="pointsList"></div>
+    </div>
+
+    <div id="screenSuggest" class="screen">
+      <div class="toprow">
+        <div class="title">Предложить партнёра</div>
+      </div>
+      <p class="sub" id="suggestLead" style="text-align:left;margin-top:0;">Выберите один вариант.</p>
+      <div id="suggestTypes"></div>
+      <div id="suggestForm" style="display:none;">
+        <div class="card" style="margin-top:0;">
+          <p id="suggestTypeLabel" style="font-weight:800;margin:0 0 10px;"></p>
+          <label class="lbl" for="suggestName">Название</label>
+          <input class="field" id="suggestName" maxlength="120" placeholder="Как называется точка или проект">
+          <label class="lbl" for="suggestPlace">Город и адрес</label>
+          <input class="field" id="suggestPlace" maxlength="240" placeholder="Минск, улица и дом">
+          <label class="lbl" for="suggestContact">Контакт</label>
+          <input class="field" id="suggestContact" maxlength="160" placeholder="Телефон, Telegram или Instagram">
+          <label class="lbl" for="suggestComment">Комментарий</label>
+          <textarea class="field" id="suggestComment" rows="3" maxlength="500" placeholder="Необязательно" style="resize:vertical;min-height:72px;"></textarea>
+          <p class="sub" id="suggestAuthor" style="text-align:left;margin:0 0 8px;"></p>
+          <button class="btn block" type="button" id="btnSuggestSend" onclick="submitPartnerSuggest_()">Отправить</button>
+          <button class="btn ghost block" type="button" onclick="openPartnerSuggest_()">Другой вариант</button>
+        </div>
+      </div>
+      <div id="suggestDone" style="display:none;"></div>
     </div>
 
     <div id="screenMyOrders" class="screen">
@@ -642,6 +668,11 @@
       <div class="card">
         <h3>Ваш доступ</h3>
         <p id="accessInfo">—</p>
+      </div>
+      <div class="card">
+        <h3>Предложить партнёра</h3>
+        <p>Второй проект, новая точка вашей сети или новая локация.</p>
+        <button class="btn ghost block" type="button" onclick="openPartnerSuggest_()">Предложить партнёра</button>
       </div>
       <div class="card" id="inspectLocaCard" style="display:none;">
         <h3>Точка для проверки</h3>
@@ -1724,7 +1755,7 @@
   }
 
   function show(id) {
-    ["screenBoot", "screenLogin", "screenLocked", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
+    ["screenBoot", "screenLogin", "screenLocked", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet", "screenSuggest"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
@@ -1734,7 +1765,7 @@
     if (bar) bar.style.display = withCart ? "" : "none";
     var authed = (id === "screenOrder" || id === "screenPoints" ||
       id === "screenMyOrders" || id === "screenCabinet");
-    var awayOrder = (id === "screenMyOrders" || id === "screenCabinet");
+    var awayOrder = (id === "screenMyOrders" || id === "screenCabinet" || id === "screenSuggest");
     try {
       document.body.classList.toggle("has-cart", !!withCart);
       document.body.classList.toggle("has-nav", !!authed);
@@ -1744,6 +1775,7 @@
     if (navTitle) {
       if (id === "screenMyOrders") navTitle.textContent = "История";
       else if (id === "screenCabinet") navTitle.textContent = "Кабинет";
+      else if (id === "screenSuggest") navTitle.textContent = "Партнёр";
       else if (id === "screenPoints") navTitle.textContent = "Точка";
       else navTitle.textContent = "Заказ";
     }
@@ -3359,6 +3391,172 @@
     }
   }
 
+  var SUGGEST_TYPES_ = [
+    { id: "second_project", label: "Мой второй проект" },
+    { id: "same_network_point", label: "Новая точка той же сети под моим управлением" },
+    { id: "new_location", label: "Предложить новую локацию" }
+  ];
+  var suggestType_ = "";
+
+  function suggestErrRu_(code) {
+    if (code === "need_name") return "Укажите название";
+    if (code === "need_place") return "Укажите город и адрес";
+    if (code === "need_type") return "Выберите вариант";
+    if (code === "need_user") return "Не видим Telegram. Откройте мини-апп из бота.";
+    if (code === "forbidden") return "Нет доступа партнёра";
+    return "Не отправилось. Попробуйте ещё раз.";
+  }
+
+  function suggestAuthorBits_() {
+    var u = user();
+    var me = state.me || {};
+    var pt = (state.point && state.point.id) ? state.point : (onlyPoint_() || null);
+    var pts = (me.points && me.points.length) ? me.points : (POINTS || []);
+    var net = null;
+    if (pt && pt.networkId) net = netById_(pt.networkId);
+    if (!net && me.networks && me.networks[0]) net = me.networks[0];
+    var pointName = pt ? (pt.name || "") : "";
+    var pointId = pt ? (pt.id || "") : "";
+    if (!pt && pts.length) {
+      pointName = pts.map(function (p) { return p && (p.name || p.address || ""); }).filter(Boolean).slice(0, 6).join("; ");
+      if (pts[0] && pts[0].networkId && !net) net = netById_(pts[0].networkId) || { id: pts[0].networkId, name: "" };
+    }
+    var nick = u.username || me.username || "";
+    var name = me.name || u.name || "";
+    try {
+      var dn = document.getElementById("setDisplayName");
+      if (dn && dn.value && !name) name = dn.value;
+    } catch (eN) {}
+    return {
+      telegramId: u.telegramId || me.telegramId || "",
+      username: nick,
+      userName: name,
+      locationId: pointId,
+      locationName: pointName,
+      networkId: (pt && pt.networkId) || (net && net.id) || me.networkId || "",
+      networkName: (net && net.name) || ""
+    };
+  }
+
+  function openPartnerSuggest_() {
+    suggestType_ = "";
+    var form = document.getElementById("suggestForm");
+    var done = document.getElementById("suggestDone");
+    var types = document.getElementById("suggestTypes");
+    var lead = document.getElementById("suggestLead");
+    if (form) form.style.display = "none";
+    if (done) { done.style.display = "none"; done.innerHTML = ""; }
+    if (lead) lead.textContent = "Выберите один вариант.";
+    if (types) {
+      types.style.display = "";
+      types.innerHTML = SUGGEST_TYPES_.map(function (t) {
+        return '<button type="button" class="door" onclick="pickPartnerSuggestType_(\'' + t.id + '\')">' +
+          '<span class="ico">+</span><span><span class="t">' + esc(t.label) + "</span></span></button>";
+      }).join("");
+    }
+    ["suggestName", "suggestPlace", "suggestContact", "suggestComment"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    show("screenSuggest");
+  }
+
+  function pickPartnerSuggestType_(id) {
+    var hit = null;
+    for (var i = 0; i < SUGGEST_TYPES_.length; i++) {
+      if (SUGGEST_TYPES_[i].id === id) hit = SUGGEST_TYPES_[i];
+    }
+    if (!hit) return;
+    suggestType_ = hit.id;
+    var types = document.getElementById("suggestTypes");
+    var form = document.getElementById("suggestForm");
+    var lab = document.getElementById("suggestTypeLabel");
+    var who = document.getElementById("suggestAuthor");
+    var lead = document.getElementById("suggestLead");
+    if (types) types.style.display = "none";
+    if (lead) lead.textContent = "Название и город с адресом обязательны.";
+    if (lab) lab.textContent = hit.label;
+    if (form) form.style.display = "";
+    var bits = suggestAuthorBits_();
+    if (who) {
+      var parts = [];
+      if (bits.username) parts.push("@" + bits.username);
+      else if (bits.userName) parts.push(bits.userName);
+      if (bits.locationName) parts.push(bits.locationName);
+      if (bits.networkName) parts.push(bits.networkName);
+      who.textContent = parts.length ? ("Отправим от: " + parts.join(" · ")) : "Автор подставится из вашего входа.";
+    }
+    show("screenSuggest");
+    try { document.getElementById("suggestName").focus(); } catch (eF) {}
+  }
+
+  async function submitPartnerSuggest_() {
+    var nameEl = document.getElementById("suggestName");
+    var placeEl = document.getElementById("suggestPlace");
+    var name = nameEl ? String(nameEl.value || "").trim() : "";
+    var place = placeEl ? String(placeEl.value || "").trim() : "";
+    if (!suggestType_) {
+      softToast_("Выберите вариант");
+      return;
+    }
+    if (!name) {
+      softToast_("Укажите название");
+      try { nameEl.focus(); } catch (e1) {}
+      return;
+    }
+    if (!place) {
+      softToast_("Укажите город и адрес");
+      try { placeEl.focus(); } catch (e2) {}
+      return;
+    }
+    var btn = document.getElementById("btnSuggestSend");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Отправляю…";
+    }
+    var bits = suggestAuthorBits_();
+    try {
+      var res = await apiGet_({
+        action: "partnerSuggestPartner",
+        type: suggestType_,
+        name: name,
+        cityAddress: place,
+        contact: (document.getElementById("suggestContact") && document.getElementById("suggestContact").value) || "",
+        comment: (document.getElementById("suggestComment") && document.getElementById("suggestComment").value) || "",
+        telegramId: bits.telegramId,
+        username: bits.username,
+        userName: bits.userName,
+        locationId: bits.locationId,
+        locationName: bits.locationName,
+        networkId: bits.networkId,
+        networkName: bits.networkName
+      });
+      if (!res || res.status !== "success") {
+        softToast_(suggestErrRu_(res && res.message));
+        return;
+      }
+      var form = document.getElementById("suggestForm");
+      var types = document.getElementById("suggestTypes");
+      var done = document.getElementById("suggestDone");
+      var lead = document.getElementById("suggestLead");
+      if (form) form.style.display = "none";
+      if (types) types.style.display = "none";
+      if (lead) lead.textContent = "";
+      if (done) {
+        done.style.display = "";
+        done.innerHTML = '<div class="okmsg"><b>Предложение отправлено.</b><br>Мы получили его и посмотрим. Спасибо.</div>' +
+          '<button class="btn ghost block" type="button" onclick="goOrderFlow()">К заказу</button>';
+      }
+    } catch (eSend) {
+      softToast_("Сеть: не отправилось. Попробуйте ещё раз.");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Отправить";
+      }
+    }
+  }
+
   window.demoLoginAs = demoLoginAs;
   window.loginAsTgUser = loginAsTgUser;
   window.demoLogout = demoLogout;
@@ -3388,6 +3586,9 @@
   window.saveSettings = saveSettings;
   window.grantStaffAccess = grantStaffAccess;
   window.acceptStaffAccess = acceptStaffAccess;
+  window.openPartnerSuggest_ = openPartnerSuggest_;
+  window.pickPartnerSuggestType_ = pickPartnerSuggestType_;
+  window.submitPartnerSuggest_ = submitPartnerSuggest_;
 
   boot();
 })();
