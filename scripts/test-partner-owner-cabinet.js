@@ -148,8 +148,8 @@ if (!/canGrant = canUseOwnerUi_\(\)/.test(appSrc)) {
 if (!/Владельца в доступы не добавляем/.test(appSrc)) {
   fail("varka grant must refuse owner tid");
 }
-if (!/APP_VER = "3.3.57"/.test(appSrc)) {
-  fail("varka APP_VER must be 3.3.57");
+if (!/APP_VER = "3.3.58"/.test(appSrc)) {
+  fail("varka APP_VER must be 3.3.58");
 }
 if (/На nan clinic staff не выдаём/.test(appSrc)) {
   fail("varka grant must allow pt_nan_1 like any other point");

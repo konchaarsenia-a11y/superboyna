@@ -23038,6 +23038,63 @@ function partnerCatalogStatic_() {
   ];
 }
 
+/** Сумма граммов одного заказа партнёра. Одна константа на все точки. */
+var MAX_ORDER_GRAMS = 200;
+
+function partnerCatalogById_(id) {
+  var want = String(id || "").trim();
+  if (!want) return null;
+  var list = partnerCatalogStatic_();
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].id) === want) return list[i];
+  }
+  return null;
+}
+
+function partnerResolveLineMeta_(line) {
+  var cat = partnerCatalogById_(line && line.id);
+  var unit = String((cat && cat.unit) || (line && line.unit) || "").trim().toLowerCase();
+  var type = String((cat && cat.type) || (line && line.type) || "").trim().toLowerCase();
+  return { unit: unit, type: type, qty: Number(line && line.qty) || 0 };
+}
+
+/**
+ * Граммы одной строки. Qty весовой позиции уже в граммах.
+ * Штуки (купон / NFC / баннер) в лимит не входят: конвертации шт→г нет и для лимита она не используется.
+ * Единица из каталога важнее unit, который прислал клиент.
+ */
+function partnerLineWeightGrams_(line) {
+  var meta = partnerResolveLineMeta_(line);
+  if (!(meta.qty > 0)) return 0;
+  if (meta.unit.indexOf("шт") >= 0) return 0;
+  if (meta.type === "coupon") return 0;
+  var u = meta.unit;
+  var isGram = u === "г" || u === "гр" || u === "грамм" || u === "граммов" || u === "g" || u === "gr";
+  if (isGram || meta.type === "treat") return meta.qty;
+  return 0;
+}
+
+function partnerOrderWeightGrams_(basket) {
+  var arr = Array.isArray(basket) ? basket : [];
+  var sum = 0;
+  for (var i = 0; i < arr.length; i++) sum += partnerLineWeightGrams_(arr[i]);
+  return sum;
+}
+
+function partnerOrderGramsReject_(basket) {
+  var grams = partnerOrderWeightGrams_(basket);
+  if (grams > MAX_ORDER_GRAMS) {
+    return {
+      status: "error",
+      code: "max_order_grams",
+      message: "Максимум " + MAX_ORDER_GRAMS + " г на один заказ",
+      grams: grams,
+      maxGrams: MAX_ORDER_GRAMS
+    };
+  }
+  return null;
+}
+
 function partnerParseBasket_(raw) {
   if (Array.isArray(raw)) return raw;
   try {
@@ -23311,6 +23368,10 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
         return fromPost ? jsonpText(callback, badNfc) : jsonp(callback, badNfc);
       }
     }
+  }
+  var gramsReject = partnerOrderGramsReject_(basket);
+  if (gramsReject) {
+    return fromPost ? jsonpText(callback, gramsReject) : jsonp(callback, gramsReject);
   }
 
   var isOwner = false;
