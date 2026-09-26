@@ -336,31 +336,76 @@ function grams(payload, name) {
 }
 
 {
-  // БП1/БП2 тоже подгоняются под бюджет, цена — как подписка (pp)
+  // месячная оценка: состав ×4 → одна ПП через calcPrice pp, deliveriesN=2 (доставка 2 раза, не 4)
+  const estCode = "var PRICE_PICK_MONTH_WEEKS = 4; var PRICE_PICK_MONTH_DELIVERIES = 2;\n" +
+    ["pricePickMonthlyItems_", "pricePickCloneItems_"].map(extract).join("\n") + "\nasync " + extract("pricePickEstimateMonthly_");
+  const calls = [];
+  const fakeFetch = async (slim, extra) => {
+    calls.push({ slim, extra });
+    return { factCost: 70, goodsByn: 50, deliveryByn: 9 * extra.deliveriesN, packagesByn: 2 };
+  };
+  const estMonthly = new Function("calcRetailBasketTotal", "serializeBasketItem_", "fetchPpCalcPrice_", "getPricePpCoef",
+    "pricePpScheme", "defaultPpSchemeForNewLocal_", "raw26ApiFactPrice_", "capOfferSubToDisplayedRetail_", "PP_RAW26_DELIVERY_PER",
+    estCode + "\nreturn pricePickEstimateMonthly_;")(
+    (list, o) => ({ total: 200, goods: 190, deliveriesN: o.deliveriesN }), (x) => Object.assign({}, x), fakeFetch, () => 2.6,
+    "RAW26", () => "RAW26", (res) => res.factCost, (s2) => s2, 9);
+  const week = [{ cat: "dressura", main: "ЛЁГКОЕ", sub: "Мелкое", value: 40 }, { cat: "chew", main: "АОРТА", sub: "Обычная", value: 1 }];
+  const m = await estMonthly(week);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].extra.mode, "pp");
+  assert.equal(calls[0].extra.deliveriesN, 2, "2 доставки в месяц");
+  assert.deepEqual(calls[0].slim.map((x) => x.value), [160, 4], "граммы и штуки ×4");
+  assert.equal(week[0].value, 40, "недельный набор не мутируется");
+  assert.equal(m.monthly, 70, "месячная цена = одна ПП, без ×4 сверху");
+  assert.equal(m.fixed, 20);
+  assert.equal(m.goods, 50);
+}
+
+{
+  // одна база (месячная ПП) для БП1/БП2/подписки/розницы
   const fitCode = "async " + ["pricePickFitBudget_", "pricePickScaleForBudget_", "pricePickDropPriciest_", "pricePickItemsKey_", "pricePickCloneItems_"].map(extract).join("\n");
-  const seen = [];
   const PER_G = { "ЛЁГКОЕ": 0.08, "СЕРДЦЕ": 0.1, "РУБЕЦ Т": 0.07, "ТЫКВА": 0.03, "БАТАТ": 0.04 };
   const PER_PC = { "ЛОП ХРЯЩ шт.": 3, "АОРТА": 2.5 };
   const cost = (it) => (PER_PC[it.main] ? PER_PC[it.main] * it.value : (PER_G[it.main] || 0.1) * it.value);
-  const est = async (items, target) => {
-    seen.push(target);
-    const goods = items.reduce((a, it) => a + cost(it), 0);
-    const fixed = 11;
-    return { price: goods + fixed, goods, fixed, basis: target === "retail" ? "розница" : "подписка", approx: false };
+  let nCalls = 0;
+  // мок месячной ПП: товар недели ×4 ×2.6 + 2 доставки по 9 + упаковка 5
+  const est = async (items) => {
+    nCalls++;
+    const goods = items.reduce((a, it) => a + cost(it), 0) * 4 * 2.6;
+    const fixed = 18 + 5;
+    return { monthly: goods + fixed, goods, fixed, retailMonthly: 999, deliveriesN: 2, basis: "ПП", approx: false };
   };
-  const fit = new Function("pricePickEstimateSetPrice_", "retailLineCost", "isPieceSkuName",
+  const mk = () => new Function("pricePickEstimateMonthly_", "retailLineCost", "isPieceSkuName",
     fitCode + "\nreturn pricePickFitBudget_;")(est, (n, s, v, c) => ({ cost: cost({ main: n, value: v }) }), () => false);
+  const fit = mk();
   const bpItems = [
     { cat: "dressura", main: "ЛЁГКОЕ", sub: "Мелкое", value: 40 }, { cat: "dressura", main: "СЕРДЦЕ", sub: "Мелкое", value: 15 },
     { cat: "dressura", main: "РУБЕЦ Т", sub: "Мелкое", value: 10 }, { cat: "chew", main: "ЛОП ХРЯЩ шт.", value: 1 },
     { cat: "chew", main: "АОРТА", value: 1 }, { cat: "veg", main: "ТЫКВА", value: 5 }, { cat: "veg", main: "БАТАТ", value: 5 }
   ];
-  const r = await fit({ items: bpItems, target: "bp1", signals: { budget: { min: 40, max: 50, mid: 45, kind: "single" }, liked: ["ЛЁГКОЕ"] } });
-  assert.ok(r && r.trial && r.basis === "как подписка", "bp fitted as subscription");
-  assert.ok(seen.length && seen.every((x) => x === "pp"), "bp priced via pp: " + seen.join(","));
-  assert.ok(r.monthly <= 50 && !r.goodsOnly, "bp ×4 ≤ 50: " + r.monthly);
-  const low = await fit({ items: bpItems, target: "bp2", signals: { budget: { min: 21, max: 30, mid: 26, kind: "upto" } } });
-  assert.ok(low.goodsOnly && low.goodsMonthly <= 30, "goods-only fallback for bp");
+  const sig50 = { budget: { min: 40, max: 50, mid: 45, kind: "single" }, liked: ["ЛЁГКОЕ"] };
+  const results = {};
+  for (const target of ["bp1", "bp2", "pp", "retail"]) {
+    const r = await fit({ items: bpItems, target, signals: sig50 });
+    assert.ok(r, target);
+    assert.ok(r.monthly <= 50 && !r.goodsOnly && r.inRange, target + " месячная ПП ≤ 50: " + r.monthly);
+    assert.equal(r.deliveriesN, 2);
+    assert.equal(r.basis, "ПП");
+    assert.equal(r.trial, target === "bp1" || target === "bp2");
+    assert.ok(r.items.some((it) => it.main === "ЛЁГКОЕ"), "лайк не убран");
+    results[target] = r.items.map((x) => x.main + ":" + x.value).join(",");
+  }
+  assert.ok(new Set(Object.values(results)).size === 1, "одинаковая подгонка для всех типов: " + JSON.stringify(results));
+  assert.ok(nCalls > 0);
+  // бюджет выше базы — состав без изменений
+  const big = await fit({ items: bpItems, target: "bp1", signals: { budget: { min: 100, max: 150, mid: 125, kind: "range" } } });
+  assert.deepEqual(big.items.map((x) => x.value), bpItems.map((x) => x.value));
+  // goodsOnly только когда даже минимум с доставкой (23) не влезает
+  const low = await fit({ items: bpItems, target: "bp2", signals: { budget: { min: 15, max: 20, mid: 18, kind: "upto" } } });
+  assert.ok(low.goodsOnly && low.goodsMonthly <= 20 && low.minMonthly > 20, "goods-only fallback только ниже минимума");
+  // минимум (10 г дрессуры ×4 + 2 доставки + упаковка) ≈ 31.3 — бюджет 40 влезает с доставкой, без goodsOnly
+  const ok40 = await fit({ items: bpItems, target: "bp2", signals: { budget: { min: 30, max: 40, mid: 35, kind: "upto" } } });
+  assert.ok(!ok40.goodsOnly && ok40.monthly <= 40 && ok40.minMonthly < 40, "40 влезает с доставкой: " + ok40.monthly);
 }
 
 console.log("test-price-pick: OK");
