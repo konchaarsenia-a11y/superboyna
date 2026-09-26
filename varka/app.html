@@ -142,6 +142,10 @@
     }
     body.show-back-order .back-to-order { display: block; }
     .back-to-order span { color: var(--muted); font-weight: 600; font-size: 12px; display: block; margin-top: 2px; }
+    /* «Предложить партнёра»: без nav sticky top:52px висел над заголовком (iOS TG) — своя строка сверху */
+    body.on-suggest .back-to-order { position: relative; top: auto; margin: 0 0 16px; }
+    #screenSuggest .toprow { margin: 0 0 6px; }
+    #screenSuggest #suggestLead { margin: 0 0 14px; }
     .brand {
       font-family: var(--display); font-size: 28px; letter-spacing: 0.04em;
       margin: 4px 0 0; text-align: center;
@@ -729,7 +733,7 @@
 
   <div class="bar" id="cartBar" style="display:none;">
     <div class="bar-inner">
-      <div class="gram-limit" id="gramLimitHint">Максимум 200 г на один заказ · осталось 200 г</div>
+      <div class="gram-limit" id="gramLimitHint">Максимум 200 г на один заказ, осталось 200 г</div>
       <div class="bar-row">
         <div class="cart-sum">В заявке: <b id="cartCount">0</b> поз.</div>
         <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
@@ -749,7 +753,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.59";
+  var APP_VER = "3.3.60";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -1782,6 +1786,7 @@
       document.body.classList.toggle("has-cart", !!withCart);
       document.body.classList.toggle("has-nav", !!authed);
       document.body.classList.toggle("show-back-order", !!awayOrder);
+      document.body.classList.toggle("on-suggest", id === "screenSuggest");
     } catch (eBar) {}
     var navTitle = document.getElementById("navTitle");
     if (navTitle) {
@@ -2319,8 +2324,8 @@
     var left = MAX_ORDER_GRAMS - g;
     if (left < 0) left = 0;
     var text = "Максимум " + MAX_ORDER_GRAMS + " г на один заказ";
-    if (g > MAX_ORDER_GRAMS) return text + " · в заявке " + g + " г";
-    return text + " · осталось " + left + " г";
+    if (g > MAX_ORDER_GRAMS) return text + ", в заявке " + g + " г";
+    return text + ", осталось " + left + " г";
   }
 
   function paintGramLimit_() {
@@ -3555,6 +3560,7 @@
       if (el) el.value = "";
     });
     show("screenSuggest");
+    try { window.scrollTo(0, 0); } catch (eTop) {}
   }
 
   function pickPartnerSuggestType_(id) {
