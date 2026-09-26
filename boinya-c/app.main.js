@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116009";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116010";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15542,7 +15542,11 @@
         if (!realClosed && !finished && !hidden && !refused) canFinish = true;
       }
 
+      var fwUi = window.__finishWeekUi;
+      // во время переноса баннер не прячем/не возвращаем кнопку — держим индикатор
+      if (fwUi && fwUi.phase === "running") canFinish = true;
       fin.style.display = canFinish ? "" : "none";
+      try { applyFinishWeekProgressUi_(); } catch (eFwUi2) {}
       var showPull = false;
       if ((APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all") && !canFinish && finished && !pulled) {
         showPull = true;
@@ -15558,6 +15562,70 @@
           by: _weekBannerState && _weekBannerState.by
         });
       } catch (ePe) {}
+    }
+
+    /* UI-индикатор переноса недели. Состояние в window.__finishWeekUi (не только DOM),
+       чтобы пере-рендер баннера/«Доступов» во время запроса не возвращал кнопку.
+       phase: "running" | "done" | "error" | null */
+    function setFinishWeekUi_(phase, text) {
+      window.__finishWeekUi = phase ? { phase: phase, text: String(text || ""), at: Date.now() } : null;
+      applyFinishWeekProgressUi_();
+    }
+    function applyFinishWeekProgressUi_() {
+      var ui = window.__finishWeekUi || null;
+      var phase = ui ? ui.phase : null;
+      var hideBtn = phase === "running" || phase === "done";
+      var btns = [document.getElementById("btnFinishWeekBanner"), document.getElementById("btnFinishWeekPeople")];
+      var boxes = [document.getElementById("finishWeekBannerProgress"), document.getElementById("finishWeekPeopleProgress")];
+      var color = phase === "error" ? "#ff453a" : (phase === "done" ? "#30d158" : "#ff9f0a");
+      var html = "";
+      if (ui) {
+        html = (phase === "running" ? '<span class="fw-spin" aria-hidden="true"></span>' : "") +
+          '<span style="white-space:pre-line;">' + escapeHtml(ui.text) + "</span>";
+      }
+      btns.forEach(function (b) {
+        if (!b) return;
+        if (hideBtn) b.style.display = "none";
+        else if (b.id === "btnFinishWeekBanner") b.style.display = "";
+      });
+      boxes.forEach(function (bx) {
+        if (!bx) return;
+        bx.style.display = ui ? "" : "none";
+        bx.style.color = color;
+        bx.style.borderColor = color;
+        bx.innerHTML = html;
+      });
+      var pill = document.getElementById("finishWeekProgressPill");
+      if (ui && !pill && document.body) {
+        pill = document.createElement("div");
+        pill.id = "finishWeekProgressPill";
+        pill.setAttribute("role", "status");
+        pill.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 8px);z-index:99999;" +
+          "max-width:92vw;padding:10px 14px;border-radius:14px;background:#1c1c1e;border:1px solid;font-size:14px;font-weight:600;" +
+          "box-shadow:0 6px 24px rgba(0,0,0,.5);display:flex;align-items:center;gap:8px;pointer-events:none;";
+        document.body.appendChild(pill);
+      }
+      if (pill) {
+        pill.style.display = ui ? "flex" : "none";
+        pill.style.color = color;
+        pill.style.borderColor = color;
+        pill.innerHTML = html;
+      }
+      if (!document.getElementById("fwSpinStyle") && document.head) {
+        var stEl = document.createElement("style");
+        stEl.id = "fwSpinStyle";
+        stEl.textContent = ".fw-spin{display:inline-block;width:14px;height:14px;flex:0 0 14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:fwSpin .8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes fwSpin{to{transform:rotate(360deg)}}";
+        document.head.appendChild(stEl);
+      }
+    }
+    window.applyFinishWeekProgressUi_ = applyFinishWeekProgressUi_;
+    var _finishWeekUiTimer = null;
+    function clearFinishWeekUiLater_(ms) {
+      try { clearTimeout(_finishWeekUiTimer); } catch (eT) {}
+      _finishWeekUiTimer = setTimeout(function () {
+        var ui = window.__finishWeekUi;
+        if (ui && ui.phase !== "running") setFinishWeekUi_(null);
+      }, ms);
     }
 
     function syncFinishWeekPeopleUi_(st) {
@@ -15587,10 +15655,13 @@
       }
       if (statusEl) statusEl.textContent = lines.join(". ");
       if (btnFin) {
+        // закрытая неделя — кнопку прячем (статус выше говорит «уже закрыта»)
         btnFin.disabled = !!realClosed;
-        btnFin.style.opacity = realClosed ? "0.45" : "1";
-        btnFin.innerText = realClosed ? "Неделя уже закрыта" : "Завершить неделю";
+        btnFin.style.opacity = "1";
+        btnFin.innerText = "Завершить неделю";
+        btnFin.style.display = realClosed ? "none" : "";
       }
+      try { applyFinishWeekProgressUi_(); } catch (eFwUi) {}
       if (btnPull) {
         var showPull = !!st.showPull || (finished && !pulled);
         btnPull.style.display = showPull ? "" : "none";
@@ -15672,7 +15743,12 @@
         await uiAlertAsync("Нет Telegram ID — открой из бота под владельцем.");
         return;
       }
+      if (window.__finishWeekInFlight) {
+        await uiAlertAsync("Закрытие уже запущено — подожди, не нажимай ещё раз.");
+        return;
+      }
       window.__finishWeekInFlight = true;
+      setFinishWeekUi_("running", "Идёт перенос недели… не закрывайте");
       try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({ realClosed: true }); } catch (eDis) {}
       showToast("Закрываем неделю…");
       var res = null;
@@ -15692,12 +15768,16 @@
         );
       } catch (e1) {
         window.__finishWeekInFlight = false;
+        var netMsg = "Ошибка сети: " + (e1 && e1.message ? e1.message : e1);
+        setFinishWeekUi_("error", "Перенос не выполнен. " + netMsg + "\nМожно повторить.");
+        clearFinishWeekUiLater_(20000);
         try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn) {}
-        await uiAlertAsync("Ошибка сети: " + (e1 && e1.message ? e1.message : e1));
+        await uiAlertAsync(netMsg);
         return;
       }
       if (!res || res.status !== "success") {
         window.__finishWeekInFlight = false;
+        setFinishWeekUi_(null);
         try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn2) {}
         var msg = (res && res.message) || "finish_failed";
         if (msg === "owner_only") msg = "Только владелец (Deploy Code.gs + доступ owner).";
@@ -15715,9 +15795,14 @@
         if (msg === "sandbox_no_prod_week") {
           msg = "Песочница D1 (нет cutover=1): люди в D1 ок, боевые Sheets не меняются. Открой ?cutover=1";
         }
-        await uiAlertAsync("Не закрылось: " + msg + (res && res.tip && msg.indexOf(res.tip) < 0 ? ("\n" + res.tip) : ""));
+        var failText = "Не закрылось: " + msg + (res && res.tip && msg.indexOf(res.tip) < 0 ? ("\n" + res.tip) : "");
+        var closedAlready = (res && res.message) === "week_already_finished";
+        setFinishWeekUi_(closedAlready ? "done" : "error", closedAlready ? "Неделя уже закрыта ✓" : (failText + "\nМожно повторить."));
+        clearFinishWeekUiLater_(closedAlready ? 8000 : 20000);
+        await uiAlertAsync(failText);
         return;
       }
+      setFinishWeekUi_("running", "Неделя перенесена ✓ Обновляю данные… не закрывайте");
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_REAL_LS + wk, "1");
       localStorage.setItem(FINISH_DONE_LS + wk, "1");
@@ -15768,6 +15853,9 @@
       viewWeekOverviewCache = null;
       viewMonthOverviewCache = null;
       try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eW) {}
+      window.__finishWeekInFlight = false;
+      setFinishWeekUi_("done", "Неделя перенесена ✓");
+      clearFinishWeekUiLater_(8000);
       refreshWeekBanners();
       try {
         await uiAlertAsync(

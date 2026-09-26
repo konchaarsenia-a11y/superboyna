@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71116009" as="script">
+  <link rel="preload" href="app.main.js?v=71116010" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71116009";
+      var APP_VER = "v71116010";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1646,7 +1646,8 @@
         <h3>Завершить неделю?</h3>
         <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс (весь день) или пн до 12:00. Кнопка также всегда во вкладке «Доступы».</div>
         <button type="button" class="btn-action btn-blue" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
-        <button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <button type="button" class="btn-action btn-orange" id="btnFinishWeekBanner" style="margin-top:8px;" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <div id="finishWeekBannerProgress" role="status" aria-live="polite" style="display:none;margin-top:8px;padding:12px;border:1px solid #ff9f0a;border-radius:12px;font-weight:600;font-size:14px;"></div>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
       </div>
       <div id="pullWeekBanner" class="week-banner" style="display:none;">
@@ -2774,6 +2775,7 @@
         <div class="muted" style="font-size:12px;margin-bottom:8px;">Закрытие недели: склад F/B, указатель недели (A1) на следующий Пн, очистка Пн–Вс, Будущая→Пн. Записи остаются на своих датах — не копируются +7. Обычно вс или пн до 12:00. Только владелец.</div>
         <div class="muted" style="font-size:12px;margin-bottom:10px;" id="finishWeekPeopleStatus">Статус: …</div>
         <button class="btn-action btn-orange" type="button" id="btnFinishWeekPeople" style="margin:0;" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <div id="finishWeekPeopleProgress" role="status" aria-live="polite" style="display:none;padding:12px;border:1px solid #ff9f0a;border-radius:12px;font-weight:600;font-size:14px;"></div>
         <button class="btn-action" type="button" id="btnResyncWeekD1People" style="margin-top:8px;background:#3a3a3c;" onclick="onForceWeekD1ResyncClick()">Синхронизировать D1 с листом</button>
         <button class="btn-action btn-blue" type="button" id="btnPullWeekPeople" style="margin-top:8px;display:none;" onclick="confirmPullWeekFromHome()">Подтянуть из месяца</button>
       </div>
@@ -2956,7 +2958,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71116009"></script>
-  <script src="app.main.js?v=71116009" defer></script>
+  <script src="courier-maps.js?v=71116010"></script>
+  <script src="app.main.js?v=71116010" defer></script>
 </body>
 </html>
