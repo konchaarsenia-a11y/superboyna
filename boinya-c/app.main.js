@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116002";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116003";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -19367,7 +19367,10 @@
       var petM = text.match(/(?:питомец|кличка)\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{1,24})/i);
       if (petM) petName = petM[1];
 
-      return {
+      var budget = pricePickParseBudget_(text);
+      if (budget && !budgetByn) budgetByn = budget.mid;
+
+      var outSig = {
         liked: liked,
         disliked: disliked,
         must: must,
@@ -19388,8 +19391,11 @@
         lineItems: parsedLines.items || [],
         noteBits: noteBits,
         petName: petName,
+        budget: budget,
         rawLen: text.length
       };
+      try { outSig.profile = pricePickDogProfile_(text, outSig); } catch (eProf) { outSig.profile = {}; }
+      return outSig;
     }
 
     function pricePickItemFromSku_(skuName, gramsOrPcs, fracPref) {
@@ -20062,14 +20068,251 @@
       return map[n] || map[n.toUpperCase()] || n;
     }
 
+    /* ── Подбор: бюджет из анкеты (мес., BYN) ── */
+    function pricePickParseBudgetSeg_(seg) {
+      var s = String(seg || "").replace(/\s+/g, " ").trim();
+      if (!s) return null;
+      var m;
+      if ((m = s.match(/(\d{2,4})\s*(?:[–\-—]|до|\s)\s*(\d{2,4})/i)) && Number(m[2]) > Number(m[1])) {
+        return { min: Number(m[1]), max: Number(m[2]), mid: Math.round((Number(m[1]) + Number(m[2])) / 2), kind: "range" };
+      }
+      if ((m = s.match(/(?:до|не\s*дороже|не\s*больше|максимум)\s*(\d{2,4})/i))) {
+        var up = Number(m[1]);
+        return { min: Math.round(up * 0.7), max: up, mid: Math.round(up * 0.85), kind: "upto" };
+      }
+      if ((m = s.match(/(?:более|больше|от|свыше|>)\s*(\d{2,4})/i))) {
+        var lo = Number(m[1]);
+        return { min: lo, max: Math.round(lo * 1.3), mid: Math.round(lo * 1.15), kind: "over" };
+      }
+      if ((m = s.match(/(?:около|примерно|где-?то|~)\s*(\d{2,4})/i))) {
+        var ab = Number(m[1]);
+        return { min: Math.round(ab * 0.85), max: Math.round(ab * 1.1), mid: ab, kind: "about" };
+      }
+      if ((m = s.match(/(\d{2,4})/))) {
+        var one = Number(m[1]);
+        if (one < 15) return null;
+        return { min: Math.round(one * 0.8), max: one, mid: Math.round(one * 0.9), kind: "single" };
+      }
+      return null;
+    }
+
+    /* ── Подбор: месячный бюджет из анкеты (BYN): «30-50», «30 50», «до 50», «около 50», п.10 ── */
+    function pricePickParseBudget_(raw) {
+      var lines = String(raw || "").replace(/\r/g, "\n").split(/\n+/);
+      var money = /byn|бел\.?\s*руб|(?:^|[^а-яё])руб(?:л[а-яё]*|\.)?(?![а-яё])/i;
+      var bare = /^\s*(?:до|около|примерно|от|более|больше|~)?\s*\d{2,3}(?:\s*(?:[–\-—]|до|\s)\s*\d{2,3})?\s*(?:byn|руб[а-яё]*\.?)?\s*$/i;
+      var i, hit;
+      for (i = 0; i < lines.length; i++) {
+        if (/бюджет/i.test(lines[i])) {
+          hit = pricePickParseBudgetSeg_(String(lines[i]).replace(/^[\s\S]*?бюджет[а-яё]*/i, ""));
+          if (hit) return hit;
+        }
+      }
+      for (i = 0; i < lines.length; i++) {
+        var l2 = String(lines[i] || "");
+        var body = l2.replace(/^\s*\d{1,2}\s*[.)]\s*/, "");
+        if (/^\s*10\s*[.)]/.test(l2) && bare.test(body)) {
+          hit = pricePickParseBudgetSeg_(body);
+          if (hit) return hit;
+        }
+      }
+      for (i = 0; i < lines.length; i++) {
+        var l3 = String(lines[i] || "").replace(/^\s*\d{1,2}\s*[.)]\s*/, "");
+        if (money.test(l3)) {
+          hit = pricePickParseBudgetSeg_(l3);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    }
+
+    /* ── Подбор: портрет собаки из анкеты (только то, что написал клиент) ── */
+    function pricePickDogProfile_(raw, signals) {
+      signals = signals || {};
+      var text = String(raw || "").replace(/\r/g, "\n");
+      var low = text.toLowerCase().replace(/ё/g, "е");
+      var p = {};
+      var nameM = text.match(/(?:питом[а-яёa-z]*|собак[а-яёa-z]*|пс[аы]|щен[а-яёa-z]*|кличк[а-яёa-z]*)\s*(?:[—:\-]\s*)?(?:зовут\s+)?([А-ЯЁA-Z][а-яёa-z\-]{1,20})/);
+      var stopName = /^(Зовут|Порода|Возраст|Вес|Такса|Выжла|Корги|Шпиц|Лабрадор|Метис|Беспородн[а-яёa-z]*|Да|Нет)$/;
+      if (nameM && !stopName.test(nameM[1])) p.name = nameM[1];
+      else if (signals.petName && /^[А-ЯЁA-Z]/.test(signals.petName)) p.name = signals.petName;
+
+      var item2 = text.match(/(?:^|\n)\s*2\s*[.)]\s*([^\n]+)/);
+      var breedSrc = item2 ? item2[1] : "";
+      if (!breedSrc) {
+        var lnB = text.split(/\n+/).filter(function (l) { return /(\d+\s*(?:лет|год|мес))|(\d+\s*кг)/i.test(l); })[0];
+        breedSrc = lnB || "";
+      }
+      if (breedSrc) {
+        var chunk = String(breedSrc).split(/[,;]/)[0].trim();
+        if (chunk && !/\d/.test(chunk) && chunk.length <= 40 && /^[А-Яа-яЁё\s\-]+$/.test(chunk) &&
+          !/порода|возраст|вес/i.test(chunk)) {
+          p.breed = chunk.charAt(0).toLowerCase() + chunk.slice(1);
+        }
+      }
+      var yM = text.match(/(\d+(?:[.,]5)?)\s*(год|года|лет)(?![а-яё])/i);
+      if (yM) {
+        var yn = parseFloat(String(yM[1]).replace(",", "."));
+        var yw = (yn % 1) ? "года" : (yn % 10 === 1 && yn % 100 !== 11 ? "год" :
+          ((yn % 10 >= 2 && yn % 10 <= 4 && (yn % 100 < 10 || yn % 100 >= 20)) ? "года" : "лет"));
+        p.age = String(yM[1]).replace(".", ",") + " " + yw;
+        p.years = yn;
+      } else if (signals.ageMonths) {
+        var mn = signals.ageMonths;
+        var mw = (mn % 10 === 1 && mn % 100 !== 11) ? "месяц" :
+          ((mn % 10 >= 2 && mn % 10 <= 4 && (mn % 100 < 10 || mn % 100 >= 20)) ? "месяца" : "месяцев");
+        p.age = mn + " " + mw;
+      }
+      if (signals.weightKg) p.weight = String(signals.weightKg).replace(".", ",") + " кг";
+      p.puppy = !!signals.puppy;
+      p.senior = !!(p.years && p.years >= 8);
+      p.small = !!(signals.weightKg && signals.weightKg < 10);
+      p.large = !!(signals.weightKg && signals.weightKg >= 25);
+
+      if (/очень\s+активн|гиперактивн|энергичн|бегаем|бега[ею]т|каникросс|аджилити|фризби|спорт/.test(low)) p.activity = "high";
+      else if (/малоактивн|не\s+очень\s+активн|спокойн|ленив|домосед/.test(low)) p.activity = "calm";
+      else if (/активн/.test(low)) p.activity = "active";
+
+      var noTrain = /(?:не\s+занима[а-яёa-z]*|дрессировкой\s+не|не\s+дрессир|без\s+дрессир)/.test(low);
+      if (!noTrain && /дрессир|тренир|окд|кинолог|занимаемся|аджилити|послушани/.test(low)) {
+        p.training = true;
+        var rM = text.match(/(\d{2})\s*\/\s*(\d{2})/);
+        if (rM && Number(rM[1]) + Number(rM[2]) === 100) p.trainRatio = rM[1] + "/" + rM[2];
+      }
+      if (/чувствительн[а-яёa-z]*\s+(?:желуд|жкт|пищевар|живот)|(?:^|[^а-яё])жкт(?![а-яё])|слаб[а-яёa-z]*\s+желуд|расстройств[а-яёa-z]*\s+(?:желуд|стул)|понос|мягк[а-яёa-z]*\s+стул/.test(low)) p.stomach = true;
+      if (/меняются\s+зубы|режутся\s+зубы|смен[а-яёa-z]*\s+зуб/.test(low)) p.teething = true;
+      else if (/налет|зубн[а-яёa-z]*\s+камн|запах\s+изо\s+рта|дес(?:е|ё)н|дёсн|десн/.test(low)) p.teeth = true;
+      if (/вс[её]\s+грыз|грыз[её]т|погрызть|пожевать|жевать\s+долго|надолго|мебель/.test(low)) p.chewer = true;
+      if (/привередлив|избирательн|капризн|разборчив/.test(low)) p.fussy = true;
+      p.allergy = (signals.familyNotes || []).slice();
+      if (!p.allergy.length) {
+        var alM = text.match(/аллерги[а-яёa-z]*\s+на\s+([А-Яа-яЁё]+(?:\s+и\s+[А-Яа-яЁё]+)?)/i);
+        if (alM && !/нет/i.test(alM[1])) p.allergy.push(alM[1].toLowerCase());
+      }
+      return p;
+    }
+
+    function pricePickJoinRu_(arr) {
+      arr = (arr || []).filter(Boolean);
+      if (arr.length <= 1) return arr.join("");
+      return arr.slice(0, -1).join(", ") + " и " + arr[arr.length - 1];
+    }
+
+    function pricePickWhyItem_(name, prof, signals) {
+      prof = prof || {};
+      var n = String(name || "").toUpperCase();
+      var t = prof.training;
+      var why = {
+        "ЛЁГКОЕ": t
+          ? "нежирное, крошится без жирных рук и съедается за секунду, идеально для частых поощрений на тренировке"
+          : (prof.small ? "нежирное и лёгкое, можно давать часто маленькими кусочками без риска перекормить"
+            : "нежирное и лёгкое, можно давать часто, не боясь перекормить"),
+        "БАРАНЬЕ ЛЁГКОЕ": (prof.allergy && prof.allergy.length)
+          ? "баранина, другой белок: удобно, когда часть привычного мяса нельзя"
+          : "новый вкус при той же лёгкости, чтобы дрессура не приедалась",
+        "СЕРДЦЕ": t
+          ? "плотное и очень ароматное, держит внимание там, где вокруг много отвлекающего"
+          : "плотное и ароматное, хорошая награда за спокойное поведение дома",
+        "РУБЕЦ Т": prof.fussy
+          ? "самый пахучий в наборе, выручает даже с разборчивыми собаками"
+          : "самый пахучий, собаки его обожают: работает как «джекпот» за сложное",
+        "ПОЧКИ": "нежные и с ярким вкусом, разнообразят дрессуру, чтобы не приедалось",
+        "ПЕЧЕНЬ": "очень сытная и ароматная, даём понемногу как суперприз",
+        "ИНДЕЙКА": "нежное нежирное мясо, мягкое для желудка",
+        "ВЫМЯ": "мягкое и жуётся легко, подходит, когда зубам нужна деликатность",
+        "СЕМЕННИКИ": "мягкие и пахучие, нравятся почти всем собакам",
+        "БЫЧИЙ КОРЕНЬ": prof.teeth
+          ? "грызётся долго и механически счищает налёт с зубов"
+          : ((prof.chewer || prof.large) ? "долгая жевалка: занимает надолго и помогает снять напряжение"
+            : "занимает надолго и помогает спокойно расслабиться после прогулки"),
+        "ТРАХЕЯ": prof.teething
+          ? "упругая и хрустящая, приятно чесать дёсны, пока меняются зубы"
+          : "хрустящая, с натуральным хрящом: и занятие, и польза для зубов",
+        "АОРТА": prof.teething
+          ? "упругая, мягко массирует дёсны при смене зубов"
+          : "упругая и долго жуётся, спокойное занятие на вечер",
+        "ЛОП ХРЯЩ ШТ.": "хрустит и помогает чистить зубы, натуральный хрящ без лишнего жира",
+        "УХО Г": "классическая долгая жевалка, её любят почти все собаки",
+        "УХО К": "маленькое и лёгкое, для быстрого перекуса",
+        "НОСЫ ШТ.": "хрустящий и жуётся недолго, для короткой паузы",
+        "СТАНОВАЯ ЖИЛА": (prof.large || prof.chewer)
+          ? "очень прочная, надолго даже для сильных челюстей"
+          : "прочная и грызётся долго",
+        "ПЕРЕПЁЛКИ ШТ.": "целиковая натуральная еда, интересно разгрызать",
+        "УТИНЫЕ ШЕИ ШТ.": "хрустящие косточки, помогают чистить зубы",
+        "КОЛЕНИ ШТ.": "крупный хрящ, долгое занятие",
+        "ГУБЫ ШТ.": "мягкая жевалка, подходит при чувствительных зубах"
+      };
+      var s = why[n] || "";
+      if (!s) return "";
+      var mustHit = (signals.must || []).some(function (x) { return String(x).toUpperCase() === n; });
+      var likedHit = (signals.liked || []).some(function (x) { return String(x).toUpperCase() === n; });
+      if (mustHit) s += " (вы об этом просили)";
+      else if (likedHit) s += " (по анкете это любимое)";
+      return s;
+    }
+
+    function pricePickVegWhy_(names, prof) {
+      var up = (names || []).map(function (x) { return String(x).toUpperCase(); });
+      if (prof && prof.stomach) return "немного клетчатки, мягко поддерживают пищеварение";
+      if (up.indexOf("МОРКОВЬ") >= 0 || up.indexOf("ЯБЛОКИ") >= 0) return "хрустят, освежают и почти без калорий";
+      return "немного клетчатки и лёгкая награда без лишних калорий";
+    }
+
     function pricePickOfferText_(signals, target, items) {
       signals = signals || {};
-      var who = signals.petName ? (" для " + signals.petName) : "";
+      var prof = signals.profile || {};
       var lines = [];
-      if (target === "bp2") lines.push("С учётом ваших ответов собрала вторую пробную коробку" + who + ".");
-      else if (target === "bp1") lines.push("С учётом ваших ответов собрала первую пробную коробку" + who + ".");
-      else if (target === "retail") lines.push("С учётом ваших ответов собрала розничный набор" + who + ".");
-      else lines.push("С учётом ваших ответов собрала набор на подписку" + who + ".");
+      var boxWord = target === "bp2" ? "вторую пробную коробку"
+        : (target === "bp1" ? "первую пробную коробку"
+          : (target === "retail" ? "набор" : "набор на подписку"));
+      lines.push("Спасибо за подробные ответы! Внимательно прочитали анкету и собрали " + boxWord + ".");
+
+      var facts = [prof.breed, prof.age, prof.weight].filter(Boolean);
+      if (facts.length) {
+        lines.push("");
+        lines.push((prof.name ? prof.name : "Ваш питомец") + " — " + facts.join(", ") + ".");
+      }
+
+      var hasCat = function (c) { return (items || []).some(function (it) { return it && it.cat === c; }); };
+      var took = [];
+      if (prof.training && hasCat("dressura")) {
+        took.push("вы занимаетесь дрессировкой" + (prof.trainRatio ? " (" + prof.trainRatio + ")" : "") +
+          " — основа набора мягкая дрессура, которую удобно быстро выдавать");
+      }
+      if (prof.activity === "high" && hasCat("dressura") && !prof.training) {
+        took.push("день у вас активный — взяли дрессуру, которую удобно брать с собой на прогулку");
+      }
+      if (prof.allergy && prof.allergy.length) {
+        took.push("исключили " + pricePickJoinRu_(prof.allergy.map(function (a) {
+          return a === "курица" ? "курицу" : (a === "рыба" ? "рыбу" : (a === "индейка" ? "индейку" : (a === "птица" ? "птицу" : a)));
+        })) + " полностью");
+      }
+      var dis = (signals.disliked || []).filter(function (n) {
+        var up = String(n).toUpperCase();
+        return !((prof.allergy || []).length && /^(УХО К|УТИНЫЕ ШЕИ|ПЕРЕПЁЛКИ|ИНДЕЙКА)/.test(up));
+      });
+      if (dis.length) {
+        took.push(pricePickJoinRu_(dis.map(function (n) { return pricePickSkuTitle_(n).toLowerCase(); })) +
+          " — убрали, вы писали, что не подходит");
+      }
+      if (prof.stomach) took.push("чувствительный желудок — начинаем с небольших порций и мягких позиций");
+      if (prof.teething && hasCat("chew")) took.push("меняются зубы — есть что погрызть, чтобы дёснам было легче");
+      else if (prof.teeth && hasCat("chew")) took.push("налёт на зубах — добавили жевалки, которые помогают его счищать");
+      else if (prof.chewer && hasCat("chew")) took.push("любит погрызть — положили долгие жевалки");
+      if (signals.fracPref && hasCat("dressura")) {
+        var fr = signals.fracPref;
+        var frText = fr === "очень мелк" ? "очень мелкие кусочки" : (fr === "мелк" ? "мелкие кубики" :
+          (fr === "крупн" ? "крупные кусочки" : (fr === "средн" ? "средние кусочки" :
+            (fr === "ломтик" ? "ломтики" : (fr === "полоск" ? "полоски" : "")))));
+        if (frText) took.push("нарезка — " + frText + ", как вам удобнее");
+      }
+      if (took.length) {
+        lines.push("");
+        lines.push("Что учли:");
+        took.forEach(function (t) { lines.push("• " + t.charAt(0).toUpperCase() + t.slice(1)); });
+      }
+
       lines.push("");
       var last = "";
       (items || []).forEach(function (it) {
@@ -20086,33 +20329,177 @@
         var val = it.value != null ? it.value : it.val;
         lines.push(pricePickSkuTitle_(it.main || it.name) + " — " + val + " " + unit + sub);
       });
+
+      var whyLines = [];
+      var seen = {};
+      var veg = [];
+      (items || []).forEach(function (it) {
+        var nm = String(it.main || it.name || "");
+        if (!nm || seen[nm.toUpperCase()]) return;
+        seen[nm.toUpperCase()] = true;
+        if (it.cat === "veg") { veg.push(nm); return; }
+        var w = pricePickWhyItem_(nm, prof, signals);
+        if (w) whyLines.push("• " + pricePickSkuTitle_(nm) + " — " + w + ".");
+      });
+      if (veg.length) {
+        whyLines.push("• " + pricePickJoinRu_(veg.map(function (v, i) {
+          var tt = pricePickSkuTitle_(v);
+          return i ? tt.toLowerCase() : tt;
+        })) + " — " + pricePickVegWhy_(veg, prof) + ".");
+      }
+      if (whyLines.length) {
+        lines.push("");
+        lines.push("Почему именно это:");
+        whyLines.slice(0, 7).forEach(function (w) { lines.push(w); });
+      }
+
       lines.push("");
-      var why = [];
-      if (signals.disliked && signals.disliked.length) {
-        why.push("Не беру: " + signals.disliked.map(pricePickSkuTitle_).join(", ") + ".");
-      }
-      if (signals.familyNotes && signals.familyNotes.length) {
-        why.push("Исключила: " + signals.familyNotes.join(", ") + ".");
-      }
-      if (signals.must && signals.must.length) {
-        why.push("Обязательно оставила: " + signals.must.map(pricePickSkuTitle_).join(", ") + ".");
-      }
-      if (signals.fracPref) why.push("Нарезку подстрою под то, как удобнее отдавать.");
-      if (why.length) lines.push(why.join(" "));
+      var who = prof.name || "";
       if (target === "bp1") {
-        lines.push("Первая пробная неделя: посмотрите, что ест спокойно и что обходит. По реакции соберём вторую коробку.");
+        lines.push("Первая пробная неделя — посмотрите, что " + (who || "питомец") +
+          " ест с удовольствием, а что обходит стороной. По реакции соберём вторую коробку.");
       } else if (target === "bp2") {
-        lines.push("Вторая пробная неделя: смотрим, что закрепилось после первой коробки и что лучше заменить.");
+        lines.push("Вторая пробная неделя — смотрим, что закрепилось после первой коробки и что лучше заменить.");
       } else if (target === "retail") {
-        lines.push("Это розница. Если расход станет регулярным, можно перейти на подписку — состав тот же, цену посчитаю отдельно.");
+        lines.push("Это розница. Если расход станет регулярным, можно перейти на подписку — состав тот же, цену посчитаем отдельно.");
       } else {
         var n = signals.deliveriesN || 1;
         var word = n === 1 ? "доставка" : (n < 5 ? "доставки" : "доставок");
-        lines.push("Подписка: " + n + " " + word + " в месяц, связь 24/7, можно подключить партнёра. Цену посчитаю отдельно, в этом тексте её нет.");
+        lines.push("Подписка: " + n + " " + word + " в месяц, связь 24/7, можно подключить партнёра. Цену посчитаем отдельно, в этом тексте её нет.");
       }
       lines.push("");
       lines.push("Как вам такой состав? Готовы попробовать?");
       return lines.join("\n");
+    }
+
+    /* ── Подбор: цена набора ×4 (недели) под месячный бюджет из анкеты ── */
+    async function pricePickEstimateSetPrice_(items, target) {
+      var list = pricePickCloneItems_(items || []);
+      var retail = calcRetailBasketTotal(list, { deliveriesN: 1 });
+      if (target === "retail") return { price: Number(retail.total) || 0, basis: "розница", approx: false };
+      var price = 0;
+      var approx = false;
+      try {
+        var slim = list.map(function (it) { return serializeBasketItem_(it); });
+        var res = await fetchPpCalcPrice_(slim, {
+          mode: "pp",
+          deliveriesN: 1,
+          coef: getPricePpCoef(),
+          scheme: pricePpScheme || defaultPpSchemeForNewLocal_(),
+          forNew: 1,
+          timeoutMs: 15000
+        });
+        if (res) price = Number(raw26ApiFactPrice_(res)) || Number(res.factCost) || 0;
+      } catch (eEst) { price = 0; }
+      if (!(price > 0)) {
+        price = Math.round((Number(retail.total) || 0) * 0.92 * 100) / 100;
+        approx = true;
+      }
+      price = capOfferSubToDisplayedRetail_(price, retail.total) || price;
+      return { price: Math.round(price * 100) / 100, basis: "подписка", approx: approx };
+    }
+
+    function pricePickScaleForBudget_(items, f) {
+      return (items || []).map(function (it) {
+        var copy = Object.assign({}, it);
+        var piece = copy.cat === "chew" || (typeof isPieceSkuName === "function" && isPieceSkuName(copy.main || copy.name));
+        var v = Number(copy.value != null ? copy.value : copy.val) || 0;
+        var nv;
+        if (piece) nv = Math.max(1, Math.round(v * f));
+        else nv = Math.max(Math.min(v, 20), Math.round((v * f) / 5) * 5);
+        copy.value = nv;
+        copy.val = nv;
+        return copy;
+      });
+    }
+
+    function pricePickDropPriciest_(items, signals) {
+      if (!items || items.length <= 4) return null;
+      var catCount = {};
+      items.forEach(function (it) { catCount[it.cat] = (catCount[it.cat] || 0) + 1; });
+      var keep = {};
+      (signals.must || []).concat(signals.liked || []).forEach(function (n) { keep[String(n).toUpperCase()] = true; });
+      var worst = -1;
+      var worstCost = -1;
+      items.forEach(function (it, i) {
+        var nm = String(it.main || it.name || "").toUpperCase();
+        if (keep[nm] || (catCount[it.cat] || 0) <= 1) return;
+        var c = retailLineCost(it.main || it.name, it.sub || "", it.value != null ? it.value : it.val, it.cat, {}).cost || 0;
+        if (c > worstCost) { worstCost = c; worst = i; }
+      });
+      if (worst < 0) return null;
+      return items.filter(function (_, i) { return i !== worst; });
+    }
+
+    async function pricePickFitBudget_(payload) {
+      if (!payload || !payload.items || !payload.items.length) return null;
+      var target = payload.target;
+      if (target !== "pp" && target !== "retail") return null;
+      var sig = payload.signals || {};
+      var b = sig.budget;
+      if (!b || !(b.max > 0)) return null;
+      var aim = b.kind === "upto" ? b.max * 0.9 : (b.kind === "single" ? b.max * 0.92 : b.mid);
+      var cache = {};
+      async function evalItems(list) {
+        var k = pricePickItemsKey_(list);
+        if (!cache[k]) cache[k] = await pricePickEstimateSetPrice_(list, target);
+        return cache[k];
+      }
+      function pack(list, est) {
+        var m4 = Math.round(est.price * 4 * 100) / 100;
+        return {
+          items: list, price: est.price, monthly: m4, budget: b, basis: est.basis,
+          approx: est.approx, inRange: m4 <= b.max && m4 >= b.min
+        };
+      }
+      var base = pricePickCloneItems_(payload.items);
+      var best = null;
+      var cands = [];
+      for (var round = 0; round < 4; round++) {
+        var est1 = await evalItems(base);
+        if (!(est1.price > 0)) return null;
+        var m1 = est1.price * 4;
+        if (m1 <= b.max && m1 >= b.min) { cands.push(pack(base, est1)); break; }
+        var lo = 0.15, hi = 1;
+        if (m1 < b.min) { lo = 1; hi = 3; }
+        var okList = null, okEst = null;
+        var loList = pricePickScaleForBudget_(base, lo);
+        var loEst = await evalItems(loList);
+        if (m1 > b.max && loEst.price * 4 > aim) {
+          var cand = pack(loList, loEst);
+          cands.push(cand);
+          best = cand;
+          var dropped = pricePickDropPriciest_(base, sig);
+          if (!dropped) break;
+          base = dropped;
+          continue;
+        }
+        if (m1 < b.min) { okList = base; okEst = est1; }
+        else { okList = loList; okEst = loEst; }
+        for (var it = 0; it < 7; it++) {
+          var mid = (lo + hi) / 2;
+          var list = pricePickScaleForBudget_(base, mid);
+          var est = await evalItems(list);
+          if (est.price * 4 <= aim) { lo = mid; okList = list; okEst = est; }
+          else hi = mid;
+        }
+        cands.push(pack(okList, okEst));
+        break;
+      }
+      var inR = cands.filter(function (c) { return c.inRange; });
+      if (inR.length) {
+        inR.sort(function (x, y) {
+          var dx = Math.abs(x.monthly - aim), dy = Math.abs(y.monthly - aim);
+          if (Math.abs(dx - dy) > (b.max - b.min) * 0.25) return dx - dy;
+          return y.items.length - x.items.length;
+        });
+        return inR[0];
+      }
+      if (cands.length) {
+        cands.sort(function (x, y) { return x.monthly - y.monthly; });
+        return cands[0];
+      }
+      return best;
     }
 
     function pricePickItemsKey_(items) {
@@ -20222,7 +20609,18 @@
       if (sig.familyNotes && sig.familyNotes.length) html += "Исключили: " + escapeHtml(sig.familyNotes.join(", ")) + ". ";
       if (sig.qty === "low") html += "Мало было → чуть больше. ";
       if (sig.qty === "high") html += "С запасом → чуть меньше. ";
-      if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
+      if (sig.budget && sig.budget.max) {
+        html += "Бюджет " + (sig.budget.kind === "range" ? (sig.budget.min + "–" + sig.budget.max) :
+          (sig.budget.kind === "upto" ? ("до " + sig.budget.max) : ("~" + sig.budget.mid))) + " BYN/мес. ";
+        var bf = payload.budgetFit;
+        if (bf) {
+          html += '<span style="color:' + (bf.inRange && !bf.edited ? "#30d158" : "#ff9f0a") + ';">Набор ' +
+            (bf.approx ? "~" : "") + formatClientRub_(bf.price) + " × 4 = " + formatClientRub_(bf.monthly) +
+            " BYN (" + escapeHtml(bf.basis) + (bf.edited ? ", до правок" : "") + ")</span>. ";
+        } else if (payload.budgetFitPending) {
+          html += "Подгоняем под бюджет… ";
+        }
+      } else if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
       if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
       if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
       if (sig.puppy) html += "Щенок. ";
@@ -20284,6 +20682,7 @@
       if (!isFinite(n) || n < 0) n = 0;
       payload.items[idx].value = n;
       payload.items[idx].val = n;
+      if (payload.budgetFit) payload.budgetFit.edited = true;
       if (!payload.offerDirty) pricePickSyncOffer_(payload);
     }
     window.pricePickSetRowValue_ = pricePickSetRowValue_;
@@ -20292,6 +20691,7 @@
       var payload = pricePickSuggestions_;
       if (!payload || !payload.items) return;
       payload.items.splice(idx, 1);
+      payload.budgetFit = null;
       renderPricePickPreview_(payload.items.length ? payload : null);
     }
     window.pricePickDeleteRow_ = pricePickDeleteRow_;
@@ -20407,7 +20807,7 @@
       var signals = parseAnketSignals_(raw);
       var payload = pricePickComposeForTarget_(signals, pricePickTarget_);
       if (!payload.items.length) {
-        showToast("Не собрал состав — добавь названия лакомств");
+        showToast("Состав не собран — добавь названия лакомств");
         pricePickSuggestions_ = null;
         renderPricePickPreview_(null);
         return;
@@ -20416,8 +20816,28 @@
       payload.anketaText = raw;
       payload.autoKey = pricePickItemsKey_(payload.items);
       payload.offerDirty = false;
+      var wantBudgetFit = !!(signals.budget && signals.budget.max &&
+        (payload.target === "pp" || payload.target === "retail"));
+      payload.budgetFitPending = wantBudgetFit;
       pricePickSuggestions_ = payload;
       renderPricePickPreview_(payload);
+      if (wantBudgetFit) {
+        pricePickFitBudget_(payload).then(function (fit) {
+          if (pricePickSuggestions_ !== payload) return;
+          payload.budgetFitPending = false;
+          if (fit && fit.items && fit.items.length) {
+            payload.items = pricePickCloneItems_(fit.items);
+            payload.autoKey = pricePickItemsKey_(payload.items);
+            payload.budgetFit = fit;
+            showToast("Под бюджет: набор " + formatClientRub_(fit.price) + " × 4 = " +
+              formatClientRub_(fit.monthly) + " BYN" + (fit.inRange ? "" : " — проверь вручную"));
+          }
+          renderPricePickPreview_(payload);
+        }).catch(function () {
+          payload.budgetFitPending = false;
+          if (pricePickSuggestions_ === payload) renderPricePickPreview_(payload);
+        });
+      }
       var trialRun = payload.target === "bp1" || payload.target === "bp2";
       showToast(priceModeLabel_(payload.target) + " собран — " + payload.items.length + " поз." +
         (trialRun ? ", без цены" : ""));
