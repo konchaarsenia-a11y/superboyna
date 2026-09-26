@@ -718,7 +718,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.58";
+  var APP_VER = "3.3.59";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -806,8 +806,8 @@
   var MAX_ORDER_GRAMS = 200;
 
   var QTY_RULES_ = {
-    vr_t_heart: { presets: [50, 100, 150, 200, 250], unit: "г", custom: false },
-    vr_t_lung: { presets: [50, 100, 150, 200, 250], unit: "г", custom: false },
+    vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: false },
+    vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: false },
     vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: false },
     vr_c_nfc: { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 },
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
@@ -2173,7 +2173,7 @@
       return { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 };
     }
     if (QTY_RULES_[it.id]) return QTY_RULES_[it.id];
-    if (it.type === "treat") return { presets: [50, 100, 150, 200, 250], unit: it.unit || "г", custom: false };
+    if (it.type === "treat") return { presets: [50, 100, 150, 200], unit: it.unit || "г", custom: false };
     if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0 || it.id === "vr_c_banner") {
       return { presets: [1], unit: "шт", custom: false, fixed: true };
     }

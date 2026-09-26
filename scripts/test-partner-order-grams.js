@@ -218,6 +218,18 @@ if (!/осталось \" \+ left \+ \" г/.test(varkaSrc)) fail("varka must sho
 if (!/blockGramIncrease_/.test(varkaSrc)) fail("varka must block gram increase");
 if (!/n <= 0 \|\| over/.test(varkaSrc)) fail("submit must be disabled when over the gram cap");
 if (!/id="gramLimitHint"/.test(varkaSrc)) fail("gram hint element missing");
+if (!/vr_t_heart: \{ presets: \[50, 100, 150, 200\], unit: "г", custom: false \}/.test(varkaSrc)) {
+  fail("heart presets must be 50/100/150/200");
+}
+if (!/vr_t_lung: \{ presets: \[50, 100, 150, 200\], unit: "г", custom: false \}/.test(varkaSrc)) {
+  fail("lung presets must be 50/100/150/200");
+}
+if (!/type === "treat"\) return \{ presets: \[50, 100, 150, 200\], unit: it\.unit \|\| "г"/.test(varkaSrc)) {
+  fail("treat fallback presets must be 50/100/150/200");
+}
+if (/presets: \[50, 100, 150, 200, 250\]/.test(varkaSrc)) {
+  fail("250 g preset must be removed from varka");
+}
 if (/шт\s*\*\s*\d+|gramsPer|perPiece|шт→г/.test(extractFn_(workerSrc, "partnerLineWeightGrams_"))) {
   fail("weight helper must not convert pieces to grams");
 }
