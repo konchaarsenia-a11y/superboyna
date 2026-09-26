@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116011";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116012";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2702,6 +2702,110 @@
       }
     }
     window.setOrderType = setOrderType;
+
+    /* Смена типа заказа кнопками ПП/БП/Розница/Партнёр (v71116012):
+       если в форме уже что-то введено — спросить «Перенести» / «Начать с нуля».
+       Программные вызовы setOrderType (редактирование, CRM, сброс) — без вопроса. */
+    var _orderTypeAskOpen = false;
+    function orderFormHasData_() {
+      try {
+        var ids = ["client", "addressInput", "entranceInput", "floorInput", "flatInput",
+          "phoneInput", "postOfficeInput", "igChecklistPaste"];
+        for (var i = 0; i < ids.length; i++) {
+          var el = document.getElementById(ids[i]);
+          if (el && String(el.value || "").trim()) return true;
+        }
+        var price = document.getElementById("orderPriceInput");
+        if (orderType !== "bp" && price) {
+          var pv = String(price.value || "").trim();
+          if (pv && pv !== "0") return true;
+        }
+        if (Array.isArray(basket) && basket.length) return true;
+        if (orderBaskets && ((orderBaskets[1] || []).length || (orderBaskets[2] || []).length)) return true;
+        if ((orderNotes || []).some(function (n) { return n && String(n.text || "").trim(); })) return true;
+      } catch (e) {}
+      return false;
+    }
+
+    function askOrderTypeCarry_(t) {
+      var names = { pp: "ПП", bp: "БП", retail: "Розница", partner: "Партнёр" };
+      var p = openModal(
+        '<div class="modal-title">Смена типа заказа</div>' +
+        '<div class="modal-text">Перенести введённые данные в новый тип заказа?' +
+          '<br><span style="opacity:.7;font-size:13px;">' + escapeHtml(names[orderType] || orderType) +
+          " → " + escapeHtml(names[t] || t) + "</span></div>" +
+        '<div class="modal-actions row">' +
+          '<button class="btn-action" type="button" id="otFresh" data-no-busy style="background:#3a3a3c;">Начать с нуля</button>' +
+          '<button class="btn-action btn-blue" type="button" id="otCarry" data-no-busy>Перенести</button>' +
+        "</div>"
+      );
+      setTimeout(function () {
+        var c = document.getElementById("otCarry");
+        var f = document.getElementById("otFresh");
+        if (c) c.onclick = function () { closeModal("carry"); };
+        if (f) f.onclick = function () { closeModal("fresh"); };
+      }, 0);
+      return p;
+    }
+
+    function resetOrderFormForType_(t) {
+      var editEl = document.getElementById("isEditMode");
+      var isEdit = !!(editEl && editEl.value === "true");
+      var snap = null;
+      if (isEdit) {
+        // редактирование: сохраняем «какой заказ правим» (ник/день/дата), остальное — с нуля
+        var hdr = document.getElementById("appHeaderTitle");
+        var sb = document.getElementById("btnMainSave");
+        var cl = document.getElementById("client");
+        var dy = document.getElementById("day");
+        var dd = document.getElementById("deliveryDate");
+        snap = {
+          client: editOriginalClient, day: editOriginalDay, date: editOriginalDate, key: editOriginalMatchKey,
+          hdr: hdr ? hdr.innerText : "", save: sb ? sb.innerText : "",
+          nick: cl ? cl.value : "", nickRo: cl ? cl.readOnly : false,
+          dayVal: dy ? dy.value : "", dateVal: dd ? dd.value : ""
+        };
+      }
+      resetOrderScreen();
+      if (snap) {
+        editEl.value = "true";
+        editOriginalClient = snap.client;
+        editOriginalDay = snap.day;
+        editOriginalDate = snap.date;
+        editOriginalMatchKey = snap.key;
+        var hdr2 = document.getElementById("appHeaderTitle");
+        if (hdr2) hdr2.innerText = snap.hdr;
+        var sb2 = document.getElementById("btnMainSave");
+        if (sb2) sb2.innerText = snap.save;
+        var cl2 = document.getElementById("client");
+        if (cl2) { cl2.value = snap.nick; cl2.readOnly = snap.nickRo; }
+        var dy2 = document.getElementById("day");
+        if (dy2) dy2.value = snap.dayVal;
+        var dd2 = document.getElementById("deliveryDate");
+        if (dd2) dd2.value = snap.dateVal;
+      }
+      setOrderType(t);
+    }
+
+    async function setOrderTypeUi(t) {
+      if (_orderTypeAskOpen) return;
+      if (t === orderType || !orderFormHasData_()) {
+        setOrderType(t);
+        return;
+      }
+      _orderTypeAskOpen = true;
+      var choice = null;
+      try {
+        choice = await askOrderTypeCarry_(t);
+      } finally {
+        _orderTypeAskOpen = false;
+      }
+      try { recoverUiFocus(); } catch (eF) {}
+      if (choice === "carry") setOrderType(t);
+      else if (choice === "fresh") resetOrderFormForType_(t);
+      // закрыли модалку тапом мимо — тип не меняем
+    }
+    window.setOrderTypeUi = setOrderTypeUi;
 
     function setRetailPaidDelivery(on) {
       retailPaidDelivery = !!on;

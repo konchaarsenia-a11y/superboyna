@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71116011" as="script">
+  <link rel="preload" href="app.main.js?v=71116012" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71116011";
+      var APP_VER = "v71116012";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1680,10 +1680,10 @@
         <div class="form-group">
           <label>Тип</label>
           <div class="seg-row" id="orderTypeRow">
-            <button type="button" class="seg-btn active" id="otPp" onclick="setOrderType('pp')">ПП</button>
-            <button type="button" class="seg-btn" id="otBp" onclick="setOrderType('bp')">БП</button>
-            <button type="button" class="seg-btn" id="otRet" onclick="setOrderType('retail')">Розница</button>
-            <button type="button" class="seg-btn" id="otPart" onclick="setOrderType('partner')">Партнёр</button>
+            <button type="button" class="seg-btn active" id="otPp" onclick="setOrderTypeUi('pp')">ПП</button>
+            <button type="button" class="seg-btn" id="otBp" onclick="setOrderTypeUi('bp')">БП</button>
+            <button type="button" class="seg-btn" id="otRet" onclick="setOrderTypeUi('retail')">Розница</button>
+            <button type="button" class="seg-btn" id="otPart" onclick="setOrderTypeUi('partner')">Партнёр</button>
           </div>
         </div>
         <div class="form-group" id="ppPartnerGroup" style="display:none;">
@@ -2976,7 +2976,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71116011"></script>
-  <script src="app.main.js?v=71116011" defer></script>
+  <script src="courier-maps.js?v=71116012"></script>
+  <script src="app.main.js?v=71116012" defer></script>
 </body>
 </html>
