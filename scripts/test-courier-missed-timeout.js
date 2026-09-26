@@ -46,10 +46,20 @@ assert(parkChunk.indexOf("noCut") >= 0, "park payload keeps noCut");
 assert(parkChunk.indexOf("dropClientFromOpsSnaps_") >= 0, "surgical drop from courier snap");
 
 var placeIdx = worker.indexOf("async function placeTransferTaskD1_");
-var placeChunk = placeIdx >= 0 ? worker.slice(placeIdx, placeIdx + 2800) : "";
+var placeEnd = worker.indexOf("\nasync function delSnap_", placeIdx);
+var placeChunk = placeIdx >= 0 ? worker.slice(placeIdx, placeEnd > placeIdx ? placeEnd : placeIdx + 8000) : "";
 assert(placeChunk.indexOf("parseExplicitCutRaw_") >= 0, "place respects explicit cutRaw");
 assert(placeChunk.indexOf("parkedNoCut") >= 0 || placeChunk.indexOf("noteHasNoCutFlag_") >= 0, "place preserves parked noCut");
-assert(placeChunk.indexOf("_skipInvalidate") >= 0, "place saveOrder skips heavy invalidate");
+assert(placeChunk.indexOf("relocateTransferDelivery_") >= 0, "place relocates one delivery");
+assert(placeChunk.indexOf("_skipInvalidate") >= 0, "place skips heavy invalidate");
+assert(placeChunk.indexOf("saveOrder_(") < 0, "place does not sweep other days via saveOrder_");
+var repIdx = worker.indexOf("async function repairParkedTransfersFromOrders_");
+var repEnd = worker.indexOf("\nfunction stripRepairedTransfers_", repIdx);
+var repBody = repIdx >= 0 ? worker.slice(repIdx, repEnd > repIdx ? repEnd : repIdx + 2000) : "";
+assert(repBody.indexOf("autoClosedActive") < 0, "repair does not auto-close open transfers");
+assert(worker.indexOf("function transferItemPlaceable_") >= 0, "false auto-close still placeable");
+assert(worker.indexOf("function transferSourceIdsToDelete_") >= 0, "only source id is deleted");
+assert(worker.indexOf("function transferPlaceMetaJson_") >= 0, "place copies source meta prices");
 
 var saveIdx = worker.indexOf("async function saveOrder_");
 var saveInv = worker.indexOf("if (!skipHeavyInvalidate_(params))", saveIdx);
@@ -113,6 +123,52 @@ assert(resolvePlaceNoCut_({}, { note: "x [НЕ РЕЗАТЬ]" }) === true, "no c
 assert(resolvePlaceNoCut_({ cutRaw: "1" }, { note: "x [НЕ РЕЗАТЬ]" }) === false, "cutRaw=1 overrides");
 assert(resolvePlaceNoCut_({ cutRaw: "0" }, { note: "" }) === true, "cutRaw=0 sets noCut");
 assert(resolvePlaceNoCut_({ cutRaw: "1" }, { noCut: true }) === false, "explicit cut wins over payload.noCut");
+
+function transferItemPlaceable_(it) {
+  if (!it) return false;
+  var st = String(it.status || "open").toLowerCase();
+  if (!st || st === "open") return true;
+  if (it.autoClosedActive && !it.placed) return true;
+  return false;
+}
+assert(transferItemPlaceable_({ status: "open" }) === true, "open transfer is placeable");
+assert(
+  transferItemPlaceable_({ status: "done", autoClosedActive: true, placed: false }) === true,
+  "false auto-close is still placeable"
+);
+assert(transferItemPlaceable_({ status: "done", placed: true }) === false, "really placed stays closed");
+
+function transferSourceIdsToDelete_(sourceId, targetId) {
+  var s = String(sourceId || "").trim();
+  var t = String(targetId || "").trim();
+  if (!s || s === t) return [];
+  return [s];
+}
+assert(
+  transferSourceIdsToDelete_("Понедельник:ZZZ", "Вторник:ZZZ").join() === "Понедельник:ZZZ",
+  "delete only the source delivery id"
+);
+assert(transferSourceIdsToDelete_("Вторник:ZZZ", "Вторник:ZZZ").length === 0, "same slot id is not deleted");
+assert(transferSourceIdsToDelete_("CAL:ZZZ:2026-09-20", "Среда:ZZZ").indexOf("CAL:ZZZ:2026-09-30") < 0, "other calendar row is not in the delete list");
+
+function transferPlaceMetaJson_(existingRaw, patch) {
+  var ex = {};
+  var inc = patch || {};
+  try { ex = JSON.parse(existingRaw || "{}"); } catch (e) { ex = {}; }
+  var out = {};
+  var k;
+  for (k in ex) if (Object.prototype.hasOwnProperty.call(ex, k)) out[k] = ex[k];
+  for (k in inc) if (Object.prototype.hasOwnProperty.call(inc, k)) out[k] = inc[k];
+  ["orderPrice", "statedCost", "factCost", "clientPrice"].forEach(function (key) {
+    var incomingEmpty = inc[key] == null || inc[key] === "";
+    var existingHas = ex[key] != null && ex[key] !== "";
+    if (incomingEmpty && existingHas) out[key] = ex[key];
+  });
+  return out;
+}
+var kept = transferPlaceMetaJson_('{"orderPrice":42,"statedCost":10,"factCost":7}', { noCut: true });
+assert(kept.orderPrice === 42 && kept.statedCost === 10 && kept.factCost === 7, "relocate keeps source prices");
+assert(kept.noCut === true, "relocate still applies noCut patch");
 
 if (process.exitCode) {
   console.error("courier-missed-timeout contract FAILED");

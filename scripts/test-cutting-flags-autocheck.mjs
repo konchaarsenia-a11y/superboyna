@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
+const gsSrc = fs.readFileSync(path.join(root, "Code.gs"), "utf8");
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -276,6 +277,15 @@ assert(workerSrc.includes("function lookupCuttingFlagRow_"), "overlay fuzzy look
 assert(workerSrc.includes("async function cuttingFlagsDateIso_"), "iso fallback for persist/load");
 assert(workerSrc.includes("async function applyDurableCuttingFlags_"), "GAS path must overlay D1 flags");
 assert(workerSrc.includes("sameCutDate_(snapDate, wantDate)"), "getCutting dateOk uses sameCutDate_");
+assert(workerSrc.includes("function cuttingSnapDateOk_"), "empty cut date is not the same day");
+assert(!workerSrc.includes("!wantDate || !snapDate || sameCutDate_"), "getCutting must not treat a missing date as ok");
+assert(workerSrc.includes("function zeroCuttingItemFlags_"), "date mismatch zeros laid/done/outNext");
+assert(
+  !/const snap = await getSnapRaw_\(env, "cutting:" \+ day\)/.test(
+    workerSrc.slice(workerSrc.indexOf("async function cuttingFlagsDateIso_"), workerSrc.indexOf("async function cuttingFlagsDateIso_") + 500)
+  ),
+  "cutting_flags iso does not fall back to an old snap date"
+);
 assert(!/const dateMismatch = !!\(wantDate && snapDate && snapDate !== wantDate\)/.test(workerSrc), "cutover must not use raw !== date");
 assert(workerSrc.includes("Другая неделя: нарезку пересобрать из D1"), "date mismatch rebuilds D1, not raw GAS");
 assert(workerSrc.includes("cuttingHasItems"), "items+no date is not empty cutting");
@@ -295,6 +305,29 @@ function sameCutDate_(a, b) {
 }
 assert(sameCutDate_("15.09.2026", "2026-09-15"), "DMY vs ISO is same cut date");
 assert(!sameCutDate_("15.09.2026", "16.09.2026"), "other day is not same");
+assert(!sameCutDate_("", "16.09.2026"), "empty snap date is not the same day");
+assert(!sameCutDate_("16.09.2026", ""), "empty want date is not the same day");
+
+function cuttingSnapDateOk_(want, snap) {
+  return sameCutDate_(snap, want);
+}
+assert(!cuttingSnapDateOk_("27.09.2026", ""), "new day does not inherit an undated snap");
+assert(!cuttingSnapDateOk_("27.09.2026", "26.09.2026"), "yesterday flags do not inherit");
+assert(cuttingSnapDateOk_("27.09.2026", "2026-09-27"), "same calendar day keeps manual flags");
+
+const inherited = mergeCuttingFlags_(
+  [{ name: "ЛЁГКОЕ", done: false, laid: false, outNext: false }],
+  [{ name: "ЛЁГКОЕ", done: true, laid: true, outNext: true }],
+  cuttingSnapDateOk_("27.09.2026", "26.09.2026")
+);
+assert(inherited[0].done === false && inherited[0].laid === false, "different day does not copy checks");
+
+assert(uiSrc.includes("sameCutSession"), "UI merges flags only for the same day and date");
+const getCutStart = gsSrc.indexOf("function handleGetCutting");
+const getCutEnd = gsSrc.indexOf("\nfunction ", getCutStart + 20);
+const getCut = gsSrc.slice(getCutStart, getCutEnd > getCutStart ? getCutEnd : getCutStart + 4000);
+assert(!getCut.includes("saveCuttingState_"), "getCutting does not save checkboxes on read");
+assert(getCut.includes("E3:G60"), "leftover sheet checkboxes cleared when this date has no memory");
 
 function cuttingFlagLookupKeys_(it) {
   const keys = [];
