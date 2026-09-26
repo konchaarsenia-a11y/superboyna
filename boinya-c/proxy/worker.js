@@ -10236,6 +10236,62 @@ const PARTNER_CATALOG_STATIC = [
   }
 ];
 
+/** Сумма граммов одного заказа партнёра. Одна константа на все точки. */
+const MAX_ORDER_GRAMS = 200;
+
+function partnerCatalogById_(id) {
+  const want = String(id || "").trim();
+  if (!want) return null;
+  for (let i = 0; i < PARTNER_CATALOG_STATIC.length; i++) {
+    if (String(PARTNER_CATALOG_STATIC[i].id) === want) return PARTNER_CATALOG_STATIC[i];
+  }
+  return null;
+}
+
+function partnerResolveLineMeta_(line) {
+  const cat = partnerCatalogById_(line && line.id);
+  const unit = String((cat && cat.unit) || (line && line.unit) || "").trim().toLowerCase();
+  const type = String((cat && cat.type) || (line && line.type) || "").trim().toLowerCase();
+  return { unit: unit, type: type, qty: Number(line && line.qty) || 0 };
+}
+
+/**
+ * Граммы одной строки. Qty весовой позиции уже в граммах.
+ * Штуки (купон / NFC / баннер) в лимит не входят: конвертации шт→г нет и для лимита она не используется.
+ * Единица из каталога важнее unit, который прислал клиент.
+ */
+function partnerLineWeightGrams_(line) {
+  const meta = partnerResolveLineMeta_(line);
+  if (!(meta.qty > 0)) return 0;
+  if (meta.unit.indexOf("шт") >= 0) return 0;
+  if (meta.type === "coupon") return 0;
+  const u = meta.unit;
+  const isGram = u === "г" || u === "гр" || u === "грамм" || u === "граммов" || u === "g" || u === "gr";
+  if (isGram || meta.type === "treat") return meta.qty;
+  return 0;
+}
+
+function partnerOrderWeightGrams_(basket) {
+  const arr = Array.isArray(basket) ? basket : [];
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) sum += partnerLineWeightGrams_(arr[i]);
+  return sum;
+}
+
+function partnerOrderGramsReject_(basket) {
+  const grams = partnerOrderWeightGrams_(basket);
+  if (grams > MAX_ORDER_GRAMS) {
+    return {
+      status: "error",
+      code: "max_order_grams",
+      message: "Максимум " + MAX_ORDER_GRAMS + " г на один заказ",
+      grams: grams,
+      maxGrams: MAX_ORDER_GRAMS
+    };
+  }
+  return null;
+}
+
 function partnerNormUserWorker_(raw) {
   return String(raw || "")
     .replace(/^@/, "")
@@ -13398,6 +13454,20 @@ async function handleCutover_(a, params, env, ctx) {
         if (env && env.DB) d1P = await mutatePartnerD1_(a, params, env);
       } catch (eP) {
         d1P = { status: "error", message: String((eP && eP.message) || eP) };
+      }
+      // Лимит граммов уже решён в D1 — не звать GAS, иначе зеркало запишет заказ.
+      if (
+        /^partnerSubmitOrder$/i.test(a) &&
+        d1P &&
+        d1P.status === "error" &&
+        String(d1P.code || "") === "max_order_grams"
+      ) {
+        return Object.assign({}, d1P, {
+          cutover: true,
+          fromD1: true,
+          partnerCanon: partnerCanonLabel_(env),
+          action: a
+        });
       }
       // Worker шлёт TG сразу; GAS зеркало без повторных пушей + тот же order id (без дубля в Заказах)
       if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
@@ -22802,6 +22872,8 @@ async function mutatePartnerD1_(action, params, env) {
         if (!reason) return { status: "error", message: "nfc_need_reason" };
       }
     }
+    const gramsReject = partnerOrderGramsReject_(basket);
+    if (gramsReject) return gramsReject;
     let allowed = false;
     let networkId = String((params && params.networkId) || "").trim();
     let locationName = String((params && params.locationName) || "").trim();

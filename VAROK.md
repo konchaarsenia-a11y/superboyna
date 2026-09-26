@@ -144,6 +144,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
+- [~] **Лимит 200 г на заказ:** `MAX_ORDER_GRAMS = 200` для всех точек. Весовые позиции суммируются в граммах; штуки (купон / NFC / баннер) не входят. UI + Worker + `partnerSubmitOrder`. Старые заявки не трогаем. Pages varka `3.3.58` · **нужен Worker Deploy** + **Deploy Code.gs**
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
