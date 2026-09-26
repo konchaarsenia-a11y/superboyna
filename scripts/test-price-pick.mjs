@@ -103,6 +103,12 @@ const code = [
   "pricePickComposeForTarget_",
   "pricePickSkuTitle_",
   "pricePickSectionTitle_",
+  "pricePickParseBudgetSeg_",
+  "pricePickParseBudget_",
+  "pricePickDogProfile_",
+  "pricePickJoinRu_",
+  "pricePickWhyItem_",
+  "pricePickVegWhy_",
   "pricePickOfferText_"
 ].map(extract).join("\n");
 
@@ -114,7 +120,7 @@ new Function(
   "exports",
   "function priceModeKey(mode){var m=String(mode||'').toLowerCase();if(m==='retail')return 'retail';if(m==='bp1')return 'bp1';if(m==='bp2')return 'bp2';return 'pp';}\n" +
     code +
-    ";\nexports.parseAnketSignals_=parseAnketSignals_;\nexports.pricePickComposeForTarget_=pricePickComposeForTarget_;\nexports.pricePickOfferText_=pricePickOfferText_;\nexports.pricePickFindExample_=pricePickFindExample_;\nexports.pricePickExampleScore_=pricePickExampleScore_;\nexports.pricePickFlags_=pricePickFlags_;"
+    ";\nexports.parseAnketSignals_=parseAnketSignals_;\nexports.pricePickComposeForTarget_=pricePickComposeForTarget_;\nexports.pricePickOfferText_=pricePickOfferText_;\nexports.pricePickFindExample_=pricePickFindExample_;\nexports.pricePickExampleScore_=pricePickExampleScore_;\nexports.pricePickFlags_=pricePickFlags_;exports.pricePickParseBudget_=pricePickParseBudget_;exports.pricePickDogProfile_=pricePickDogProfile_;"
 )(buildIgKnownMap, igAliasResolve, parseIgLinesToItems, fns);
 
 {
@@ -287,6 +293,36 @@ function grams(payload, name) {
   assert.ok(/Как вам такой состав/.test(offer));
   assert.ok(!/BYN|бел\.?\s*руб|₽/i.test(offer), offer);
   assert.equal(bp1.target, "bp1");
+}
+
+{
+  // Описание по анкете: кличка/порода/возраст, «почему», голос «мы»
+  const txt = "1. Ирина, питомец Джей\n2. Венгерская выжла, 6 лет, 35 кг\n4. Да, занимаемся ОКД, 70/30\n5. Давали лёгкое, понравилось. Не понравилась трахея\n6. Аллергия на рыбу\n7. Нужно лёгкое\n10. 50-80\n11. Мелкие кубики";
+  const sig = fns.parseAnketSignals_(txt);
+  assert.equal(sig.profile.name, "Джей");
+  assert.equal(sig.profile.breed, "венгерская выжла");
+  assert.equal(sig.profile.age, "6 лет");
+  assert.ok(sig.profile.training);
+  assert.deepEqual([sig.budget.min, sig.budget.max], [50, 80]);
+  const r = fns.pricePickComposeForTarget_(sig, "bp1");
+  const offer = fns.pricePickOfferText_(sig, "bp1", r.items);
+  assert.ok(/Джей — венгерская выжла, 6 лет, 35 кг\./.test(offer), offer);
+  assert.ok(/Почему именно это:/.test(offer) && /Что учли:/.test(offer), offer);
+  assert.ok(/рыбу/.test(offer), "allergy mentioned");
+  assert.ok(!/(собрала|подобрала|учла|оставила|исключила|добавила|посчитаю|подстрою|Не беру)/i.test(offer), "team voice only: " + offer);
+  assert.ok(/собрали/.test(offer));
+  assert.ok(!/BYN|₽/.test(offer));
+  // пустая анкета — без выдуманных фактов
+  const empty = fns.parseAnketSignals_("Щенок, первая коробка");
+  const eo = fns.pricePickOfferText_(empty, "bp1", fns.pricePickComposeForTarget_(empty, "bp1").items);
+  assert.ok(!/undefined|null/.test(eo) && !/ — ,/.test(eo), eo);
+  // бюджет: форматы
+  const B = (t) => { const b = fns.pricePickParseBudget_(t); return b && [b.min, b.max]; };
+  assert.deepEqual(B("5. Любит рубец\n10. 30 50"), [30, 50]);
+  assert.deepEqual(B("бюджет 30-50"), [30, 50]);
+  assert.deepEqual(B("10. до 50 BYN"), [35, 50]);
+  assert.deepEqual(B("Бюджет около 100 руб"), [85, 110]);
+  assert.equal(B("Любит рубец, 13 кг"), null, "рубец is not руб");
 }
 
 console.log("test-price-pick: OK");
