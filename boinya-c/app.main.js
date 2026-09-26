@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116003";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116004";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20198,124 +20198,31 @@
       return arr.slice(0, -1).join(", ") + " и " + arr[arr.length - 1];
     }
 
-    function pricePickWhyItem_(name, prof, signals) {
-      prof = prof || {};
-      var n = String(name || "").toUpperCase();
-      var t = prof.training;
-      var why = {
-        "ЛЁГКОЕ": t
-          ? "нежирное, крошится без жирных рук и съедается за секунду, идеально для частых поощрений на тренировке"
-          : (prof.small ? "нежирное и лёгкое, можно давать часто маленькими кусочками без риска перекормить"
-            : "нежирное и лёгкое, можно давать часто, не боясь перекормить"),
-        "БАРАНЬЕ ЛЁГКОЕ": (prof.allergy && prof.allergy.length)
-          ? "баранина, другой белок: удобно, когда часть привычного мяса нельзя"
-          : "новый вкус при той же лёгкости, чтобы дрессура не приедалась",
-        "СЕРДЦЕ": t
-          ? "плотное и очень ароматное, держит внимание там, где вокруг много отвлекающего"
-          : "плотное и ароматное, хорошая награда за спокойное поведение дома",
-        "РУБЕЦ Т": prof.fussy
-          ? "самый пахучий в наборе, выручает даже с разборчивыми собаками"
-          : "самый пахучий, собаки его обожают: работает как «джекпот» за сложное",
-        "ПОЧКИ": "нежные и с ярким вкусом, разнообразят дрессуру, чтобы не приедалось",
-        "ПЕЧЕНЬ": "очень сытная и ароматная, даём понемногу как суперприз",
-        "ИНДЕЙКА": "нежное нежирное мясо, мягкое для желудка",
-        "ВЫМЯ": "мягкое и жуётся легко, подходит, когда зубам нужна деликатность",
-        "СЕМЕННИКИ": "мягкие и пахучие, нравятся почти всем собакам",
-        "БЫЧИЙ КОРЕНЬ": prof.teeth
-          ? "грызётся долго и механически счищает налёт с зубов"
-          : ((prof.chewer || prof.large) ? "долгая жевалка: занимает надолго и помогает снять напряжение"
-            : "занимает надолго и помогает спокойно расслабиться после прогулки"),
-        "ТРАХЕЯ": prof.teething
-          ? "упругая и хрустящая, приятно чесать дёсны, пока меняются зубы"
-          : "хрустящая, с натуральным хрящом: и занятие, и польза для зубов",
-        "АОРТА": prof.teething
-          ? "упругая, мягко массирует дёсны при смене зубов"
-          : "упругая и долго жуётся, спокойное занятие на вечер",
-        "ЛОП ХРЯЩ ШТ.": "хрустит и помогает чистить зубы, натуральный хрящ без лишнего жира",
-        "УХО Г": "классическая долгая жевалка, её любят почти все собаки",
-        "УХО К": "маленькое и лёгкое, для быстрого перекуса",
-        "НОСЫ ШТ.": "хрустящий и жуётся недолго, для короткой паузы",
-        "СТАНОВАЯ ЖИЛА": (prof.large || prof.chewer)
-          ? "очень прочная, надолго даже для сильных челюстей"
-          : "прочная и грызётся долго",
-        "ПЕРЕПЁЛКИ ШТ.": "целиковая натуральная еда, интересно разгрызать",
-        "УТИНЫЕ ШЕИ ШТ.": "хрустящие косточки, помогают чистить зубы",
-        "КОЛЕНИ ШТ.": "крупный хрящ, долгое занятие",
-        "ГУБЫ ШТ.": "мягкая жевалка, подходит при чувствительных зубах"
-      };
-      var s = why[n] || "";
-      if (!s) return "";
-      var mustHit = (signals.must || []).some(function (x) { return String(x).toUpperCase() === n; });
-      var likedHit = (signals.liked || []).some(function (x) { return String(x).toUpperCase() === n; });
-      if (mustHit) s += " (вы об этом просили)";
-      else if (likedHit) s += " (по анкете это любимое)";
-      return s;
-    }
-
-    function pricePickVegWhy_(names, prof) {
-      var up = (names || []).map(function (x) { return String(x).toUpperCase(); });
-      if (prof && prof.stomach) return "немного клетчатки, мягко поддерживают пищеварение";
-      if (up.indexOf("МОРКОВЬ") >= 0 || up.indexOf("ЯБЛОКИ") >= 0) return "хрустят, освежают и почти без калорий";
-      return "немного клетчатки и лёгкая награда без лишних калорий";
+    /** Винительный падеж для названий позиций/продуктов: трахея → трахею, утиная шея → утиную шею. */
+    function pricePickAccRu_(s) {
+      return String(s || "").split(" ").map(function (w) {
+        if (/ая$/.test(w)) return w.replace(/ая$/, "ую");
+        if (/яя$/.test(w)) return w.replace(/яя$/, "юю");
+        if (/[^аеёиоуыэюя]а$/.test(w)) return w.replace(/а$/, "у");
+        if (/я$/.test(w)) return w.replace(/я$/, "ю");
+        return w;
+      }).join(" ");
     }
 
     function pricePickOfferText_(signals, target, items) {
       signals = signals || {};
       var prof = signals.profile || {};
-      var lines = [];
+      items = items || [];
+      var name = prof.name || "";
+      var lower = function (n) { return pricePickSkuTitle_(n).toLowerCase(); };
       var boxWord = target === "bp2" ? "вторую пробную коробку"
         : (target === "bp1" ? "первую пробную коробку"
           : (target === "retail" ? "набор" : "набор на подписку"));
-      lines.push("Спасибо за подробные ответы! Внимательно прочитали анкету и собрали " + boxWord + ".");
-
-      var facts = [prof.breed, prof.age, prof.weight].filter(Boolean);
-      if (facts.length) {
-        lines.push("");
-        lines.push((prof.name ? prof.name : "Ваш питомец") + " — " + facts.join(", ") + ".");
-      }
-
-      var hasCat = function (c) { return (items || []).some(function (it) { return it && it.cat === c; }); };
-      var took = [];
-      if (prof.training && hasCat("dressura")) {
-        took.push("вы занимаетесь дрессировкой" + (prof.trainRatio ? " (" + prof.trainRatio + ")" : "") +
-          " — основа набора мягкая дрессура, которую удобно быстро выдавать");
-      }
-      if (prof.activity === "high" && hasCat("dressura") && !prof.training) {
-        took.push("день у вас активный — взяли дрессуру, которую удобно брать с собой на прогулку");
-      }
-      if (prof.allergy && prof.allergy.length) {
-        took.push("исключили " + pricePickJoinRu_(prof.allergy.map(function (a) {
-          return a === "курица" ? "курицу" : (a === "рыба" ? "рыбу" : (a === "индейка" ? "индейку" : (a === "птица" ? "птицу" : a)));
-        })) + " полностью");
-      }
-      var dis = (signals.disliked || []).filter(function (n) {
-        var up = String(n).toUpperCase();
-        return !((prof.allergy || []).length && /^(УХО К|УТИНЫЕ ШЕИ|ПЕРЕПЁЛКИ|ИНДЕЙКА)/.test(up));
-      });
-      if (dis.length) {
-        took.push(pricePickJoinRu_(dis.map(function (n) { return pricePickSkuTitle_(n).toLowerCase(); })) +
-          " — убрали, вы писали, что не подходит");
-      }
-      if (prof.stomach) took.push("чувствительный желудок — начинаем с небольших порций и мягких позиций");
-      if (prof.teething && hasCat("chew")) took.push("меняются зубы — есть что погрызть, чтобы дёснам было легче");
-      else if (prof.teeth && hasCat("chew")) took.push("налёт на зубах — добавили жевалки, которые помогают его счищать");
-      else if (prof.chewer && hasCat("chew")) took.push("любит погрызть — положили долгие жевалки");
-      if (signals.fracPref && hasCat("dressura")) {
-        var fr = signals.fracPref;
-        var frText = fr === "очень мелк" ? "очень мелкие кусочки" : (fr === "мелк" ? "мелкие кубики" :
-          (fr === "крупн" ? "крупные кусочки" : (fr === "средн" ? "средние кусочки" :
-            (fr === "ломтик" ? "ломтики" : (fr === "полоск" ? "полоски" : "")))));
-        if (frText) took.push("нарезка — " + frText + ", как вам удобнее");
-      }
-      if (took.length) {
-        lines.push("");
-        lines.push("Что учли:");
-        took.forEach(function (t) { lines.push("• " + t.charAt(0).toUpperCase() + t.slice(1)); });
-      }
-
+      var lines = [];
+      lines.push("Спасибо за ответы! Собрали " + boxWord + ":");
       lines.push("");
       var last = "";
-      (items || []).forEach(function (it) {
+      items.forEach(function (it) {
         var title = pricePickSectionTitle_(it.cat);
         if (title !== last) {
           if (last) lines.push("");
@@ -20330,45 +20237,72 @@
         lines.push(pricePickSkuTitle_(it.main || it.name) + " — " + val + " " + unit + sub);
       });
 
-      var whyLines = [];
-      var seen = {};
-      var veg = [];
-      (items || []).forEach(function (it) {
-        var nm = String(it.main || it.name || "");
-        if (!nm || seen[nm.toUpperCase()]) return;
-        seen[nm.toUpperCase()] = true;
-        if (it.cat === "veg") { veg.push(nm); return; }
-        var w = pricePickWhyItem_(nm, prof, signals);
-        if (w) whyLines.push("• " + pricePickSkuTitle_(nm) + " — " + w + ".");
+      var names = function (cat) {
+        var out = [];
+        items.forEach(function (it) {
+          if (it && it.cat === cat) {
+            var nm = lower(it.main || it.name);
+            if (out.indexOf(nm) < 0) out.push(nm);
+          }
+        });
+        return out;
+      };
+      var dress = names("dressura").slice(0, 2);
+      var chews = names("chew").slice(0, 2);
+      var liked = (signals.liked || []).filter(function (n) {
+        return items.some(function (it) { return String(it.main || it.name).toUpperCase() === String(n).toUpperCase(); });
+      }).map(lower);
+      var who = name || "питомец";
+      var said = [];
+
+      // 1) исключения
+      var excl = (prof.allergy || []).map(function (a) { return pricePickAccRu_(a); });
+      (signals.disliked || []).forEach(function (n) {
+        var up = String(n).toUpperCase();
+        if ((prof.allergy || []).length && /^(УХО К|УТИНЫЕ ШЕИ|ПЕРЕПЁЛКИ|ИНДЕЙКА)/.test(up)) return;
+        var t = pricePickAccRu_(lower(n));
+        if (excl.indexOf(t) < 0) excl.push(t);
       });
-      if (veg.length) {
-        whyLines.push("• " + pricePickJoinRu_(veg.map(function (v, i) {
-          var tt = pricePickSkuTitle_(v);
-          return i ? tt.toLowerCase() : tt;
-        })) + " — " + pricePickVegWhy_(veg, prof) + ".");
+      if (excl.length) said.push(pricePickJoinRu_(excl).replace(/^./, function (c) { return c.toUpperCase(); }) + " не кладём, как вы и писали.");
+
+      // 2) дрессура / щенок
+      if (dress.length) {
+        if (prof.training) {
+          said.push("Раз " + (name ? name + " занимается" : "вы занимаетесь") + " дрессировкой, основа — " +
+            pricePickJoinRu_(dress) + ": нежирно, ароматно и удобно быстро давать на тренировке.");
+        } else if (prof.puppy) {
+          said.push("Для щенка взяли мягкое и мелкое — " + pricePickJoinRu_(dress) + " легко жевать и удобно давать часто.");
+        } else {
+          said.push(pricePickJoinRu_(dress).replace(/^./, function (c) { return c.toUpperCase(); }) +
+            " — нежирные и ароматные, их удобно давать часто.");
+        }
       }
-      if (whyLines.length) {
+      if (prof.stomach) said.push("Из-за чувствительного желудка начнём с небольших порций.");
+
+      // 3) жевалки / зубы
+      if (chews.length) {
+        var ch = pricePickJoinRu_(chews);
+        if (prof.teething) said.push("Пока меняются зубы, " + ch + " помогут почесать дёсны.");
+        else if (prof.teeth) said.push("Для зубов добавили " + pricePickAccRu_(ch) + " — их долго грызть, и они помогают счищать налёт.");
+        else if (prof.chewer) said.push((name ? name + " любит" : "Любит") + " погрызть, поэтому есть " + ch + " — это надолго.");
+      }
+      var likedRest2 = liked.filter(function (n) { return dress.indexOf(n) < 0 && chews.indexOf(n) < 0; });
+      if (likedRest2.length) said.push("Проверенный вкус (" + pricePickJoinRu_(likedRest2.slice(0, 2)) + ") тоже на месте.");
+      if (said.length) {
         lines.push("");
-        lines.push("Почему именно это:");
-        whyLines.slice(0, 7).forEach(function (w) { lines.push(w); });
+        lines.push(said.slice(0, 3).join(" "));
       }
 
       lines.push("");
-      var who = prof.name || "";
       if (target === "bp1") {
-        lines.push("Первая пробная неделя — посмотрите, что " + (who || "питомец") +
-          " ест с удовольствием, а что обходит стороной. По реакции соберём вторую коробку.");
+        lines.push("Посмотрите за неделю, что " + who + " ест с удовольствием, — по реакции соберём вторую коробку. Как вам такой состав?");
       } else if (target === "bp2") {
-        lines.push("Вторая пробная неделя — смотрим, что закрепилось после первой коробки и что лучше заменить.");
+        lines.push("Смотрим, что закрепилось после первой коробки, и дальше подстроим. Как вам такой состав?");
       } else if (target === "retail") {
-        lines.push("Это розница. Если расход станет регулярным, можно перейти на подписку — состав тот же, цену посчитаем отдельно.");
+        lines.push("Если понравится, можно перейти на подписку с тем же составом. Как вам такой вариант?");
       } else {
-        var n = signals.deliveriesN || 1;
-        var word = n === 1 ? "доставка" : (n < 5 ? "доставки" : "доставок");
-        lines.push("Подписка: " + n + " " + word + " в месяц, связь 24/7, можно подключить партнёра. Цену посчитаем отдельно, в этом тексте её нет.");
+        lines.push("Как вам такой состав? Цену пришлём отдельно.");
       }
-      lines.push("");
-      lines.push("Как вам такой состав? Готовы попробовать?");
       return lines.join("\n");
     }
 
@@ -20376,8 +20310,16 @@
     async function pricePickEstimateSetPrice_(items, target) {
       var list = pricePickCloneItems_(items || []);
       var retail = calcRetailBasketTotal(list, { deliveriesN: 1 });
-      if (target === "retail") return { price: Number(retail.total) || 0, basis: "розница", approx: false };
-      var price = 0;
+      if (target === "retail") {
+        return {
+          price: Number(retail.total) || 0,
+          goods: Number(retail.goods) || 0,
+          fixed: Number(retail.delivery) || 0,
+          basis: "розница",
+          approx: false
+        };
+      }
+      var price = 0, goods = NaN, fixed = NaN;
       var approx = false;
       try {
         var slim = list.map(function (it) { return serializeBasketItem_(it); });
@@ -20389,16 +20331,31 @@
           forNew: 1,
           timeoutMs: 15000
         });
-        if (res) price = Number(raw26ApiFactPrice_(res)) || Number(res.factCost) || 0;
+        if (res) {
+          price = Number(raw26ApiFactPrice_(res)) || Number(res.factCost) || 0;
+          fixed = (Number(res.deliveryByn) || 0) + (Number(res.packagesByn) || 0);
+          goods = res.goodsByn != null ? Number(res.goodsByn) : price - fixed;
+        }
       } catch (eEst) { price = 0; }
       if (!(price > 0)) {
         price = Math.round((Number(retail.total) || 0) * 0.92 * 100) / 100;
+        fixed = typeof PP_RAW26_DELIVERY_PER === "number" ? PP_RAW26_DELIVERY_PER : 9;
+        goods = Math.max(0, price - fixed);
         approx = true;
       }
       price = capOfferSubToDisplayedRetail_(price, retail.total) || price;
-      return { price: Math.round(price * 100) / 100, basis: "подписка", approx: approx };
+      if (!isFinite(goods)) goods = Math.max(0, price - (fixed || 0));
+      if (!isFinite(fixed)) fixed = Math.max(0, price - goods);
+      return {
+        price: Math.round(price * 100) / 100,
+        goods: Math.round(Math.max(0, goods) * 100) / 100,
+        fixed: Math.round(Math.max(0, fixed) * 100) / 100,
+        basis: "подписка",
+        approx: approx
+      };
     }
 
+    /** Масштаб граммов/штук; пол — 10 г (или меньше, если было меньше), 1 шт. */
     function pricePickScaleForBudget_(items, f) {
       return (items || []).map(function (it) {
         var copy = Object.assign({}, it);
@@ -20406,31 +20363,42 @@
         var v = Number(copy.value != null ? copy.value : copy.val) || 0;
         var nv;
         if (piece) nv = Math.max(1, Math.round(v * f));
-        else nv = Math.max(Math.min(v, 20), Math.round((v * f) / 5) * 5);
+        else nv = Math.max(Math.min(v, 10), Math.round((v * f) / 5) * 5);
         copy.value = nv;
         copy.val = nv;
         return copy;
       });
     }
 
+    /** Убрать самую дорогую позицию: сначала не лайки/обязательные, потом любые; остаётся ≥1 дрессура. */
     function pricePickDropPriciest_(items, signals) {
-      if (!items || items.length <= 4) return null;
-      var catCount = {};
-      items.forEach(function (it) { catCount[it.cat] = (catCount[it.cat] || 0) + 1; });
+      if (!items || items.length <= 1) return null;
       var keep = {};
       (signals.must || []).concat(signals.liked || []).forEach(function (n) { keep[String(n).toUpperCase()] = true; });
-      var worst = -1;
-      var worstCost = -1;
-      items.forEach(function (it, i) {
-        var nm = String(it.main || it.name || "").toUpperCase();
-        if (keep[nm] || (catCount[it.cat] || 0) <= 1) return;
-        var c = retailLineCost(it.main || it.name, it.sub || "", it.value != null ? it.value : it.val, it.cat, {}).cost || 0;
-        if (c > worstCost) { worstCost = c; worst = i; }
-      });
-      if (worst < 0) return null;
-      return items.filter(function (_, i) { return i !== worst; });
+      var dressN = items.filter(function (it) { return it.cat === "dressura"; }).length;
+      function pick(strict) {
+        var worst = -1, worstCost = -1;
+        items.forEach(function (it, i) {
+          var nm = String(it.main || it.name || "").toUpperCase();
+          if (strict && keep[nm]) return;
+          if (it.cat === "dressura" && dressN <= 1) return;
+          var c = retailLineCost(it.main || it.name, it.sub || "", it.value != null ? it.value : it.val, it.cat, {}).cost || 0;
+          if (c > worstCost) { worstCost = c; worst = i; }
+        });
+        return worst;
+      }
+      var w = pick(true);
+      if (w < 0) w = pick(false);
+      if (w < 0) return null;
+      return items.filter(function (_, i) { return i !== w; });
     }
 
+    /**
+     * Бюджет всегда соблюдаем: цена набора × 4 ≤ верх бюджета.
+     * Сначала граммы (до 10 г / 1 шт), потом убираем позиции до 1–2.
+     * Если даже минимум не влезает из-за доставки/упаковки — бюджет на товар (без доставки и упаковки),
+     * goodsOnly=true + minMonthly для менеджера.
+     */
     async function pricePickFitBudget_(payload) {
       if (!payload || !payload.items || !payload.items.length) return null;
       var target = payload.target;
@@ -20438,68 +20406,76 @@
       var sig = payload.signals || {};
       var b = sig.budget;
       if (!b || !(b.max > 0)) return null;
-      var aim = b.kind === "upto" ? b.max * 0.9 : (b.kind === "single" ? b.max * 0.92 : b.mid);
+      var aim = Math.min(b.max, b.kind === "upto" ? b.max * 0.9 : (b.kind === "single" ? b.max * 0.92 : b.mid));
       var cache = {};
-      async function evalItems(list) {
+      async function est(list) {
         var k = pricePickItemsKey_(list);
         if (!cache[k]) cache[k] = await pricePickEstimateSetPrice_(list, target);
         return cache[k];
       }
-      function pack(list, est) {
-        var m4 = Math.round(est.price * 4 * 100) / 100;
-        return {
-          items: list, price: est.price, monthly: m4, budget: b, basis: est.basis,
-          approx: est.approx, inRange: m4 <= b.max && m4 >= b.min
-        };
+      var goodsOnly = false;
+      function val(e) { return (goodsOnly ? e.goods : e.price) * 4; }
+
+      // самый маленький разумный набор: одна дрессура (самая дешёвая, лучше из лайков) на 10 г
+      var base0 = pricePickCloneItems_(payload.items);
+      var minimal = base0.slice();
+      var guard = 0;
+      while (minimal.length > 1 && guard++ < 20) {
+        var d = pricePickDropPriciest_(minimal, sig);
+        if (!d) break;
+        minimal = d;
       }
-      var base = pricePickCloneItems_(payload.items);
-      var best = null;
-      var cands = [];
-      for (var round = 0; round < 4; round++) {
-        var est1 = await evalItems(base);
-        if (!(est1.price > 0)) return null;
-        var m1 = est1.price * 4;
-        if (m1 <= b.max && m1 >= b.min) { cands.push(pack(base, est1)); break; }
-        var lo = 0.15, hi = 1;
-        if (m1 < b.min) { lo = 1; hi = 3; }
-        var okList = null, okEst = null;
-        var loList = pricePickScaleForBudget_(base, lo);
-        var loEst = await evalItems(loList);
-        if (m1 > b.max && loEst.price * 4 > aim) {
-          var cand = pack(loList, loEst);
-          cands.push(cand);
-          best = cand;
+      minimal = pricePickScaleForBudget_(minimal, 0.01);
+      var minEst = await est(minimal);
+      if (!(minEst.price > 0)) return null;
+      var minMonthly = Math.round(minEst.price * 4 * 100) / 100;
+      if (minMonthly > b.max) goodsOnly = true;
+
+      var base = base0;
+      var result = null;
+      for (var round = 0; round < 12 && !result; round++) {
+        var e1 = await est(base);
+        if (val(e1) <= b.max) {
+          if (val(e1) >= Math.min(b.min, aim) || round > 0) { result = { items: base, e: e1 }; break; }
+          result = { items: base, e: e1 };
+          break;
+        }
+        var floorList = pricePickScaleForBudget_(base, 0.01);
+        var eF = await est(floorList);
+        if (val(eF) > b.max) {
           var dropped = pricePickDropPriciest_(base, sig);
-          if (!dropped) break;
+          if (!dropped) { result = { items: floorList, e: eF }; break; }
           base = dropped;
           continue;
         }
-        if (m1 < b.min) { okList = base; okEst = est1; }
-        else { okList = loList; okEst = loEst; }
+        var lo = 0.01, hi = 1, okL = floorList, okE = eF;
         for (var it = 0; it < 7; it++) {
           var mid = (lo + hi) / 2;
-          var list = pricePickScaleForBudget_(base, mid);
-          var est = await evalItems(list);
-          if (est.price * 4 <= aim) { lo = mid; okList = list; okEst = est; }
+          var l = pricePickScaleForBudget_(base, mid);
+          var e = await est(l);
+          if (val(e) <= aim) { lo = mid; okL = l; okE = e; }
           else hi = mid;
         }
-        cands.push(pack(okList, okEst));
-        break;
+        result = { items: okL, e: okE };
       }
-      var inR = cands.filter(function (c) { return c.inRange; });
-      if (inR.length) {
-        inR.sort(function (x, y) {
-          var dx = Math.abs(x.monthly - aim), dy = Math.abs(y.monthly - aim);
-          if (Math.abs(dx - dy) > (b.max - b.min) * 0.25) return dx - dy;
-          return y.items.length - x.items.length;
-        });
-        return inR[0];
-      }
-      if (cands.length) {
-        cands.sort(function (x, y) { return x.monthly - y.monthly; });
-        return cands[0];
-      }
-      return best;
+      if (!result) return null;
+      var r = result.e;
+      return {
+        items: result.items,
+        price: r.price,
+        goods: r.goods,
+        fixed: r.fixed,
+        monthly: Math.round(r.price * 4 * 100) / 100,
+        goodsMonthly: Math.round(r.goods * 4 * 100) / 100,
+        minMonthly: minMonthly,
+        minPrice: minEst.price,
+        minFixed: minEst.fixed,
+        goodsOnly: goodsOnly,
+        budget: b,
+        basis: r.basis,
+        approx: r.approx,
+        inRange: (goodsOnly ? r.goods : r.price) * 4 <= b.max
+      };
     }
 
     function pricePickItemsKey_(items) {
@@ -20614,9 +20590,15 @@
           (sig.budget.kind === "upto" ? ("до " + sig.budget.max) : ("~" + sig.budget.mid))) + " BYN/мес. ";
         var bf = payload.budgetFit;
         if (bf) {
-          html += '<span style="color:' + (bf.inRange && !bf.edited ? "#30d158" : "#ff9f0a") + ';">Набор ' +
-            (bf.approx ? "~" : "") + formatClientRub_(bf.price) + " × 4 = " + formatClientRub_(bf.monthly) +
-            " BYN (" + escapeHtml(bf.basis) + (bf.edited ? ", до правок" : "") + ")</span>. ";
+          var okCol = bf.inRange && !bf.edited ? "#30d158" : "#ff9f0a";
+          html += '<span style="color:' + okCol + ';">Набор ' + (bf.approx ? "~" : "") + formatClientRub_(bf.price) +
+            " × 4 = " + formatClientRub_(bf.monthly) + " BYN (" + escapeHtml(bf.basis) + (bf.edited ? ", до правок" : "") + ")";
+          if (bf.goodsOnly) {
+            html += ". Бюджет применён к товару: " + formatClientRub_(bf.goods) + " × 4 = " + formatClientRub_(bf.goodsMonthly) +
+              " BYN; доставка+упаковка " + formatClientRub_(bf.fixed) + "/нед сверх. Минимум с доставкой — " +
+              formatClientRub_(bf.minPrice) + " × 4 = " + formatClientRub_(bf.minMonthly) + " BYN";
+          }
+          html += "</span>. ";
         } else if (payload.budgetFitPending) {
           html += "Подгоняем под бюджет… ";
         }
@@ -20829,8 +20811,10 @@
             payload.items = pricePickCloneItems_(fit.items);
             payload.autoKey = pricePickItemsKey_(payload.items);
             payload.budgetFit = fit;
-            showToast("Под бюджет: набор " + formatClientRub_(fit.price) + " × 4 = " +
-              formatClientRub_(fit.monthly) + " BYN" + (fit.inRange ? "" : " — проверь вручную"));
+            showToast(fit.goodsOnly
+              ? ("Бюджет ниже минимума с доставкой (" + formatClientRub_(fit.minMonthly) + " BYN/мес) — подогнали товар: " +
+                formatClientRub_(fit.goodsMonthly) + " BYN/мес")
+              : ("Под бюджет: набор " + formatClientRub_(fit.price) + " × 4 = " + formatClientRub_(fit.monthly) + " BYN"));
           }
           renderPricePickPreview_(payload);
         }).catch(function () {
