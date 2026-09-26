@@ -110,6 +110,305 @@ function authOwnerIds_(env) {
   return ids;
 }
 
+/* ===================== NOTIFY KEYS (v71116013) =====================
+ * Ключи staff-уведомлений + дефолты ролей — ТОЧНО как в Code.gs (NOTIFY_ROLE_DEFAULTS).
+ * Персональный оверрайд — D1 listAccess.people[].notify ("+key,-key"; пусто = по роли) ↔ «Доступы» колонка J.
+ */
+const NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "gb_lead"];
+const NOTIFY_ROLE_DEFAULTS = {
+  owner: NOTIFY_KEYS.slice(),
+  manager: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey"],
+  cutter: ["cut_deficit", "out_next", "cut_increase"],
+  logistics: ["wh_buy", "cut_deficit", "out_next"],
+  courier: [],
+  all: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey", "cut_deficit", "out_next", "cut_increase"]
+};
+/** Ключи, для которых список «ответственных» из хаба Партнёров — базовые получатели. */
+const NOTIFY_HUB_KEYS = ["partner_order", "partner_suggest"];
+
+function notifyParseOverride_(raw) {
+  const out = { plus: {}, minus: {} };
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return out;
+  s.split(/[,;\s]+/).forEach(function (part) {
+    let t = String(part || "").trim();
+    if (!t) return;
+    let sign = "+";
+    if (t.charAt(0) === "+" || t.charAt(0) === "-") {
+      sign = t.charAt(0);
+      t = t.slice(1);
+    }
+    t = t.toLowerCase();
+    if (NOTIFY_KEYS.indexOf(t) < 0) return;
+    if (sign === "-") {
+      out.minus[t] = true;
+      delete out.plus[t];
+    } else {
+      out.plus[t] = true;
+      delete out.minus[t];
+    }
+  });
+  return out;
+}
+
+function notifyFormatOverride_(raw) {
+  const o = raw && typeof raw === "object" && raw.plus ? raw : notifyParseOverride_(raw);
+  const out = [];
+  NOTIFY_KEYS.forEach(function (k) {
+    if (o.plus[k]) out.push("+" + k);
+    else if (o.minus[k]) out.push("-" + k);
+  });
+  return out.join(",");
+}
+
+function notifyRoleDefaults_(role) {
+  const d = NOTIFY_ROLE_DEFAULTS[authNormRole_(role)];
+  return d ? d.slice() : [];
+}
+
+/** base (дефолт роли ∪ extra) ± оверрайд. */
+function notifyEffectiveKeys_(role, override, extraBase) {
+  const base = notifyRoleDefaults_(role).concat(extraBase || []);
+  const o = notifyParseOverride_(override);
+  return NOTIFY_KEYS.filter(function (k) {
+    let on = base.indexOf(k) >= 0;
+    if (o.plus[k]) on = true;
+    if (o.minus[k]) on = false;
+    return on;
+  });
+}
+
+/** Чистое ядро — та же семантика, что notifyResolveCore_ в Code.gs. */
+function notifyResolveCore_(key, people, ownerIds, baseIds, opts) {
+  opts = opts || {};
+  key = String(key || "");
+  const ownerMap = {};
+  (ownerIds || []).forEach(function (id) {
+    const v = String(id || "").trim();
+    if (v) ownerMap[v] = true;
+  });
+  const byId = {};
+  (people || []).forEach(function (p) {
+    p = p || {};
+    const tid = String(p.telegramId || "").trim();
+    if (!tid) return;
+    let role = authNormRole_(p.role);
+    const st = String(p.status || "").toLowerCase().trim();
+    const isOwner = !!ownerMap[tid];
+    if (isOwner) role = "owner";
+    const active = isOwner || (!!role && !/^(pending|denied|none)$/.test(role) && !/^(pending|denied)$/.test(st));
+    byId[tid] = { active: active, role: role, o: notifyParseOverride_(p.notify), notify: p.notify };
+  });
+  Object.keys(ownerMap).forEach(function (id) {
+    if (!byId[id]) byId[id] = { active: true, role: "owner", o: notifyParseOverride_(""), notify: "" };
+  });
+  const ex = String(opts.exclude || "").trim();
+  const out = [];
+  const seen = {};
+  function add(id) {
+    id = String(id || "").trim();
+    if (!id || seen[id] || (ex && id === ex)) return;
+    seen[id] = true;
+    out.push(id);
+  }
+  const bases = [];
+  (baseIds || []).forEach(function (b) {
+    const v = String((b && (b.telegramId || b.id)) || b || "").trim();
+    if (v) bases.push(v);
+  });
+  if (opts.filterOnly) {
+    bases.forEach(function (b) {
+      const hit = byId[b];
+      if (!hit) return add(b);
+      if (hit.o.minus[key]) return;
+      if (hit.active && notifyEffectiveKeys_(hit.role, hit.notify).indexOf(key) < 0) return;
+      add(b);
+    });
+    return out;
+  }
+  Object.keys(byId).forEach(function (id) {
+    const h = byId[id];
+    if (!h.active) return;
+    if (notifyEffectiveKeys_(h.role, h.notify).indexOf(key) >= 0) add(id);
+  });
+  bases.forEach(function (b) {
+    const hb = byId[b];
+    if (hb && hb.o.minus[key]) return;
+    add(b);
+  });
+  return out;
+}
+
+async function notifyHubIdsWorker_(env) {
+  try {
+    const admin = await getSnapRaw_(env, "partnerListAdmin");
+    const rec = (admin && admin.notifyRecipients) || [];
+    return rec
+      .map(function (r) {
+        return String((r && (r.telegramId || r.id)) || r || "").trim();
+      })
+      .filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Центральный список получателей (Worker): D1 listAccess + OWNER_TELEGRAM_IDS. */
+async function notifyRecipientsWorker_(env, key, baseIds, opts) {
+  let people = [];
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    people = (list && list.people) || [];
+  } catch (e) {
+    people = [];
+  }
+  return notifyResolveCore_(key, people, authOwnerIds_(env), baseIds || [], opts || {});
+}
+
+function notifyChatEnabledWorker_(env) {
+  const v = String((env && env.NOTIFY_CHAT_ENABLED) || "").trim().toLowerCase();
+  return !(v === "0" || v === "off" || v === "false" || v === "no");
+}
+
+/** Поля уведомлений для карточки человека в «Доступах». */
+function notifyFieldsForPerson_(p, ownerIds, hubIds) {
+  const tid = String((p && p.telegramId) || "");
+  const role = (ownerIds || []).indexOf(tid) >= 0 ? "owner" : authNormRole_(p && p.role);
+  const inHub = (hubIds || []).indexOf(tid) >= 0;
+  const base = notifyRoleDefaults_(role);
+  if (inHub) {
+    NOTIFY_HUB_KEYS.forEach(function (k) {
+      if (base.indexOf(k) < 0) base.push(k);
+    });
+  }
+  const notify = notifyFormatOverride_(p && p.notify);
+  return {
+    notify: notify,
+    notifyDefaults: base,
+    notifyEffective: notifyEffectiveKeys_(role, notify, inHub ? NOTIFY_HUB_KEYS : []),
+    notifyInHub: inHub
+  };
+}
+
+/** Персональные уведомления: notify="+a,-b" | reset=1. Owner-only (AUTH_OWNER_RE). D1 → фон GAS (колонка J). */
+async function setAccessNotify_(params, env, ctx) {
+  const tid = String((params && params.targetId) || "").trim();
+  if (!tid) return { status: "error", message: "need_target", action: "setAccessNotify" };
+  const reset = String((params && params.reset) || "") === "1";
+  const notify = reset ? "" : notifyFormatOverride_(params && params.notify);
+  const r = await notifyWriteOverridesD1_(env, [{ telegramId: tid, notify: notify }], params, ctx);
+  if (!r.found[tid]) return { status: "error", message: "person_not_found", action: "setAccessNotify" };
+  const owners = authOwnerIds_(env);
+  const hub = await notifyHubIdsWorker_(env);
+  return Object.assign(
+    { status: "success", targetId: tid, d1Verified: true, action: "setAccessNotify" },
+    notifyFieldsForPerson_(r.found[tid], owners, hub)
+  );
+}
+
+/** Записать оверрайды в D1 listAccess (+ access:<tid>) и зеркалить в GAS. */
+async function notifyWriteOverridesD1_(env, changes, params, ctx) {
+  let list = (await getSnapRaw_(env, "listAccess")) || { status: "success", people: [] };
+  const people = (list.people || []).slice();
+  const found = {};
+  const changed = [];
+  (changes || []).forEach(function (c) {
+    const tid = String(c.telegramId || "").trim();
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) {
+        const prev = notifyFormatOverride_(people[i].notify);
+        people[i] = Object.assign({}, people[i], { notify: c.notify });
+        found[tid] = people[i];
+        if (prev !== c.notify || c.force) changed.push({ telegramId: tid, notify: c.notify });
+        break;
+      }
+    }
+  });
+  if (changed.length) {
+    list = Object.assign({}, list, { status: "success", people: people, _d1TouchedAt: Date.now() });
+    await putSnap_(env, "listAccess", list);
+  }
+  const actorTid = String((params && (params._actorTid || params.actorId)) || "");
+  const tasks = changed.map(function (c) {
+    const gp = { targetId: c.telegramId, actorId: actorTid, telegramId: actorTid, _actorTid: actorTid, initData: (params && params.initData) || "" };
+    if (c.notify) gp.notify = c.notify;
+    else gp.reset = "1";
+    return gasProxy_("setAccessNotify", gp, env, { write: true }).catch(function () {
+      return null;
+    });
+  });
+  if (tasks.length) {
+    const all = Promise.all(tasks);
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(all);
+    else {
+      try { await all; } catch (eW) {}
+    }
+  }
+  return { found: found, changed: changed };
+}
+
+/**
+ * Хаб Партнёров → чекбоксы «кому заявки» = ключ partner_order.
+ * checked: снять "-partner_order"; unchecked: снять "+partner_order", а если роль даёт по умолчанию — поставить "-partner_order".
+ */
+async function notifyApplyPartnerHub_(env, checkedIds, params, ctx) {
+  const list = (await getSnapRaw_(env, "listAccess")) || { people: [] };
+  const owners = authOwnerIds_(env);
+  const checked = {};
+  (checkedIds || []).forEach(function (id) {
+    const v = String(id || "").trim();
+    if (v) checked[v] = true;
+  });
+  const changes = [];
+  (list.people || []).forEach(function (p) {
+    const tid = String((p && p.telegramId) || "").trim();
+    if (!tid) return;
+    const role = owners.indexOf(tid) >= 0 ? "owner" : authNormRole_(p.role);
+    if (/^(pending|denied|none)$/.test(role) || !role) return;
+    const o = notifyParseOverride_(p.notify);
+    const before = notifyFormatOverride_(o);
+    if (checked[tid]) {
+      delete o.minus.partner_order;
+    } else {
+      delete o.plus.partner_order;
+      if (notifyRoleDefaults_(role).indexOf("partner_order") >= 0) o.minus.partner_order = true;
+    }
+    const after = notifyFormatOverride_(o);
+    if (after !== before) changes.push({ telegramId: tid, notify: after });
+  });
+  if (!changes.length) return { changed: 0 };
+  const r = await notifyWriteOverridesD1_(env, changes, params, ctx);
+  return { changed: r.changed.length };
+}
+
+/** partnerListAdmin → чекбоксы хаба показывают фактических получателей partner_order. */
+async function notifyEnrichPartnerAdmin_(env, res) {
+  if (!res || res.status !== "success") return res;
+  const hub = (res.notifyRecipients || [])
+    .map(function (r) {
+      return String((r && (r.telegramId || r.id)) || r || "").trim();
+    })
+    .filter(Boolean);
+  const ids = await notifyRecipientsWorker_(env, "partner_order", hub);
+  const names = {};
+  (res.notifyRecipients || []).forEach(function (r) {
+    const id = String((r && (r.telegramId || r.id)) || r || "").trim();
+    if (id) names[id] = (r && r.name) || "";
+  });
+  (res.notifyCandidates || []).forEach(function (c) {
+    const id = String((c && c.telegramId) || "").trim();
+    if (id && !names[id]) names[id] = c.name || c.username || "";
+  });
+  return Object.assign({}, res, {
+    notifyRecipientsLegacy: res.notifyRecipients || [],
+    notifyRecipients: ids.map(function (id) {
+      return { telegramId: id, name: names[id] || "" };
+    }),
+    notifyKey: "partner_order"
+  });
+}
+/* =================== /NOTIFY KEYS =================== */
+
 function authBotTokens_(env) {
   const out = [];
   function add(t) {
@@ -323,7 +622,7 @@ async function resolveActor_(params, env) {
 
 const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry)$/i;
 const AUTH_OWNER_RE = new RegExp(
-  "^(setAccessRole|setAccessTimezone|setAccessTabs|listAccess|finishFullWeek[A-Za-z]*|repairWeekMonday|" +
+  "^(setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|finishFullWeek[A-Za-z]*|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
@@ -803,7 +1102,33 @@ async function handleAction_(action, params, env, url, ctx) {
     } else if (actor.enforce) {
       params._unverified = "1";
     }
-    return handleActionInner_(a, params, env, url, ctx);
+    // v71116013: хаб «кому заявки» = ключ partner_order (оверрайды людей); только проверенный owner
+    let hubChecked = null;
+    if (a === "partnerSetNotifyRecipients" && actor.isOwner && actor.verified) {
+      try {
+        let rawR = params.recipients != null ? params.recipients : "[]";
+        let arrR = Array.isArray(rawR) ? rawR : JSON.parse(String(rawR || "[]"));
+        hubChecked = (Array.isArray(arrR) ? arrR : []).map(function (it) {
+          return String((it && (it.telegramId || it.id)) || it || "").trim();
+        }).filter(Boolean);
+      } catch (eHub) {
+        hubChecked = null;
+      }
+    }
+    const pres = await handleActionInner_(a, params, env, url, ctx);
+    if (hubChecked && pres && pres.status === "success") {
+      try {
+        const applied = await notifyApplyPartnerHub_(env, hubChecked, params, ctx);
+        pres.notifyOverridesChanged = applied.changed;
+        authInvalidateRole_();
+      } catch (eAp) {}
+    }
+    if (a === "partnerListAdmin" && actor.isOwner && pres && pres.status === "success") {
+      try {
+        return await notifyEnrichPartnerAdmin_(env, pres);
+      } catch (eEn) {}
+    }
+    return pres;
   }
   if (a === "getMyAccess") return authGetMyAccess_(params, actor, env, ctx);
   if (a === "requestAccess") {
@@ -840,6 +1165,17 @@ async function handleAction_(action, params, env, url, ctx) {
   }
   if (a === "listAccess") return listAccessMerged_(params, env, ctx);
   if (a === "setAccessTabs") return setAccessTabs_(params, env, ctx);
+  if (a === "setAccessNotify") return setAccessNotify_(params, env, ctx);
+  if (a === "listScheduledNotifications") {
+    // read-only, всегда свежее из GAS (листы Отложенное / Дефицит / Опросники), без snap-кэша
+    const liveSch = await gasProxy_(
+      "listScheduledNotifications",
+      { telegramId: actor.tid, actorId: actor.tid, _actorTid: actor.tid, initData: params.initData || "" },
+      env,
+      { write: false }
+    );
+    return liveSch && typeof liveSch === "object" ? liveSch : { status: "error", message: "gas_proxy_failed", action: a };
+  }
   if (a === "unlockSubs") return unlockSubs_(params, actor, env);
 
   let res = await handleActionInner_(a, params, env, url, ctx);
@@ -943,6 +1279,7 @@ async function listAccessMerged_(params, env, ctx) {
         status: String(g.status || "").toLowerCase() || accessStatusFromRole_(gRole, "pending"),
         timezone: g.timezone || "",
         customTabs: authParseTabs_(g.customTabs || g.tabs),
+        notify: notifyFormatOverride_(g.notify || ""),
         requestedAt: g.requestedAt || "",
         fromSheet: true
       });
@@ -965,6 +1302,11 @@ async function listAccessMerged_(params, env, ctx) {
       changed = true;
     }
     if (!cur.requestedAt && g.requestedAt) cur.requestedAt = g.requestedAt;
+    // v71116013: notify из листа (колонка J), если в D1 поля ещё нет
+    if (cur.notify === undefined && g.notify) {
+      cur.notify = notifyFormatOverride_(g.notify);
+      changed = true;
+    }
     const gTabs = authParseTabs_(g.customTabs || g.tabs);
     if ((!cur.customTabs || !authParseTabs_(cur.customTabs).length) && gTabs.length) {
       cur.customTabs = gTabs;
@@ -982,12 +1324,13 @@ async function listAccessMerged_(params, env, ctx) {
     } catch (eP) {}
   }
   const owners = authOwnerIds_(env);
+  const hubIds = await notifyHubIdsWorker_(env);
   const rank = { pending: 0, owner: 1, manager: 2, all: 3, cutter: 4, courier: 5, logistics: 6, denied: 9 };
   const out = people.map(function (p) {
     const role = authNormRole_(p.role);
     const st = String(p.status || "").toLowerCase();
     const effRole = role !== "owner" && (st === "pending" || st === "denied") ? st : role;
-    return Object.assign({}, p, {
+    return Object.assign({}, p, notifyFieldsForPerson_(p, owners, hubIds), {
       role: role,
       status: st || accessStatusFromRole_(role, "active"),
       customTabs: authParseTabs_(p.customTabs),
@@ -22460,7 +22803,8 @@ async function partnerNotifyOrderFastWorker_(order, env) {
   }
   try {
     const admin = await getSnapRaw_(env, "partnerListAdmin");
-    const recipients = (admin && admin.notifyRecipients) || [];
+    // v71116013: ключ partner_order + легаси-список хаба (кто не выключил себе)
+    const recipients = await notifyRecipientsWorker_(env, "partner_order", (admin && admin.notifyRecipients) || []);
     const teamText =
       "🛍 Новая заявка партнёра " +
       (order.id || "") +
@@ -22637,23 +22981,10 @@ function partnerSuggestNormalize_(json) {
 
 /** Кому слать предложение: Арсений + ответственные за заявки. Бот Бойни, не @GOODBOY_LG. */
 async function partnerSuggestNotifyIdsWorker_(env) {
-  var ids = [PARTNER_ARSENIY_TID];
-  try {
-    var admin = await getSnapRaw_(env, "partnerListAdmin");
-    var rec = (admin && admin.notifyRecipients) || [];
-    for (var i = 0; i < rec.length; i++) {
-      var rid = String((rec[i] && (rec[i].telegramId || rec[i].id)) || rec[i] || "").trim();
-      if (rid) ids.push(rid);
-    }
-  } catch (eR) {}
-  var out = [];
-  var seen = {};
-  for (var j = 0; j < ids.length; j++) {
-    var id = String(ids[j] || "").trim();
-    if (!id || seen[id]) continue;
-    seen[id] = true;
-    out.push(id);
-  }
+  // v71116013: ключ partner_suggest (дефолт — владельцы) + легаси-список хаба; без хардкода id
+  var hub = await notifyHubIdsWorker_(env);
+  var out = await notifyRecipientsWorker_(env, "partner_suggest", hub);
+  if (!out.length) out = authOwnerIds_(env);
   return out;
 }
 
@@ -25035,10 +25366,13 @@ async function submitGoodboyTryD1_(params, env) {
   await putSnap_(env, "goodboyLeads", pack);
   // TG команде — бот Бойни (тот же TELEGRAM_BOT_TOKEN)
   try {
-    const chat =
-      String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() ||
-      "";
-    if (chat && hasTelegramToken_(env)) {
+    const chat = notifyChatEnabledWorker_(env)
+      ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim()
+      : "";
+    // v71116013: ключ gb_lead (дефолт — владельцы) + общий чат как раньше
+    const gbIds = await notifyRecipientsWorker_(env, "gb_lead");
+    if (chat && gbIds.indexOf(chat) < 0) gbIds.push(chat);
+    if (gbIds.length && hasTelegramToken_(env)) {
       const text =
         "🐾 GOOD BOY · заявка с сайта (worker)\n" +
         name +
@@ -25047,7 +25381,9 @@ async function submitGoodboyTryD1_(params, env) {
         "\nПитомец: " +
         pet +
         (note ? "\n" + note.slice(0, 3200) : "");
-      await telegramSendTextWorker_(env, chat, text, null);
+      await Promise.all(gbIds.map(function (gid) {
+        return telegramSendTextWorker_(env, gid, text, null).catch(function () { return null; });
+      }));
     }
   } catch (eTg) {}
   return { status: "ok", message: "saved", id: row.id, d1Verified: true, fromD1: true };

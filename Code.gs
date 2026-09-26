@@ -2068,6 +2068,18 @@ function doGet(e) {
   if (action === "listAccess") {
     return handleListAccess({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
+  if (action === "listScheduledNotifications") {
+    return handleListScheduledNotifications({ telegramId: e.parameter.telegramId || "", actorId: e.parameter.actorId || "" }, callback, false);
+  }
+  if (action === "setAccessNotify") {
+    return handleSetAccessNotify({
+      actorId: e.parameter.actorId || e.parameter.telegramId || "",
+      telegramId: e.parameter.telegramId || "",
+      targetId: e.parameter.targetId || "",
+      notify: e.parameter.notify ? decodeURIComponent(e.parameter.notify) : "",
+      reset: e.parameter.reset || ""
+    }, callback, false);
+  }
   if (action === "listPartners") {
     return handleListPartners({
       all: e.parameter.all || "",
@@ -3032,6 +3044,12 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "setAccessTabs") {
     return handleSetAccessTabs(json, callback, fromPost);
   }
+  if (action === "setAccessNotify") {
+    return handleSetAccessNotify(json, callback, fromPost);
+  }
+  if (action === "listScheduledNotifications") {
+    return handleListScheduledNotifications(json, callback, fromPost);
+  }
   if (action === "getWarehouse") {
     return handleGetWarehouse(json, callback, fromPost);
   }
@@ -3244,15 +3262,14 @@ function handleSubmitGoodboyTry(json, callback, fromPost) {
     var source = mode === "full" ? "try-full" : "try-short";
     sh.appendRow([when, name, phone, pet, note, source]);
     try {
-      var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-      if (chat) {
-        telegramSendText_(
-          chat,
-          "🐾 GOOD BOY · заявка с сайта\n" +
-            name + " · " + phone +
-            "\nПитомец: " + pet +
-            (note ? ("\n" + (note.length > 3200 ? note.slice(0, 3200) + "…" : note)) : "")
-        );
+      // v71116013: ключ gb_lead (дефолт — владельцы) + общий чат как раньше
+      var gbText = "🐾 GOOD BOY · заявка с сайта\n" +
+        name + " · " + phone +
+        "\nПитомец: " + pet +
+        (note ? ("\n" + (note.length > 3200 ? note.slice(0, 3200) + "…" : note)) : "");
+      var gbIds = notifyRecipientsWithChat_("gb_lead");
+      for (var gi = 0; gi < gbIds.length; gi++) {
+        try { telegramSendText_(gbIds[gi], gbText); } catch (eG1) {}
       }
     } catch (eTg) {}
     var ok = { status: "ok", message: "saved" };
@@ -6456,21 +6473,12 @@ function notifyWarehouseBuyUrgent_(pack, header) {
 
   var text = "🚨 " + String(header || "СРОЧНО · дефицит сырья") + "\n\n" + composeWarehouseBuyMessage_(pack);
   var ids = [];
-  try {
-    var staff = listActiveStaffIdsForRoles_(["owner", "manager", "logistics", "all"]);
-    ids = staff || [];
-  } catch (eS) {}
-  try {
-    var owners = getOwnerTelegramIds_();
-    for (var o = 0; o < owners.length; o++) {
-      if (ids.indexOf(String(owners[o])) < 0) ids.push(String(owners[o]));
-    }
-  } catch (eO) {}
+  // v71116013: ключ wh_buy (дефолт: owner/manager/logistics/all + персональные оверрайды)
+  try { ids = notifyRecipients_("wh_buy") || []; } catch (eS) { ids = []; }
   if (!ids.length) {
-    try {
-      var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-      if (chat) ids.push(String(chat).trim());
-    } catch (eC) {}
+    // как раньше: общий чат только если лично некому (выключатель NOTIFY_CHAT_ENABLED)
+    var chat = notifyChatId_();
+    if (chat) ids.push(chat);
   }
   for (var i = 0; i < ids.length; i++) {
     try { telegramSendText_(ids[i], text); } catch (eT) {}
@@ -7672,17 +7680,11 @@ function notifyWeekFinished_(actorTid, weekKey, result) {
     "Новый Пн: " + String((result && result.mondayDate) || "") + "\n\n" +
     "Кнопка «Завершить неделю» у всех скрыта.\n" +
     "Дальше общий шаг — «Подтянуть из месяца».";
-  var ids = collectStaffTelegramIds_(["owner", "manager", "all"]);
+  // v71116013: ключ week_done (+ общий чат), автору не шлём
+  var ids = notifyRecipientsWithChat_("week_done", null, { exclude: by });
   for (var i = 0; i < ids.length; i++) {
-    if (by && String(ids[i]) === by) continue;
     try { telegramSendText_(ids[i], text); } catch (e1) {}
   }
-  try {
-    var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-    if (chat && String(chat).trim() && String(chat).trim() !== by) {
-      try { telegramSendText_(chat, text); } catch (e2) {}
-    }
-  } catch (e3) {}
 }
 
 function notifyOwnersAccessRequest_(telegramId, name, username) {
@@ -7691,12 +7693,11 @@ function notifyOwnersAccessRequest_(telegramId, name, username) {
     "\n@" + (username || "") +
     "\nНазначьте роль: Бойня → Заказы (удерживать вкладку) → Доступы → блок «Заявки».";
   try {
-    var owners = getOwnerTelegramIds_();
-    for (var i = 0; i < owners.length; i++) {
-      try { telegramSendText_(owners[i], text); } catch (e) {}
+    // v71116013: ключ access_req (дефолт — владельцы) + общий чат
+    var ids = notifyRecipientsWithChat_("access_req");
+    for (var i = 0; i < ids.length; i++) {
+      try { telegramSendText_(ids[i], text); } catch (e) {}
     }
-    var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-    if (chat) try { telegramSendText_(chat, text); } catch (e2) {}
   } catch (e3) {}
 }
 
@@ -9587,9 +9588,10 @@ function sendDeficitPushForRow_(rowValues) {
   var markup = {
     inline_keyboard: [[{ text: "✅ Куплено и заготовлено", callback_data: "defdone:" + id }]]
   };
-  var participants = listBotParticipants_();
+  // v71116013: только по ключу cut_deficit (+ общий чат), не всем, кто писал боту
+  var participants = notifyRecipientsWithChat_("cut_deficit");
   for (var i = 0; i < participants.length; i++) {
-    telegramSendMarkup_(participants[i], text, markup);
+    try { telegramSendMarkup_(participants[i], text, markup); } catch (eSend) {}
   }
 }
 
@@ -9598,9 +9600,10 @@ function notifyOutNextStock_(info) {
   var item = String((info && info.name) || "");
   var text = "❗ Заканчивается запас\nДень: " + day + "\nПозиция: " + item +
     "\n\nНа текущую нарезку хватает, на следующую — уже нет. Закупите заранее.";
-  var participants = listBotParticipants_();
+  // v71116013: только по ключу out_next (+ общий чат)
+  var participants = notifyRecipientsWithChat_("out_next");
   for (var i = 0; i < participants.length; i++) {
-    telegramSendMarkup_(participants[i], text, null);
+    try { telegramSendMarkup_(participants[i], text, null); } catch (eSend) {}
   }
 }
 
@@ -9618,6 +9621,8 @@ function tickCuttingDeficit_() {
     if (notifyFrom && now.getTime() < notifyFrom.getTime()) continue;
     var last = parseDeficitDate_(data[i][7]);
     if (last && (now.getTime() - last.getTime()) < 29 * 60 * 1000) continue;
+    // v71116013: ночная тишина 22:00–08:00 Минск — повторы (и отложенные первые пуши тика) не шлём
+    if (notifyQuietNightMinsk_(now)) continue;
     // Старые строки без текстового id — перевыпустить короткий id, иначе кнопка может не матчиться
     var repaired = false;
     var id = normalizeDeficitId_(data[i][0]);
@@ -10207,14 +10212,8 @@ function sendDeliveryDatesNudge_(slot, dateOverride) {
   }
   var markup = keyboard.length ? { inline_keyboard: keyboard } : null;
 
-  var ids = collectStaffTelegramIds_(["owner", "manager", "all"]);
-  // владельцы всегда
-  try {
-    var owners = getOwnerTelegramIds_();
-    for (var o = 0; o < owners.length; o++) {
-      if (owners[o] && ids.indexOf(String(owners[o])) < 0) ids.push(String(owners[o]));
-    }
-  } catch (eO) {}
+  // v71116013: ключ date_nudge (общий чат — ниже, как раньше)
+  var ids = notifyRecipients_("date_nudge");
 
   var ok = 0;
   var fail = 0;
@@ -10235,11 +10234,11 @@ function sendDeliveryDatesNudge_(slot, dateOverride) {
     } catch (e) { fail++; }
   }
   try {
-    var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-    if (chat && String(chat).trim()) {
+    var chat = notifyChatId_();
+    if (chat && ids.indexOf(chat) < 0) {
       try {
-        if (markup) telegramSendMarkup_(String(chat).trim(), text, markup);
-        else telegramSendText_(String(chat).trim(), text);
+        if (markup) telegramSendMarkup_(chat, text, markup);
+        else telegramSendText_(chat, text);
       } catch (eC) {}
     }
   } catch (eChat) {}
@@ -13306,13 +13305,15 @@ function notifyCuttersVolumeIncrease_(deliveryDate, client, lines) {
     "Клиент: " + client + "\n\n" +
     lines.join("\n") +
     "\n\nПравка менее чем за 12ч до конца дня подготовки.";
-  var ids = getCutterNotifyChatIds_();
+  // v71116013: ключ cut_increase; CUTTER_TELEGRAM_IDS — доп. получатели (если не выключили себе)
+  var extra = [];
+  try {
+    extra = String(PropertiesService.getScriptProperties().getProperty("CUTTER_TELEGRAM_IDS") || "")
+      .split(/[,;\s]+/).map(function (s) { return String(s || "").trim(); }).filter(Boolean);
+  } catch (eX) {}
+  var ids = notifyRecipientsWithChat_("cut_increase", extra);
   for (var i = 0; i < ids.length; i++) {
     try { telegramSendText_(ids[i], text); } catch (e) {}
-  }
-  var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-  if (chat) {
-    try { telegramSendText_(chat, text); } catch (e2) {}
   }
 }
 
@@ -14760,9 +14761,9 @@ function getAccessSheet_() {
 function ensureAccessSheetSchema_(sh) {
   if (!sh) return;
   try {
-    if (sh.getMaxColumns() < 9) sh.insertColumnsAfter(sh.getMaxColumns(), 9 - sh.getMaxColumns());
+    if (sh.getMaxColumns() < 10) sh.insertColumnsAfter(sh.getMaxColumns(), 10 - sh.getMaxColumns());
   } catch (eMc) {}
-  var lastCol = Math.max(9, sh.getLastColumn() || 1);
+  var lastCol = Math.max(10, sh.getLastColumn() || 1);
   var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
   if (String(headers[7] || "").toLowerCase().indexOf("time") < 0) {
     sh.getRange(1, 8).setValue("timezone");
@@ -14770,6 +14771,10 @@ function ensureAccessSheetSchema_(sh) {
   // roles-audit: кастомный набор вкладок человека (через запятую), пусто = пресет роли
   if (String(headers[8] || "").toLowerCase() !== "tabs") {
     sh.getRange(1, 9).setValue("tabs");
+  }
+  // v71116013: персональные уведомления "+key,-key" (пусто = по роли)
+  if (String(headers[9] || "").toLowerCase() !== "notify") {
+    sh.getRange(1, 10).setValue("notify");
   }
 }
 
@@ -14830,6 +14835,351 @@ function isOwnerId_(telegramId) {
   return getOwnerTelegramIds_().indexOf(id) >= 0;
 }
 
+/* ===================== NOTIFY KEYS (v71116013) =====================
+ * Единые ключи staff-уведомлений + дефолты ролей (ТОЧНО так же в Worker: NOTIFY_ROLE_DEFAULTS).
+ * Персональный оверрайд — «Доступы» колонка J `notify`: "+key,-key" (пусто = по роли).
+ * Отложенные ⏰, маршруты курьеров, ответы бота и пуши партнёрам — НЕ настраиваются.
+ */
+var NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "gb_lead"];
+var NOTIFY_ROLE_DEFAULTS = {
+  owner: NOTIFY_KEYS.slice(),
+  manager: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey"],
+  cutter: ["cut_deficit", "out_next", "cut_increase"],
+  logistics: ["wh_buy", "cut_deficit", "out_next"],
+  courier: [],
+  all: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey", "cut_deficit", "out_next", "cut_increase"]
+};
+
+function notifyParseOverride_(raw) {
+  var out = { plus: {}, minus: {} };
+  var s = String(raw == null ? "" : raw).trim();
+  if (!s) return out;
+  var parts = s.split(/[,;\s]+/);
+  for (var i = 0; i < parts.length; i++) {
+    var t = String(parts[i] || "").trim();
+    if (!t) continue;
+    var sign = "+";
+    if (t.charAt(0) === "+" || t.charAt(0) === "-") {
+      sign = t.charAt(0);
+      t = t.slice(1);
+    }
+    t = t.toLowerCase();
+    if (NOTIFY_KEYS.indexOf(t) < 0) continue;
+    if (sign === "-") { out.minus[t] = true; delete out.plus[t]; }
+    else { out.plus[t] = true; delete out.minus[t]; }
+  }
+  return out;
+}
+
+/** Нормализованная строка оверрайда ("+a,-b" в порядке NOTIFY_KEYS). */
+function notifyFormatOverride_(raw) {
+  var o = typeof raw === "object" && raw && raw.plus ? raw : notifyParseOverride_(raw);
+  var out = [];
+  for (var i = 0; i < NOTIFY_KEYS.length; i++) {
+    var k = NOTIFY_KEYS[i];
+    if (o.plus[k]) out.push("+" + k);
+    else if (o.minus[k]) out.push("-" + k);
+  }
+  return out.join(",");
+}
+
+function notifyNormRole_(role) {
+  var r = String(role || "").toLowerCase().trim();
+  var map = { "владелец": "owner", "менеджер": "manager", "курьер": "courier", "нарезчик": "cutter", "нарезка": "cutter", "логист": "logistics", "логистика": "logistics", "склад": "logistics" };
+  return map[r] || r;
+}
+
+function notifyRoleDefaults_(role) {
+  var d = NOTIFY_ROLE_DEFAULTS[notifyNormRole_(role)];
+  return d ? d.slice() : [];
+}
+
+/** Эффективный набор ключей человека: дефолт роли ± оверрайд. */
+function notifyEffectiveKeys_(role, override) {
+  var base = notifyRoleDefaults_(role);
+  var o = notifyParseOverride_(override);
+  var out = [];
+  for (var i = 0; i < NOTIFY_KEYS.length; i++) {
+    var k = NOTIFY_KEYS[i];
+    var on = base.indexOf(k) >= 0;
+    if (o.plus[k]) on = true;
+    if (o.minus[k]) on = false;
+    if (on) out.push(k);
+  }
+  return out;
+}
+
+/**
+ * Чистое ядро (тестируется в node): кому слать key.
+ * people: [{telegramId, role, status, notify}], ownerIds: [], baseIds: доп. получатели
+ * (легаси-списки: хаб Партнёров, CUTTER_TELEGRAM_IDS) — входят, если у человека нет явного "-key".
+ * opts.exclude — tid автора (не слать себе). opts.filterOnly — вернуть только baseIds, у кого key включён
+ * (неизвестные в «Доступах» — пропускаем как есть; для опросников ответственному).
+ */
+function notifyResolveCore_(key, people, ownerIds, baseIds, opts) {
+  opts = opts || {};
+  key = String(key || "");
+  var ownerMap = {};
+  var i;
+  for (i = 0; i < (ownerIds || []).length; i++) {
+    var oid = String(ownerIds[i] || "").trim();
+    if (oid) ownerMap[oid] = true;
+  }
+  var byId = {};
+  for (i = 0; i < (people || []).length; i++) {
+    var p = people[i] || {};
+    var tid = String(p.telegramId || "").trim();
+    if (!tid) continue;
+    var role = notifyNormRole_(p.role);
+    var st = String(p.status || "").toLowerCase().trim();
+    var isOwner = !!ownerMap[tid];
+    if (isOwner) role = "owner";
+    var active = isOwner || (role && !/^(pending|denied|none)$/.test(role) && !/^(pending|denied)$/.test(st));
+    byId[tid] = { active: active, role: role, o: notifyParseOverride_(p.notify), notify: p.notify };
+  }
+  Object.keys(ownerMap).forEach(function (id) {
+    if (!byId[id]) byId[id] = { active: true, role: "owner", o: notifyParseOverride_(""), notify: "" };
+  });
+  var ex = String(opts.exclude || "").trim();
+  var out = [];
+  var seen = {};
+  function add(id) {
+    id = String(id || "").trim();
+    if (!id || seen[id] || (ex && id === ex)) return;
+    seen[id] = true;
+    out.push(id);
+  }
+  var bases = [];
+  for (i = 0; i < (baseIds || []).length; i++) {
+    var b = String((baseIds[i] && (baseIds[i].telegramId || baseIds[i].id)) || baseIds[i] || "").trim();
+    if (b) bases.push(b);
+  }
+  if (opts.filterOnly) {
+    for (i = 0; i < bases.length; i++) {
+      var hit = byId[bases[i]];
+      if (!hit) { add(bases[i]); continue; }
+      if (hit.o.minus[key]) continue;
+      if (hit.active && notifyEffectiveKeys_(hit.role, hit.notify).indexOf(key) < 0) continue;
+      add(bases[i]);
+    }
+    return out;
+  }
+  Object.keys(byId).forEach(function (id) {
+    var h = byId[id];
+    if (!h.active) return;
+    if (notifyEffectiveKeys_(h.role, h.notify).indexOf(key) >= 0) add(id);
+  });
+  for (i = 0; i < bases.length; i++) {
+    var hb = byId[bases[i]];
+    if (hb && hb.o.minus[key]) continue;
+    add(bases[i]);
+  }
+  return out;
+}
+
+/** Люди для notifyResolveCore_ из «Доступы» (колонка J notify). */
+function notifyPeopleRows_() {
+  var rows = [];
+  try { rows = readAccessRows_(); } catch (e) { rows = []; }
+  return rows.map(function (r) {
+    return { telegramId: r.telegramId, role: r.role, status: r.status, notify: r.notify || "" };
+  });
+}
+
+/** Центральный список получателей staff-уведомления key. */
+function notifyRecipients_(key, baseIds, opts) {
+  var owners = [];
+  try { owners = getOwnerTelegramIds_() || []; } catch (eO) { owners = []; }
+  return notifyResolveCore_(key, notifyPeopleRows_(), owners, baseIds || [], opts || {});
+}
+
+/** Общий чат (TELEGRAM_CHAT_ID) — дублирование по-старому; единый выключатель NOTIFY_CHAT_ENABLED (по умолчанию вкл). */
+function notifyChatEnabled_() {
+  var v = "";
+  try { v = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_CHAT_ENABLED") || "").trim().toLowerCase(); } catch (e) {}
+  return !(v === "0" || v === "off" || v === "false" || v === "no");
+}
+
+function notifyChatId_() {
+  if (!notifyChatEnabled_()) return "";
+  try {
+    return String(PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID") || "").trim();
+  } catch (e) {
+    return "";
+  }
+}
+
+/** Получатели + общий чат (если включён и не совпадает с уже выбранными / автором). */
+function notifyRecipientsWithChat_(key, baseIds, opts) {
+  var ids = notifyRecipients_(key, baseIds, opts);
+  var chat = notifyChatId_();
+  var ex = String((opts && opts.exclude) || "").trim();
+  if (chat && ids.indexOf(chat) < 0 && chat !== ex) ids.push(chat);
+  return ids;
+}
+
+/** Ночная тишина для повторов дефицита нарезки: 22:00–08:00 Europe/Minsk. */
+function notifyQuietNightMinsk_(date) {
+  var h = Number(Utilities.formatDate(date || new Date(), "Europe/Minsk", "H"));
+  return h >= 22 || h < 8;
+}
+
+function handleSetAccessNotify(json, callback, fromPost) {
+  if (!gasActorOwnerOk_(json.actorId || json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var target = String(json.targetId || "").trim();
+  var row = target ? findAccessById_(target) : null;
+  if (!row) {
+    var nf = { status: "error", message: "person_not_found" };
+    return fromPost ? jsonpText(callback, nf) : jsonp(callback, nf);
+  }
+  var reset = String(json.reset || "") === "1";
+  var notify = reset ? "" : notifyFormatOverride_(json.notify);
+  var sh = getAccessSheet_();
+  ensureAccessSheetSchema_(sh);
+  sh.getRange(row.rowIndex, 10).setValue(notify);
+  try {
+    CacheService.getScriptCache().remove("acc_row_" + target);
+  } catch (eC) {}
+  var role = isOwnerId_(target) ? "owner" : row.role;
+  var ok = {
+    status: "success",
+    targetId: target,
+    notify: notify,
+    notifyDefaults: notifyRoleDefaults_(role),
+    notifyEffective: notifyEffectiveKeys_(role, notify)
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function notifyFmtMinsk_(d) {
+  try { return Utilities.formatDate(d, "Europe/Minsk", "dd.MM HH:mm"); } catch (e) { return ""; }
+}
+
+/** Read-only «⏰ Запланированные» для карточки Доступов (owner). Время — Минск. */
+function handleListScheduledNotifications(json, callback, fromPost) {
+  if (!gasActorOwnerOk_(json.actorId || json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var now = new Date();
+  var reminders = [];
+  var deficits = [];
+  var surveys = [];
+  var errors = [];
+  // 1) Отложенные ⏰ (открытые, не отправленные)
+  try {
+    var sh = deferredSheet_();
+    var data = sh.getDataRange().getValues();
+    for (var r = 1; r < data.length; r++) {
+      var st = String(data[r][6] || "open").trim().toLowerCase();
+      if (st !== "open") continue;
+      var payload = {};
+      try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payload = {}; }
+      if (!payload) continue;
+      var dueMs = remindDueMs_(payload);
+      if (!dueMs) continue;
+      if (payload.remindSent && !payload.remindSendError) continue;
+      var ownerTid = String(data[r][2] || "").trim();
+      var fromTid = String(payload.createdBy || ownerTid).trim() || ownerTid;
+      var toTid = String(payload.targetTelegramId || payload.forTelegramId || ownerTid).trim() || ownerTid;
+      reminders.push({
+        id: String(data[r][0] || ""),
+        atMs: dueMs,
+        at: notifyFmtMinsk_(new Date(dueMs)),
+        overdue: dueMs < now.getTime(),
+        title: String(data[r][4] || "").slice(0, 120),
+        client: String(data[r][5] || ""),
+        toTid: toTid,
+        to: remindPersonLabel_(toTid, payload.targetName),
+        fromTid: fromTid,
+        from: remindPersonLabel_(fromTid, payload.createdByName),
+        failed: !!payload.remindSendError
+      });
+    }
+    reminders.sort(function (a, b) { return a.atMs - b.atMs; });
+  } catch (eR) { errors.push("reminders:" + String(eR)); }
+  // 2) Открытые дефициты нарезки — следующий повтор (ночью тишина до 08:00)
+  try {
+    var shD = getDeficitSheet_();
+    var dd = shD.getDataRange().getValues();
+    for (var i = 1; i < dd.length; i++) {
+      if (!isOpenDeficitStatus_(dd[i][4])) continue;
+      var nf0 = parseDeficitDate_(dd[i][6]);
+      var last = parseDeficitDate_(dd[i][7]);
+      var nextMs = now.getTime();
+      if (last) nextMs = Math.max(nextMs, last.getTime() + 30 * 60 * 1000);
+      if (nf0 && nf0.getTime() > nextMs) nextMs = nf0.getTime();
+      var nextD = new Date(nextMs);
+      var quiet = notifyQuietNightMinsk_(nextD);
+      if (quiet) {
+        var ymd = Utilities.formatDate(nextD, "Europe/Minsk", "yyyy-MM-dd");
+        var h = Number(Utilities.formatDate(nextD, "Europe/Minsk", "H"));
+        var p = ymd.split("-");
+        var baseDay = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + (h >= 22 ? 1 : 0), 5, 0, 0));
+        nextD = baseDay; // 08:00 Минск = 05:00 UTC
+      }
+      deficits.push({
+        id: String(dd[i][0] || ""),
+        day: String(dd[i][1] || ""),
+        item: String(dd[i][2] || ""),
+        nextAtMs: nextD.getTime(),
+        nextAt: notifyFmtMinsk_(nextD),
+        lastAt: last ? notifyFmtMinsk_(last) : "",
+        quietShift: quiet
+      });
+    }
+    deficits.sort(function (a, b) { return a.nextAtMs - b.nextAtMs; });
+  } catch (eD) { errors.push("deficits:" + String(eD)); }
+  // 3) Опросники (planned/due, не отправленные) — окно 9–21 по TZ ответственного
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    var shSv = ensureSurveySheet_(crmSs);
+    if (shSv && shSv.getLastRow() >= 2) {
+      var sv = shSv.getDataRange().getValues();
+      for (var s = 1; s < sv.length; s++) {
+        var obj = surveyRowToObj_(sv[s], s + 1);
+        if (!obj.nick || !obj.dueDate) continue;
+        var sst = String(obj.status || "").toLowerCase();
+        if (sst !== "planned" && sst !== "due") continue;
+        if (String(obj.sentAt || "").trim()) continue;
+        var resp = String(obj.ownerTelegramId || "").trim();
+        surveys.push({
+          id: String(obj.id || ""),
+          nick: obj.nick,
+          kind: normalizeSurveyKind_(obj.kind) === "final" ? "ПП (финал)" : "БП2",
+          due: String(obj.dueDate),
+          status: sst,
+          respTid: resp,
+          resp: resp ? remindPersonLabel_(resp, obj.ownerName) : "— нет ответственного",
+          tz: resp ? timezoneOfAccessId_(resp) : ""
+        });
+      }
+      surveys.sort(function (a, b) { return a.due < b.due ? -1 : a.due > b.due ? 1 : 0; });
+    }
+  } catch (eS) { errors.push("surveys:" + String(eS)); }
+  var ok = {
+    status: "success",
+    now: notifyFmtMinsk_(now),
+    tz: "Europe/Minsk",
+    reminders: reminders.slice(0, 100),
+    deficits: deficits.slice(0, 100),
+    surveys: surveys.slice(0, 150),
+    fixed: [
+      "📅 «Подбейте даты» — 11:00 и 19:00 (Минск), получатели по ключу date_nudge",
+      "📋 Опросники — проверка раз в 30 мин, шлём ответственному в окне 9:00–21:00 по его TZ",
+      "⚠️ Дефицит нарезки — повтор раз в 30 мин, ночью (22:00–08:00) тишина",
+      "⏰ Адресные напоминания — проверка раз в минуту"
+    ],
+    chatEnabled: notifyChatEnabled_(),
+    errors: errors
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+/* =================== /NOTIFY KEYS =================== */
+
 /** Soft HMAC: если есть bot token + initData — проверяем; иначе не блокируем (dev / GitHub Pages). */
 function validateInitDataSoft_(initData) {
   var raw = String(initData || "");
@@ -14867,7 +15217,7 @@ function validateInitDataSoft_(initData) {
  * Аварийный откат: Script Property AUTH_ENFORCE=0. Жёстко «только Worker»: GAS_REQUIRE_WORKER=1.
  */
 var GAS_AUTH_ = null;
-var GAS_OWNER_ACTIONS_RE_ = /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|listAccess|setAccessRole|setAccessTimezone|setAccessTabs|saveRetailPrices|finishFullWeek|finishFullWeekProduction|repairWeekMonday|closeAllOpenDeficits|restoreWeekFromBookings|repairCatalogAliases|setupWeekendFormulas|unlockPpCostBreakdown|savePartner|deletePartner|undeleteWeekFromSheet|partnerWipeOrderHistories)$/;
+var GAS_OWNER_ACTIONS_RE_ = /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|listAccess|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|saveRetailPrices|finishFullWeek|finishFullWeekProduction|repairWeekMonday|closeAllOpenDeficits|restoreWeekFromBookings|repairCatalogAliases|setupWeekendFormulas|unlockPpCostBreakdown|savePartner|deletePartner|undeleteWeekFromSheet|partnerWipeOrderHistories)$/;
 var GAS_PUBLIC_RE_ = /^(getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|partner[A-Za-z0-9_]*|gb[A-Za-z0-9_]*)$/;
 var GAS_ROLE_PRESETS_ = {
   manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
@@ -15084,7 +15434,8 @@ function readAccessRows_() {
       requestedAt: data[i][5],
       note: String(data[i][6] || ""),
       timezone: normalizePersonTimezone_(data[i][7] || ""),
-      customTabs: parseAccessTabs_(data[i][8])
+      customTabs: parseAccessTabs_(data[i][8]),
+      notify: notifyFormatOverride_(data[i][9])
     });
   }
   return out;
@@ -15118,7 +15469,7 @@ function findAccessById_(telegramId) {
     try { CacheService.getScriptCache().put("acc_row_" + id, "__none__", 90); } catch (eN1) {}
     return null;
   }
-  var data = sh.getRange(rowIndex, 1, 1, Math.min(9, sh.getMaxColumns())).getValues()[0];
+  var data = sh.getRange(rowIndex, 1, 1, Math.min(10, sh.getMaxColumns())).getValues()[0];
   var row = {
     rowIndex: rowIndex,
     telegramId: String(data[0] || "").trim(),
@@ -15129,7 +15480,8 @@ function findAccessById_(telegramId) {
     requestedAt: data[5],
     note: String(data[6] || ""),
     timezone: normalizePersonTimezone_(data[7] || ""),
-    customTabs: parseAccessTabs_(data[8])
+    customTabs: parseAccessTabs_(data[8]),
+    notify: notifyFormatOverride_(data[9])
   };
   try { CacheService.getScriptCache().put("acc_row_" + id, JSON.stringify(row), 180); } catch (eP) {}
   return row;
@@ -15324,7 +15676,9 @@ function handleListAccess(json, callback, fromPost) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
+  var ownersL = getOwnerTelegramIds_();
   var rows = readAccessRows_().map(function (r) {
+    var effRoleN = ownersL.indexOf(String(r.telegramId)) >= 0 ? "owner" : r.role;
     return {
       telegramId: r.telegramId,
       name: r.name,
@@ -15334,10 +15688,13 @@ function handleListAccess(json, callback, fromPost) {
       note: r.note,
       timezone: r.timezone || ACCESS_DEFAULT_TZ_,
       requestedAt: r.requestedAt ? String(r.requestedAt) : "",
-      customTabs: r.customTabs || []
+      customTabs: r.customTabs || [],
+      notify: r.notify || "",
+      notifyDefaults: notifyRoleDefaults_(effRoleN),
+      notifyEffective: notifyEffectiveKeys_(effRoleN, r.notify || "")
     };
   });
-  var ok = { status: "success", people: rows, owners: getOwnerTelegramIds_(), timezones: ACCESS_TZ_OPTIONS_ };
+  var ok = { status: "success", people: rows, owners: ownersL, timezones: ACCESS_TZ_OPTIONS_, notifyKeys: NOTIFY_KEYS };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -24126,11 +24483,15 @@ function writePartnerNotifyRecipients_(list) {
   return clean;
 }
 
-/** Для будущих пушей заявок: список telegramId (+ owners fallback если пусто). */
+/** Получатели заявок партнёров: ключ partner_order + легаси-список хаба (кто не выключил себе). */
 function getPartnerOrderNotifyIds_() {
   var rec = readPartnerNotifyRecipients_();
-  var ids = rec.map(function (r) { return r.telegramId; }).filter(Boolean);
-  if (ids.length) return ids;
+  var legacy = rec.map(function (r) { return r.telegramId; }).filter(Boolean);
+  try {
+    var ids = notifyRecipients_("partner_order", legacy);
+    if (ids.length) return ids;
+  } catch (eN) {}
+  if (legacy.length) return legacy;
   try {
     var owners = getOwnerTelegramIds_();
     return owners || [];
@@ -24364,17 +24725,14 @@ function partnerSuggestNormalize_(json) {
 
 /** Пуш Арсению и ответственным за заявки — бот Бойни (getTelegramToken_), не @GOODBOY_LG. */
 function partnerSuggestNotifyIds_() {
-  var ids = [];
-  try { ids = getPartnerOrderNotifyIds_() || []; } catch (eIds) { ids = []; }
+  // v71116013: ключ partner_suggest (дефолт — владельцы) + легаси-список хаба; без хардкода id
+  var legacy = [];
+  try { legacy = readPartnerNotifyRecipients_().map(function (r) { return r.telegramId; }).filter(Boolean); } catch (eL) { legacy = []; }
   var out = [];
-  var seen = {};
-  for (var i = 0; i < ids.length; i++) {
-    var id = String(ids[i] || "").trim();
-    if (!id || seen[id]) continue;
-    seen[id] = true;
-    out.push(id);
+  try { out = notifyRecipients_("partner_suggest", legacy); } catch (eIds) { out = []; }
+  if (!out.length) {
+    try { out = getOwnerTelegramIds_() || []; } catch (eO) { out = []; }
   }
-  if (!seen["650923866"]) out.push("650923866");
   return out;
 }
 
@@ -28025,6 +28383,19 @@ function runBpSurveyReminders_(opts) {
         skipped.push({ nick: obj.nick, reason: "no_target" });
         continue;
       }
+      // v71116013: ответственному — если у него не выключен ключ survey
+      if (!(force && onlyNick)) {
+        try {
+          var allowedT = notifyRecipients_("survey", targets, { filterOnly: true });
+          if (allowedT.length < targets.length) {
+            for (var ta = 0; ta < targets.length; ta++) {
+              if (allowedT.indexOf(targets[ta]) < 0) skipped.push({ nick: obj.nick, reason: "notify_off", tid: targets[ta] });
+            }
+          }
+          targets = allowedT;
+        } catch (eNf) {}
+        if (!targets.length) continue;
+      }
 
       var anySent = false;
       for (var t = 0; t < targets.length; t++) {
@@ -29448,13 +29819,8 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
       web_app: { url: appUrl }
     }]]
   };
-  var ids = collectStaffTelegramIds_(["owner", "manager", "all"]);
-  try {
-    var owners = getOwnerTelegramIds_();
-    for (var o = 0; o < owners.length; o++) {
-      if (owners[o] && ids.indexOf(String(owners[o])) < 0) ids.push(String(owners[o]));
-    }
-  } catch (eO) {}
+  // v71116013: ключ missed_delivery, автору не шлём (общий чат здесь и раньше не дублировался)
+  var ids = notifyRecipients_("missed_delivery", null, { exclude: tid });
   var sent = 0;
   for (var n = 0; n < ids.length; n++) {
     if (tid && String(ids[n]) === tid) continue;
