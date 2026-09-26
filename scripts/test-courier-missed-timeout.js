@@ -170,6 +170,13 @@ var kept = transferPlaceMetaJson_('{"orderPrice":42,"statedCost":10,"factCost":7
 assert(kept.orderPrice === 42 && kept.statedCost === 10 && kept.factCost === 7, "relocate keeps source prices");
 assert(kept.noCut === true, "relocate still applies noCut patch");
 
+// CORS: write POST из UI не должен требовать preflight, а Worker — пропускать Cache-Control
+var uiSrcCors = fs.readFileSync(path.join(__dirname, "..", "boinya-c", "app.main.js"), "utf8");
+var wcIdx = uiSrcCors.indexOf("if (writeCutover) {");
+var wcChunk = wcIdx >= 0 ? uiSrcCors.slice(wcIdx, wcIdx + 4000) : "";
+assert(wcChunk.indexOf('"Cache-Control"') < 0, "write POST has no Cache-Control header (no CORS preflight)");
+assert(/Access-Control-Allow-Headers":\s*"[^"]*Cache-Control/.test(worker), "Worker CORS allows Cache-Control for old clients");
+
 if (process.exitCode) {
   console.error("courier-missed-timeout contract FAILED");
   process.exit(process.exitCode);

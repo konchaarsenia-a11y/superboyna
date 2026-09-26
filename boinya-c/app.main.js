@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116001";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116002";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4919,9 +4919,10 @@
             fetch(postUrl, {
               method: "POST",
               redirect: "follow",
+              // Только Content-Type text/plain = simple request без preflight.
+              // Cache-Control ломал CORS preflight → «network_waiting_sheets» на переносе.
               headers: {
-                "Content-Type": "text/plain;charset=utf-8",
-                "Cache-Control": "no-cache"
+                "Content-Type": "text/plain;charset=utf-8"
               },
               body: JSON.stringify(params),
               signal: ctrl ? ctrl.signal : undefined
