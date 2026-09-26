@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116005";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116006";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20099,26 +20099,35 @@
     /* ── Подбор: месячный бюджет из анкеты (BYN): «30-50», «30 50», «до 50», «около 50», п.10 ── */
     function pricePickParseBudget_(raw) {
       var lines = String(raw || "").replace(/\r/g, "\n").split(/\n+/);
-      var money = /byn|бел\.?\s*руб|(?:^|[^а-яё])руб(?:л[а-яё]*|\.)?(?![а-яё])/i;
-      var bare = /^\s*(?:до|около|примерно|от|более|больше|~)?\s*\d{2,3}(?:\s*(?:[–\-—]|до|\s)\s*\d{2,3})?\s*(?:byn|руб[а-яё]*\.?)?\s*$/i;
+      var cur = "(?:byn|бел\\.?\\s*руб[а-яё]*\\.?|руб[а-яё]*\\.?|р\\.?(?![а-яё]))";
+      var per = "(?:\\s*(?:\\/|в|за)\\s*мес[а-яё]*\\.?|\\s*ежемесячно)";
+      var money = new RegExp("byn|бел\\.?\\s*руб|(?:^|[^а-яё])руб(?:л[а-яё]*|\\.)?(?![а-яё])|\\d\\s*р\\.?(?![а-яё])|\\d" + per, "i");
+      var weight = /\d\s*(?:г|гр|кг|шт|км|мл|л)(?![а-яё])/i;
+      var bare = new RegExp("^\\s*(?:до|около|примерно|от|более|больше|~)?\\s*\\d{2,3}(?:\\s*(?:[–\\-—]|до|\\s)\\s*\\d{2,3})?\\s*" + cur + "?" + per + "?\\s*[.!]?\\s*$", "i");
+      var strip = function (l) { return String(l || "").replace(/^\s*\d{1,2}\s*[.)]\s*/, ""); };
       var i, hit;
       for (i = 0; i < lines.length; i++) {
         if (/бюджет/i.test(lines[i])) {
-          hit = pricePickParseBudgetSeg_(String(lines[i]).replace(/^[\s\S]*?бюджет[а-яё]*/i, ""));
+          hit = pricePickParseBudgetSeg_(String(lines[i]).replace(/^[\s\S]*?бюджет[а-яё]*/i, "").replace(/(?:^|\s)10\s*[.)]/, ""));
           if (hit) return hit;
+          /* вопрос «Бюджет в месяц?» — ответ на следующей строке */
+          if (i + 1 < lines.length && bare.test(strip(lines[i + 1]))) {
+            hit = pricePickParseBudgetSeg_(strip(lines[i + 1]));
+            if (hit) return hit;
+          }
         }
       }
       for (i = 0; i < lines.length; i++) {
         var l2 = String(lines[i] || "");
-        var body = l2.replace(/^\s*\d{1,2}\s*[.)]\s*/, "");
+        var body = strip(l2);
         if (/^\s*10\s*[.)]/.test(l2) && bare.test(body)) {
           hit = pricePickParseBudgetSeg_(body);
           if (hit) return hit;
         }
       }
       for (i = 0; i < lines.length; i++) {
-        var l3 = String(lines[i] || "").replace(/^\s*\d{1,2}\s*[.)]\s*/, "");
-        if (money.test(l3)) {
+        var l3 = strip(lines[i]);
+        if (money.test(l3) && !weight.test(l3)) {
           hit = pricePickParseBudgetSeg_(l3);
           if (hit) return hit;
         }
@@ -20407,7 +20416,9 @@
     async function pricePickFitBudget_(payload) {
       if (!payload || !payload.items || !payload.items.length) return null;
       var target = payload.target;
-      if (target !== "pp" && target !== "retail") return null;
+      if (target !== "pp" && target !== "retail" && target !== "bp1" && target !== "bp2") return null;
+      /* БП бесплатные, но состав должен влезать в бюджет как подписка (тот же calcPrice) */
+      var priceTarget = target === "retail" ? "retail" : "pp";
       var sig = payload.signals || {};
       var b = sig.budget;
       if (!b || !(b.max > 0)) return null;
@@ -20415,7 +20426,7 @@
       var cache = {};
       async function est(list) {
         var k = pricePickItemsKey_(list);
-        if (!cache[k]) cache[k] = await pricePickEstimateSetPrice_(list, target);
+        if (!cache[k]) cache[k] = await pricePickEstimateSetPrice_(list, priceTarget);
         return cache[k];
       }
       var goodsOnly = false;
@@ -20477,7 +20488,8 @@
         minFixed: minEst.fixed,
         goodsOnly: goodsOnly,
         budget: b,
-        basis: r.basis,
+        basis: (target === "bp1" || target === "bp2") ? "как подписка" : r.basis,
+        trial: target === "bp1" || target === "bp2",
         approx: r.approx,
         inRange: (goodsOnly ? r.goods : r.price) * 4 <= b.max
       };
@@ -20558,6 +20570,38 @@
       return "";
     }
 
+    /** Строка бюджета для менеджера (БП, подписка, розница); клиенту цены не уходят. */
+    function pricePickBudgetNoteHtml_(payload) {
+      var sig = (payload && payload.signals) || {};
+      var html = "";
+      if (sig.budget && sig.budget.max) {
+        html += "Бюджет " + (sig.budget.kind === "range" ? (sig.budget.min + "–" + sig.budget.max) :
+          (sig.budget.kind === "upto" ? ("до " + sig.budget.max) :
+            (sig.budget.kind === "single" ? String(sig.budget.max) : ("~" + sig.budget.mid)))) + " BYN/мес. ";
+        var bf = payload.budgetFit;
+        if (bf) {
+          var okCol = bf.inRange && !bf.edited ? "#30d158" : "#ff9f0a";
+          html += '<span style="color:' + okCol + ';">Набор ' + (bf.approx ? "~" : "") + formatClientRub_(bf.price) +
+            " × 4 = " + formatClientRub_(bf.monthly) + " BYN (" + escapeHtml(bf.basis) + (bf.edited ? ", до правок" : "") + ")";
+          if (bf.goodsOnly) {
+            html += ". Бюджет применён к товару: " + formatClientRub_(bf.goods) + " × 4 = " + formatClientRub_(bf.goodsMonthly) +
+              " BYN; доставка+упаковка " + formatClientRub_(bf.fixed) + "/нед сверх. Минимум с доставкой — " +
+              formatClientRub_(bf.minPrice) + " × 4 = " + formatClientRub_(bf.minMonthly) + " BYN";
+          }
+          html += "</span>. ";
+        } else if (payload.budgetFitPending) {
+          html += "Подгоняем под бюджет… ";
+        } else if (payload.budgetFitFailed) {
+          html += '<span style="color:#ff9f0a;">Не удалось посчитать цену набора — состав без подгонки.</span> ';
+        }
+      } else if (sig.budgetByn) {
+        html += '<span style="color:#ff9f0a;">Бюджет ~' + escapeHtml(String(sig.budgetByn)) + " — формат не распознан, без подгонки.</span> ";
+      } else {
+        html += '<span style="color:#ff9f0a;">Бюджет в анкете не найден — состав без подгонки под бюджет.</span> ';
+      }
+      return html;
+    }
+
     function renderPricePickPreview_(payload) {
       var box = document.getElementById("pricePickPreview");
       var editor = document.getElementById("pricePickEditor");
@@ -20572,7 +20616,7 @@
       var trialPick = payload.target === "bp1" || payload.target === "bp2";
       var listTitle = document.getElementById("pricePickListTitle");
       if (trialPick) {
-        box.innerHTML = "";
+        box.innerHTML = '<div class="muted" style="font-size:12px;margin:0 0 8px;">' + pricePickBudgetNoteHtml_(payload) + "</div>";
         if (listTitle) listTitle.style.display = "none";
         if (editor) editor.style.display = "";
         pricePickSyncOffer_(payload);
@@ -20590,24 +20634,7 @@
       if (sig.familyNotes && sig.familyNotes.length) html += "Исключили: " + escapeHtml(sig.familyNotes.join(", ")) + ". ";
       if (sig.qty === "low") html += "Мало было → чуть больше. ";
       if (sig.qty === "high") html += "С запасом → чуть меньше. ";
-      if (sig.budget && sig.budget.max) {
-        html += "Бюджет " + (sig.budget.kind === "range" ? (sig.budget.min + "–" + sig.budget.max) :
-          (sig.budget.kind === "upto" ? ("до " + sig.budget.max) : ("~" + sig.budget.mid))) + " BYN/мес. ";
-        var bf = payload.budgetFit;
-        if (bf) {
-          var okCol = bf.inRange && !bf.edited ? "#30d158" : "#ff9f0a";
-          html += '<span style="color:' + okCol + ';">Набор ' + (bf.approx ? "~" : "") + formatClientRub_(bf.price) +
-            " × 4 = " + formatClientRub_(bf.monthly) + " BYN (" + escapeHtml(bf.basis) + (bf.edited ? ", до правок" : "") + ")";
-          if (bf.goodsOnly) {
-            html += ". Бюджет применён к товару: " + formatClientRub_(bf.goods) + " × 4 = " + formatClientRub_(bf.goodsMonthly) +
-              " BYN; доставка+упаковка " + formatClientRub_(bf.fixed) + "/нед сверх. Минимум с доставкой — " +
-              formatClientRub_(bf.minPrice) + " × 4 = " + formatClientRub_(bf.minMonthly) + " BYN";
-          }
-          html += "</span>. ";
-        } else if (payload.budgetFitPending) {
-          html += "Подгоняем под бюджет… ";
-        }
-      } else if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
+      html += pricePickBudgetNoteHtml_(payload);
       if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
       if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
       if (sig.puppy) html += "Щенок. ";
@@ -20803,8 +20830,7 @@
       payload.anketaText = raw;
       payload.autoKey = pricePickItemsKey_(payload.items);
       payload.offerDirty = false;
-      var wantBudgetFit = !!(signals.budget && signals.budget.max &&
-        (payload.target === "pp" || payload.target === "retail"));
+      var wantBudgetFit = !!(signals.budget && signals.budget.max);
       payload.budgetFitPending = wantBudgetFit;
       pricePickSuggestions_ = payload;
       renderPricePickPreview_(payload);
@@ -20816,14 +20842,16 @@
             payload.items = pricePickCloneItems_(fit.items);
             payload.autoKey = pricePickItemsKey_(payload.items);
             payload.budgetFit = fit;
+            payload.budgetFitFailed = false;
             showToast(fit.goodsOnly
               ? ("Бюджет ниже минимума с доставкой (" + formatClientRub_(fit.minMonthly) + " BYN/мес) — подогнали товар: " +
                 formatClientRub_(fit.goodsMonthly) + " BYN/мес")
               : ("Под бюджет: набор " + formatClientRub_(fit.price) + " × 4 = " + formatClientRub_(fit.monthly) + " BYN"));
-          }
+          } else payload.budgetFitFailed = true;
           renderPricePickPreview_(payload);
         }).catch(function () {
           payload.budgetFitPending = false;
+          payload.budgetFitFailed = true;
           if (pricePickSuggestions_ === payload) renderPricePickPreview_(payload);
         });
       }
