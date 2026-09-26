@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116004";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116005";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20219,7 +20219,8 @@
         : (target === "bp1" ? "первую пробную коробку"
           : (target === "retail" ? "набор" : "набор на подписку"));
       var lines = [];
-      lines.push("Спасибо за ответы! Собрали " + boxWord + ":");
+      lines.push("Спасибо за ответы! Очень рады знакомству" + (name ? " — привет, " + name + " 🐾" : " 🐾"));
+      lines.push("Собрали " + boxWord + ":");
       lines.push("");
       var last = "";
       items.forEach(function (it) {
@@ -20252,7 +20253,6 @@
       var liked = (signals.liked || []).filter(function (n) {
         return items.some(function (it) { return String(it.main || it.name).toUpperCase() === String(n).toUpperCase(); });
       }).map(lower);
-      var who = name || "питомец";
       var said = [];
 
       // 1) исключения
@@ -20263,45 +20263,50 @@
         var t = pricePickAccRu_(lower(n));
         if (excl.indexOf(t) < 0) excl.push(t);
       });
-      if (excl.length) said.push(pricePickJoinRu_(excl).replace(/^./, function (c) { return c.toUpperCase(); }) + " не кладём, как вы и писали.");
+      var cap = function (t) { return String(t).replace(/^./, function (c) { return c.toUpperCase(); }); };
+      if (excl.length) {
+        said.push(cap(pricePickJoinRu_(excl)) + " не кладём совсем, как вы и писали, — " +
+          (prof.stomach ? "чтобы животику было спокойно." : "чтобы ничего не беспокоило."));
+      }
 
       // 2) дрессура / щенок
       if (dress.length) {
+        var dj = pricePickJoinRu_(dress);
         if (prof.training) {
-          said.push("Раз " + (name ? name + " занимается" : "вы занимаетесь") + " дрессировкой, основа — " +
-            pricePickJoinRu_(dress) + ": нежирно, ароматно и удобно быстро давать на тренировке.");
+          said.push("Для тренировок основа — " + dj + ": нежные и ароматные, их удобно быстро давать, так что заниматься будет вдвойне приятнее.");
         } else if (prof.puppy) {
-          said.push("Для щенка взяли мягкое и мелкое — " + pricePickJoinRu_(dress) + " легко жевать и удобно давать часто.");
+          said.push("Для малыша взяли мягкое и мелкое — " + dj + " легко жевать, и можно баловать почаще.");
         } else {
-          said.push(pricePickJoinRu_(dress).replace(/^./, function (c) { return c.toUpperCase(); }) +
-            " — нежирные и ароматные, их удобно давать часто.");
+          said.push(cap(dj) + " — нежирные и ароматные, их приятно давать часто.");
         }
       }
-      if (prof.stomach) said.push("Из-за чувствительного желудка начнём с небольших порций.");
 
       // 3) жевалки / зубы
       if (chews.length) {
         var ch = pricePickJoinRu_(chews);
-        if (prof.teething) said.push("Пока меняются зубы, " + ch + " помогут почесать дёсны.");
-        else if (prof.teeth) said.push("Для зубов добавили " + pricePickAccRu_(ch) + " — их долго грызть, и они помогают счищать налёт.");
-        else if (prof.chewer) said.push((name ? name + " любит" : "Любит") + " погрызть, поэтому есть " + ch + " — это надолго.");
+        if (prof.teething) said.push("Пока меняются зубки, " + ch + " помогут почесать дёсны — и будет чем заняться.");
+        else if (prof.teeth) said.push("Для зубов — " + ch + ": грызть долго, и это помогает счищать налёт.");
+        else if (prof.chewer) said.push("А для любителя погрызть — " + ch + ", будет чем заняться надолго.");
+        else said.push("И жевалки — " + ch + ", чтобы было чем заняться.");
       }
+      if (prof.stomach && !excl.length) said.push("Порции небольшие, начинаем мягко, чтобы животику было спокойно.");
       var likedRest2 = liked.filter(function (n) { return dress.indexOf(n) < 0 && chews.indexOf(n) < 0; });
-      if (likedRest2.length) said.push("Проверенный вкус (" + pricePickJoinRu_(likedRest2.slice(0, 2)) + ") тоже на месте.");
+      if (likedRest2.length) said.push("И, конечно, положили проверенный вкус — " + pricePickJoinRu_(likedRest2.slice(0, 2)) + ".");
       if (said.length) {
         lines.push("");
         lines.push(said.slice(0, 3).join(" "));
       }
 
+      var waitLine = "Ждём отзыв — очень интересно, что " + (name || "ваш хвостик") + " оценит больше всего!";
       lines.push("");
       if (target === "bp1") {
-        lines.push("Посмотрите за неделю, что " + who + " ест с удовольствием, — по реакции соберём вторую коробку. Как вам такой состав?");
+        lines.push("Как вам такой состав? " + waitLine + " По реакции соберём вторую коробку.");
       } else if (target === "bp2") {
-        lines.push("Смотрим, что закрепилось после первой коробки, и дальше подстроим. Как вам такой состав?");
+        lines.push("Смотрим, что закрепилось после первой коробки, и дальше подстроим. Как вам такой состав? " + waitLine);
       } else if (target === "retail") {
-        lines.push("Если понравится, можно перейти на подписку с тем же составом. Как вам такой вариант?");
+        lines.push("Как вам такой вариант? Если понравится, можно перейти на подписку с тем же составом. " + waitLine);
       } else {
-        lines.push("Как вам такой состав? Цену пришлём отдельно.");
+        lines.push("Как вам такой состав? Цену пришлём отдельно. " + waitLine);
       }
       return lines.join("\n");
     }
