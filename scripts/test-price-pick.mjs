@@ -305,11 +305,13 @@ function grams(payload, name) {
   assert.deepEqual([sig.budget.min, sig.budget.max], [50, 80]);
   const r = fns.pricePickComposeForTarget_(sig, "bp1");
   const offer = fns.pricePickOfferText_(sig, "bp1", r.items);
-  assert.ok(/Джей занимается дрессировкой/.test(offer), offer);
-  assert.ok(/Рыбу и трахею не кладём/.test(offer), offer);
+  assert.ok(/привет, Джей/.test(offer) && /что Джей оценит больше всего/.test(offer), offer);
+  assert.ok(/Рыбу и трахею не кладём совсем/.test(offer) && /Для тренировок основа/.test(offer), offer);
+  assert.ok((offer.match(/\p{Extended_Pictographic}/gu) || []).length <= 1, "max 1 emoji");
   assert.ok(!/Почему именно это|Что учли|•/.test(offer), "plain prose, no bullets: " + offer);
   assert.ok(!/доставк[аи] в месяц/.test(fns.pricePickOfferText_(sig, "pp", r.items)), "no deliveries-per-month line");
   assert.ok(offer.length < 900, "short: " + offer.length);
+  assert.ok(!/для Джей|Джея|Джею/.test(offer), "no unsafe declension");
   assert.ok(!/(собрала|подобрала|учла|оставила|исключила|добавила|посчитаю|подстрою|Не беру)/i.test(offer), "team voice only: " + offer);
   assert.ok(/[Сс]обрали/.test(offer));
   assert.ok(!/BYN|₽/.test(offer));
