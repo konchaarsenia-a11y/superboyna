@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116006";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116007";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20320,51 +20320,59 @@
       return lines.join("\n");
     }
 
-    /* ── Подбор: цена набора ×4 (недели) под месячный бюджет из анкеты ── */
-    async function pricePickEstimateSetPrice_(items, target) {
-      var list = pricePickCloneItems_(items || []);
-      var retail = calcRetailBasketTotal(list, { deliveriesN: 1 });
-      if (target === "retail") {
-        return {
-          price: Number(retail.total) || 0,
-          goods: Number(retail.goods) || 0,
-          fixed: Number(retail.delivery) || 0,
-          basis: "розница",
-          approx: false
-        };
-      }
-      var price = 0, goods = NaN, fixed = NaN;
+    /* ── Подбор: месячная оценка под бюджет из анкеты ──
+     * Недельный набор → все граммы/штуки ×4 (месячный состав) → ОДНА ПП через живой calcPrice (pp), deliveriesN=2.
+     * Одна база для БП1/БП2/подписки/розницы. Доставка считается 2 раза, а не 4. */
+    var PRICE_PICK_MONTH_WEEKS = 4;
+    var PRICE_PICK_MONTH_DELIVERIES = 2;
+
+    function pricePickMonthlyItems_(items) {
+      return pricePickCloneItems_(items || []).map(function (it) {
+        var v = (Number(it.value != null ? it.value : it.val) || 0) * PRICE_PICK_MONTH_WEEKS;
+        it.value = v;
+        it.val = v;
+        return it;
+      });
+    }
+
+    async function pricePickEstimateMonthly_(items) {
+      var month = pricePickMonthlyItems_(items);
+      var nDel = PRICE_PICK_MONTH_DELIVERIES;
+      var retail = calcRetailBasketTotal(month, { deliveriesN: nDel });
+      var monthly = 0, goods = NaN, fixed = NaN;
       var approx = false;
       try {
-        var slim = list.map(function (it) { return serializeBasketItem_(it); });
+        var slim = month.map(function (it) { return serializeBasketItem_(it); });
         var res = await fetchPpCalcPrice_(slim, {
           mode: "pp",
-          deliveriesN: 1,
+          deliveriesN: nDel,
           coef: getPricePpCoef(),
           scheme: pricePpScheme || defaultPpSchemeForNewLocal_(),
           forNew: 1,
           timeoutMs: 15000
         });
         if (res) {
-          price = Number(raw26ApiFactPrice_(res)) || Number(res.factCost) || 0;
+          monthly = Number(raw26ApiFactPrice_(res)) || Number(res.factCost) || 0;
           fixed = (Number(res.deliveryByn) || 0) + (Number(res.packagesByn) || 0);
-          goods = res.goodsByn != null ? Number(res.goodsByn) : price - fixed;
+          goods = res.goodsByn != null ? Number(res.goodsByn) : monthly - fixed;
         }
-      } catch (eEst) { price = 0; }
-      if (!(price > 0)) {
-        price = Math.round((Number(retail.total) || 0) * 0.92 * 100) / 100;
-        fixed = typeof PP_RAW26_DELIVERY_PER === "number" ? PP_RAW26_DELIVERY_PER : 9;
-        goods = Math.max(0, price - fixed);
+      } catch (eEst) { monthly = 0; }
+      if (!(monthly > 0)) {
+        monthly = Math.round((Number(retail.total) || 0) * 0.92 * 100) / 100;
+        fixed = (typeof PP_RAW26_DELIVERY_PER === "number" ? PP_RAW26_DELIVERY_PER : 9) * nDel;
+        goods = Math.max(0, monthly - fixed);
         approx = true;
       }
-      price = capOfferSubToDisplayedRetail_(price, retail.total) || price;
-      if (!isFinite(goods)) goods = Math.max(0, price - (fixed || 0));
-      if (!isFinite(fixed)) fixed = Math.max(0, price - goods);
+      monthly = capOfferSubToDisplayedRetail_(monthly, retail.total) || monthly;
+      if (!isFinite(goods)) goods = Math.max(0, monthly - (fixed || 0));
+      if (!isFinite(fixed)) fixed = Math.max(0, monthly - goods);
       return {
-        price: Math.round(price * 100) / 100,
+        monthly: Math.round(monthly * 100) / 100,
         goods: Math.round(Math.max(0, goods) * 100) / 100,
         fixed: Math.round(Math.max(0, fixed) * 100) / 100,
-        basis: "подписка",
+        retailMonthly: Number(retail.total) || 0,
+        deliveriesN: nDel,
+        basis: "ПП",
         approx: approx
       };
     }
@@ -20408,17 +20416,14 @@
     }
 
     /**
-     * Бюджет всегда соблюдаем: цена набора × 4 ≤ верх бюджета.
-     * Сначала граммы (до 10 г / 1 шт), потом убираем позиции до 1–2.
-     * Если даже минимум не влезает из-за доставки/упаковки — бюджет на товар (без доставки и упаковки),
-     * goodsOnly=true + minMonthly для менеджера.
+     * Бюджет: месячная ПП (состав ×4, 2 доставки, живой calcPrice pp) ≤ верх бюджета — для всех типов оффера.
+     * Сначала граммы (до 10 г / 1 шт в недельном наборе), потом убираем самые дорогие не-лайки/не-обязательные.
+     * Только если даже минимальный набор с доставкой не влезает — бюджет на товар (goodsOnly) + minMonthly для менеджера.
      */
     async function pricePickFitBudget_(payload) {
       if (!payload || !payload.items || !payload.items.length) return null;
       var target = payload.target;
       if (target !== "pp" && target !== "retail" && target !== "bp1" && target !== "bp2") return null;
-      /* БП бесплатные, но состав должен влезать в бюджет как подписка (тот же calcPrice) */
-      var priceTarget = target === "retail" ? "retail" : "pp";
       var sig = payload.signals || {};
       var b = sig.budget;
       if (!b || !(b.max > 0)) return null;
@@ -20426,13 +20431,13 @@
       var cache = {};
       async function est(list) {
         var k = pricePickItemsKey_(list);
-        if (!cache[k]) cache[k] = await pricePickEstimateSetPrice_(list, priceTarget);
+        if (!cache[k]) cache[k] = await pricePickEstimateMonthly_(list);
         return cache[k];
       }
       var goodsOnly = false;
-      function val(e) { return (goodsOnly ? e.goods : e.price) * 4; }
+      function val(e) { return goodsOnly ? e.goods : e.monthly; }
 
-      // самый маленький разумный набор: одна дрессура (самая дешёвая, лучше из лайков) на 10 г
+      // самый маленький разумный набор: одна дрессура (лучше из лайков) на 10 г
       var base0 = pricePickCloneItems_(payload.items);
       var minimal = base0.slice();
       var guard = 0;
@@ -20443,19 +20448,15 @@
       }
       minimal = pricePickScaleForBudget_(minimal, 0.01);
       var minEst = await est(minimal);
-      if (!(minEst.price > 0)) return null;
-      var minMonthly = Math.round(minEst.price * 4 * 100) / 100;
+      if (!(minEst.monthly > 0)) return null;
+      var minMonthly = minEst.monthly;
       if (minMonthly > b.max) goodsOnly = true;
 
       var base = base0;
       var result = null;
       for (var round = 0; round < 12 && !result; round++) {
         var e1 = await est(base);
-        if (val(e1) <= b.max) {
-          if (val(e1) >= Math.min(b.min, aim) || round > 0) { result = { items: base, e: e1 }; break; }
-          result = { items: base, e: e1 };
-          break;
-        }
+        if (val(e1) <= b.max) { result = { items: base, e: e1 }; break; }
         var floorList = pricePickScaleForBudget_(base, 0.01);
         var eF = await est(floorList);
         if (val(eF) > b.max) {
@@ -20478,20 +20479,19 @@
       var r = result.e;
       return {
         items: result.items,
-        price: r.price,
-        goods: r.goods,
-        fixed: r.fixed,
-        monthly: Math.round(r.price * 4 * 100) / 100,
-        goodsMonthly: Math.round(r.goods * 4 * 100) / 100,
+        monthly: r.monthly,
+        goodsMonthly: r.goods,
+        fixedMonthly: r.fixed,
+        retailMonthly: r.retailMonthly,
+        deliveriesN: r.deliveriesN,
         minMonthly: minMonthly,
-        minPrice: minEst.price,
         minFixed: minEst.fixed,
         goodsOnly: goodsOnly,
         budget: b,
-        basis: (target === "bp1" || target === "bp2") ? "как подписка" : r.basis,
+        basis: r.basis,
         trial: target === "bp1" || target === "bp2",
         approx: r.approx,
-        inRange: (goodsOnly ? r.goods : r.price) * 4 <= b.max
+        inRange: val(r) <= b.max
       };
     }
 
@@ -20581,12 +20581,12 @@
         var bf = payload.budgetFit;
         if (bf) {
           var okCol = bf.inRange && !bf.edited ? "#30d158" : "#ff9f0a";
-          html += '<span style="color:' + okCol + ';">Набор ' + (bf.approx ? "~" : "") + formatClientRub_(bf.price) +
-            " × 4 = " + formatClientRub_(bf.monthly) + " BYN (" + escapeHtml(bf.basis) + (bf.edited ? ", до правок" : "") + ")";
+          html += '<span style="color:' + okCol + ';">На месяц (×4, 2 доставки): ' + (bf.approx ? "~" : "") +
+            formatClientRub_(bf.monthly) + " BYN" + (bf.edited ? " (до правок)" : "");
           if (bf.goodsOnly) {
-            html += ". Бюджет применён к товару: " + formatClientRub_(bf.goods) + " × 4 = " + formatClientRub_(bf.goodsMonthly) +
-              " BYN; доставка+упаковка " + formatClientRub_(bf.fixed) + "/нед сверх. Минимум с доставкой — " +
-              formatClientRub_(bf.minPrice) + " × 4 = " + formatClientRub_(bf.minMonthly) + " BYN";
+            html += ". Даже минимум с доставкой — " + formatClientRub_(bf.minMonthly) +
+              " BYN/мес, бюджет применён к товару: " + formatClientRub_(bf.goodsMonthly) +
+              " BYN; доставка+упаковка " + formatClientRub_(bf.fixedMonthly) + " BYN/мес сверх";
           }
           html += "</span>. ";
         } else if (payload.budgetFitPending) {
@@ -20846,7 +20846,7 @@
             showToast(fit.goodsOnly
               ? ("Бюджет ниже минимума с доставкой (" + formatClientRub_(fit.minMonthly) + " BYN/мес) — подогнали товар: " +
                 formatClientRub_(fit.goodsMonthly) + " BYN/мес")
-              : ("Под бюджет: набор " + formatClientRub_(fit.price) + " × 4 = " + formatClientRub_(fit.monthly) + " BYN"));
+              : ("Под бюджет: на месяц (×4, 2 доставки) " + formatClientRub_(fit.monthly) + " BYN"));
           } else payload.budgetFitFailed = true;
           renderPricePickPreview_(payload);
         }).catch(function () {
