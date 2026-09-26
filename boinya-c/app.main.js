@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116008";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116009";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -115,8 +115,22 @@
     };
     let departTimeLocked = false;
 
-    let APP_ROLE = "all";
+    // roles-audit: по умолчанию НИЧЕГО (fail-closed); реальные вкладки приходят с сервера (getMyAccess.tabs)
+    let APP_ROLE = "none";
+    let APP_TABS = null;
+    let APP_CUSTOM_TABS = [];
     let myTelegramId = "";
+
+    /** Сырая initData Telegram (подпись проверяет Worker/GAS). Пусто вне Telegram. */
+    function tgInitDataRaw_() {
+      try {
+        var w = window.Telegram && window.Telegram.WebApp;
+        return String((w && w.initData) || "");
+      } catch (eI) {
+        return "";
+      }
+    }
+    window.tgInitDataRaw_ = tgInitDataRaw_;
     let myAccessName = "";
     const TG_ID_LS = "superboyna_tg_id";
 
@@ -142,10 +156,7 @@
         var ju = JSON.parse(decodeURIComponent(m[1]));
         if (ju && ju.id) return String(ju.id);
       } catch (e1) {}
-      try {
-        var fromUrl = readTelegramIdFromUrl_();
-        if (fromUrl) return fromUrl;
-      } catch (e2) {}
+      // roles-audit: ?tid= из URL больше не подменяет личность (сервер всё равно берёт tid из initData)
       return "";
     }
 
@@ -179,7 +190,8 @@
     }
     window.ensureTelegramId = ensureTelegramId;
     const ROLE_TABS = {
-      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
+      // roles-audit: all = все рабочие вкладки, без денег/прайса/доступов (как Worker/GAS)
+      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "partnerHubScreen"],
       owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
       manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
       cutter: ["cuttingScreen"],
@@ -539,8 +551,8 @@
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → вкладка «Подбор» на экране Расчёт.",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
-      peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
-      partnerHubScreen: "Партнёры (мини-апп varka)\n• Новые предложения — заявки «Предложить партнёра».\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
+      peopleScreen: "Доступы (только сотрудники Бойни)\n• Завершить неделю / подтянуть из месяца — сверху.\n• Заявки из бота/мини-аппа — одобрить с ролью или отклонить.\n• Роль, вкладки по человеку и часовой пояс — только владелец.\n• Партнёры БП / Varka — вкладка «Партнёры».\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
+      partnerHubScreen: "Партнёры (мини-апп varka)\n• Новые предложения — заявки «Предложить партнёра».\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• БП — партнёры-источники БП (заказы и статистика), только владелец.\n• Не путать с партнёрами БП в Доступах."
     };
 
     window._templatesSub = "texts";
@@ -1372,9 +1384,16 @@
 
     const LAST_SCREEN_LS = "superboyna_last_screen";
 
+    /** Разрешённые вкладки: с сервера (роль + кастом); иначе пресет роли; неизвестная роль → []. */
+    function allowedTabs_() {
+      if (Array.isArray(APP_TABS)) return APP_TABS;
+      return ROLE_TABS[APP_ROLE] || [];
+    }
+    window.allowedTabs_ = allowedTabs_;
+
     function applyRoleTabs(opts) {
       opts = opts || {};
-      const allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
+      const allowed = allowedTabs_();
       getTabLinkNodes_().forEach(btn => {
         const screen = btn.dataset.screen;
         if (FLYOUT_SCREENS.indexOf(screen) >= 0) {
@@ -1382,7 +1401,7 @@
           return;
         }
 
-        if (APP_ROLE === "manager" && screen !== "orderScreen" && screen !== "partnerHubScreen") {
+        if (APP_ROLE === "manager" && !(APP_CUSTOM_TABS && APP_CUSTOM_TABS.length) && screen !== "orderScreen" && screen !== "partnerHubScreen") {
           btn.style.display = "none";
           return;
         }
@@ -1391,8 +1410,9 @@
       });
       document.querySelectorAll("#orderFlyout .order-flyout-btn").forEach(function (b) {
         const scr = b.getAttribute("data-fly");
+        // roles-audit: решают вкладки (сервер); data-fly-roles — только для пресетов
         const roles = String(b.getAttribute("data-fly-roles") || "owner,all").split(",");
-        const roleOk = roles.indexOf(APP_ROLE) >= 0 || APP_ROLE === "all";
+        const roleOk = APP_ROLE === "owner" || !!(APP_CUSTOM_TABS && APP_CUSTOM_TABS.length) || roles.indexOf(APP_ROLE) >= 0;
         const allowedOk = allowed.indexOf(scr) >= 0;
         b.style.display = (roleOk && allowedOk) ? "" : "none";
       });
@@ -1405,7 +1425,7 @@
         }
         return;
       }
-      const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
+      const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || allowed[0] || "";
       var active = document.querySelector(".screen.active");
       var cur = active && active.id;
 
@@ -1426,9 +1446,9 @@
 
     function restoreLastScreen() {
 
-      var allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
-      var first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
-      switchTab(first);
+      var allowed = allowedTabs_();
+      var first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || allowed[0] || "";
+      if (first) switchTab(first);
     }
     window.restoreLastScreen = restoreLastScreen;
 
@@ -1520,7 +1540,8 @@
       function startPress() {
         clearTimer();
         timer = setTimeout(function () {
-          if (APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all") {
+          var _flyAllowed = allowedTabs_().some(function (t) { return FLYOUT_SCREENS.indexOf(t) >= 0; });
+          if (_flyAllowed) {
             orderFlyoutJustOpened = true;
             suppressOrderClick = true;
             toggleOrderFlyout(true);
@@ -3962,6 +3983,9 @@
       if (screen) screen.classList.add("active");
       if (opts.focus === "partners") {
         try {
+          if (screenId === "partnerHubScreen") setPartnerHubTab_("bp");
+        } catch (eFb) {}
+        try {
           setTimeout(function () {
             var card = document.getElementById("partnersManageCard");
             if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4036,12 +4060,16 @@
           }
           if (sid === "peopleScreen") {
             loadPeople({ soft: true });
-            try { loadPartnersUi_({ soft: true }); } catch (ePar) {}
             try { refreshWeekBanners({ soft: true }); } catch (eFw) {}
           }
           if (sid === "partnerHubScreen") {
             try { loadPartnerHubUi_({ soft: true }); } catch (eHub) {}
             try { loadPartnerSuggestionsUi_({ soft: true }); } catch (eSug) {}
+            try {
+              var bpBtn = document.querySelector('#phSubTabs [data-ph-tab="bp"]');
+              if (bpBtn) bpBtn.style.display = APP_ROLE === "owner" ? "" : "none";
+              if (partnerHubTab_ === "bp") loadPartnersUi_({ soft: true });
+            } catch (eBpT) {}
           }
           if (sid === "courierScreen") {
             try {
@@ -4823,6 +4851,11 @@
     function apiGet(params, opts) {
       opts = opts || {};
       params = params || {};
+      // roles-audit: подпись Telegram в каждом запросе (Worker/GAS берут tid только из неё)
+      if (!params.initData) {
+        var _tgInit = tgInitDataRaw_();
+        if (_tgInit) params = Object.assign({}, params, { initData: _tgInit });
+      }
       // Cutover LIVE: без cutover=1 Worker в sandbox — D1 пишет, Sheets нет
       if (window.__BOINYA_C_CUTOVER__ && params.cutover == null && params.mode !== "live") {
         params = Object.assign({}, params, { cutover: "1" });
@@ -4845,7 +4878,7 @@
       var cacheKey = "";
       try {
         cacheKey = Object.keys(params || {}).filter(function (k) {
-          return k !== "_" && k !== "nocache";
+          return k !== "_" && k !== "nocache" && k !== "initData";
         }).sort().map(function (k) {
           return k + "=" + params[k];
         }).join("&");
@@ -5097,6 +5130,10 @@
       payload = payload || {};
       if (window.__BOINYA_C_CUTOVER__ && payload.cutover == null && payload.mode !== "live") {
         payload = Object.assign({}, payload, { cutover: "1" });
+      }
+      if (!payload.initData) {
+        var _tgInitP = tgInitDataRaw_();
+        if (_tgInitP) payload = Object.assign({}, payload, { initData: _tgInitP });
       }
       return fetch(GOOGLE_WEBHOOK_URL, {
         method: "POST",
@@ -14916,6 +14953,8 @@
       document.getElementById("accessTitle").textContent = title;
       document.getElementById("accessText").textContent = text;
       document.getElementById("accessActions").innerHTML = actionsHtml || "";
+      gate.style.display = "";
+      gate.style.pointerEvents = "";
       gate.classList.add("open");
     }
     function hideAccessGate() {
@@ -14926,82 +14965,127 @@
       gate.style.pointerEvents = "none";
     }
 
+    var ACCESS_CACHE_LS_ = "superboyna_app_access_v2";
+
+    function applyAccessResult_(res) {
+      APP_ROLE = String((res && res.role) || "none");
+      APP_TABS = Array.isArray(res && res.tabs) ? res.tabs.slice() : (ROLE_TABS[APP_ROLE] || []).slice();
+      APP_CUSTOM_TABS = Array.isArray(res && res.customTabs) ? res.customTabs.slice() : [];
+      weekTabUnlocked = APP_ROLE === "owner";
+    }
+
+    function showAccessRetryGate_(title, text) {
+      APP_ROLE = "none";
+      APP_TABS = [];
+      APP_CUSTOM_TABS = [];
+      weekTabUnlocked = false;
+      applyRoleTabs({ skipSwitch: true, skipNetwork: true });
+      showAccessGate(
+        title,
+        text,
+        '<button class="btn-action btn-orange" type="button" onclick="retryBootstrapAccess_()">Повторить</button>'
+      );
+    }
+
+    function retryBootstrapAccess_() {
+      try {
+        var g = document.getElementById("accessGate");
+        if (g) { g.style.display = ""; g.style.pointerEvents = ""; }
+      } catch (eG) {}
+      bootstrapAccess();
+    }
+    window.retryBootstrapAccess_ = retryBootstrapAccess_;
+
+    /**
+     * roles-audit: fail-closed. Нет Telegram / ошибка / таймаут → role=none (без вкладок) + «Повторить».
+     * Кешируем только реальный ответ сервера (роль+вкладки) для быстрого старта; фолбэка «all» больше нет.
+     */
     async function bootstrapAccess() {
       try {
         var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
         myTelegramId = String(u.id || "") || readTelegramIdFromTg() || loadStoredTelegramId();
-        if (!myTelegramId) {
-          try { myTelegramId = readTelegramIdFromUrl_() || ""; } catch (eUrl) {}
-        }
         if (myTelegramId) storeTelegramId(myTelegramId);
         myAccessName = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
         var username = String(u.username || "");
 
-        var cachedRole = "";
-        try { cachedRole = String(localStorage.getItem("superboyna_app_role") || ""); } catch (eR0) {}
         var bootedEarly = false;
-        if (cachedRole && cachedRole !== "none" && cachedRole !== "pending" && cachedRole !== "denied") {
-          APP_ROLE = cachedRole;
-          if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
-          applyRoleTabs({ skipSwitch: true, skipNetwork: true });
-          restoreLastScreen();
-          bootedEarly = true;
-        }
-        if (!myTelegramId) {
-          APP_ROLE = "all";
-          weekTabUnlocked = true;
-          try { localStorage.setItem("superboyna_app_role", "all"); } catch (eR1) {}
-          if (!bootedEarly) {
+        try {
+          localStorage.removeItem("superboyna_app_role");
+          var cachedRaw = localStorage.getItem(ACCESS_CACHE_LS_);
+          var cached = cachedRaw ? JSON.parse(cachedRaw) : null;
+          if (
+            cached && cached.tid && cached.tid === String(myTelegramId || "") &&
+            Array.isArray(cached.tabs) && cached.tabs.length &&
+            !/^(none|pending|denied)$/.test(String(cached.role || ""))
+          ) {
+            applyAccessResult_(cached);
             applyRoleTabs({ skipSwitch: true, skipNetwork: true });
             restoreLastScreen();
+            bootedEarly = true;
           }
-          maybeAskWeekPullFromMonth();
+        } catch (eR0) {}
+        if (!tgInitDataRaw_()) {
+          showAccessRetryGate_("Откройте через Telegram", "Бойня работает только внутри Telegram (кнопка бота). Вне Telegram доступа нет.");
           return;
         }
-        var res = await apiGet({
-          action: "getMyAccess",
-          telegramId: myTelegramId,
-          name: myAccessName,
-          username: username
-        }, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 8000 : 18000, retries: 0, cacheTtlMs: 120000 });
+        var res = null;
+        try {
+          res = await apiGet({
+            action: "getMyAccess",
+            telegramId: myTelegramId,
+            name: myAccessName,
+            username: username
+          }, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 12000 : 18000, retries: 1, cacheTtlMs: 0 });
+        } catch (eNet) {
+          res = null;
+        }
         if (!res || res.status !== "success") {
-          APP_ROLE = "all";
-          weekTabUnlocked = true;
-          try { localStorage.setItem("superboyna_app_role", "all"); } catch (eR2) {}
-          if (!bootedEarly) {
-            applyRoleTabs({ skipSwitch: true, skipNetwork: true });
-            restoreLastScreen();
+          if (bootedEarly) {
+            // вкладки из последнего ПОДТВЕРЖДЁННОГО ответа; сервер всё равно проверяет каждое действие
+            setTimeout(function () { try { bootstrapAccess(); } catch (eRb) {} }, 15000);
+            return;
           }
-          maybeAskWeekPullFromMonth();
-          setTimeout(function () {
-            try { maybePromptPartnerOrdersOnEnter_(); } catch (ePoE) {}
-          }, 900);
+          showAccessRetryGate_("Нет связи", "Не удалось проверить доступ. Проверьте интернет и нажмите «Повторить».");
+          return;
+        }
+        if (res.authRequired) {
+          try { localStorage.removeItem(ACCESS_CACHE_LS_); } catch (eRm) {}
+          showAccessRetryGate_("Нужен Telegram", "Подпись Telegram не прошла проверку. Закройте и откройте мини-апп заново из бота.");
           return;
         }
         var prevRole = APP_ROLE;
-        APP_ROLE = res.role || "none";
-        try { localStorage.setItem("superboyna_app_role", String(APP_ROLE)); } catch (eR3) {}
-        if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
-        if (APP_ROLE === "none" || APP_ROLE === "pending") {
-          showAccessGate(
-            APP_ROLE === "pending" ? "Ожидание" : "Нет доступа",
-            APP_ROLE === "pending"
-              ? "Заявка отправлена. Владелец назначит роль."
-              : "Нажмите «Запросить доступ». Владелец увидит заявку.",
-            APP_ROLE === "pending"
-              ? ""
-              : '<button class="btn-action btn-orange" type="button" onclick="doRequestAccess()">Запросить доступ</button>'
-          );
+        var prevTabs = JSON.stringify(APP_TABS || []);
+        applyAccessResult_(res);
+        if (APP_ROLE === "none" || APP_ROLE === "pending" || APP_ROLE === "denied" || !APP_TABS.length) {
+          try { localStorage.removeItem(ACCESS_CACHE_LS_); } catch (eRm2) {}
+          if (APP_ROLE === "denied") {
+            showAccessGate("Доступ закрыт", "Обратитесь к владельцу.", "");
+          } else {
+            showAccessGate(
+              APP_ROLE === "pending" ? "Ожидание" : "Нет доступа",
+              APP_ROLE === "pending"
+                ? "Заявка отправлена. Владелец назначит роль."
+                : "Нажмите «Запросить доступ». Владелец увидит заявку.",
+              APP_ROLE === "pending"
+                ? ""
+                : '<button class="btn-action btn-orange" type="button" onclick="doRequestAccess()">Запросить доступ</button>'
+            );
+          }
+          APP_TABS = [];
           applyRoleTabs({ skipSwitch: true, skipNetwork: true });
           return;
         }
-        if (APP_ROLE === "denied") {
-          showAccessGate("Доступ закрыт", "Обратитесь к владельцу.", "");
-          applyRoleTabs({ skipSwitch: true, skipNetwork: true });
-          return;
-        }
+        try {
+          localStorage.setItem(ACCESS_CACHE_LS_, JSON.stringify({
+            tid: String(myTelegramId || res.telegramId || ""),
+            role: APP_ROLE,
+            tabs: APP_TABS,
+            customTabs: APP_CUSTOM_TABS,
+            at: Date.now()
+          }));
+        } catch (eR3) {}
         hideAccessGate();
-        if (!bootedEarly || prevRole !== APP_ROLE) {
+        if (!bootedEarly || prevRole !== APP_ROLE || prevTabs !== JSON.stringify(APP_TABS)) {
           applyRoleTabs({ skipSwitch: true, skipNetwork: true });
           if (!bootedEarly) restoreLastScreen();
         }
@@ -15011,16 +15095,7 @@
         }, 800);
         maybeAskWeekPullFromMonth();
       } catch (e) {
-        APP_ROLE = "all";
-        weekTabUnlocked = true;
-        try { localStorage.setItem("superboyna_app_role", "all"); } catch (eR4) {}
-        applyRoleTabs({ skipSwitch: true, skipNetwork: true });
-        restoreLastScreen();
-        setTimeout(function () {
-          try { refreshDeferredBadge(false); } catch (eDef2) {}
-          try { maybePromptPartnerOrdersOnEnter_(); } catch (ePo2) {}
-        }, 800);
-        maybeAskWeekPullFromMonth();
+        showAccessRetryGate_("Ошибка", "Не удалось проверить доступ. Нажмите «Повторить».");
       }
     }
 
@@ -17132,7 +17207,7 @@
         html += '<div style="padding:14px;border-radius:12px;background:rgba(100,210,255,0.08);text-align:center;">';
         html += '<div style="font-size:14px;margin-bottom:6px;">Пока пусто</div>';
         html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Добавь партнёров и указывай при заказе БП</div>';
-        html += '<button type="button" class="btn-action btn-purple" style="margin:0;" onclick="switchTab(\'peopleScreen\',{focus:\'partners\'})">Открыть список партнёров</button>';
+        html += '<button type="button" class="btn-action btn-purple" style="margin:0;" onclick="switchTab(\'partnerHubScreen\',{focus:\'partners\'})">Открыть список партнёров</button>';
         html += "</div>";
       } else {
         partners.forEach(function (p) {
@@ -17155,7 +17230,7 @@
           html += '<div style="grid-column:1/-1;"><span class="muted">Прибыль</span><div style="font-weight:800;font-size:16px;color:' + goodColor + ';">' + good + " BYN</div></div>";
           html += "</div></div>";
         });
-        html += '<button type="button" class="btn-action btn-blue" style="margin:4px 0 0;" onclick="switchTab(\'peopleScreen\',{focus:\'partners\'})">Управлять партнёрами</button>';
+        html += '<button type="button" class="btn-action btn-blue" style="margin:4px 0 0;" onclick="switchTab(\'partnerHubScreen\',{focus:\'partners\'})">Управлять партнёрами</button>';
       }
       html += "</div>";
 
@@ -21640,7 +21715,7 @@
     }
     window.loadWarehousePreview = loadWarehousePreview;
 
-    const SUBS_VIEW_PASSWORD = "708080";
+    // roles-audit: пароль «Подписок» проверяет Worker (secret SUBS_VIEW_PASSWORD); в публичном JS его больше нет
     const SUBS_UNLOCK_SS = "superboyna_subs_unlocked_session";
 
     function isSubsUnlocked() {
@@ -21685,11 +21760,21 @@
     }
     window.enterSubsScreen = enterSubsScreen;
 
-    function unlockSubsScreen() {
+    async function unlockSubsScreen() {
       var inp = document.getElementById("subsPasswordInput");
       var val = inp ? String(inp.value || "").trim() : "";
-      if (val !== SUBS_VIEW_PASSWORD) {
-        showToast("Неверный пароль");
+      var res = null;
+      try {
+        res = await apiGet({ action: "unlockSubs", password: val, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0, retries: 0 });
+      } catch (eU) {
+        res = null;
+      }
+      if (!res || res.status !== "success" || !res.unlocked) {
+        var msg = "Неверный пароль";
+        if (!res) msg = "Нет связи";
+        else if (res.message === "password_not_configured") msg = "Пароль не настроен на сервере";
+        else if (res.message === "forbidden_role" || res.message === "no_access") msg = "Нет доступа к подпискам";
+        showToast(msg);
         if (inp) { inp.value = ""; inp.focus(); }
         return;
       }
@@ -22881,7 +22966,7 @@
     var _ppCostBreakdownUnlocked = false;
 
     function canSeePpCostBreakdownBtn_() {
-      return APP_ROLE === "owner" || APP_ROLE === "all";
+      return APP_ROLE === "owner";
     }
 
     function syncPpCostBreakdownBtn_() {
@@ -27147,23 +27232,102 @@
 
     var peopleCacheList_ = null;
     var peopleCacheZones_ = null;
+    var peopleAllTabs_ = null;
+    var peopleOpenTabs_ = {};
 
-    function paintPeopleList_(people, zones) {
+    var ACCESS_TAB_LABELS_ = {
+      orderScreen: "Заказы",
+      clientsScreen: "Просмотр",
+      priceScreen: "Расчёт",
+      deferredScreen: "Задачи ☰",
+      templatesScreen: "Шаблоны",
+      subsScreen: "Подписки",
+      subDetailScreen: "Карточка подписки",
+      cuttingScreen: "Нарезка",
+      courierScreen: "Курьер",
+      warehouseScreen: "Склад",
+      partnerHubScreen: "Партнёры",
+      statsScreen: "Статистика (деньги)",
+      retailPriceScreen: "Прайс (правка)"
+    };
+    var ACCESS_ROLE_RU_ = {
+      owner: "владелец", manager: "менеджер", cutter: "нарезчик", courier: "курьер",
+      logistics: "склад", all: "все рабочие вкладки", pending: "заявка", denied: "закрыт", none: "нет"
+    };
+
+    function accessTabsOf_(p) {
+      if (Array.isArray(p.tabs)) return p.tabs;
+      var r = String(p.role || "");
+      return (ROLE_TABS[r] || []).slice();
+    }
+
+    function accessIsPending_(p) {
+      var r = String(p.role || "").toLowerCase();
+      var st = String(p.status || "").toLowerCase();
+      return p.pending === true || r === "pending" || (st === "pending" && r !== "owner");
+    }
+
+    /**
+     * Заказы → (удерживать) → Доступы: только доступы сотрудников Бойни.
+     * Заявки (бот / мини-апп) сверху: одобрить с ролью / отклонить. Ниже — роль, TZ и ручные вкладки.
+     * Партнёры БП и доступы Varka — во вкладке «Партнёры».
+     */
+    function paintPeopleList_(people, zones, allTabs) {
       var box = document.getElementById("peopleContainer");
       if (!box) return;
       if (Array.isArray(people)) peopleCacheList_ = people;
       if (Array.isArray(zones) && zones.length) peopleCacheZones_ = zones;
+      if (Array.isArray(allTabs) && allTabs.length) peopleAllTabs_ = allTabs;
       var list = peopleCacheList_ || [];
-      var roles = ["manager", "cutter", "courier", "logistics", "owner", "denied"];
+      var tabsAll = peopleAllTabs_ || Object.keys(ACCESS_TAB_LABELS_);
+      var roles = ["manager", "cutter", "courier", "logistics", "all", "owner", "denied"];
       var zn = (peopleCacheZones_ && peopleCacheZones_.length) ? peopleCacheZones_ : [
         "Europe/Minsk", "Europe/Moscow", "Europe/Kaliningrad", "Europe/Kiev",
         "Europe/Warsaw", "Europe/Berlin", "Asia/Yekaterinburg", "Asia/Novosibirsk",
         "Asia/Vladivostok", "UTC"
       ];
-      var html = list.map(function (p) {
+      var selStyle = 'style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);"';
+      function jsId(v) {
+        return String(v || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      }
+      function domId(v) {
+        return String(v || "").replace(/[^0-9A-Za-z_-]/g, "_");
+      }
+      function head(p) {
+        return '<b>' + escapeHtml(p.name || p.telegramId) + '</b> <span class="muted">' +
+          (p.username ? "@" + escapeHtml(p.username) + " · " : "") + escapeHtml(String(p.telegramId)) + '</span>';
+      }
+      var pending = list.filter(accessIsPending_);
+      var rest = list.filter(function (p) { return !accessIsPending_(p); });
+
+      var html = "";
+      html += '<div class="section-title" style="margin:4px 0 8px;color:#ff9f0a;">Заявки' +
+        (pending.length ? " · " + pending.length : "") + '</div>';
+      if (!pending.length) {
+        html += '<p class="muted" style="margin:0 0 12px;">Новых заявок нет (бот /start → «Запросить доступ» или кнопка в мини-аппе).</p>';
+      }
+      html += pending.map(function (p) {
+        var id = domId(p.telegramId);
+        var optsR = roles.filter(function (r) { return r !== "denied" && r !== "owner"; }).map(function (r) {
+          return '<option value="' + r + '">' + escapeHtml(ACCESS_ROLE_RU_[r] || r) + "</option>";
+        }).join("");
+        var when = p.requestedAt ? ' · ' + escapeHtml(String(p.requestedAt).slice(0, 16).replace("T", " ")) : "";
+        return '<div class="card" data-access-tid="' + escapeHtml(String(p.telegramId || "")) + '" data-access-pending="1" style="margin-bottom:8px;border:1px solid #ff9f0a;">' +
+          head(p) + '<div class="muted" style="font-size:12px;">заявка на доступ' + when + '</div>' +
+          '<div class="seg-row" style="margin-top:8px;">' +
+          '<select id="role_' + id + '" ' + selStyle + '>' + optsR + '</select>' +
+          '<button type="button" class="seg-btn" style="color:#30d158;" onclick="approveAccessUi_(\'' + jsId(p.telegramId) + '\')">Одобрить</button>' +
+          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="revokeAccessUi_(\'' + jsId(p.telegramId) + '\')">Отклонить</button>' +
+          '</div></div>';
+      }).join("");
+
+      html += '<div class="section-title" style="margin:14px 0 8px;">Сотрудники</div>';
+      html += rest.map(function (p) {
+        var id = domId(p.telegramId);
         var curTz = p.timezone || "Europe/Minsk";
+        var role = String(p.role || "");
         var optsR = roles.map(function (r) {
-          return '<option value="' + r + '"' + (p.role === r ? " selected" : "") + ">" + r + "</option>";
+          return '<option value="' + r + '"' + (role === r ? " selected" : "") + ">" + escapeHtml(ACCESS_ROLE_RU_[r] || r) + "</option>";
         }).join("");
         var optsTz = zn.map(function (z) {
           return '<option value="' + z + '"' + (curTz === z ? " selected" : "") + ">" + z + "</option>";
@@ -27171,24 +27335,96 @@
         if (zn.indexOf(curTz) < 0) {
           optsTz = '<option value="' + escapeHtml(curTz) + '" selected>' + escapeHtml(curTz) + "</option>" + optsTz;
         }
-        var tid = String(p.telegramId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var tabs = accessTabsOf_(p);
+        var custom = Array.isArray(p.customTabs) && p.customTabs.length > 0;
+        var tabsHtml = "";
+        if (role !== "owner" && role !== "denied") {
+          var open = !!peopleOpenTabs_[String(p.telegramId)];
+          tabsHtml = '<div style="margin-top:8px;">' +
+            '<button type="button" class="seg-btn" style="margin:0;" onclick="togglePeopleTabsBox_(\'' + jsId(p.telegramId) + '\')">Вкладки: ' +
+            (custom ? "вручную" : "по роли") + ' (' + tabs.length + ') ' + (open ? "▴" : "▾") + '</button>' +
+            '<div id="tabsbox_' + id + '" style="display:' + (open ? "block" : "none") + ';margin-top:8px;padding:8px;background:#111;border-radius:8px;">' +
+            tabsAll.map(function (t) {
+              var on = tabs.indexOf(t) >= 0;
+              return '<label class="check-line" style="margin:0 0 6px;"><input type="checkbox" data-tab="' + t + '" data-tabs-of="' + id + '"' +
+                (on ? " checked" : "") + ' onchange="saveAccessTabsUi_(\'' + jsId(p.telegramId) + '\')"> <span>' +
+                escapeHtml(ACCESS_TAB_LABELS_[t] || t) + '</span></label>';
+            }).join("") +
+            (custom ? '<button type="button" class="seg-btn" style="margin:6px 0 0;" onclick="resetAccessTabsUi_(\'' + jsId(p.telegramId) + '\')">Сбросить к роли</button>' : "") +
+            '</div></div>';
+        }
         return '<div class="card" data-access-tid="' + escapeHtml(String(p.telegramId || "")) + '" style="margin-bottom:8px;">' +
-          '<b>' + escapeHtml(p.name || p.telegramId) + '</b> <span class="muted">@' + escapeHtml(p.username || "") + ' · ' + escapeHtml(String(p.telegramId)) + '</span>' +
-          '<div class="muted" style="font-size:12px;">сейчас: ' + escapeHtml(p.role) + ' / ' + escapeHtml(p.status) + '</div>' +
+          head(p) +
+          '<div class="muted" style="font-size:12px;">сейчас: ' + escapeHtml(ACCESS_ROLE_RU_[role] || role) + ' / ' + escapeHtml(p.status || "") +
+          (p.isConfigOwner ? " · владелец из настроек" : "") + '</div>' +
           '<div class="seg-row" style="margin-top:8px;">' +
-          '<select id="role_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsR + '</select>' +
-          '<button type="button" class="seg-btn" onclick="assignRole(\'' + tid + '\')">Роль</button>' +
-          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="revokeAccessUi_(\'' + tid + '\')">✕</button>' +
+          '<select id="role_' + id + '" ' + selStyle + '>' + optsR + '</select>' +
+          '<button type="button" class="seg-btn" onclick="assignRole(\'' + jsId(p.telegramId) + '\')">Роль</button>' +
+          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="revokeAccessUi_(\'' + jsId(p.telegramId) + '\')">✕</button>' +
           '</div>' +
           '<div class="seg-row" style="margin-top:8px;">' +
-          '<select id="tz_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsTz + '</select>' +
-          '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + tid + '\')">TZ</button>' +
-          '</div></div>';
+          '<select id="tz_' + id + '" ' + selStyle + '>' + optsTz + '</select>' +
+          '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + jsId(p.telegramId) + '\')">TZ</button>' +
+          '</div>' + tabsHtml + '</div>';
       }).join("") || '<p class="muted">Пока никого нет — пусть люди нажмут «Запросить доступ»</p>';
       window._peopleCacheHtml = html;
       window._peopleCacheAt = Date.now();
       box.innerHTML = html;
     }
+
+    function togglePeopleTabsBox_(targetId) {
+      var k = String(targetId || "");
+      peopleOpenTabs_[k] = !peopleOpenTabs_[k];
+      paintPeopleList_(peopleCacheList_);
+    }
+    window.togglePeopleTabsBox_ = togglePeopleTabsBox_;
+
+    async function approveAccessUi_(targetId) {
+      await assignRole(targetId);
+    }
+    window.approveAccessUi_ = approveAccessUi_;
+
+    async function sendAccessTabs_(targetId, tabs) {
+      try { apiCacheBustMem_("listAccess"); } catch (eB) {}
+      var res = null;
+      try {
+        res = await apiPost({ action: "setAccessTabs", actorId: myTelegramId, targetId: targetId, tabs: tabs.join(",") });
+      } catch (e) {
+        res = null;
+      }
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Вкладки не сохранились");
+      } else {
+        for (var i = 0; peopleCacheList_ && i < peopleCacheList_.length; i++) {
+          if (String(peopleCacheList_[i].telegramId) === String(targetId)) {
+            peopleCacheList_[i] = Object.assign({}, peopleCacheList_[i], { tabs: res.tabs || tabs, customTabs: res.customTabs || tabs });
+          }
+        }
+        showToast(tabs.length ? "Вкладки сохранены" : "Вкладки по роли");
+      }
+      paintPeopleList_(peopleCacheList_);
+      loadPeople({ force: 1, keepPaint: 1 });
+    }
+
+    function saveAccessTabsUi_(targetId) {
+      var id = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
+      var tabs = [];
+      document.querySelectorAll('input[data-tabs-of="' + id + '"]').forEach(function (cb) {
+        if (cb.checked) tabs.push(cb.getAttribute("data-tab"));
+      });
+      if (!tabs.length) {
+        showToast("Нужна хотя бы одна вкладка (или роль «закрыт»)");
+        paintPeopleList_(peopleCacheList_);
+        return;
+      }
+      sendAccessTabs_(targetId, tabs);
+    }
+    window.saveAccessTabsUi_ = saveAccessTabsUi_;
+
+    function resetAccessTabsUi_(targetId) {
+      sendAccessTabs_(targetId, []);
+    }
+    window.resetAccessTabsUi_ = resetAccessTabsUi_;
 
     function applyPeopleRoleLocal_(targetId, role) {
       targetId = String(targetId || "").trim();
@@ -27196,7 +27432,14 @@
       var st = role === "denied" ? "denied" : (role === "pending" ? "pending" : "active");
       for (var i = 0; i < peopleCacheList_.length; i++) {
         if (String(peopleCacheList_[i].telegramId) === targetId) {
-          peopleCacheList_[i] = Object.assign({}, peopleCacheList_[i], { role: role, status: st });
+          var pc = peopleCacheList_[i];
+          var cust = Array.isArray(pc.customTabs) && pc.customTabs.length && role !== "owner" && ROLE_TABS[role] ? pc.customTabs : null;
+          peopleCacheList_[i] = Object.assign({}, pc, {
+            role: role,
+            status: st,
+            pending: st === "pending",
+            tabs: cust || (ROLE_TABS[role] || []).slice()
+          });
           break;
         }
       }
@@ -27232,7 +27475,7 @@
           }
           return;
         }
-        paintPeopleList_(res.people || [], res.timezones);
+        paintPeopleList_(res.people || [], res.timezones, res.allTabs);
       } catch (e) {
         if (!opts.keepPaint) box.innerHTML = '<p class="muted">Ошибка</p>';
       }
@@ -27522,7 +27765,7 @@
 
     function setPartnerHubTab_(tab) {
       partnerHubTab_ =
-        tab === "points" || tab === "nets" || tab === "notify" || tab === "people" || tab === "orders"
+        tab === "points" || tab === "nets" || tab === "notify" || tab === "people" || tab === "orders" || tab === "bp"
           ? tab
           : "orders";
       var map = {
@@ -27530,7 +27773,8 @@
         people: "phPanelPeople",
         points: "phPanelPoints",
         nets: "phPanelNets",
-        notify: "phPanelNotify"
+        notify: "phPanelNotify",
+        bp: "phPanelBp"
       };
       Object.keys(map).forEach(function (k) {
         var el = document.getElementById(map[k]);
@@ -27541,6 +27785,10 @@
       });
       if (partnerHubTab_ === "orders") {
         try { refreshPartnerOrdersTab_({ soft: true }); } catch (eOrd) {}
+      }
+      if (partnerHubTab_ === "bp") {
+        // roles-audit #3: «Партнёры (источник БП)» переехали из Доступов во вкладку Партнёры
+        try { loadPartnersUi_({ soft: true }); } catch (eBp) {}
       }
     }
     window.setPartnerHubTab_ = setPartnerHubTab_;
@@ -28502,9 +28750,10 @@
     window.partnerHubSaveNotify_ = partnerHubSaveNotify_;
 
     async function assignRole(targetId) {
-      var sel = document.getElementById("role_" + targetId);
+      var domT = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
+      var sel = document.getElementById("role_" + domT);
       var role = sel ? sel.value : "denied";
-      var tzEl = document.getElementById("tz_" + targetId);
+      var tzEl = document.getElementById("tz_" + domT);
       var tz = tzEl ? tzEl.value : "";
       applyPeopleRoleLocal_(targetId, role);
       try { apiCacheBustMem_("listAccess"); } catch (eB0) {}
@@ -28533,14 +28782,19 @@
     window.assignRole = assignRole;
 
     async function revokeAccessUi_(targetId) {
-      var sel = document.getElementById("role_" + targetId);
+      var sel = document.getElementById("role_" + String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_"));
+      if (sel && !Array.prototype.some.call(sel.options, function (o) { return o.value === "denied"; })) {
+        var od = document.createElement("option");
+        od.value = "denied";
+        sel.appendChild(od);
+      }
       if (sel) sel.value = "denied";
       await assignRole(targetId);
     }
     window.revokeAccessUi_ = revokeAccessUi_;
 
     async function assignTimezone(targetId) {
-      var tzEl = document.getElementById("tz_" + targetId);
+      var tzEl = document.getElementById("tz_" + String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_"));
       var tz = tzEl ? tzEl.value : "Europe/Minsk";
       try {
         var res = await apiGet({

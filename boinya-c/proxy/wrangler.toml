@@ -4,6 +4,8 @@
 name = "boinya-c"
 main = "worker.js"
 compatibility_date = "2024-11-01"
+# roles-audit: не стирать переменные из Dashboard (аварийный AUTH_ENFORCE=0) при деплое
+keep_vars = true
 
 [vars]
 PEOPLE_CANON = "d1-primary"
@@ -18,10 +20,22 @@ PARTNER_CANON = "d1-primary"
 GB_CANON = "d1-primary"
 WEEK_D1_SYNC = "gas-authoritative"
 WEEK_CLOSE_CANON = "d1-sync"
+# roles-audit 2026-09-26: владелец(ы) Бойни (не секрет). Арсений = 650923866.
+OWNER_TELEGRAM_IDS = "650923866"
+# Канон-owner кабинета партнёрки (helper) — раньше хардкод в коде.
+PARTNER_OWNER_TIDS = "827494606"
+PARTNER_OWNER_USERNAMES = "one_more_person_228"
+# AUTH_ENFORCE = "0"   # аварийный откат на legacy (telegramId из параметров) — БЕЗ редеплоя кода можно в Dashboard → Variables
+# ALLOW_SANDBOX = "1"  # песочница (?sandbox=1) выключена в проде
+# COST_STRIP_NON_OWNER = "1" # вырезать себестоимость из calc* для не-owner (ломает клиентский расчёт менеджера — см. TZ)
 # После Deploy Code.gs (skipWarehouseClose): раскомментируй /
 # WAREHOUSE_CLOSE_CANON = "d1-compute"
 
 # Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN
+#   ↑ ОБЯЗАТЕЛЕН для проверки initData Mini App (тот же бот, что открывает Бойню). Нет токена → authMode=legacy_no_token.
+#   PARTNER_BOT_TOKEN — бот Varka (initData партнёрки). TG_EXTRA_BOT_TOKENS — ещё боты через запятую.
+# Secret: GAS_SHARED_SECRET — = Script Property WORKER_SHARED_SECRET в Apps Script (GAS доверяет Worker).
+# Secret: SUBS_VIEW_PASSWORD — пароль экрана «Подписки» (раньше лежал в app.main.js).
 # Без секрета sendCourier/forceSurvey → GAS fallback
 # PP cost breakdown: wrangler secret put PP_COST_BREAKDOWN_PIN
 # Значение не в git; хаб кладёт после merge (то, что дал Арсений). Пустой секрет = панель закрыта.

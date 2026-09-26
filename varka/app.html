@@ -3107,6 +3107,10 @@
 
   function apiGet_(params) {
     var p = Object.assign({ cutover: "1" }, params || {});
+    // roles-audit: Worker проверяет подпись Telegram initData — шлём её в каждом запросе.
+    if (!p.initData) {
+      try { var idr = readLaunchInitDataRaw_(); if (idr) p.initData = idr; } catch (eIdr) {}
+    }
     var timeoutMs = p.action === "partnerGetMe" ? 8000 :
       (p.action === "partnerSubmitOrder" ? 12000 : 20000);
     if (typeof fetch === "function") {

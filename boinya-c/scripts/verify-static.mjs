@@ -16,8 +16,6 @@ const need = [
   "bridge.js",
   "seed-inline.js",
   "lab.html",
-  "data/seed.json",
-  "data/clients-mon.json",
   "client/idb.js",
   "client/optimistic.js",
   "proxy/worker.js",

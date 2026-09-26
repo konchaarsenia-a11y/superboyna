@@ -50,7 +50,18 @@ if (htmlSrc.indexOf('id="peopleScreen"') < 0 || htmlSrc.indexOf('id="peopleConta
   fail("orders Access tab is #peopleScreen / #peopleContainer");
 }
 if (htmlSrc.indexOf('id="partnersContainer"') < 0 || htmlSrc.indexOf("savePartnerFromUi()") < 0) {
-  fail("BP partners on Access tab must stay on peopleScreen");
+  fail("BP partners card (#partnersContainer / savePartnerFromUi) must exist");
+}
+// roles-audit #3: БП-партнёры переехали из Доступов во вкладку Партнёры → БП
+{
+  const ps = htmlSrc.indexOf('id="peopleScreen"');
+  const hub = htmlSrc.indexOf('id="partnerHubScreen"');
+  const bp = htmlSrc.indexOf('id="phPanelBp"');
+  const card = htmlSrc.indexOf('id="partnersManageCard"');
+  if (!(ps >= 0 && hub > ps && bp > hub && card > bp)) {
+    fail("BP partners must live in partnerHubScreen → #phPanelBp (not on peopleScreen)");
+  }
+  if (htmlSrc.indexOf("data-ph-tab=\"bp\"") < 0) fail("partnerHub needs БП sub-tab");
 }
 
 if (!/params\.targetId \|\| params\.telegramId \|\| params\.id/.test(workerSrc)) {
@@ -120,6 +131,10 @@ const sandbox = {
 sandbox.getSnapRaw_ = async function (env, key) {
   return snaps[key] ? JSON.parse(JSON.stringify(snaps[key])) : null;
 };
+sandbox.authInvalidateRole_ = function () {};
+sandbox.actorIsOwnerRetail_ = async function (params) {
+  return String((params && params._actorTid) || "") === "111";
+};
 sandbox.putSnap_ = async function (env, key, val) {
   snaps[key] = JSON.parse(JSON.stringify(val));
 };
@@ -145,9 +160,17 @@ async function main() {
     ]
   };
 
+  const forbidden = await sandbox.mutateAccess_(
+    "setAccessRole",
+    { targetId: "222", actorId: "111", telegramId: "111", role: "owner" },
+    {}
+  );
+  if (!forbidden || forbidden.status !== "error" || forbidden.message !== "owner_only") {
+    fail("mutateAccess_ without verified owner actor must be owner_only");
+  }
   const denied = await sandbox.mutateAccess_(
     "setAccessRole",
-    { targetId: "222", actorId: "111", telegramId: "111", role: "denied" },
+    { targetId: "222", actorId: "111", telegramId: "111", _actorTid: "111", role: "denied" },
     {}
   );
   if (!denied || denied.status !== "success") fail("setAccessRole targetId must succeed");
@@ -169,7 +192,7 @@ async function main() {
 
   const granted = await sandbox.mutateAccess_(
     "setAccessRole",
-    { targetId: "333", role: "manager", name: "New" },
+    { targetId: "333", role: "manager", name: "New", _actorTid: "111" },
     {}
   );
   if (!granted.people.some(function (p) { return String(p.telegramId) === "333" && p.role === "manager"; })) {

@@ -141,6 +141,11 @@
   }
 
   function loadJson(url) {
+    // roles-audit: boinya-c/data/* удалены из публичного репозитория (PII) — не дёргаем 404,
+    // локальная отладка: window.__BOINYA_C_LOCAL_DATA__ = true.
+    if (!window.__BOINYA_C_LOCAL_DATA__ && String(url || "").indexOf("/data/") >= 0) {
+      return Promise.resolve(null);
+    }
     return fetch(url, { credentials: "same-origin", cache: "force-cache" })
       .then(function (r) {
         if (!r.ok) throw new Error("http " + r.status);
