@@ -307,9 +307,9 @@ Script Properties: `OWNER_TELEGRAM_IDS`, `CUTTER_TELEGRAM_IDS`, опционал
 
 Отдельный Mini App [`varka/`](./varka/) · [VAROK.md](./VAROK.md).  
 Управление доступами: вкладка **Партнёры** в `app.html` (owner).  
-Листы: `Partner_Networks`, `Partner_Points`, `Partner_Access`.  
-Actions: `partnerListAdmin` / `partnerGetMe` / `partnerSaveNetwork` / `partnerSavePoint` / `partnerSaveAccess` / `partnerRevokeAccess` / `partnerSeedDefaults`.  
-Без цен. Не путать с листом «Партнёры» (источник БП).
+Листы: `Partner_Networks`, `Partner_Points`, `Partner_Access`, `Предложения_партнёров`.  
+Actions: `partnerListAdmin` / `partnerGetMe` / `partnerSaveNetwork` / `partnerSavePoint` / `partnerSaveAccess` / `partnerRevokeAccess` / `partnerSeedDefaults` / `partnerSuggestPartner` / `partnerListSuggestions` / `partnerSetSuggestionStatus`.  
+Без цен. Не путать с листом «Партнёры» (источник БП) и с PartnerOffers Goodboy.
 
 ## Секреты
 

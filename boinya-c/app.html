@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71116000" as="script">
+  <link rel="preload" href="app.main.js?v=71116001" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71116000";
+      var APP_VER = "v71116001";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2827,6 +2827,18 @@
         </div>
       </div>
 
+      <div class="card" id="phSuggestCard" style="margin-top:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="section-title" style="margin:0;">
+            Новые предложения
+            <span id="phSuggestBadge" style="display:inline-block;min-width:18px;padding:1px 7px;border-radius:999px;background:#f59a2e;color:#111;font-size:12px;font-weight:800;margin-left:6px;vertical-align:middle;">0</span>
+          </div>
+          <button type="button" class="seg-btn" style="margin:0;" onclick="loadPartnerSuggestionsUi_({force:1})">↻</button>
+        </div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">Из мини-аппа партнёрки. Доступы и заказы ниже не меняются.</div>
+        <div id="phSuggestList"><p class="muted">—</p></div>
+      </div>
+
       <!-- Заказы партнёров (назначить дату) -->
       <div class="card ph-panel" id="phPanelOrders" style="margin-top:10px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
@@ -2939,7 +2951,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71116000"></script>
-  <script src="app.main.js?v=71116000" defer></script>
+  <script src="courier-maps.js?v=71116001"></script>
+  <script src="app.main.js?v=71116001" defer></script>
 </body>
 </html>

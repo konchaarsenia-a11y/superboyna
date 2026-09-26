@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116000";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116001";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -540,7 +540,7 @@
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → вкладка «Подбор» на экране Расчёт.",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
-      partnerHubScreen: "Партнёры (мини-апп varka)\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
+      partnerHubScreen: "Партнёры (мини-апп varka)\n• Новые предложения — заявки «Предложить партнёра».\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
     };
 
     window._templatesSub = "texts";
@@ -4041,6 +4041,7 @@
           }
           if (sid === "partnerHubScreen") {
             try { loadPartnerHubUi_({ soft: true }); } catch (eHub) {}
+            try { loadPartnerSuggestionsUi_({ soft: true }); } catch (eSug) {}
           }
           if (sid === "courierScreen") {
             try {
@@ -26942,6 +26943,122 @@
       }
     }
     window.setPartnerHubTab_ = setPartnerHubTab_;
+
+    var partnerSuggestCache_ = [];
+
+    function partnerSuggestStatusRu_(st) {
+      var s = String(st || "новое");
+      if (s === "просмотрено" || s === "в работе" || s === "отклонено" || s === "новое") return s;
+      return "новое";
+    }
+
+    function partnerSuggestStatusBtn_(id, status, current) {
+      var on = current === status;
+      var bg = on ? "#f59a2e" : "transparent";
+      var color = on ? "#111" : "#fff";
+      return '<button type="button" class="seg-btn" style="margin:0;background:' + bg + ";color:" + color +
+        ';" onclick="partnerSetSuggestionStatusUi_(\'' + id + "','" + status + "')\">" +
+        escapeHtml(status) + "</button>";
+    }
+
+    function paintPartnerSuggestions_(items) {
+      partnerSuggestCache_ = Array.isArray(items) ? items.slice() : [];
+      var box = document.getElementById("phSuggestList");
+      var badge = document.getElementById("phSuggestBadge");
+      var fresh = 0;
+      for (var i = 0; i < partnerSuggestCache_.length; i++) {
+        if (partnerSuggestCache_[i] && String(partnerSuggestCache_[i].status || "") === "новое") fresh++;
+      }
+      if (badge) badge.textContent = String(fresh);
+      if (!box) return;
+      if (!partnerSuggestCache_.length) {
+        box.innerHTML = '<p class="muted">Предложений пока нет</p>';
+        return;
+      }
+      box.innerHTML = partnerSuggestCache_.map(function (it) {
+        var st = partnerSuggestStatusRu_(it.status);
+        var id = partnerHubJsStr_(it.id);
+        var who = it.authorNick ? ("@" + String(it.authorNick).replace(/^@/, "")) : (it.authorName || it.authorTid || "");
+        var where = [it.pointName, it.networkName].filter(Boolean).join(" · ");
+        var hot = st === "новое";
+        return '<div style="border:1px solid ' + (hot ? "rgba(245,154,46,0.55)" : "var(--border-color)") +
+          ";border-radius:12px;padding:10px;margin-bottom:8px;" + (st === "отклонено" ? "opacity:0.55;" : "") + '">' +
+          "<div><b>" + escapeHtml(it.typeLabel || it.type || "Предложение") + "</b> · " + escapeHtml(it.name || "") + "</div>" +
+          '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(it.cityAddress || "") +
+          (it.contact ? (" · " + escapeHtml(it.contact)) : "") + "</div>" +
+          (it.comment ? ('<div style="font-size:12px;margin-top:6px;">' + escapeHtml(it.comment) + "</div>") : "") +
+          '<div class="muted" style="font-size:12px;margin-top:6px;">от ' + escapeHtml(who) +
+          (where ? (" · " + escapeHtml(where)) : "") +
+          " · " + escapeHtml(st) +
+          (it.createdAt ? (" · " + escapeHtml(String(it.createdAt))) : "") + "</div>" +
+          '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
+          partnerSuggestStatusBtn_(id, "просмотрено", st) +
+          partnerSuggestStatusBtn_(id, "в работе", st) +
+          partnerSuggestStatusBtn_(id, "отклонено", st) +
+          "</div></div>";
+      }).join("");
+    }
+
+    async function loadPartnerSuggestionsUi_(opts) {
+      opts = opts || {};
+      var box = document.getElementById("phSuggestList");
+      if (!box) return;
+      if (!opts.soft && !partnerSuggestCache_.length) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      var tid = myTelegramId;
+      try { if (!tid) tid = await ensureTelegramId(); } catch (eT) {}
+      try {
+        var res = await apiGet({
+          action: "partnerListSuggestions",
+          telegramId: tid || "",
+          force: opts.force ? "1" : undefined,
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0, bypassMem: true });
+        if (!res || res.status !== "success") {
+          if (!partnerSuggestCache_.length) {
+            box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Не загрузилось") + "</p>";
+          }
+          return;
+        }
+        paintPartnerSuggestions_(res.suggestions || []);
+      } catch (eLoad) {
+        if (!partnerSuggestCache_.length) box.innerHTML = '<p class="muted">Ошибка загрузки</p>';
+      }
+    }
+
+    async function partnerSetSuggestionStatusUi_(id, status) {
+      var tid = myTelegramId;
+      try { if (!tid) tid = await ensureTelegramId(); } catch (eT) {}
+      if (!tid) {
+        showToast("Нужен Telegram");
+        return;
+      }
+      var prev = partnerSuggestCache_.slice();
+      paintPartnerSuggestions_(partnerSuggestCache_.map(function (it) {
+        if (!it || String(it.id) !== String(id)) return it;
+        return Object.assign({}, it, { status: status });
+      }));
+      try {
+        var res = await apiGet({
+          action: "partnerSetSuggestionStatus",
+          telegramId: tid,
+          id: id,
+          status: status,
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          paintPartnerSuggestions_(prev);
+          showToast((res && res.message) || "Не сохранился статус");
+          return;
+        }
+        showToast(status === "отклонено" ? "Отклонено" : (status === "в работе" ? "В работе" : "Просмотрено"));
+      } catch (eSet) {
+        paintPartnerSuggestions_(prev);
+        showToast("Сеть / Deploy Code.gs");
+      }
+    }
+    window.loadPartnerSuggestionsUi_ = loadPartnerSuggestionsUi_;
+    window.partnerSetSuggestionStatusUi_ = partnerSetSuggestionStatusUi_;
+    window.paintPartnerSuggestions_ = paintPartnerSuggestions_;
 
     function partnerPendingSlotItems_() {
       return (deferredCache || []).filter(function (it) {

@@ -42,8 +42,9 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 | `Partner_Points` | Точки сети |
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
 | `Partner_Orders` | Заявки партнёров |
+| `Предложения_партнёров` | «Предложить партнёра»: дата, тип, форма, автор, точка, статус `новое` |
 
-API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
+API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
