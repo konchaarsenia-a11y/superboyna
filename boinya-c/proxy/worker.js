@@ -48,15 +48,29 @@ const AUTH_ALL_TABS = [
   "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen",
   "partnerHubScreen", "statsScreen", "retailPriceScreen", "peopleScreen"
 ];
+/* v71116014: подвкладки «родитель.ребёнок» (колонка I tabs). Голый родитель = все его дети.
+ * «deferredScreen.none» — явное «без Задач ☰» (иначе старые кастомы без deferred* получают ☰ как раньше по роли).
+ * ТОЧНО как Code.gs GAS_TAB_TREE_ и app.main.js TAB_TREE_. */
+const AUTH_TAB_TREE = {
+  clientsScreen: ["month", "week"],
+  priceScreen: ["calc", "pick"],
+  deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
+  templatesScreen: ["texts", "ai"],
+  courierScreen: ["route", "assembly"],
+  partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+};
+const AUTH_DEFERRED_OFF = "deferredScreen.none";
+/** Роли, у которых ☰ «Задачи / Отложенное» было видно до v71116014 (canUseTasksMenu по роли). */
+const AUTH_LEGACY_TASKS_ROLES = ["manager", "all", "courier", "logistics", "cutter"];
 /** Только owner (роль), никогда не выдаётся вкладкой. */
 const AUTH_OWNER_ONLY_TABS = ["peopleScreen"];
 /** Не входят в пресеты не-owner; можно выдать вручную (кастомные вкладки). */
 const AUTH_SENSITIVE_TABS = ["statsScreen", "retailPriceScreen"];
 const AUTH_ROLE_PRESETS = {
   manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
-  cutter: ["cuttingScreen"],
-  courier: ["courierScreen"],
-  logistics: ["warehouseScreen"]
+  cutter: ["cuttingScreen", "deferredScreen"],
+  courier: ["courierScreen", "deferredScreen"],
+  logistics: ["warehouseScreen", "deferredScreen"]
 };
 // all = все рабочие вкладки, без денег/прайса/доступов (единая семантика Worker/GAS/UI)
 AUTH_ROLE_PRESETS.all = AUTH_ALL_TABS.filter(function (t) {
@@ -71,6 +85,34 @@ function authNormRole_(role) {
     "нарезка": "cutter", "логист": "logistics", "логистика": "logistics", "склад": "logistics"
   };
   return map[r] || r;
+}
+
+function authTabValid_(v) {
+  if (!v) return false;
+  if (v === AUTH_DEFERRED_OFF) return true;
+  if (AUTH_ALL_TABS.indexOf(v) >= 0) return AUTH_OWNER_ONLY_TABS.indexOf(v) < 0;
+  const i = v.indexOf(".");
+  if (i < 1) return false;
+  const kids = AUTH_TAB_TREE[v.slice(0, i)];
+  return !!(kids && kids.indexOf(v.slice(i + 1)) >= 0);
+}
+
+/** Компактная форма: все дети → голый родитель; голый родитель поглощает детей. */
+function authCompactTabs_(list) {
+  let out = list.slice();
+  Object.keys(AUTH_TAB_TREE).forEach(function (p) {
+    const kids = AUTH_TAB_TREE[p];
+    const hasBare = out.indexOf(p) >= 0;
+    const have = kids.filter(function (k) { return out.indexOf(p + "." + k) >= 0; });
+    if (hasBare || have.length === kids.length) {
+      out = out.filter(function (t) { return t.indexOf(p + ".") !== 0; });
+      if (!hasBare) out.push(p);
+    }
+  });
+  if (out.some(function (t) { return t === "deferredScreen" || (t.indexOf("deferredScreen.") === 0 && t !== AUTH_DEFERRED_OFF); })) {
+    out = out.filter(function (t) { return t !== AUTH_DEFERRED_OFF; });
+  }
+  return out;
 }
 
 function authParseTabs_(raw) {
@@ -89,9 +131,22 @@ function authParseTabs_(raw) {
   const out = [];
   arr.forEach(function (t) {
     const v = String(t || "").trim();
-    if (v && AUTH_ALL_TABS.indexOf(v) >= 0 && AUTH_OWNER_ONLY_TABS.indexOf(v) < 0 && out.indexOf(v) < 0) out.push(v);
+    if (authTabValid_(v) && out.indexOf(v) < 0) out.push(v);
   });
-  return out;
+  return authCompactTabs_(out);
+}
+
+/** Есть ли доступ к id: родитель — голый или любой ребёнок; «P.c» — голый P или сам P.c. */
+function authHasTab_(tabs, id) {
+  if (!Array.isArray(tabs) || !id) return false;
+  if (tabs.indexOf(id) >= 0) return true;
+  const i = id.indexOf(".");
+  if (i > 0) return tabs.indexOf(id.slice(0, i)) >= 0;
+  if (!AUTH_TAB_TREE[id]) return false;
+  for (let k = 0; k < tabs.length; k++) {
+    if (tabs[k].indexOf(id + ".") === 0 && tabs[k] !== AUTH_DEFERRED_OFF) return true;
+  }
+  return false;
 }
 
 /** Эффективные вкладки: owner — все; кастом (непустой) поверх пресета роли; неизвестная роль — []. */
@@ -100,7 +155,11 @@ function authEffectiveTabs_(role, customTabs) {
   if (r === "owner") return AUTH_ALL_TABS.slice();
   if (!AUTH_ROLE_PRESETS[r]) return [];
   const custom = authParseTabs_(customTabs);
-  return (custom.length ? custom : AUTH_ROLE_PRESETS[r]).slice();
+  if (!custom.length) return AUTH_ROLE_PRESETS[r].slice();
+  // старый кастом (до v71116014) без deferred* — ☰ как было по роли
+  const touched = custom.some(function (t) { return t === "deferredScreen" || t.indexOf("deferredScreen.") === 0; });
+  if (!touched && AUTH_LEGACY_TASKS_ROLES.indexOf(r) >= 0) custom.push("deferredScreen");
+  return custom;
 }
 
 function authOwnerIds_(env) {
@@ -629,7 +688,8 @@ const AUTH_OWNER_RE = new RegExp(
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
     "materializeWeekForce|migrateCrm[A-Za-z0-9_]*)$"
 );
-const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "deferredScreen", "subsScreen", "subDetailScreen"];
+// v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
+const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
 const AUTH_TAB_RULES = [
   { re: /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i, tabs: ["statsScreen"] },
   { re: /^saveRetailPrices$/i, tabs: ["retailPriceScreen"] },
@@ -637,19 +697,22 @@ const AUTH_TAB_RULES = [
     re: /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|pullClientsFromMonth|materializeWeek|setWeekBannerState|ensureBpFromOrder|markBpTouch|recordBpToPpConversion|enrollDeferredToPp|saveClientProfile|deleteClientBatch|moveClientBatch)$/i,
     tabs: AUTH_TABS_ORDERS
   },
-  {
-    re: /^(placeTransferTask|notifyMissedDelivery|saveDeferred|cancelDeferred|setDeferredReminder)$/i,
-    tabs: AUTH_TABS_ORDERS.concat(["courierScreen"])
-  },
+  // Отложенное / ☰: чтение и запись — заказы/курьер (как раньше) или вкладка «Задачи ☰» (любой раздел)
+  { re: /^(listDeferred)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen", "priceScreen"]) },
+  { re: /^(saveDeferred|cancelDeferred)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen"]) },
+  { re: /^setDeferredReminder$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.remind"]) },
+  { re: /^(placeTransferTask|notifyMissedDelivery)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.xfer"]) },
   { re: /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume)$/i, tabs: ["cuttingScreen"] },
-  { re: /^(setDelivered|setAssembled|setPrinted|sendCourierRoute|prepareCourierRoute|registerCourier)$/i, tabs: ["courierScreen"] },
+  { re: /^(setDelivered|sendCourierRoute|prepareCourierRoute|registerCourier)$/i, tabs: ["courierScreen.route"] },
+  { re: /^(setAssembled|setPrinted)$/i, tabs: ["courierScreen.assembly"] },
   { re: /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|sendDeficit)$/i, tabs: ["warehouseScreen", "cuttingScreen"] },
   { re: /^(saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch)$/i, tabs: AUTH_TABS_ORDERS },
   { re: /^unlockSubs$/i, tabs: ["subsScreen", "subDetailScreen"] },
-  { re: /^(saveTemplate|deleteTemplate|saveSurvey|deleteSurvey|deleteSurveyBatch|repairSurveys|forceSurveyRemind)$/i, tabs: ["templatesScreen", "orderScreen"] },
+  { re: /^(saveTemplate|deleteTemplate)$/i, tabs: ["templatesScreen.texts", "orderScreen"] },
+  { re: /^(saveSurvey|deleteSurvey|deleteSurveyBatch|repairSurveys|forceSurveyRemind)$/i, tabs: ["templatesScreen", "orderScreen"] },
   {
     re: /^(calcPrice|calcPpFact|getPpFactCost|getPpOrderSuggest|migratePpToRaw26Scheme|getRetailPriceList)$/i,
-    tabs: ["orderScreen", "clientsScreen", "priceScreen", "subsScreen", "subDetailScreen", "deferredScreen", "retailPriceScreen", "partnerHubScreen"]
+    tabs: ["orderScreen", "clientsScreen", "priceScreen", "subsScreen", "subDetailScreen", "retailPriceScreen", "partnerHubScreen"]
   }
 ];
 
@@ -684,7 +747,7 @@ function authCheck_(a, actor, env) {
   if (!authActorActive_(actor)) return Object.assign(base, { message: "no_access", role: actor.role });
   if (req.level === "tabs") {
     if (actor.isOwner) return null;
-    for (let i = 0; i < req.tabs.length; i++) if (actor.tabs.indexOf(req.tabs[i]) >= 0) return null;
+    for (let i = 0; i < req.tabs.length; i++) if (authHasTab_(actor.tabs, req.tabs[i])) return null;
     return Object.assign(base, { message: "forbidden_role", role: actor.role });
   }
   return null;
@@ -1352,6 +1415,7 @@ async function listAccessMerged_(params, env, ctx) {
     pendingCount: out.filter(function (p) { return p.pending; }).length,
     timezones: (live && live.timezones) || d1.timezones || [],
     allTabs: AUTH_ALL_TABS.filter(function (t) { return AUTH_OWNER_ONLY_TABS.indexOf(t) < 0; }),
+    tabTree: AUTH_TAB_TREE,
     tabPresets: AUTH_ROLE_PRESETS,
     sheetOk: !!(live && live.status === "success"),
     mergedFromSheet: changed,
@@ -23071,7 +23135,7 @@ async function partnerSuggestCanManageWorker_(params, env) {
   try {
     var r = await authLookupRole_(tid, env);
     if (r.role === "owner") return true;
-    if (!/^(none|pending|denied)$/.test(r.role) && r.tabs.indexOf("partnerHubScreen") >= 0) return true;
+    if (!/^(none|pending|denied)$/.test(r.role) && authHasTab_(r.tabs, "partnerHubScreen")) return true;
   } catch (eR) {}
   return false;
 }

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116013";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116014";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -194,9 +194,9 @@
       all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "partnerHubScreen"],
       owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
       manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
-      cutter: ["cuttingScreen"],
-      courier: ["courierScreen"],
-      logistics: ["warehouseScreen"],
+      cutter: ["cuttingScreen", "deferredScreen"],
+      courier: ["courierScreen", "deferredScreen"],
+      logistics: ["warehouseScreen", "deferredScreen"],
       none: [],
       pending: [],
       denied: []
@@ -563,6 +563,8 @@
 
     function setTemplatesSub_(sub) {
       if (sub !== "ai" && sub !== "cards") sub = "texts";
+      if (sub === "ai" && !tabHas_("templatesScreen.ai") && tabHas_("templatesScreen.texts")) sub = "texts";
+      if (sub !== "ai" && !tabHas_("templatesScreen.texts") && tabHas_("templatesScreen.ai")) sub = "ai";
       window._templatesSub = sub;
       var tabT = document.getElementById("tplTabTexts");
       var tabA = document.getElementById("tplTabAi");
@@ -1386,10 +1388,84 @@
 
     /** Разрешённые вкладки: с сервера (роль + кастом); иначе пресет роли; неизвестная роль → []. */
     function allowedTabs_() {
-      if (Array.isArray(APP_TABS)) return APP_TABS;
-      return ROLE_TABS[APP_ROLE] || [];
+      var base = Array.isArray(APP_TABS) ? APP_TABS : (ROLE_TABS[APP_ROLE] || []);
+      // v71116014: старый ответ/кэш без deferred* — ☰ как было по роли
+      if (TAB_LEGACY_TASKS_ROLES_.indexOf(APP_ROLE) >= 0 && !base.some(function (t) {
+        return t === "deferredScreen" || String(t).indexOf("deferredScreen.") === 0;
+      })) return base.concat(["deferredScreen"]);
+      return base;
     }
     window.allowedTabs_ = allowedTabs_;
+
+    /* v71116014: подвкладки «родитель.ребёнок» (колонка I tabs). Голый родитель = все дети.
+     * ТОЧНО как worker AUTH_TAB_TREE / Code.gs GAS_TAB_TREE_. «deferredScreen.none» = явно без ☰. */
+    var TAB_TREE_ = {
+      clientsScreen: ["month", "week"],
+      priceScreen: ["calc", "pick"],
+      deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
+      templatesScreen: ["texts", "ai"],
+      courierScreen: ["route", "assembly"],
+      partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+    };
+    var TAB_DEFERRED_OFF_ = "deferredScreen.none";
+    var TAB_LEGACY_TASKS_ROLES_ = ["manager", "all", "courier", "logistics", "cutter"];
+
+    function tabHasIn_(tabs, id) {
+      if (!Array.isArray(tabs) || !id) return false;
+      if (tabs.indexOf(id) >= 0) return true;
+      var i = id.indexOf(".");
+      if (i > 0) return tabs.indexOf(id.slice(0, i)) >= 0;
+      if (!TAB_TREE_[id]) return false;
+      for (var k = 0; k < tabs.length; k++) {
+        if (String(tabs[k]).indexOf(id + ".") === 0 && tabs[k] !== TAB_DEFERRED_OFF_) return true;
+      }
+      return false;
+    }
+
+    /** Есть ли у текущего пользователя вкладка/подвкладка (owner — всё). */
+    function tabHas_(id) {
+      if (APP_ROLE === "owner") return true;
+      return tabHasIn_(allowedTabs_(), id);
+    }
+    window.tabHas_ = tabHas_;
+
+    /** Разрешённый ребёнок: want если можно, иначе первый доступный (или want, если ни одного). */
+    function subPick_(parent, want, order) {
+      if (tabHas_(parent + "." + want)) return want;
+      for (var i = 0; i < order.length; i++) if (tabHas_(parent + "." + order[i])) return order[i];
+      return want;
+    }
+
+    function applySubTabsVisibility_() {
+      function vis(el, ok) { if (el) el.style.display = ok ? "" : "none"; }
+      vis(document.getElementById("tasksTabXfer"), tabHas_("deferredScreen.xfer"));
+      vis(document.getElementById("tasksTabBuy"), tabHas_("deferredScreen.buy"));
+      vis(document.getElementById("tasksTabOrders"), tabHas_("deferredScreen.orders"));
+      vis(document.getElementById("tasksTabPp"), tabHas_("deferredScreen.pp"));
+      vis(document.getElementById("tasksTabRemind"), tabHas_("deferredScreen.remind"));
+      vis(document.getElementById("viewSubMonth"), tabHas_("clientsScreen.month"));
+      vis(document.getElementById("viewSubWeek"), tabHas_("clientsScreen.week"));
+      vis(document.getElementById("priceShellCalc"), tabHas_("priceScreen.calc"));
+      vis(document.getElementById("priceShellPick"), tabHas_("priceScreen.pick"));
+      vis(document.getElementById("tplTabTexts"), tabHas_("templatesScreen.texts"));
+      vis(document.getElementById("tplTabAi"), tabHas_("templatesScreen.ai"));
+      document.querySelectorAll('#courierFlyout [data-cfly]').forEach(function (b) {
+        vis(b, tabHas_("courierScreen." + b.getAttribute("data-cfly")));
+      });
+      document.querySelectorAll('#phSubTabs [data-ph-tab]').forEach(function (b) {
+        var k = b.getAttribute("data-ph-tab");
+        if (k === "bp") return; // БП — owner-only, своя логика
+        vis(b, tabHas_("partnerHubScreen." + k));
+      });
+    }
+    window.applySubTabsVisibility_ = applySubTabsVisibility_;
+
+    function firstScreenOf_(allowed) {
+      var scr = allowed.map(function (t) { return String(t).split(".")[0]; }).filter(function (t, i, a) {
+        return t !== "deferredScreen" && a.indexOf(t) === i;
+      });
+      return scr.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || scr[0] || "";
+    }
 
     function applyRoleTabs(opts) {
       opts = opts || {};
@@ -1405,7 +1481,7 @@
           btn.style.display = "none";
           return;
         }
-        const ok = allowed.indexOf(screen) >= 0 && MAIN_TABS.indexOf(screen) >= 0;
+        const ok = tabHasIn_(allowed, screen) && MAIN_TABS.indexOf(screen) >= 0;
         btn.style.display = ok ? "" : "none";
       });
       document.querySelectorAll("#orderFlyout .order-flyout-btn").forEach(function (b) {
@@ -1413,9 +1489,10 @@
         // roles-audit: решают вкладки (сервер); data-fly-roles — только для пресетов
         const roles = String(b.getAttribute("data-fly-roles") || "owner,all").split(",");
         const roleOk = APP_ROLE === "owner" || !!(APP_CUSTOM_TABS && APP_CUSTOM_TABS.length) || roles.indexOf(APP_ROLE) >= 0;
-        const allowedOk = allowed.indexOf(scr) >= 0;
+        const allowedOk = tabHasIn_(allowed, scr);
         b.style.display = (roleOk && allowedOk) ? "" : "none";
       });
+      try { applySubTabsVisibility_(); } catch (eSv) {}
       try { updateTasksBadge(); } catch (eTb) {}
       if (opts.skipSwitch) {
 
@@ -1425,11 +1502,11 @@
         }
         return;
       }
-      const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || allowed[0] || "";
+      const first = firstScreenOf_(allowed);
       var active = document.querySelector(".screen.active");
       var cur = active && active.id;
 
-      if (cur && allowed.indexOf(cur) >= 0) {
+      if (cur && tabHasIn_(allowed, cur)) {
         getTabLinkNodes_().forEach(function (el) {
           el.classList.toggle("active", el.getAttribute("data-screen") === cur ||
             (FLYOUT_SCREENS.indexOf(cur) >= 0 && el.getAttribute("data-screen") === "orderScreen"));
@@ -1446,8 +1523,7 @@
 
     function restoreLastScreen() {
 
-      var allowed = allowedTabs_();
-      var first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || allowed[0] || "";
+      var first = firstScreenOf_(allowedTabs_());
       if (first) switchTab(first);
     }
     window.restoreLastScreen = restoreLastScreen;
@@ -1540,7 +1616,7 @@
       function startPress() {
         clearTimer();
         timer = setTimeout(function () {
-          var _flyAllowed = allowedTabs_().some(function (t) { return FLYOUT_SCREENS.indexOf(t) >= 0; });
+          var _flyAllowed = FLYOUT_SCREENS.some(function (t) { return t !== "deferredScreen" && tabHas_(t); });
           if (_flyAllowed) {
             orderFlyoutJustOpened = true;
             suppressOrderClick = true;
@@ -4153,6 +4229,17 @@
           if (sid === "statsScreen") loadStats({ soft: true });
           if (sid === "retailPriceScreen") try { loadRetailPriceAdmin_({ soft: true }); } catch (eRp) {}
           if (sid === "deferredScreen") openTasksDrawer();
+          // v71116014: подвкладки по доступу — если текущая закрыта, переключить на доступную
+          try {
+            if (sid === "priceScreen" && !tabHas_("priceScreen." + (priceShell_ || "calc"))) setPriceShell_(priceShell_, { noScroll: true });
+            if (sid === "partnerHubScreen" && partnerHubTab_ !== "bp" && !tabHas_("partnerHubScreen." + (partnerHubTab_ || "orders"))) setPartnerHubTab_(partnerHubTab_);
+            if (sid === "clientsScreen" && !tabHas_("clientsScreen." + (viewSub || "month"))) setViewSub(viewSub);
+            if (sid === "courierScreen" && !tabHas_("courierScreen." + (courierSub || "route"))) setCourierSub(courierSub);
+            if (sid === "templatesScreen") {
+              var tsub = window._templatesSub === "ai" ? "ai" : "texts";
+              if (!tabHas_("templatesScreen." + tsub)) setTemplatesSub_(tsub);
+            }
+          } catch (eSubAcc) {}
           if (sid === "priceScreen") {
             try { syncPricePpSchemeDefaults_(); } catch (eSchTab) {}
             try { syncPriceEnrollUi(); } catch (eEn) {}
@@ -6713,7 +6800,7 @@
     }
 
     function setViewSub(which) {
-      viewSub = which === "week" ? "week" : "month";
+      viewSub = subPick_("clientsScreen", which === "week" ? "week" : "month", ["month", "week"]);
       var mBtn = document.getElementById("viewSubMonth");
       var wBtn = document.getElementById("viewSubWeek");
       if (mBtn) mBtn.classList.toggle("active", viewSub === "month");
@@ -17851,6 +17938,7 @@
     window.doRequestAccess = doRequestAccess;
 
     function setCourierSub(which) {
+      which = subPick_("courierScreen", which === "assembly" ? "assembly" : "route", ["route", "assembly"]);
       courierSub = which;
       document.getElementById("courierSubRoute").classList.toggle("active", which === "route");
       document.getElementById("courierSubAsm").classList.toggle("active", which === "assembly");
@@ -21368,7 +21456,7 @@
 
     function setPriceShell_(which, opts) {
       opts = opts || {};
-      priceShell_ = which === "pick" ? "pick" : "calc";
+      priceShell_ = subPick_("priceScreen", which === "pick" ? "pick" : "calc", ["calc", "pick"]);
       var calc = document.getElementById("priceCalcPane");
       var pick = document.getElementById("pricePickPane");
       var tabC = document.getElementById("priceShellCalc");
@@ -25904,11 +25992,29 @@
     window.calcPriceFromBasket = calcPriceFromBasket;
 
     function canUseTasksMenu() {
-      if (APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all" || APP_ROLE === "courier" || APP_ROLE === "logistics") return true;
-      // cutover / кэш роли ещё не подтянулся — не прячем ☰
+      // v71116014: ☰ «Задачи / Отложенное» — по вкладке deferredScreen (любой раздел), настраивается в Доступах
+      if (APP_ROLE === "owner") return true;
+      if (Array.isArray(APP_TABS) || APP_ROLE !== "none") return tabHas_("deferredScreen");
+      // роль/кэш ещё не подтянулись — не прячем ☰
       if (window.__BOINYA_C_CUTOVER__) return true;
-      if ((deferredCache && deferredCache.length) || deferredOpenCount > 0) return true;
       return false;
+    }
+
+    /** Раздел ☰ для элемента отложенного (как renderTasksDrawer). */
+    function tasksSubOfItem_(it) {
+      var m = deferredItemMode_(it);
+      if (m === "transfer") return "xfer";
+      if (m === "buy") return "buy";
+      if (m === "order" || m === "partner") return "orders";
+      if (isDeferredRemindMode_(it)) return "remind";
+      return "pp";
+    }
+
+    function deferredOpenCountAllowed_(items) {
+      return (items || []).filter(function (it) {
+        if (String(it.status || "open").toLowerCase() !== "open") return false;
+        return tabHas_("deferredScreen." + tasksSubOfItem_(it));
+      }).length;
     }
 
     function updateTasksBadge() {
@@ -25967,6 +26073,7 @@
         remind: Number(remindN) || 0,
         pp: Number(ppN) || 0
       };
+      Object.keys(counts).forEach(function (k) { if (!tabHas_("deferredScreen." + k)) counts[k] = 0; });
       if (counts.xfer > 0) return "xfer";
       if (counts[_tasksTab] > 0) return _tasksTab;
       var prefer = ["xfer", "buy", "orders", "remind", "pp"];
@@ -26023,17 +26130,13 @@
       if (!tid) {
         // не затираем кэш — иначе ☰ «пустеет» при кратком отсутствии tid
         try {
-          deferredOpenCount = (deferredCache || []).filter(function (it) {
-            return String(it.status || "open").toLowerCase() === "open";
-          }).length;
+          deferredOpenCount = deferredOpenCountAllowed_(deferredCache);
         } catch (eKeep) {}
         updateTasksBadge();
         return;
       }
       if (!force && deferredCacheAt && (Date.now() - deferredCacheAt) < 12000 && deferredCache.length) {
-          deferredOpenCount = deferredCache.filter(function (it) {
-            return String(it.status || "open").toLowerCase() === "open";
-          }).length;
+          deferredOpenCount = deferredOpenCountAllowed_(deferredCache);
         updateTasksBadge();
         return;
       }
@@ -26056,9 +26159,7 @@
           if (force) {
             try { await loadBpIdleIntoDeferred_(); } catch (eBpIdle) {}
           }
-          deferredOpenCount = deferredCache.filter(function (it) {
-            return String(it.status || "open").toLowerCase() === "open";
-          }).length;
+          deferredOpenCount = deferredOpenCountAllowed_(deferredCache);
           updateTasksBadge();
         } catch (e) {
 
@@ -26744,6 +26845,8 @@
 
     function setTasksTab(tab) {
       _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders" || tab === "buy") ? tab : "xfer";
+      _tasksTab = subPick_("deferredScreen", _tasksTab, ["xfer", "buy", "orders", "pp", "remind"]);
+      try { applySubTabsVisibility_(); } catch (eSv) {}
       var map = {
         xfer: { btn: "tasksTabXfer", pane: "tasksPaneXfer" },
         buy: { btn: "tasksTabBuy", pane: "tasksPaneBuy" },
@@ -27231,7 +27334,11 @@
         });
         // bp_idle показываем во вкладке ПП/БП
         ppItems = ppItems.concat(idleItems);
-        deferredOpenCount = xferItems.length + buyItems.length + orderItems.length + remindItems.length + ppItems.length;
+        deferredOpenCount = (tabHas_("deferredScreen.xfer") ? xferItems.length : 0) +
+          (tabHas_("deferredScreen.buy") ? buyItems.length : 0) +
+          (tabHas_("deferredScreen.orders") ? orderItems.length : 0) +
+          (tabHas_("deferredScreen.remind") ? remindItems.length : 0) +
+          (tabHas_("deferredScreen.pp") ? ppItems.length : 0);
         updateTasksBadge();
         updateTasksTabCounts_(xferPaint.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
         renderTasksXferCards(xferPaint);
@@ -27724,7 +27831,7 @@
               (on ? " checked" : "") + (canEdit ? "" : " disabled") +
               ' onchange="saveAccessNotifyUi_(\'' + jsTid + '\')"> <span>' + escapeHtml(x[1]) + tag + '</span></label>';
           }).join("") +
-          (canEdit && hasOverride ? '<button type="button" class="seg-btn" style="margin:6px 0 0;" data-busy-label="Сбрасываю…" onclick="resetAccessNotifyUi_(this,\'' + jsTid + '\')">↺ Как у роли</button>' : "") +
+          (canEdit && hasOverride ? '<button type="button" class="seg-btn" style="margin:6px 0 0;" data-no-busy onclick="resetAccessNotifyUi_(this,\'' + jsTid + '\')">↺ Как у роли</button>' : "") +
           '<div style="margin-top:10px;">' +
           '<button type="button" class="seg-btn" style="margin:0;" data-busy-label="Загружаю…" onclick="togglePeopleSchedBox_(this,\'' + jsTid + '\')">⏰ Запланированные ' + (peopleOpenSched_[String(p.telegramId)] ? "▴" : "▾") + '</button>' +
           (peopleOpenSched_[String(p.telegramId)] ? '<div id="schedbox_' + id + '" style="margin-top:8px;">' + schedHtmlFor_(p, eff) + '</div>' : "") +
@@ -27841,6 +27948,11 @@
         if (String(peopleCacheList_[i].telegramId) === String(targetId)) p = peopleCacheList_[i];
       }
       if (!p) return;
+      var dr0 = peopleDraft_[String(targetId || "")];
+      if (dr0 && dr0.role != null && dr0.role !== String(p.role || "")) {
+        p = Object.assign({}, p, { role: dr0.role });
+        delete p.notifyDefaults;
+      }
       var id = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
       var defs = notifyDefaultsOf_(p);
       var parts = [];
@@ -27850,27 +27962,52 @@
         if (cb.checked && !byRole) parts.push("+" + k);
         if (!cb.checked && byRole) parts.push("-" + k);
       });
-      sendAccessNotify_(null, targetId, parts.join(","));
+      // v71116014: в черновик — применится по «Сохранить»
+      var d = accessDraftOf_(targetId);
+      d.notifySet = true;
+      d.notify = parts.join(",");
+      paintPeopleList_(peopleCacheList_);
     }
     window.saveAccessNotifyUi_ = saveAccessNotifyUi_;
 
     function resetAccessNotifyUi_(btn, targetId) {
-      sendAccessNotify_(btn, targetId, "");
+      var d = accessDraftOf_(targetId);
+      d.notifySet = true;
+      d.notify = "";
+      paintPeopleList_(peopleCacheList_);
     }
     window.resetAccessNotifyUi_ = resetAccessNotifyUi_;
 
     var ACCESS_TAB_LABELS_ = {
-      orderScreen: "Заказы",
-      clientsScreen: "Просмотр",
-      priceScreen: "Расчёт",
-      deferredScreen: "Задачи ☰",
-      templatesScreen: "Шаблоны",
-      subsScreen: "Подписки",
+      orderScreen: "Заказы (приём)",
+      clientsScreen: "Заказы ▸ Просмотр",
+      "clientsScreen.month": "Месяц",
+      "clientsScreen.week": "Неделя",
+      priceScreen: "Заказы ▸ Расчёт",
+      "priceScreen.calc": "Расчёт",
+      "priceScreen.pick": "Подбор",
+      deferredScreen: "Задачи ☰ / Отложенное",
+      "deferredScreen.xfer": "Переносы",
+      "deferredScreen.buy": "Дозакуп",
+      "deferredScreen.orders": "Заказы / «На потом»",
+      "deferredScreen.pp": "ПП/БП (отложенные расчёты)",
+      "deferredScreen.remind": "Напоминалки",
+      templatesScreen: "Заказы ▸ Шаблоны",
+      "templatesScreen.texts": "Тексты / опросники",
+      "templatesScreen.ai": "Подбор ИИ",
+      subsScreen: "Заказы ▸ Подписки",
       subDetailScreen: "Карточка подписки",
       cuttingScreen: "Нарезка",
       courierScreen: "Курьер",
+      "courierScreen.route": "Маршрут / доставлено",
+      "courierScreen.assembly": "Сборка / печать",
       warehouseScreen: "Склад",
       partnerHubScreen: "Партнёры",
+      "partnerHubScreen.orders": "Заказы",
+      "partnerHubScreen.people": "Люди",
+      "partnerHubScreen.points": "Точки",
+      "partnerHubScreen.nets": "Сети",
+      "partnerHubScreen.notify": "Пуши",
       statsScreen: "Статистика (деньги)",
       retailPriceScreen: "Прайс (правка)"
     };
@@ -27878,11 +28015,51 @@
       owner: "владелец", manager: "менеджер", cutter: "нарезчик", courier: "курьер",
       logistics: "склад", all: "все рабочие вкладки", pending: "заявка", denied: "закрыт", none: "нет"
     };
+    /** v71116014: черновик правок по человеку — применяется только по «Сохранить». */
+    var peopleDraft_ = {};
 
     function accessTabsOf_(p) {
       if (Array.isArray(p.tabs)) return p.tabs;
       var r = String(p.role || "");
       return (ROLE_TABS[r] || []).slice();
+    }
+
+    function accessPersonById_(targetId) {
+      for (var i = 0; peopleCacheList_ && i < peopleCacheList_.length; i++) {
+        if (String(peopleCacheList_[i].telegramId) === String(targetId)) return peopleCacheList_[i];
+      }
+      return null;
+    }
+
+    function accessDraftOf_(targetId) {
+      var k = String(targetId || "");
+      if (!peopleDraft_[k]) peopleDraft_[k] = {};
+      return peopleDraft_[k];
+    }
+
+    function accessDraftDirty_(p) {
+      var d = peopleDraft_[String(p.telegramId)];
+      if (!d) return false;
+      if (d.role != null && d.role !== String(p.role || "")) return true;
+      if (d.tz != null && d.tz !== (p.timezone || "Europe/Minsk")) return true;
+      if (d.tabsSet) return true;
+      if (d.notifySet && String(d.notify || "") !== String(p.notify || "")) return true;
+      return false;
+    }
+
+    /** Вкладки для показа в редакторе с учётом черновика. */
+    function accessTabsView_(p) {
+      var d = peopleDraft_[String(p.telegramId)] || {};
+      var role = d.role != null ? d.role : String(p.role || "");
+      var custom = Array.isArray(p.customTabs) && p.customTabs.length ? p.customTabs : null;
+      var list;
+      if (d.tabsSet) list = d.tabs.length ? d.tabs.slice() : (ROLE_TABS[role] || []).slice();
+      else if (d.role != null && d.role !== String(p.role || "")) list = custom ? custom.slice() : (ROLE_TABS[role] || []).slice();
+      else list = accessTabsOf_(p).slice();
+      if (TAB_LEGACY_TASKS_ROLES_.indexOf(role) >= 0 && !list.some(function (t) {
+        return t === "deferredScreen" || String(t).indexOf("deferredScreen.") === 0;
+      })) list.push("deferredScreen");
+      return list;
     }
 
     function accessIsPending_(p) {
@@ -27891,9 +28068,37 @@
       return p.pending === true || r === "pending" || (st === "pending" && r !== "owner");
     }
 
+    function accessTabsTreeHtml_(id, jsTid, tabsAll, tabs) {
+      function cb(attrs, on, label, style) {
+        return '<label class="check-line" style="margin:0 0 6px;' + (style || "") + '"><input type="checkbox" ' + attrs + (on ? " checked" : "") +
+          '> <span>' + escapeHtml(label) + '</span></label>';
+      }
+      return tabsAll.map(function (t) {
+        var kids = TAB_TREE_[t];
+        if (!kids) {
+          return cb('data-tab="' + t + '" data-tabs-of="' + id + '" onchange="accessTabsChangedUi_(\'' + jsTid + '\')"',
+            tabs.indexOf(t) >= 0, ACCESS_TAB_LABELS_[t] || t);
+        }
+        var onKids = kids.filter(function (k) { return tabHasIn_(tabs, t + "." + k); });
+        var all = onKids.length === kids.length;
+        var some = onKids.length > 0 && !all;
+        var html = '<label class="check-line" style="margin:0 0 6px;"><input type="checkbox" data-tparent="' + t + '" data-tabs-of="' + id + '"' +
+          (all ? " checked" : "") + (some ? ' data-indet="1"' : "") +
+          ' onchange="accessTabsParentUi_(this,\'' + jsTid + '\')"> <span>' + escapeHtml(ACCESS_TAB_LABELS_[t] || t) +
+          (some ? ' <span class="muted" style="font-size:11px;">· частично ' + onKids.length + '/' + kids.length + '</span>' : "") + '</span></label>';
+        html += kids.map(function (k) {
+          var key = t + "." + k;
+          return cb('data-tab="' + key + '" data-tkid="' + t + '" data-tabs-of="' + id + '" onchange="accessTabsChangedUi_(\'' + jsTid + '\')"',
+            onKids.indexOf(k) >= 0, ACCESS_TAB_LABELS_[key] || k, "padding-left:26px;opacity:.95;");
+        }).join("");
+        return html;
+      }).join("");
+    }
+
     /**
      * Заказы → (удерживать) → Доступы: только доступы сотрудников Бойни.
-     * Заявки (бот / мини-апп) сверху: одобрить с ролью / отклонить. Ниже — роль, TZ и ручные вкладки.
+     * Заявки (бот / мини-апп) сверху: одобрить с ролью / отклонить. Ниже — роль, TZ, вкладки (дерево подвкладок), уведомления.
+     * v71116014: правки копятся в черновике → «Сохранить» / «Отмена».
      * Партнёры БП и доступы Varka — во вкладке «Партнёры».
      */
     function paintPeopleList_(people, zones, allTabs) {
@@ -27903,7 +28108,9 @@
       if (Array.isArray(zones) && zones.length) peopleCacheZones_ = zones;
       if (Array.isArray(allTabs) && allTabs.length) peopleAllTabs_ = allTabs;
       var list = peopleCacheList_ || [];
-      var tabsAll = peopleAllTabs_ || Object.keys(ACCESS_TAB_LABELS_);
+      var tabsAll = (peopleAllTabs_ || Object.keys(ACCESS_TAB_LABELS_)).filter(function (t) {
+        return t !== "peopleScreen" && t.indexOf(".") < 0;
+      });
       var roles = ["manager", "cutter", "courier", "logistics", "all", "owner", "denied"];
       var zn = (peopleCacheZones_ && peopleCacheZones_.length) ? peopleCacheZones_ : [
         "Europe/Minsk", "Europe/Moscow", "Europe/Kaliningrad", "Europe/Kiev",
@@ -27948,10 +28155,13 @@
       html += '<div class="section-title" style="margin:14px 0 8px;">Сотрудники</div>';
       html += rest.map(function (p) {
         var id = domId(p.telegramId);
-        var curTz = p.timezone || "Europe/Minsk";
+        var jt = jsId(p.telegramId);
+        var d = peopleDraft_[String(p.telegramId)] || {};
         var role = String(p.role || "");
+        var roleView = d.role != null ? d.role : role;
+        var curTz = d.tz != null ? d.tz : (p.timezone || "Europe/Minsk");
         var optsR = roles.map(function (r) {
-          return '<option value="' + r + '"' + (role === r ? " selected" : "") + ">" + escapeHtml(ACCESS_ROLE_RU_[r] || r) + "</option>";
+          return '<option value="' + r + '"' + (roleView === r ? " selected" : "") + ">" + escapeHtml(ACCESS_ROLE_RU_[r] || r) + "</option>";
         }).join("");
         var optsTz = zn.map(function (z) {
           return '<option value="' + z + '"' + (curTz === z ? " selected" : "") + ">" + z + "</option>";
@@ -27959,42 +28169,73 @@
         if (zn.indexOf(curTz) < 0) {
           optsTz = '<option value="' + escapeHtml(curTz) + '" selected>' + escapeHtml(curTz) + "</option>" + optsTz;
         }
-        var tabs = accessTabsOf_(p);
-        var custom = Array.isArray(p.customTabs) && p.customTabs.length > 0;
+        var tabs = accessTabsView_(p);
+        var custom = d.tabsSet ? d.tabs.length > 0 : (Array.isArray(p.customTabs) && p.customTabs.length > 0);
+        var nScreens = tabsAll.filter(function (t) { return tabHasIn_(tabs, t); }).length;
         var tabsHtml = "";
-        if (role !== "owner" && role !== "denied") {
+        if (roleView !== "owner" && roleView !== "denied") {
           var open = !!peopleOpenTabs_[String(p.telegramId)];
           tabsHtml = '<div style="margin-top:8px;">' +
-            '<button type="button" class="seg-btn" style="margin:0;" onclick="togglePeopleTabsBox_(\'' + jsId(p.telegramId) + '\')">Вкладки: ' +
-            (custom ? "вручную" : "по роли") + ' (' + tabs.length + ') ' + (open ? "▴" : "▾") + '</button>' +
+            '<button type="button" class="seg-btn" style="margin:0;" data-no-busy onclick="togglePeopleTabsBox_(\'' + jt + '\')">Вкладки: ' +
+            (custom ? "вручную" : "по роли") + ' (' + nScreens + ') ' + (open ? "▴" : "▾") + '</button>' +
             '<div id="tabsbox_' + id + '" style="display:' + (open ? "block" : "none") + ';margin-top:8px;padding:8px;background:#111;border-radius:8px;">' +
-            tabsAll.map(function (t) {
-              var on = tabs.indexOf(t) >= 0;
-              return '<label class="check-line" style="margin:0 0 6px;"><input type="checkbox" data-tab="' + t + '" data-tabs-of="' + id + '"' +
-                (on ? " checked" : "") + ' onchange="saveAccessTabsUi_(\'' + jsId(p.telegramId) + '\')"> <span>' +
-                escapeHtml(ACCESS_TAB_LABELS_[t] || t) + '</span></label>';
-            }).join("") +
-            (custom ? '<button type="button" class="seg-btn" style="margin:6px 0 0;" onclick="resetAccessTabsUi_(\'' + jsId(p.telegramId) + '\')">Сбросить к роли</button>' : "") +
+            '<div class="muted" style="font-size:12px;margin:0 0 6px;">Родитель включает/выключает все подвкладки; частично — только отмеченные.</div>' +
+            accessTabsTreeHtml_(id, jt, tabsAll, tabs) +
+            (custom ? '<button type="button" class="seg-btn" style="margin:6px 0 0;" data-no-busy onclick="resetAccessTabsUi_(\'' + jt + '\')">Сбросить к роли</button>' : "") +
             '</div></div>';
         }
-        return '<div class="card" data-access-tid="' + escapeHtml(String(p.telegramId || "")) + '" style="margin-bottom:8px;">' +
+        var dirty = accessDraftDirty_(p);
+        var saveBar = dirty
+          ? '<div style="margin-top:10px;padding:8px;border:1px solid #ff9f0a;border-radius:8px;">' +
+            '<div style="color:#ff9f0a;font-size:12px;margin:0 0 6px;">● Есть несохранённые изменения</div>' +
+            '<div class="seg-row" style="margin:0;">' +
+            '<button type="button" class="seg-btn" style="color:#30d158;" data-busy-label="Сохраняю…" onclick="savePeopleDraftUi_(this,\'' + jt + '\')">Сохранить</button>' +
+            '<button type="button" class="seg-btn" data-no-busy onclick="cancelPeopleDraftUi_(\'' + jt + '\')">Отмена</button>' +
+            '</div></div>'
+          : "";
+        var pView = p;
+        if (d.notifySet) {
+          pView = Object.assign({}, p, { notify: d.notify });
+          delete pView.notifyEffective;
+        }
+        if (d.role != null && d.role !== role) {
+          pView = Object.assign({}, pView, { role: d.role });
+          delete pView.notifyDefaults;
+          delete pView.notifyEffective;
+        }
+        return '<div class="card" data-access-tid="' + escapeHtml(String(p.telegramId || "")) + '" style="margin-bottom:8px;' + (dirty ? "border:1px solid #ff9f0a;" : "") + '">' +
           head(p) +
           '<div class="muted" style="font-size:12px;">сейчас: ' + escapeHtml(ACCESS_ROLE_RU_[role] || role) + ' / ' + escapeHtml(p.status || "") +
           (p.isConfigOwner ? " · владелец из настроек" : "") + '</div>' +
           '<div class="seg-row" style="margin-top:8px;">' +
-          '<select id="role_' + id + '" ' + selStyle + '>' + optsR + '</select>' +
-          '<button type="button" class="seg-btn" onclick="assignRole(\'' + jsId(p.telegramId) + '\')">Роль</button>' +
-          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="revokeAccessUi_(\'' + jsId(p.telegramId) + '\')">✕</button>' +
+          '<select id="role_' + id + '" ' + selStyle + ' onchange="peopleDraftSet_(\'' + jt + '\',\'role\',this.value)">' + optsR + '</select>' +
+          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="revokeAccessUi_(\'' + jt + '\')">✕</button>' +
           '</div>' +
           '<div class="seg-row" style="margin-top:8px;">' +
-          '<select id="tz_' + id + '" ' + selStyle + '>' + optsTz + '</select>' +
-          '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + jsId(p.telegramId) + '\')">TZ</button>' +
-          '</div>' + tabsHtml + (role !== "denied" ? notifyBoxHtml_(p, id, jsId(p.telegramId)) : "") + '</div>';
+          '<select id="tz_' + id + '" ' + selStyle + ' onchange="peopleDraftSet_(\'' + jt + '\',\'tz\',this.value)">' + optsTz + '</select>' +
+          '</div>' + tabsHtml + (roleView !== "denied" ? notifyBoxHtml_(pView, id, jt) : "") + saveBar + '</div>';
       }).join("") || '<p class="muted">Пока никого нет — пусть люди нажмут «Запросить доступ»</p>';
       window._peopleCacheHtml = html;
       window._peopleCacheAt = Date.now();
       box.innerHTML = html;
+      try {
+        box.querySelectorAll('input[data-indet="1"]').forEach(function (el) { el.indeterminate = true; });
+      } catch (eInd) {}
     }
+
+    function peopleDraftSet_(targetId, field, value) {
+      var d = accessDraftOf_(targetId);
+      d[field] = value;
+      paintPeopleList_(peopleCacheList_);
+    }
+    window.peopleDraftSet_ = peopleDraftSet_;
+
+    function cancelPeopleDraftUi_(targetId) {
+      delete peopleDraft_[String(targetId || "")];
+      paintPeopleList_(peopleCacheList_);
+      showToast("Изменения отменены");
+    }
+    window.cancelPeopleDraftUi_ = cancelPeopleDraftUi_;
 
     function togglePeopleTabsBox_(targetId) {
       var k = String(targetId || "");
@@ -28008,47 +28249,115 @@
     }
     window.approveAccessUi_ = approveAccessUi_;
 
-    async function sendAccessTabs_(targetId, tabs) {
-      try { apiCacheBustMem_("listAccess"); } catch (eB) {}
-      var res = null;
-      try {
-        res = await apiPost({ action: "setAccessTabs", actorId: myTelegramId, targetId: targetId, tabs: tabs.join(",") });
-      } catch (e) {
-        res = null;
-      }
-      if (!res || res.status !== "success") {
-        showToast((res && res.message) || "Вкладки не сохранились");
-      } else {
-        for (var i = 0; peopleCacheList_ && i < peopleCacheList_.length; i++) {
-          if (String(peopleCacheList_[i].telegramId) === String(targetId)) {
-            peopleCacheList_[i] = Object.assign({}, peopleCacheList_[i], { tabs: res.tabs || tabs, customTabs: res.customTabs || tabs });
-          }
-        }
-        showToast(tabs.length ? "Вкладки сохранены" : "Вкладки по роли");
-      }
-      paintPeopleList_(peopleCacheList_);
-      loadPeople({ force: 1, keepPaint: 1 });
-    }
-
-    function saveAccessTabsUi_(targetId) {
+    /** Собрать компактный список из дерева чекбоксов (все дети → голый родитель). */
+    function accessCollectTabs_(targetId) {
       var id = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
       var tabs = [];
-      document.querySelectorAll('input[data-tabs-of="' + id + '"]').forEach(function (cb) {
-        if (cb.checked) tabs.push(cb.getAttribute("data-tab"));
+      var kidsOn = {};
+      document.querySelectorAll('input[data-tabs-of="' + id + '"][data-tab]').forEach(function (cb) {
+        var t = cb.getAttribute("data-tab");
+        var par = cb.getAttribute("data-tkid");
+        if (par) {
+          if (!kidsOn[par]) kidsOn[par] = [];
+          if (cb.checked) kidsOn[par].push(t);
+        } else if (cb.checked) tabs.push(t);
       });
-      if (!tabs.length) {
+      Object.keys(TAB_TREE_).forEach(function (par) {
+        if (!kidsOn[par]) return;
+        var on = kidsOn[par];
+        if (on.length === TAB_TREE_[par].length) tabs.push(par);
+        else if (on.length) tabs = tabs.concat(on);
+        else if (par === "deferredScreen") tabs.push(TAB_DEFERRED_OFF_);
+      });
+      return tabs;
+    }
+
+    function accessTabsChangedUi_(targetId) {
+      var tabs = accessCollectTabs_(targetId);
+      if (!tabs.filter(function (t) { return t !== TAB_DEFERRED_OFF_; }).length) {
         showToast("Нужна хотя бы одна вкладка (или роль «закрыт»)");
         paintPeopleList_(peopleCacheList_);
         return;
       }
-      sendAccessTabs_(targetId, tabs);
+      var d = accessDraftOf_(targetId);
+      d.tabsSet = true;
+      d.tabs = tabs;
+      paintPeopleList_(peopleCacheList_);
     }
+    window.accessTabsChangedUi_ = accessTabsChangedUi_;
+
+    function accessTabsParentUi_(el, targetId) {
+      var id = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
+      var par = el.getAttribute("data-tparent");
+      document.querySelectorAll('input[data-tabs-of="' + id + '"][data-tkid="' + par + '"]').forEach(function (cb) {
+        cb.checked = !!el.checked;
+      });
+      accessTabsChangedUi_(targetId);
+    }
+    window.accessTabsParentUi_ = accessTabsParentUi_;
+
+    function saveAccessTabsUi_(targetId) { accessTabsChangedUi_(targetId); }
     window.saveAccessTabsUi_ = saveAccessTabsUi_;
 
     function resetAccessTabsUi_(targetId) {
-      sendAccessTabs_(targetId, []);
+      var d = accessDraftOf_(targetId);
+      d.tabsSet = true;
+      d.tabs = [];
+      paintPeopleList_(peopleCacheList_);
     }
     window.resetAccessTabsUi_ = resetAccessTabsUi_;
+
+    /** «Сохранить»: роль/TZ → вкладки → уведомления; одна кнопка, busy-хелпер. */
+    async function savePeopleDraftUi_(btn, targetId) {
+      var k = String(targetId || "");
+      var p = accessPersonById_(k);
+      var d = peopleDraft_[k];
+      if (!p || !d) return;
+      var errs = [];
+      await withBusy(btn, "Сохраняю…", async function () {
+        try { apiCacheBustMem_("listAccess"); } catch (eB) {}
+        var curTz = p.timezone || "Europe/Minsk";
+        var tz = d.tz != null ? d.tz : curTz;
+        if (d.role != null && d.role !== String(p.role || "")) {
+          var r1 = null;
+          try {
+            r1 = await apiPost({ action: "setAccessRole", actorId: myTelegramId, telegramId: myTelegramId, targetId: k, role: d.role, timezone: tz });
+          } catch (e1) { r1 = null; }
+          if (!r1 || r1.status !== "success") errs.push("роль: " + ((r1 && (r1.message || r1.tip)) || "ошибка"));
+        } else if (tz !== curTz) {
+          var r2 = null;
+          try {
+            r2 = await apiPost({ action: "setAccessTimezone", actorId: myTelegramId, targetId: k, timezone: tz });
+          } catch (e2) { r2 = null; }
+          if (!r2 || r2.status !== "success") errs.push("TZ: " + ((r2 && r2.message) || "ошибка"));
+        }
+        if (d.tabsSet) {
+          var r3 = null;
+          try {
+            r3 = await apiPost({ action: "setAccessTabs", actorId: myTelegramId, targetId: k, tabs: d.tabs.join(",") });
+          } catch (e3) { r3 = null; }
+          if (!r3 || r3.status !== "success") errs.push("вкладки: " + ((r3 && r3.message) || "ошибка"));
+        }
+        if (d.notifySet && String(d.notify || "") !== String(p.notify || "")) {
+          var body = { action: "setAccessNotify", actorId: myTelegramId, targetId: k };
+          if (d.notify) body.notify = d.notify;
+          else body.reset = "1";
+          var r4 = null;
+          try { r4 = await apiPost(body); } catch (e4) { r4 = null; }
+          if (!r4 || r4.status !== "success") errs.push("уведомления: " + ((r4 && r4.message) || "ошибка"));
+          else applyPeopleNotifyLocal_(k, r4, d.notify);
+        }
+      });
+      if (errs.length) {
+        showToast("Не всё сохранилось — " + errs.join("; "));
+      } else {
+        delete peopleDraft_[k];
+        showToast("Сохранено");
+      }
+      window._peopleCacheHtml = "";
+      await loadPeople({ force: 1, keepPaint: 1 });
+    }
+    window.savePeopleDraftUi_ = savePeopleDraftUi_;
 
     function applyPeopleRoleLocal_(targetId, role) {
       targetId = String(targetId || "").trim();
@@ -28392,6 +28701,7 @@
         tab === "points" || tab === "nets" || tab === "notify" || tab === "people" || tab === "orders" || tab === "bp"
           ? tab
           : "orders";
+      if (partnerHubTab_ !== "bp") partnerHubTab_ = subPick_("partnerHubScreen", partnerHubTab_, ["orders", "people", "points", "nets", "notify"]);
       var map = {
         orders: "phPanelOrders",
         people: "phPanelPeople",
