@@ -326,6 +326,41 @@ function grams(payload, name) {
   assert.deepEqual(B("10. до 50 BYN"), [35, 50]);
   assert.deepEqual(B("Бюджет около 100 руб"), [85, 110]);
   assert.equal(B("Любит рубец, 13 кг"), null, "рубец is not руб");
+  // частые форматы ответа на п.10
+  [["10. 50", [40, 50]], ["10. 50р", [40, 50]], ["10. 50 р.", [40, 50]], ["10. до 50 рублей", [35, 50]],
+   ["10. 50 в месяц", [40, 50]], ["10. 50р/мес", [40, 50]], ["10. 30-50", [30, 50]], ["Бюджет 50", [40, 50]],
+   ["Бюджет в месяц?\n50", [40, 50]], ["10. Какой бюджет?\n50 р", [40, 50]], ["10) 50 byn", [40, 50]],
+   ["9. Около 700 г в месяц\n10. 50", [40, 50]]].forEach(([t, want]) => assert.deepEqual(B(t), want, t));
+  assert.equal(B("9. Около 700 г в месяц"), null, "граммы в месяц — не бюджет");
+  assert.equal(B("10. Не знаю"), null);
+}
+
+{
+  // БП1/БП2 тоже подгоняются под бюджет, цена — как подписка (pp)
+  const fitCode = "async " + ["pricePickFitBudget_", "pricePickScaleForBudget_", "pricePickDropPriciest_", "pricePickItemsKey_", "pricePickCloneItems_"].map(extract).join("\n");
+  const seen = [];
+  const PER_G = { "ЛЁГКОЕ": 0.08, "СЕРДЦЕ": 0.1, "РУБЕЦ Т": 0.07, "ТЫКВА": 0.03, "БАТАТ": 0.04 };
+  const PER_PC = { "ЛОП ХРЯЩ шт.": 3, "АОРТА": 2.5 };
+  const cost = (it) => (PER_PC[it.main] ? PER_PC[it.main] * it.value : (PER_G[it.main] || 0.1) * it.value);
+  const est = async (items, target) => {
+    seen.push(target);
+    const goods = items.reduce((a, it) => a + cost(it), 0);
+    const fixed = 11;
+    return { price: goods + fixed, goods, fixed, basis: target === "retail" ? "розница" : "подписка", approx: false };
+  };
+  const fit = new Function("pricePickEstimateSetPrice_", "retailLineCost", "isPieceSkuName",
+    fitCode + "\nreturn pricePickFitBudget_;")(est, (n, s, v, c) => ({ cost: cost({ main: n, value: v }) }), () => false);
+  const bpItems = [
+    { cat: "dressura", main: "ЛЁГКОЕ", sub: "Мелкое", value: 40 }, { cat: "dressura", main: "СЕРДЦЕ", sub: "Мелкое", value: 15 },
+    { cat: "dressura", main: "РУБЕЦ Т", sub: "Мелкое", value: 10 }, { cat: "chew", main: "ЛОП ХРЯЩ шт.", value: 1 },
+    { cat: "chew", main: "АОРТА", value: 1 }, { cat: "veg", main: "ТЫКВА", value: 5 }, { cat: "veg", main: "БАТАТ", value: 5 }
+  ];
+  const r = await fit({ items: bpItems, target: "bp1", signals: { budget: { min: 40, max: 50, mid: 45, kind: "single" }, liked: ["ЛЁГКОЕ"] } });
+  assert.ok(r && r.trial && r.basis === "как подписка", "bp fitted as subscription");
+  assert.ok(seen.length && seen.every((x) => x === "pp"), "bp priced via pp: " + seen.join(","));
+  assert.ok(r.monthly <= 50 && !r.goodsOnly, "bp ×4 ≤ 50: " + r.monthly);
+  const low = await fit({ items: bpItems, target: "bp2", signals: { budget: { min: 21, max: 30, mid: 26, kind: "upto" } } });
+  assert.ok(low.goodsOnly && low.goodsMonthly <= 30, "goods-only fallback for bp");
 }
 
 console.log("test-price-pick: OK");
