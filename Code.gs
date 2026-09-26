@@ -15221,12 +15221,63 @@ var GAS_OWNER_ACTIONS_RE_ = /^(getStats|getExpectedProfit|exportStats|listStatsS
 var GAS_PUBLIC_RE_ = /^(getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|partner[A-Za-z0-9_]*|gb[A-Za-z0-9_]*)$/;
 var GAS_ROLE_PRESETS_ = {
   manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
-  cutter: ["cuttingScreen"],
-  courier: ["courierScreen"],
-  logistics: ["warehouseScreen"],
+  cutter: ["cuttingScreen", "deferredScreen"],
+  courier: ["courierScreen", "deferredScreen"],
+  logistics: ["warehouseScreen", "deferredScreen"],
   all: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "partnerHubScreen"]
 };
 var GAS_ALL_TABS_ = ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "partnerHubScreen", "statsScreen", "retailPriceScreen", "peopleScreen"];
+/* v71116014: подвкладки «родитель.ребёнок» (колонка I). Голый родитель = все дети. ТОЧНО как worker AUTH_TAB_TREE. */
+var GAS_TAB_TREE_ = {
+  clientsScreen: ["month", "week"],
+  priceScreen: ["calc", "pick"],
+  deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
+  templatesScreen: ["texts", "ai"],
+  courierScreen: ["route", "assembly"],
+  partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+};
+var GAS_DEFERRED_OFF_ = "deferredScreen.none";
+var GAS_LEGACY_TASKS_ROLES_ = ["manager", "all", "courier", "logistics", "cutter"];
+
+function gasTabValid_(v) {
+  if (!v || v === "peopleScreen") return false;
+  if (v === GAS_DEFERRED_OFF_) return true;
+  if (GAS_ALL_TABS_.indexOf(v) >= 0) return true;
+  var i = v.indexOf(".");
+  if (i < 1) return false;
+  var kids = GAS_TAB_TREE_[v.slice(0, i)];
+  return !!(kids && kids.indexOf(v.slice(i + 1)) >= 0);
+}
+
+function gasCompactTabs_(list) {
+  var out = list.slice();
+  Object.keys(GAS_TAB_TREE_).forEach(function (p) {
+    var kids = GAS_TAB_TREE_[p];
+    var hasBare = out.indexOf(p) >= 0;
+    var have = kids.filter(function (k) { return out.indexOf(p + "." + k) >= 0; });
+    if (hasBare || have.length === kids.length) {
+      out = out.filter(function (t) { return t.indexOf(p + ".") !== 0; });
+      if (!hasBare) out.push(p);
+    }
+  });
+  if (out.some(function (t) { return t === "deferredScreen" || (t.indexOf("deferredScreen.") === 0 && t !== GAS_DEFERRED_OFF_); })) {
+    out = out.filter(function (t) { return t !== GAS_DEFERRED_OFF_; });
+  }
+  return out;
+}
+
+/** Доступ к id: родитель — голый или любой ребёнок; «P.c» — голый P или P.c. */
+function gasHasTab_(tabs, id) {
+  if (!tabs || !id) return false;
+  if (tabs.indexOf(id) >= 0) return true;
+  var i = id.indexOf(".");
+  if (i > 0) return tabs.indexOf(id.slice(0, i)) >= 0;
+  if (!GAS_TAB_TREE_[id]) return false;
+  for (var k = 0; k < tabs.length; k++) {
+    if (String(tabs[k]).indexOf(id + ".") === 0 && tabs[k] !== GAS_DEFERRED_OFF_) return true;
+  }
+  return false;
+}
 
 function gasSafeEq_(a, b) {
   a = String(a || "");
@@ -15370,9 +15421,9 @@ function parseAccessTabs_(raw) {
   var out = [];
   for (var i = 0; i < arr.length; i++) {
     var t = String(arr[i] || "").trim();
-    if (t && t !== "peopleScreen" && GAS_ALL_TABS_.indexOf(t) >= 0 && out.indexOf(t) < 0) out.push(t);
+    if (gasTabValid_(t) && out.indexOf(t) < 0) out.push(t);
   }
-  return out;
+  return gasCompactTabs_(out);
 }
 
 /** Эффективные вкладки (единая семантика с Worker/UI): owner — все; кастом поверх пресета; неизвестная роль — []. */
@@ -15381,7 +15432,11 @@ function effectiveTabsFor_(role, customTabs) {
   if (r === "owner") return GAS_ALL_TABS_.slice();
   if (!GAS_ROLE_PRESETS_[r]) return [];
   var c = parseAccessTabs_(Array.isArray(customTabs) ? customTabs.join(",") : customTabs);
-  return (c.length ? c : GAS_ROLE_PRESETS_[r]).slice();
+  if (!c.length) return GAS_ROLE_PRESETS_[r].slice();
+  // старый кастом (до v71116014) без deferred* — ☰ «Задачи / Отложенное» как было по роли
+  var touched = c.some(function (t) { return t === "deferredScreen" || t.indexOf("deferredScreen.") === 0; });
+  if (!touched && GAS_LEGACY_TASKS_ROLES_.indexOf(r) >= 0) c.push("deferredScreen");
+  return c;
 }
 
 function handleSetAccessTabs(json, callback, fromPost) {
@@ -28491,7 +28546,7 @@ function actorCanEditTemplates_(telegramId) {
     var stV = String(rowV.status || "").toLowerCase();
     if (stV === "denied" || stV === "pending") return false;
     var tabsV = effectiveTabsFor_(rowV.role, rowV.customTabs);
-    return tabsV.indexOf("templatesScreen") >= 0 || tabsV.indexOf("orderScreen") >= 0;
+    return gasHasTab_(tabsV, "templatesScreen") || gasHasTab_(tabsV, "orderScreen");
   }
   if (!tid || tid === "undefined" || tid === "null") return true; // legacy soft
   if (actorIsOwner_(tid) || isOwnerId_(tid)) return true;
