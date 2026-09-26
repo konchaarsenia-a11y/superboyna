@@ -36,6 +36,396 @@ const DAY_SHORT = {
   "Будущая неделя": "Буд"
 };
 
+
+/* ===================== AUTH / ROLES (roles-audit 2026-09-26) =====================
+ * Identity = Telegram WebApp initData (HMAC-SHA256, Bot API spec). tid берём ТОЛЬКО из
+ * проверенной initData. Роль/вкладки — из D1 (access:<tid> / listAccess), холодно — GAS getMyAccess.
+ * Escape hatch (без редеплоя кода): env AUTH_ENFORCE=0 → legacy (telegramId из параметров).
+ * Owner-ids: env OWNER_TELEGRAM_IDS (wrangler [vars]) — Арсений 650923866.
+ */
+const AUTH_ALL_TABS = [
+  "orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen",
+  "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen",
+  "partnerHubScreen", "statsScreen", "retailPriceScreen", "peopleScreen"
+];
+/** Только owner (роль), никогда не выдаётся вкладкой. */
+const AUTH_OWNER_ONLY_TABS = ["peopleScreen"];
+/** Не входят в пресеты не-owner; можно выдать вручную (кастомные вкладки). */
+const AUTH_SENSITIVE_TABS = ["statsScreen", "retailPriceScreen"];
+const AUTH_ROLE_PRESETS = {
+  manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
+  cutter: ["cuttingScreen"],
+  courier: ["courierScreen"],
+  logistics: ["warehouseScreen"]
+};
+// all = все рабочие вкладки, без денег/прайса/доступов (единая семантика Worker/GAS/UI)
+AUTH_ROLE_PRESETS.all = AUTH_ALL_TABS.filter(function (t) {
+  return AUTH_OWNER_ONLY_TABS.indexOf(t) < 0 && AUTH_SENSITIVE_TABS.indexOf(t) < 0;
+});
+const AUTH_DEFAULT_OWNER_IDS = ["650923866"];
+
+function authNormRole_(role) {
+  const r = String(role || "").toLowerCase().trim();
+  const map = {
+    "владелец": "owner", "менеджер": "manager", "курьер": "courier", "нарезчик": "cutter",
+    "нарезка": "cutter", "логист": "logistics", "логистика": "logistics", "склад": "logistics"
+  };
+  return map[r] || r;
+}
+
+function authParseTabs_(raw) {
+  if (raw == null || raw === "") return [];
+  let arr = raw;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.charAt(0) === "[") {
+      try { arr = JSON.parse(s); } catch (e) { arr = []; }
+    } else {
+      arr = s.split(/[,;\s]+/);
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  arr.forEach(function (t) {
+    const v = String(t || "").trim();
+    if (v && AUTH_ALL_TABS.indexOf(v) >= 0 && AUTH_OWNER_ONLY_TABS.indexOf(v) < 0 && out.indexOf(v) < 0) out.push(v);
+  });
+  return out;
+}
+
+/** Эффективные вкладки: owner — все; кастом (непустой) поверх пресета роли; неизвестная роль — []. */
+function authEffectiveTabs_(role, customTabs) {
+  const r = authNormRole_(role);
+  if (r === "owner") return AUTH_ALL_TABS.slice();
+  if (!AUTH_ROLE_PRESETS[r]) return [];
+  const custom = authParseTabs_(customTabs);
+  return (custom.length ? custom : AUTH_ROLE_PRESETS[r]).slice();
+}
+
+function authOwnerIds_(env) {
+  const raw = String((env && env.OWNER_TELEGRAM_IDS) || "").trim();
+  const ids = raw ? raw.split(/[,;\s]+/).map(function (s) { return s.trim(); }).filter(Boolean) : [];
+  AUTH_DEFAULT_OWNER_IDS.forEach(function (d) { if (ids.indexOf(d) < 0) ids.push(d); });
+  return ids;
+}
+
+function authBotTokens_(env) {
+  const out = [];
+  function add(t) {
+    const v = String(t || "").trim();
+    if (v && out.indexOf(v) < 0) out.push(v);
+  }
+  if (env) {
+    add(env.TELEGRAM_BOT_TOKEN);
+    add(env.BOINYA_BOT_TOKEN);
+    add(env.PARTNER_BOT_TOKEN);
+    String(env.TG_EXTRA_BOT_TOKENS || "").split(/[,;\s]+/).forEach(add);
+  }
+  return out;
+}
+
+function authEnforced_(env) {
+  const v = String((env && env.AUTH_ENFORCE) || "").trim().toLowerCase();
+  if (v === "0" || v === "off" || v === "false" || v === "legacy") return false;
+  return authBotTokens_(env).length > 0;
+}
+
+function authModeLabel_(env) {
+  if (authEnforced_(env)) return "enforce";
+  return authBotTokens_(env).length ? "legacy_env" : "legacy_no_token";
+}
+
+const _tgEnc = new TextEncoder();
+async function authHmac_(keyBytes, msg) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, typeof msg === "string" ? _tgEnc.encode(msg) : msg));
+}
+function authHex_(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+  return s;
+}
+function authSafeEq_(a, b) {
+  a = String(a || "");
+  b = String(b || "");
+  if (a.length !== b.length || !a.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+const _authInitCache = new Map();
+/**
+ * Проверка initData по https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+ * secret = HMAC_SHA256(key="WebAppData", msg=bot_token); hash = hex(HMAC_SHA256(key=secret, msg=data_check_string)).
+ */
+async function verifyTgInitData_(initData, env, nowSec) {
+  const raw = String(initData || "").trim();
+  if (!raw) return { ok: false, reason: "no_init_data" };
+  const cached = _authInitCache.get(raw);
+  if (cached && cached.exp > Date.now()) return cached.res;
+  let res = { ok: false, reason: "bad_hash" };
+  try {
+    const sp = new URLSearchParams(raw);
+    const hash = String(sp.get("hash") || "").toLowerCase();
+    if (!hash) {
+      res = { ok: false, reason: "no_hash" };
+    } else {
+      const pairs = [];
+      sp.forEach(function (v, k) {
+        if (k !== "hash") pairs.push(k + "=" + v);
+      });
+      pairs.sort();
+      const dcs = pairs.join("\n");
+      const tokens = authBotTokens_(env);
+      if (!tokens.length) res = { ok: false, reason: "no_bot_token" };
+      for (let i = 0; i < tokens.length; i++) {
+        const secret = await authHmac_(_tgEnc.encode("WebAppData"), tokens[i]);
+        const calc = authHex_(await authHmac_(secret, dcs));
+        if (authSafeEq_(calc, hash)) {
+          const authDate = Number(sp.get("auth_date") || 0);
+          const maxAge = Number((env && env.TG_INITDATA_MAX_AGE_SEC) || 604800); // 7 дней
+          const now = nowSec != null ? nowSec : Math.floor(Date.now() / 1000);
+          if (!authDate || (maxAge > 0 && now - authDate > maxAge)) {
+            res = { ok: false, reason: "expired" };
+            break;
+          }
+          let user = null;
+          try { user = JSON.parse(sp.get("user") || "null"); } catch (eU) { user = null; }
+          if (!user || !user.id) {
+            res = { ok: false, reason: "no_user" };
+            break;
+          }
+          res = { ok: true, user: user, authDate: authDate, botIndex: i };
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    res = { ok: false, reason: "parse_error" };
+  }
+  if (_authInitCache.size > 500) _authInitCache.clear();
+  _authInitCache.set(raw, { exp: Date.now() + 60000, res: res });
+  return res;
+}
+
+const _authRoleCache = new Map();
+/** Роль + вкладки по tid: owner-ids → D1 access:<tid> → D1 listAccess → (cold) GAS getMyAccess. */
+async function authLookupRole_(tid, env) {
+  tid = String(tid || "").trim();
+  if (!tid) return { role: "none", tabs: [], customTabs: [] };
+  const hit = _authRoleCache.get(tid);
+  if (hit && hit.exp > Date.now()) return hit.v;
+  let role = "";
+  let status = "";
+  let custom = null;
+  let name = "";
+  let username = "";
+  if (authOwnerIds_(env).indexOf(tid) >= 0) role = "owner";
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    const people = (list && list.people) || [];
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) {
+        if (!role) role = String(people[i].role || "");
+        status = String(people[i].status || "");
+        custom = people[i].customTabs;
+        name = people[i].name || "";
+        username = people[i].username || "";
+        break;
+      }
+    }
+  } catch (eL) {}
+  const listSaysPending = role === "pending" || String(status || "").toLowerCase() === "pending";
+  if (!role || listSaysPending) {
+    try {
+      const acc = await getSnapRaw_(env, "access:" + tid);
+      if (acc && acc.role && (!acc.telegramId || String(acc.telegramId) === tid)) {
+        const accRole = authNormRole_(acc.role);
+        if (!role) {
+          role = accRole;
+          status = String(acc.access || "");
+        } else if (listSaysPending && role !== "owner" && !/^(none|pending)$/.test(accRole)) {
+          // одобрили в листе «Доступы» (GAS), а D1 ещё pending
+          role = accRole;
+          status = String(acc.access || "active");
+        }
+        if (custom == null && acc.customTabs) custom = acc.customTabs;
+      }
+    } catch (eA) {}
+  }
+  if (!role && env && env.DB) {
+    try {
+      const live = await gasProxy_("getMyAccess", { telegramId: tid }, env, { write: false });
+      if (live && live.status === "success") {
+        role = String(live.role || "none");
+        status = String(live.access || "");
+        if (live.customTabs) custom = live.customTabs;
+        try {
+          await putSnap_(env, "access:" + tid, Object.assign({}, live, { telegramId: tid, cachedAt: new Date().toISOString() }));
+        } catch (eP) {}
+      }
+    } catch (eG) {}
+  }
+  role = authNormRole_(role || "none");
+  const st = String(status || "").toLowerCase();
+  if (role !== "owner" && (st === "denied" || st === "pending")) role = st;
+  const v = {
+    role: role,
+    tabs: authEffectiveTabs_(role, custom),
+    customTabs: authParseTabs_(custom),
+    name: name,
+    username: username
+  };
+  _authRoleCache.set(tid, { exp: Date.now() + 15000, v: v });
+  return v;
+}
+
+function authInvalidateRole_(tid) {
+  if (tid) _authRoleCache.delete(String(tid));
+  else _authRoleCache.clear();
+}
+
+/**
+ * Resolve actor for this request.
+ * enforce: tid ТОЛЬКО из проверенной initData. legacy: telegramId/actorId из параметров.
+ */
+async function resolveActor_(params, env) {
+  const initData = String((params && (params.initData || params._tg)) || "");
+  let v = null;
+  if (initData) v = await verifyTgInitData_(initData, env);
+  const enforce = authEnforced_(env);
+  let tid = "";
+  let verified = false;
+  let username = "";
+  if (v && v.ok) {
+    tid = String(v.user.id);
+    username = String(v.user.username || "");
+    verified = true;
+  } else if (!enforce) {
+    tid = String((params && (params.actorId || params.telegramId)) || "").trim();
+  }
+  const r = tid ? await authLookupRole_(tid, env) : { role: "none", tabs: [], customTabs: [] };
+  return {
+    tid: tid,
+    verified: verified,
+    enforce: enforce,
+    reason: v && !v.ok ? v.reason : initData ? "" : "no_init_data",
+    username: username,
+    role: r.role,
+    tabs: r.tabs,
+    customTabs: r.customTabs,
+    isOwner: r.role === "owner",
+    user: v && v.ok ? v.user : null
+  };
+}
+
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry)$/i;
+const AUTH_OWNER_RE = new RegExp(
+  "^(setAccessRole|setAccessTimezone|setAccessTabs|listAccess|finishFullWeek[A-Za-z]*|repairWeekMonday|" +
+    "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
+    "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
+    "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
+    "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*)$"
+);
+const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "deferredScreen", "subsScreen", "subDetailScreen"];
+const AUTH_TAB_RULES = [
+  { re: /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i, tabs: ["statsScreen"] },
+  { re: /^saveRetailPrices$/i, tabs: ["retailPriceScreen"] },
+  {
+    re: /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|pullClientsFromMonth|materializeWeek|setWeekBannerState|ensureBpFromOrder|markBpTouch|recordBpToPpConversion|enrollDeferredToPp|saveClientProfile|deleteClientBatch|moveClientBatch)$/i,
+    tabs: AUTH_TABS_ORDERS
+  },
+  {
+    re: /^(placeTransferTask|notifyMissedDelivery|saveDeferred|cancelDeferred|setDeferredReminder)$/i,
+    tabs: AUTH_TABS_ORDERS.concat(["courierScreen"])
+  },
+  { re: /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume)$/i, tabs: ["cuttingScreen"] },
+  { re: /^(setDelivered|setAssembled|setPrinted|sendCourierRoute|prepareCourierRoute|registerCourier)$/i, tabs: ["courierScreen"] },
+  { re: /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|sendDeficit)$/i, tabs: ["warehouseScreen", "cuttingScreen"] },
+  { re: /^(saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch)$/i, tabs: AUTH_TABS_ORDERS },
+  { re: /^unlockSubs$/i, tabs: ["subsScreen", "subDetailScreen"] },
+  { re: /^(saveTemplate|deleteTemplate|saveSurvey|deleteSurvey|deleteSurveyBatch|repairSurveys|forceSurveyRemind)$/i, tabs: ["templatesScreen", "orderScreen"] },
+  {
+    re: /^(calcPrice|calcPpFact|getPpFactCost|getPpOrderSuggest|migratePpToRaw26Scheme|getRetailPriceList)$/i,
+    tabs: ["orderScreen", "clientsScreen", "priceScreen", "subsScreen", "subDetailScreen", "deferredScreen", "retailPriceScreen", "partnerHubScreen"]
+  }
+];
+
+/** Уровень доступа для action: public | owner | tabs | staff. */
+function authRequirement_(a) {
+  const s = String(a || "");
+  if (!s || AUTH_PUBLIC_RE.test(s)) return { level: "public" };
+  if (/^partner/i.test(s) || /^gb/i.test(s)) return { level: "public", selfChecked: true };
+  if (AUTH_OWNER_RE.test(s)) return { level: "owner" };
+  for (let i = 0; i < AUTH_TAB_RULES.length; i++) {
+    if (AUTH_TAB_RULES[i].re.test(s)) return { level: "tabs", tabs: AUTH_TAB_RULES[i].tabs };
+  }
+  return { level: "staff" };
+}
+
+function authActorActive_(actor) {
+  return !!(actor && actor.tid && actor.role && !/^(none|pending|denied)$/.test(actor.role) && actor.tabs.length);
+}
+
+/** null = пропустить; иначе JSON ошибки. */
+function authCheck_(a, actor, env) {
+  const req = authRequirement_(a);
+  if (req.level === "public") return null;
+  const base = { status: "error", action: a, authMode: authModeLabel_(env) };
+  if (!actor || !actor.tid) {
+    return Object.assign(base, { message: "auth_required", reason: (actor && actor.reason) || "no_init_data" });
+  }
+  if (req.level === "owner") {
+    if (actor.isOwner) return null;
+    return Object.assign(base, { message: "owner_only" });
+  }
+  if (!authActorActive_(actor)) return Object.assign(base, { message: "no_access", role: actor.role });
+  if (req.level === "tabs") {
+    if (actor.isOwner) return null;
+    for (let i = 0; i < req.tabs.length; i++) if (actor.tabs.indexOf(req.tabs[i]) >= 0) return null;
+    return Object.assign(base, { message: "forbidden_role", role: actor.role });
+  }
+  return null;
+}
+
+/** Убрать себестоимость из ответов калькуляции для не-owner (включается env COST_STRIP_NON_OWNER=1). */
+function authStripCost_(res) {
+  if (!res || typeof res !== "object") return res;
+  const out = Object.assign({}, res);
+  ["rawCost", "cost", "costRowLabel", "unitCosts", "costs", "goodsBeforeCap", "recoverByn", "margin", "profit", "clean"].forEach(function (k) {
+    if (k in out) delete out[k];
+  });
+  if (Array.isArray(out.lines)) {
+    out.lines = out.lines.map(function (L) {
+      if (!L || typeof L !== "object") return L;
+      const c = Object.assign({}, L);
+      delete c.cost;
+      delete c.unitPrice;
+      delete c.per100;
+      delete c.perPiece;
+      return c;
+    });
+  }
+  out.costStripped = true;
+  return out;
+}
+
+/** Системный вызов Worker→GAS: общий секрет + проверенный actor. */
+function authGasEnvelope_(env, actor) {
+  const o = {};
+  const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
+  if (sec) o._wk = sec;
+  if (actor && actor.tid && (actor.verified || !actor.enforce)) {
+    o._actorTid = actor.tid;
+    o._actorRole = actor.role || "";
+  }
+  return o;
+}
+/* =================== /AUTH =================== */
+
 /** Varka Mini App: HTML с правильным Content-Type (не jsDelivr — там text/plain). */
 const VARKA_PAGES_BASE =
   "https://konchaarsenia-a11y.github.io/superboyna/varka";
@@ -363,7 +753,331 @@ function isWriteAction_(a) {
   );
 }
 
+/** Флаги из env для функций без env-аргумента (env постоянен в isolate). */
+let _authEnforceFlag = true;
+function authApplyEnvConfig_(env) {
+  _authEnforceFlag = authEnforced_(env);
+  const tids = String((env && env.PARTNER_OWNER_TIDS) || "827494606").split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  const users = String((env && env.PARTNER_OWNER_USERNAMES) || "one_more_person_228").split(/[,;\s]+/)
+    .map(function (x) { return x.trim().replace(/^@/, "").toLowerCase(); }).filter(Boolean);
+  PARTNER_CANON_OWNER_TIDS.length = 0;
+  tids.forEach(function (t) { PARTNER_CANON_OWNER_TIDS.push(t); });
+  PARTNER_CANON_OWNER_USERS.length = 0;
+  users.forEach(function (u) { PARTNER_CANON_OWNER_USERS.push(u); });
+}
+
+const AUTH_COST_ACTIONS_RE = /^(calcPrice|calcPpFact|getPpFactCost|getPpOrderSuggest|migratePpToRaw26Scheme)$/i;
+const AUTH_ACTOR_AS_TID_RE = /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|saveRetailPrices|unlockPpCostBreakdown)$/i;
+
+/**
+ * Точка входа: AUTH gate (initData HMAC → actor → роль/вкладки) → handleActionInner_.
+ * Клиентские _actorTid/_wk/_authVerified всегда вычищаются.
+ */
 async function handleAction_(action, params, env, url, ctx) {
+  const a = String(action || "");
+  params = params && typeof params === "object" ? params : {};
+  ["_actorTid", "_actorRole", "_wk", "_authVerified", "_unverified"].forEach(function (k) {
+    delete params[k];
+  });
+  authApplyEnvConfig_(env);
+  if (a === "ping" || a === "keepWarm" || a === "health") {
+    const pr = await handleActionInner_(a, params, env, url, ctx);
+    if (pr && typeof pr === "object") {
+      pr.authMode = authModeLabel_(env);
+      pr.sandboxAllowed = !!(env && env.ALLOW_SANDBOX === "1");
+    }
+    return pr;
+  }
+  const actor = await resolveActor_(params, env);
+  if (actor.tid) {
+    params._actorTid = actor.tid;
+    params._actorRole = actor.role || "";
+  }
+  if (actor.verified) params._authVerified = "1";
+
+  // Varka / Goodboy — свои проверки; identity только из проверенной initData (если есть)
+  if (/^partner/i.test(a) || /^gb/i.test(a) || a === "submitGoodboyTry") {
+    if (actor.verified && actor.user) {
+      params.telegramId = String(actor.user.id);
+      if (actor.user.username) params.username = String(actor.user.username);
+    } else if (actor.enforce) {
+      params._unverified = "1";
+    }
+    return handleActionInner_(a, params, env, url, ctx);
+  }
+  if (a === "getMyAccess") return authGetMyAccess_(params, actor, env, ctx);
+  if (a === "requestAccess") {
+    if (actor.enforce && !actor.verified) {
+      return { status: "error", message: "auth_required", action: a, reason: actor.reason, authMode: authModeLabel_(env) };
+    }
+    if (actor.tid) {
+      params.telegramId = actor.tid;
+      params.targetId = actor.tid;
+      delete params.role;
+      delete params.status;
+      delete params.customTabs;
+      delete params.tabs;
+    }
+    if (actor.user) {
+      if (!params.name) params.name = [actor.user.first_name, actor.user.last_name].filter(Boolean).join(" ");
+      if (actor.user.username) params.username = actor.user.username;
+    }
+    const rq = await handleActionInner_(a, params, env, url, ctx);
+    authInvalidateRole_(actor.tid);
+    return rq;
+  }
+
+  const deny = authCheck_(a, actor, env);
+  if (deny) return deny;
+
+  const req = authRequirement_(a);
+  if (req.level === "owner" || AUTH_ACTOR_AS_TID_RE.test(a)) {
+    if (/^setAccess/i.test(a) && !params.targetId && params.telegramId && String(params.telegramId) !== actor.tid) {
+      params.targetId = String(params.telegramId);
+    }
+    params.telegramId = actor.tid;
+    params.actorId = actor.tid;
+  }
+  if (a === "listAccess") return listAccessMerged_(params, env, ctx);
+  if (a === "setAccessTabs") return setAccessTabs_(params, env, ctx);
+  if (a === "unlockSubs") return unlockSubs_(params, actor, env);
+
+  let res = await handleActionInner_(a, params, env, url, ctx);
+  if (/^(setAccessRole|setAccessTimezone)$/i.test(a)) authInvalidateRole_(params.targetId);
+  if (
+    env &&
+    String(env.COST_STRIP_NON_OWNER || "") === "1" &&
+    !actor.isOwner &&
+    AUTH_COST_ACTIONS_RE.test(a)
+  ) {
+    res = authStripCost_(res);
+  }
+  return res;
+}
+
+/** getMyAccess: tid только из проверенной initData; роль/вкладки — единый резолвер. */
+async function authGetMyAccess_(params, actor, env, ctx) {
+  if (actor.enforce && !actor.verified) {
+    return {
+      status: "success",
+      role: "none",
+      access: "none",
+      tabs: [],
+      authRequired: true,
+      reason: actor.reason || "no_init_data",
+      message: "need_telegram",
+      authMode: authModeLabel_(env)
+    };
+  }
+  const tid = actor.tid || "";
+  if (!tid) {
+    return { status: "success", role: "none", access: "none", tabs: [], message: "need_telegram", authMode: authModeLabel_(env) };
+  }
+  const p = Object.assign({}, params, { telegramId: tid });
+  let res = null;
+  try {
+    res = await cutoverGetMyAccess_(p, env, ctx);
+  } catch (eG) {
+    res = null;
+  }
+  authInvalidateRole_(tid);
+  const r = await authLookupRole_(tid, env);
+  let role = r.role && r.role !== "none" ? r.role : authNormRole_((res && res.role) || "none");
+  if (!res || res.status !== "success") {
+    if (role === "none") {
+      return res && typeof res === "object" ? res : { status: "error", message: "gas_proxy_failed", action: "getMyAccess" };
+    }
+    res = { status: "success", telegramId: tid };
+  }
+  res = Object.assign({}, res);
+  res.role = role;
+  res.access = role === "denied" ? "denied" : role === "pending" ? "pending" : role === "none" ? "none" : "active";
+  res.tabs = authEffectiveTabs_(role, r.customTabs);
+  res.customTabs = r.customTabs;
+  res.telegramId = tid;
+  res.verified = !!actor.verified;
+  res.authMode = authModeLabel_(env);
+  return res;
+}
+
+/** Список доступов Бойни: D1 + слияние заявок/одобрений из листа «Доступы» (бот / мини-апп). */
+async function listAccessMerged_(params, env, ctx) {
+  let d1 = null;
+  try {
+    d1 = await getSnapRaw_(env, "listAccess");
+  } catch (e0) {
+    d1 = null;
+  }
+  d1 = d1 && typeof d1 === "object" ? d1 : { status: "success", people: [] };
+  const people = (d1.people || []).map(function (p) { return Object.assign({}, p); });
+  let live = null;
+  try {
+    live = await gasProxy_(
+      "listAccess",
+      { telegramId: params._actorTid || "", _actorTid: params._actorTid || "", _actorRole: "owner", initData: params.initData || "" },
+      env,
+      { write: false }
+    );
+  } catch (eG) {
+    live = null;
+  }
+  let changed = false;
+  const gasPeople = (live && live.status === "success" && Array.isArray(live.people)) ? live.people : [];
+  gasPeople.forEach(function (g) {
+    const tid = String((g && g.telegramId) || "").trim();
+    if (!tid) return;
+    let idx = -1;
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) {
+        idx = i;
+        break;
+      }
+    }
+    const gRole = String(g.role || "").toLowerCase();
+    if (idx < 0) {
+      people.push({
+        telegramId: tid,
+        name: g.name || "",
+        username: g.username || "",
+        role: gRole || "pending",
+        status: String(g.status || "").toLowerCase() || accessStatusFromRole_(gRole, "pending"),
+        timezone: g.timezone || "",
+        customTabs: authParseTabs_(g.customTabs || g.tabs),
+        requestedAt: g.requestedAt || "",
+        fromSheet: true
+      });
+      changed = true;
+      return;
+    }
+    const cur = people[idx];
+    const curRole = String(cur.role || "").toLowerCase();
+    if ((!curRole || curRole === "pending") && gRole && gRole !== "pending") {
+      cur.role = gRole;
+      cur.status = String(g.status || "").toLowerCase() || accessStatusFromRole_(gRole, "active");
+      changed = true;
+    }
+    if (!cur.username && g.username) {
+      cur.username = g.username;
+      changed = true;
+    }
+    if (!cur.name && g.name) {
+      cur.name = g.name;
+      changed = true;
+    }
+    if (!cur.requestedAt && g.requestedAt) cur.requestedAt = g.requestedAt;
+    const gTabs = authParseTabs_(g.customTabs || g.tabs);
+    if ((!cur.customTabs || !authParseTabs_(cur.customTabs).length) && gTabs.length) {
+      cur.customTabs = gTabs;
+      changed = true;
+    }
+  });
+  if (changed && env && env.DB) {
+    try {
+      await putSnap_(env, "listAccess", Object.assign({}, d1, {
+        status: "success",
+        people: people,
+        _d1TouchedAt: Date.now(),
+        _mergedFromSheetAt: new Date().toISOString()
+      }));
+    } catch (eP) {}
+  }
+  const owners = authOwnerIds_(env);
+  const rank = { pending: 0, owner: 1, manager: 2, all: 3, cutter: 4, courier: 5, logistics: 6, denied: 9 };
+  const out = people.map(function (p) {
+    const role = authNormRole_(p.role);
+    const st = String(p.status || "").toLowerCase();
+    const effRole = role !== "owner" && (st === "pending" || st === "denied") ? st : role;
+    return Object.assign({}, p, {
+      role: role,
+      status: st || accessStatusFromRole_(role, "active"),
+      customTabs: authParseTabs_(p.customTabs),
+      presetTabs: role === "owner" ? AUTH_ALL_TABS.slice() : (AUTH_ROLE_PRESETS[role] || []).slice(),
+      tabs: authEffectiveTabs_(effRole, p.customTabs),
+      isConfigOwner: owners.indexOf(String(p.telegramId)) >= 0,
+      pending: effRole === "pending"
+    });
+  });
+  out.sort(function (x, y) {
+    const rx = rank[x.pending ? "pending" : x.role] != null ? rank[x.pending ? "pending" : x.role] : 8;
+    const ry = rank[y.pending ? "pending" : y.role] != null ? rank[y.pending ? "pending" : y.role] : 8;
+    if (rx !== ry) return rx - ry;
+    return String(x.name || "").localeCompare(String(y.name || ""), "ru");
+  });
+  return {
+    status: "success",
+    people: out,
+    pendingCount: out.filter(function (p) { return p.pending; }).length,
+    timezones: (live && live.timezones) || d1.timezones || [],
+    allTabs: AUTH_ALL_TABS.filter(function (t) { return AUTH_OWNER_ONLY_TABS.indexOf(t) < 0; }),
+    tabPresets: AUTH_ROLE_PRESETS,
+    sheetOk: !!(live && live.status === "success"),
+    mergedFromSheet: changed,
+    metaCanon: metaCanonLabel_(env),
+    cutover: true
+  };
+}
+
+/** Кастомный набор вкладок человека (поверх пресета роли). [] = сброс к пресету. */
+async function setAccessTabs_(params, env, ctx) {
+  const tid = String((params && params.targetId) || "").trim();
+  if (!tid) return { status: "error", message: "need_target", action: "setAccessTabs" };
+  const tabs = authParseTabs_(params.tabs);
+  let list = (await getSnapRaw_(env, "listAccess")) || { status: "success", people: [] };
+  const people = (list.people || []).slice();
+  let idx = -1;
+  for (let i = 0; i < people.length; i++) {
+    if (String(people[i].telegramId) === tid) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return { status: "error", message: "person_not_found", action: "setAccessTabs" };
+  people[idx] = Object.assign({}, people[idx], { customTabs: tabs });
+  list = Object.assign({}, list, { status: "success", people: people, _d1TouchedAt: Date.now() });
+  await putSnap_(env, "listAccess", list);
+  try {
+    const acc = await getSnapRaw_(env, "access:" + tid);
+    if (acc && typeof acc === "object") {
+      acc.customTabs = tabs;
+      await putSnap_(env, "access:" + tid, acc);
+    }
+  } catch (eAcc) {}
+  authInvalidateRole_(tid);
+  const gasP = gasProxy_(
+    "setAccessTabs",
+    { targetId: tid, tabs: tabs.join(","), actorId: params._actorTid || "", telegramId: params._actorTid || "", _actorTid: params._actorTid || "", initData: params.initData || "" },
+    env,
+    { write: true }
+  ).catch(function () {
+    return null;
+  });
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasP);
+  else {
+    try { await gasP; } catch (eW) {}
+  }
+  const role = authNormRole_(people[idx].role);
+  return {
+    status: "success",
+    targetId: tid,
+    role: role,
+    customTabs: tabs,
+    tabs: authEffectiveTabs_(role, tabs),
+    d1Verified: true,
+    action: "setAccessTabs"
+  };
+}
+
+/** Пароль экрана «Подписки» — только на сервере (secret SUBS_VIEW_PASSWORD). Owner — без пароля. */
+async function unlockSubs_(params, actor, env) {
+  if (actor && actor.isOwner) return { status: "success", unlocked: true, owner: true };
+  const expected = String((env && env.SUBS_VIEW_PASSWORD) || "").trim();
+  if (!expected) return { status: "error", message: "password_not_configured", unlocked: false };
+  const pw = String((params && (params.password || params.pin)) || "").trim();
+  if (!pw || !authSafeEq_(pw, expected)) return { status: "error", message: "bad_password", unlocked: false };
+  return { status: "success", unlocked: true };
+}
+
+async function handleActionInner_(action, params, env, url, ctx) {
   const a = String(action || "");
   const live = isCutoverLive_(params, env, url);
 
@@ -479,6 +1193,21 @@ async function handleAction_(action, params, env, url, ctx) {
   // ——— CUTOVER: чтение из D1 сразу + фон GAS; запись → GAS ———
   if (live) {
     return handleCutover_(a, params, env, ctx);
+  }
+  // Песочница в проде выключена (писала в боевой D1 без проверок). Включить: env ALLOW_SANDBOX=1.
+  if (!(env && env.ALLOW_SANDBOX === "1")) {
+    if (
+      isWriteAction_(a) ||
+      /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|placeTransferTask|notifyMissedDelivery)$/i.test(a)
+    ) {
+      return {
+        status: "error",
+        message: "sandbox_disabled",
+        tip: "Песочница выключена. Открой без ?sandbox=1 / ?cutover=0.",
+        action: a
+      };
+    }
+    return handleCutover_(a, Object.assign({}, params, { cutover: "1" }), env, ctx);
   }
   // sandbox: люди (save/move/delete) — пишем в D1 (иначе бейдж «C · D1» = мёртвые кнопки).
   // В Sheets не ходим; UI видит d1Verified. Для боевых листов нужен LIVE (cutover=1).
@@ -10072,6 +10801,7 @@ const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
 /** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Arseniy 650923866 — staff, не owner. */
+// roles-audit: реальные значения — env PARTNER_OWNER_TIDS / PARTNER_OWNER_USERNAMES (authApplyEnvConfig_)
 const PARTNER_CANON_OWNER_TIDS = ["827494606"];
 const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
 
@@ -10330,6 +11060,10 @@ function partnerHydrateIdentityFromInitData_(params) {
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
+  // roles-audit: списки из env PARTNER_OWNER_TIDS / PARTNER_OWNER_USERNAMES (дефолт = прежние значения).
+  // При AUTH_ENFORCE identity должна прийти из проверенной initData (_authVerified), иначе @username подделывается.
+  const verifiedOk = !(typeof _authEnforceFlag !== "undefined" && _authEnforceFlag) || String((params && params._authVerified) || "") === "1";
+  if (!verifiedOk) return false;
   if (tid && PARTNER_CANON_OWNER_TIDS.indexOf(tid) >= 0) return true;
   if (u && PARTNER_CANON_OWNER_USERS.indexOf(u) >= 0) return true;
   return false;
@@ -16850,6 +17584,15 @@ async function gasProxy_(action, params, env, opts) {
       }
       clean[k] = params[k];
     });
+    // roles-audit: GAS доверяет _actorTid только с общим секретом Worker↔GAS
+    delete clean._wk;
+    const _gasSecret = String((env && env.GAS_SHARED_SECRET) || "").trim();
+    if (_gasSecret) clean._wk = _gasSecret;
+    else {
+      delete clean._actorTid;
+      delete clean._actorRole;
+      delete clean._authVerified;
+    }
 
     let text = "";
     // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной save*).
@@ -18533,6 +19276,11 @@ function accessStatusFromRole_(role, fallback) {
 }
 
 async function mutateAccess_(action, params, env) {
+  authInvalidateRole_();
+  // roles-audit: setAccessRole/Timezone — только проверенный owner (gate + защита в глубину).
+  if (action !== "requestAccess" && !(await actorIsOwnerRetail_(params, env))) {
+    return { status: "error", message: "owner_only", action: action };
+  }
   let list = (await getSnapRaw_(env, "listAccess")) || { status: "success", people: [] };
   let people = (list.people || []).slice();
   // UI setAccessRole шлёт targetId (не telegramId). actorId — владелец, не цель.
@@ -18591,6 +19339,7 @@ async function mutateAccess_(action, params, env) {
           role: person.role || "",
           access: st === "pending" ? "pending" : st === "denied" ? "denied" : "active",
           timezone: person.timezone || "",
+          customTabs: authParseTabs_(person.customTabs),
           cachedAt: new Date().toISOString()
         });
       }
@@ -18956,25 +19705,16 @@ function retailLineCostD1_(map, name, sub, val, cat) {
 }
 
 async function actorIsOwnerRetail_(params, env) {
-  const tid = String((params && (params.telegramId || params.actorId)) || "").trim();
+  // roles-audit: только проверенный actor (_actorTid ставит AUTH gate); legacy — при AUTH_ENFORCE=0.
+  let tid = String((params && params._actorTid) || "").trim();
+  if (!tid && !authEnforced_(env)) tid = String((params && (params.telegramId || params.actorId)) || "").trim();
   if (!tid) return false;
   try {
-    const acc = await getSnapRaw_(env, "access:" + tid);
-    if (acc && /^(owner|all)$/i.test(String(acc.role || ""))) return true;
-  } catch (eA) {}
-  try {
-    const list = await getSnapRaw_(env, "listAccess");
-    const people = (list && list.people) || [];
-    for (let i = 0; i < people.length; i++) {
-      if (
-        String(people[i].telegramId) === tid &&
-        /^(owner|all)$/i.test(String(people[i].role || ""))
-      ) {
-        return true;
-      }
-    }
-  } catch (eL) {}
-  return false;
+    const r = await authLookupRole_(tid, env);
+    return r.role === "owner";
+  } catch (eR) {
+    return false;
+  }
 }
 
 async function ensureRetailPricesSnap_(env, ctx) {
@@ -20972,17 +21712,8 @@ function retailGoodsBynFromBasketD1_(map, basket) {
 }
 
 async function unlockPpCostBreakdownD1_(params, env) {
-  const tid = String((params && (params.telegramId || params.tid)) || "").trim();
-  let role = "";
-  if (tid && env && env.DB) {
-    try {
-      const snap = await getSnapRaw_(env, "access:" + tid);
-      role = String((snap && snap.role) || "").toLowerCase();
-    } catch (eR) {
-      role = "";
-    }
-  }
-  if (role !== "owner" && role !== "all") {
+  const ownerOk = await actorIsOwnerRetail_(params, env);
+  if (!ownerOk) {
     return { status: "error", message: "forbidden", unlocked: false };
   }
   const expected = String((env && env.PP_COST_BREAKDOWN_PIN) || "").trim();
@@ -22004,22 +22735,13 @@ async function partnerSuggestPartnerWorker_(params, env) {
 async function partnerSuggestCanManageWorker_(params, env) {
   var tid = String((params && params.telegramId) || "").trim();
   if (!tid) return false;
+  // roles-audit: только проверенная identity; право = owner или вкладка «Партнёры» (пресет/кастом)
+  if (typeof _authEnforceFlag !== "undefined" && _authEnforceFlag && String((params && params._authVerified) || "") !== "1") return false;
   try {
-    if (await actorIsOwnerRetail_(params, env)) return true;
-  } catch (eO) {}
-  try {
-    var acc = await getSnapRaw_(env, "access:" + tid);
-    if (acc && /^(owner|all|manager)$/i.test(String(acc.role || ""))) return true;
-  } catch (eA) {}
-  try {
-    var list = await getSnapRaw_(env, "listAccess");
-    var people = (list && list.people) || [];
-    for (var i = 0; i < people.length; i++) {
-      if (String(people[i].telegramId) === tid && /^(owner|all|manager)$/i.test(String(people[i].role || ""))) {
-        return true;
-      }
-    }
-  } catch (eL) {}
+    var r = await authLookupRole_(tid, env);
+    if (r.role === "owner") return true;
+    if (!/^(none|pending|denied)$/.test(r.role) && r.tabs.indexOf("partnerHubScreen") >= 0) return true;
+  } catch (eR) {}
   return false;
 }
 

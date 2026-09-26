@@ -13,6 +13,12 @@ const dataDir = path.join(__dirname, "..", "data");
 const out = path.join(__dirname, "..", "seed-inline.js");
 const full = process.argv.includes("--full");
 
+// roles-audit: seed-inline.js публикуется на GitHub Pages — клиентские данные туда не пишем.
+if (process.env.ALLOW_SEED_INLINE !== "1") {
+  console.warn("[build-seed-inline] пропущено: seed-inline.js публичный (GitHub Pages). Для локальной отладки: ALLOW_SEED_INLINE=1 и НЕ коммитить.");
+  process.exit(0);
+}
+
 const DAY_FILE = {
   Понедельник: "mon",
   Вторник: "tue",

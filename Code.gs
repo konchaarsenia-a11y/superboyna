@@ -350,7 +350,7 @@ function handleInspectManagerFormulas(json, callback, fromPost) {
 
 function handleSetupWeekendFormulas(json, callback, fromPost) {
   var tid = String((json && json.telegramId) || "").trim();
-  if (tid && !actorIsOwner_(tid)) {
+  if (!gasActorOwnerOk_(tid)) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
@@ -1747,6 +1747,10 @@ function doGet(e) {
   }
 
   var action = e.parameter.action;
+  // roles-audit: AUTH gate (initData / Worker secret) до любого handler
+  var _authGate = gasAuthGate_(action, e.parameter);
+  GAS_AUTH_GATED_ = true;
+  if (_authGate) return jsonp(callback, _authGate);
   var payload = {
     action: action,
     day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
@@ -2782,9 +2786,15 @@ function doGet(e) {
   return jsonp(callback, { status: "unknown_action" });
 }
 
+var GAS_AUTH_GATED_ = false;
 function handleApiAction(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var action = json.action;
+  if (!GAS_AUTH_GATED_) {
+    var _authGateP = gasAuthGate_(action, json);
+    GAS_AUTH_GATED_ = true;
+    if (_authGateP) return fromPost ? jsonpText(callback, _authGateP) : jsonp(callback, _authGateP);
+  }
 
   if (action === "deleteClient") {
     return handleDeleteClient(ss, json, callback, fromPost);
@@ -3018,6 +3028,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone(json, callback, fromPost);
+  }
+  if (action === "setAccessTabs") {
+    return handleSetAccessTabs(json, callback, fromPost);
   }
   if (action === "getWarehouse") {
     return handleGetWarehouse(json, callback, fromPost);
@@ -7676,7 +7689,7 @@ function notifyOwnersAccessRequest_(telegramId, name, username) {
   var text = "Запрос доступа в Бойню\nID: " + telegramId +
     "\nИмя: " + (name || "") +
     "\n@" + (username || "") +
-    "\nНазначьте роль во вкладке Люди.";
+    "\nНазначьте роль: Бойня → Заказы (удерживать вкладку) → Доступы → блок «Заявки».";
   try {
     var owners = getOwnerTelegramIds_();
     for (var i = 0; i < owners.length; i++) {
@@ -11812,7 +11825,7 @@ function handleRestoreWeekFromBookings(ss, json, callback, fromPost) {
   json = json || {};
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   var tid = String(json.telegramId || "").trim();
-  if (tid && !actorIsOwner_(tid)) {
+  if (!gasActorOwnerOk_(tid)) {
     return reply({ status: "error", message: "owner_only", action: "restoreWeekFromBookings" });
   }
   if (String(json.confirm || "") !== "1" && String(json.confirm || "").toLowerCase() !== "true") {
@@ -11949,7 +11962,7 @@ function handleRepairCatalogAliases(ss, json, callback, fromPost) {
   json = json || {};
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   var tid = String(json.telegramId || "").trim();
-  if (tid && !actorIsOwner_(tid)) {
+  if (!gasActorOwnerOk_(tid)) {
     return reply({ status: "error", message: "owner_only", action: "repairCatalogAliases" });
   }
   var dry = json.dry === true || json.dry === "1" || json.dry === 1 || json.dry === "true";
@@ -14714,7 +14727,7 @@ function fillSubscriptionBasketForDate_(ss, crmSs, client, segment, deliveryDate
 
 /* ========== v7.6: Доступы / Склад / Подписки / Цена / Сборка ========== */
 
-var ACCESS_HEADERS_ = ["telegramId", "name", "username", "role", "status", "requestedAt", "note", "timezone"];
+var ACCESS_HEADERS_ = ["telegramId", "name", "username", "role", "status", "requestedAt", "note", "timezone", "tabs"];
 var ACCESS_DEFAULT_TZ_ = "Europe/Minsk";
 var ACCESS_TZ_OPTIONS_ = [
   "Europe/Minsk",
@@ -14746,10 +14759,17 @@ function getAccessSheet_() {
 
 function ensureAccessSheetSchema_(sh) {
   if (!sh) return;
-  var lastCol = Math.max(8, sh.getLastColumn() || 1);
+  try {
+    if (sh.getMaxColumns() < 9) sh.insertColumnsAfter(sh.getMaxColumns(), 9 - sh.getMaxColumns());
+  } catch (eMc) {}
+  var lastCol = Math.max(9, sh.getLastColumn() || 1);
   var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
   if (String(headers[7] || "").toLowerCase().indexOf("time") < 0) {
     sh.getRange(1, 8).setValue("timezone");
+  }
+  // roles-audit: кастомный набор вкладок человека (через запятую), пусто = пресет роли
+  if (String(headers[8] || "").toLowerCase() !== "tabs") {
+    sh.getRange(1, 9).setValue("tabs");
   }
 }
 
@@ -14840,6 +14860,204 @@ function validateInitDataSoft_(initData) {
   }
 }
 
+/* ===================== AUTH (roles-audit 2026-09-26) =====================
+ * GAS доверяет: (1) Worker — Script Property WORKER_SHARED_SECRET == параметр _wk → _actorTid (Worker проверил initData);
+ * (2) initData, проверенную здесь же (TELEGRAM_BOT_TOKEN, HMAC + auth_date ≤ 7 дней).
+ * Owner-only actions без проверенного actor → auth_required / owner_only.
+ * Аварийный откат: Script Property AUTH_ENFORCE=0. Жёстко «только Worker»: GAS_REQUIRE_WORKER=1.
+ */
+var GAS_AUTH_ = null;
+var GAS_OWNER_ACTIONS_RE_ = /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|listAccess|setAccessRole|setAccessTimezone|setAccessTabs|saveRetailPrices|finishFullWeek|finishFullWeekProduction|repairWeekMonday|closeAllOpenDeficits|restoreWeekFromBookings|repairCatalogAliases|setupWeekendFormulas|unlockPpCostBreakdown|savePartner|deletePartner|undeleteWeekFromSheet|partnerWipeOrderHistories)$/;
+var GAS_PUBLIC_RE_ = /^(getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|partner[A-Za-z0-9_]*|gb[A-Za-z0-9_]*)$/;
+var GAS_ROLE_PRESETS_ = {
+  manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
+  cutter: ["cuttingScreen"],
+  courier: ["courierScreen"],
+  logistics: ["warehouseScreen"],
+  all: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "partnerHubScreen"]
+};
+var GAS_ALL_TABS_ = ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "partnerHubScreen", "statsScreen", "retailPriceScreen", "peopleScreen"];
+
+function gasSafeEq_(a, b) {
+  a = String(a || "");
+  b = String(b || "");
+  if (!a || a.length !== b.length) return false;
+  var r = 0;
+  for (var i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+function gasAuthEnforced_() {
+  var v = "";
+  try { v = String(PropertiesService.getScriptProperties().getProperty("AUTH_ENFORCE") || "").trim().toLowerCase(); } catch (e) {}
+  return !(v === "0" || v === "off" || v === "false" || v === "legacy");
+}
+
+/** Строгая проверка initData: подпись + свежесть. soft (нет токена) = НЕ проверено. */
+/**
+ * Правильная проверка по спецификации Telegram (Byte[]-перегрузка HMAC):
+ * secret = HMAC_SHA256(key="WebAppData", msg=bot_token); hash = hex(HMAC_SHA256(key=secret, msg=data_check_string)).
+ * Токены: TELEGRAM_BOT_TOKEN, BOINYA_BOT_TOKEN, PARTNER_BOT_TOKEN (Script Properties).
+ * validateInitDataSoft_ не трогаем (старые вызовы).
+ */
+function gasInitDataHmacOk_(initData) {
+  var raw = String(initData || "");
+  if (!raw) return { ok: false, reason: "no_init_data", user: null };
+  var props = PropertiesService.getScriptProperties();
+  var tokens = [];
+  ["TELEGRAM_BOT_TOKEN", "BOINYA_BOT_TOKEN", "PARTNER_BOT_TOKEN"].forEach(function (k) {
+    var t = String(props.getProperty(k) || "").trim();
+    if (t && tokens.indexOf(t) < 0) tokens.push(t);
+  });
+  if (!tokens.length) return { ok: false, reason: "no_bot_token", user: parseInitDataUser_(raw) };
+  var params = {};
+  raw.split("&").forEach(function (pair) {
+    var i = pair.indexOf("=");
+    if (i < 0) return;
+    params[decodeURIComponent(pair.substring(0, i))] = decodeURIComponent(pair.substring(i + 1).replace(/\+/g, " "));
+  });
+  var hash = String(params.hash || "").toLowerCase();
+  delete params.hash;
+  if (!hash) return { ok: false, reason: "no_hash", user: null };
+  var dataCheck = Object.keys(params).sort().map(function (k) { return k + "=" + params[k]; }).join("\n");
+  var toBytes = function (str) { return Utilities.newBlob(str).getBytes(); };
+  var hex = function (arr) {
+    return arr.map(function (b) {
+      var v = (b < 0 ? b + 256 : b).toString(16);
+      return v.length === 1 ? "0" + v : v;
+    }).join("");
+  };
+  for (var t = 0; t < tokens.length; t++) {
+    var secretKey = Utilities.computeHmacSha256Signature(toBytes(tokens[t]), toBytes("WebAppData"));
+    var calc = hex(Utilities.computeHmacSha256Signature(toBytes(dataCheck), secretKey));
+    if (gasSafeEq_(calc, hash)) return { ok: true, user: parseInitDataUser_(raw) };
+  }
+  return { ok: false, reason: "bad_hash", user: parseInitDataUser_(raw) };
+}
+
+function validateInitDataStrict_(initData) {
+  var v;
+  try {
+    v = gasInitDataHmacOk_(initData);
+  } catch (eH) {
+    v = { ok: false, reason: "hmac_error", user: null };
+  }
+  if (!v || !v.ok) return { ok: false, user: v ? v.user : null, reason: (v && v.reason) || "bad_hash" };
+  var m = String(initData || "").match(/(?:^|&)auth_date=(\d+)/);
+  var authDate = m ? Number(m[1]) : 0;
+  var maxAge = 604800;
+  try {
+    var pm = Number(PropertiesService.getScriptProperties().getProperty("TG_INITDATA_MAX_AGE_SEC") || 0);
+    if (pm > 0) maxAge = pm;
+  } catch (eP) {}
+  if (!authDate || Math.floor(Date.now() / 1000) - authDate > maxAge) return { ok: false, user: v.user, reason: "expired" };
+  if (!v.user || !v.user.id) return { ok: false, user: null, reason: "no_user" };
+  return { ok: true, user: v.user };
+}
+
+function gasResolveAuth_(p) {
+  p = p || {};
+  var secret = "";
+  try { secret = String(PropertiesService.getScriptProperties().getProperty("WORKER_SHARED_SECRET") || "").trim(); } catch (e0) {}
+  var viaWorker = !!(secret && p._wk && gasSafeEq_(String(p._wk), secret));
+  var out = { viaWorker: viaWorker, tid: "", verified: false, username: "", system: false, initOk: false };
+  if (viaWorker && p._actorTid) {
+    out.tid = String(p._actorTid).trim();
+    out.verified = true;
+    if (String(p._authVerified || "") === "1") out.username = String(p.username || "").replace(/^@/, "").toLowerCase();
+  }
+  if (!out.tid && p.initData) {
+    var v = validateInitDataStrict_(String(p.initData));
+    out.initOk = !!v.ok;
+    if (v.ok) {
+      out.tid = String(v.user.id);
+      out.verified = true;
+      out.username = String(v.user.username || "").toLowerCase();
+    }
+  }
+  out.system = viaWorker && !out.tid;
+  return out;
+}
+
+/** null = пропустить; иначе объект ошибки. Мутирует p.telegramId/actorId для owner-actions (проверенный actor). */
+function gasAuthGate_(action, p) {
+  GAS_AUTH_ = gasResolveAuth_(p || {});
+  if (!gasAuthEnforced_()) return null;
+  action = String(action || "");
+  if (GAS_OWNER_ACTIONS_RE_.test(action)) {
+    if (GAS_AUTH_.system) return null; // фон Worker (SWR) — Worker уже проверил
+    if (!GAS_AUTH_.verified) return { status: "error", message: "auth_required", action: action };
+    // через Worker: Worker проверил роль/вкладку (stats/прайс можно выдать вручную). Напрямую — только owner.
+    if (!GAS_AUTH_.viaWorker && !actorIsOwner_(GAS_AUTH_.tid)) {
+      return { status: "error", message: "owner_only", action: action };
+    }
+    if (/^setAccess/.test(action) && !p.targetId && p.telegramId && String(p.telegramId) !== GAS_AUTH_.tid) {
+      p.targetId = String(p.telegramId);
+    }
+    p.telegramId = GAS_AUTH_.tid;
+    p.actorId = GAS_AUTH_.tid;
+    return null;
+  }
+  var requireWorker = "";
+  try { requireWorker = String(PropertiesService.getScriptProperties().getProperty("GAS_REQUIRE_WORKER") || ""); } catch (eR) {}
+  if (requireWorker === "1" && !GAS_AUTH_.viaWorker && !GAS_AUTH_.verified && !GAS_PUBLIC_RE_.test(action)) {
+    return { status: "error", message: "worker_only", action: action };
+  }
+  return null;
+}
+
+/** Владелец по проверенному actor этого запроса (или legacy при AUTH_ENFORCE=0). */
+function gasActorOwnerOk_(legacyTid) {
+  if (!gasAuthEnforced_()) return actorIsOwner_(legacyTid);
+  if (GAS_AUTH_ && GAS_AUTH_.system) return true;
+  return !!(GAS_AUTH_ && GAS_AUTH_.verified && actorIsOwner_(GAS_AUTH_.tid));
+}
+
+function parseAccessTabs_(raw) {
+  var s = String(raw == null ? "" : raw).trim();
+  if (!s) return [];
+  var arr = s.charAt(0) === "[" ? (function () { try { return JSON.parse(s); } catch (e) { return []; } })() : s.split(/[,;\s]+/);
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var t = String(arr[i] || "").trim();
+    if (t && t !== "peopleScreen" && GAS_ALL_TABS_.indexOf(t) >= 0 && out.indexOf(t) < 0) out.push(t);
+  }
+  return out;
+}
+
+/** Эффективные вкладки (единая семантика с Worker/UI): owner — все; кастом поверх пресета; неизвестная роль — []. */
+function effectiveTabsFor_(role, customTabs) {
+  var r = String(role || "").toLowerCase();
+  if (r === "owner") return GAS_ALL_TABS_.slice();
+  if (!GAS_ROLE_PRESETS_[r]) return [];
+  var c = parseAccessTabs_(Array.isArray(customTabs) ? customTabs.join(",") : customTabs);
+  return (c.length ? c : GAS_ROLE_PRESETS_[r]).slice();
+}
+
+function handleSetAccessTabs(json, callback, fromPost) {
+  if (!gasActorOwnerOk_(json.actorId || json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var target = String(json.targetId || "").trim();
+  var row = target ? findAccessById_(target) : null;
+  if (!row) {
+    var nf = { status: "error", message: "person_not_found" };
+    return fromPost ? jsonpText(callback, nf) : jsonp(callback, nf);
+  }
+  var tabs = parseAccessTabs_(json.tabs);
+  var sh = getAccessSheet_();
+  ensureAccessSheetSchema_(sh);
+  sh.getRange(row.rowIndex, 9).setValue(tabs.join(","));
+  try {
+    CacheService.getScriptCache().remove("acc_row_" + target);
+    CacheService.getScriptCache().remove("myacc:" + target);
+  } catch (eC) {}
+  var ok = { status: "success", targetId: target, customTabs: tabs, tabs: effectiveTabsFor_(row.role, tabs) };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+/* =================== /AUTH =================== */
+
 function parseInitDataUser_(initData) {
   try {
     var m = String(initData || "").match(/(?:^|&)user=([^&]+)/);
@@ -14865,7 +15083,8 @@ function readAccessRows_() {
       status: String(data[i][4] || "pending").toLowerCase(),
       requestedAt: data[i][5],
       note: String(data[i][6] || ""),
-      timezone: normalizePersonTimezone_(data[i][7] || "")
+      timezone: normalizePersonTimezone_(data[i][7] || ""),
+      customTabs: parseAccessTabs_(data[i][8])
     });
   }
   return out;
@@ -14899,7 +15118,7 @@ function findAccessById_(telegramId) {
     try { CacheService.getScriptCache().put("acc_row_" + id, "__none__", 90); } catch (eN1) {}
     return null;
   }
-  var data = sh.getRange(rowIndex, 1, 1, 8).getValues()[0];
+  var data = sh.getRange(rowIndex, 1, 1, Math.min(9, sh.getMaxColumns())).getValues()[0];
   var row = {
     rowIndex: rowIndex,
     telegramId: String(data[0] || "").trim(),
@@ -14909,27 +15128,24 @@ function findAccessById_(telegramId) {
     status: String(data[4] || "pending").toLowerCase(),
     requestedAt: data[5],
     note: String(data[6] || ""),
-    timezone: normalizePersonTimezone_(data[7] || "")
+    timezone: normalizePersonTimezone_(data[7] || ""),
+    customTabs: parseAccessTabs_(data[8])
   };
   try { CacheService.getScriptCache().put("acc_row_" + id, JSON.stringify(row), 180); } catch (eP) {}
   return row;
 }
 
-function roleTabsFor_(role) {
-  var r = String(role || "").toLowerCase();
-  if (r === "owner") return ["orderScreen", "clientsScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "subsScreen", "priceScreen", "deferredScreen", "peopleScreen"];
-  if (r === "manager") return ["orderScreen", "clientsScreen", "subsScreen", "priceScreen", "deferredScreen"];
-  if (r === "cutter") return ["cuttingScreen"];
-  if (r === "courier") return ["courierScreen"];
-  if (r === "logistics") return ["warehouseScreen"];
-  if (r === "all") return ["orderScreen", "clientsScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "subsScreen", "priceScreen", "deferredScreen"];
-  return [];
+function roleTabsFor_(role, customTabs) {
+  // roles-audit: единая семантика с Worker/UI (all = рабочие вкладки без денег/прайса/доступов)
+  return effectiveTabsFor_(role, customTabs || []);
 }
 
 function handleGetMyAccess(json, callback, fromPost) {
   var init = validateInitDataSoft_(json.initData || "");
   var user = init.user || {};
   var telegramId = String(json.telegramId || user.id || "").trim();
+  // roles-audit: проверенный actor (Worker secret / initData) важнее параметра
+  if (GAS_AUTH_ && GAS_AUTH_.verified && GAS_AUTH_.tid) telegramId = GAS_AUTH_.tid;
   var name = String(json.name || user.first_name || "").trim();
   var username = String(json.username || user.username || "").trim();
 
@@ -14972,12 +15188,12 @@ function handleGetMyAccess(json, callback, fromPost) {
   if (!row) {
     var owners = getOwnerTelegramIds_();
     if (!owners.length) {
-      // первый запуск без OWNER_TELEGRAM_IDS — не блокируем команду
+      // roles-audit: без OWNER_TELEGRAM_IDS больше НЕ даём role=all всем подряд
       var openAll = {
         status: "success",
-        role: "all",
-        access: "active",
-        tabs: roleTabsFor_("all"),
+        role: "none",
+        access: "none",
+        tabs: [],
         telegramId: telegramId,
         name: name,
         initOk: init.ok,
@@ -15013,7 +15229,8 @@ function handleGetMyAccess(json, callback, fromPost) {
     status: "success",
     role: role,
     access: access || "active",
-    tabs: roleTabsFor_(role),
+    tabs: roleTabsFor_(role, row.customTabs),
+    customTabs: row.customTabs || [],
     telegramId: telegramId,
     name: row.name || name,
     initOk: init.ok
@@ -15072,6 +15289,12 @@ function upsertAccessRow_(telegramId, name, username, role, status, timezone) {
 
 function handleRequestAccess(json, callback, fromPost) {
   var telegramId = String(json.telegramId || "").trim();
+  // roles-audit: заявку можно подать только от своего проверенного Telegram id
+  if (GAS_AUTH_ && GAS_AUTH_.verified && GAS_AUTH_.tid) telegramId = GAS_AUTH_.tid;
+  else if (gasAuthEnforced_()) {
+    var needAuth = { status: "error", message: "auth_required" };
+    return fromPost ? jsonpText(callback, needAuth) : jsonp(callback, needAuth);
+  }
   if (!telegramId) {
     var bad = { status: "error", message: "need_telegram_id" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
@@ -15096,12 +15319,10 @@ function handleRequestAccess(json, callback, fromPost) {
 
 function handleListAccess(json, callback, fromPost) {
   var actor = String(json.telegramId || "").trim();
-  if (!isOwnerId_(actor) && (!findAccessById_(actor) || findAccessById_(actor).role !== "owner")) {
-    // soft: всё равно отдаём список если actor пустой (тесты), иначе только owner
-    if (actor && !isOwnerId_(actor)) {
-      var forbid = { status: "error", message: "owner_only" };
-      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
-    }
+  // roles-audit: пустой actor больше не пропускает (было «soft: тесты»)
+  if (!gasActorOwnerOk_(actor)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
   var rows = readAccessRows_().map(function (r) {
     return {
@@ -15111,7 +15332,9 @@ function handleListAccess(json, callback, fromPost) {
       role: r.role,
       status: r.status,
       note: r.note,
-      timezone: r.timezone || ACCESS_DEFAULT_TZ_
+      timezone: r.timezone || ACCESS_DEFAULT_TZ_,
+      requestedAt: r.requestedAt ? String(r.requestedAt) : "",
+      customTabs: r.customTabs || []
     };
   });
   var ok = { status: "success", people: rows, owners: getOwnerTelegramIds_(), timezones: ACCESS_TZ_OPTIONS_ };
@@ -15165,12 +15388,10 @@ function handleListReminderPeople_(json, callback, fromPost) {
 
 function handleSetAccessRole(json, callback, fromPost) {
   var actor = String(json.actorId || json.telegramIdOwner || "").trim();
-  if (actor && !isOwnerId_(actor)) {
-    var rowA = findAccessById_(actor);
-    if (!rowA || rowA.role !== "owner") {
-      var forbid = { status: "error", message: "owner_only" };
-      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
-    }
+  // roles-audit: actor обязателен и проверен (раньше пустой actorId пропускал → любой мог стать owner)
+  if (!gasActorOwnerOk_(actor)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
   var target = String(json.targetId || json.telegramId || "").trim();
   var role = String(json.role || "").toLowerCase().trim();
@@ -15195,9 +15416,8 @@ function handleSetAccessRole(json, callback, fromPost) {
 
 function handleSetAccessTimezone(json, callback, fromPost) {
   var actor = String(json.actorId || json.telegramIdOwner || json.telegramId || "").trim();
-  if (actor && !isOwnerId_(actor)) {
-    var rowA = findAccessById_(actor);
-    if (!rowA || rowA.role !== "owner") {
+  if (!gasActorOwnerOk_(actor)) {
+    {
       var forbid = { status: "error", message: "owner_only" };
       return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
     }
@@ -21468,6 +21688,8 @@ function partnerParsePointIds_(raw) {
 function partnerRequireOwner_(actorId) {
   var actor = String(actorId || "").trim();
   if (!actor) return false;
+  // roles-audit: при AUTH_ENFORCE actor должен совпасть с проверенным (Worker secret / initData)
+  if (gasAuthEnforced_() && !(GAS_AUTH_ && GAS_AUTH_.verified && GAS_AUTH_.tid === actor)) return false;
   if (isOwnerId_(actor)) return true;
   var row = findAccessById_(actor);
   return !!(row && String(row.role || "").toLowerCase() === "owner" &&
@@ -21478,7 +21700,34 @@ function partnerRequireOwner_(actorId) {
 var PARTNER_CANON_OWNER_TIDS_ = ["827494606"];
 var PARTNER_CANON_OWNER_USERS_ = ["one_more_person_228"];
 
+function partnerCanonOwnerCfg_() {
+  var props = PropertiesService.getScriptProperties();
+  var t = String(props.getProperty("PARTNER_OWNER_TIDS") || "").trim();
+  var u = String(props.getProperty("PARTNER_OWNER_USERNAMES") || "").trim();
+  return {
+    tids: t ? t.split(/[,;\s]+/).filter(Boolean) : PARTNER_CANON_OWNER_TIDS_.slice(),
+    users: u ? u.split(/[,;\s]+/).map(function (x) { return partnerNormUser_(x); }).filter(Boolean) : PARTNER_CANON_OWNER_USERS_.slice()
+  };
+}
+
 function partnerIsCanonOwner_(username, tid) {
+  var u = partnerNormUser_(username);
+  var id = String(tid || "").trim();
+  // roles-audit: списки из Script Properties PARTNER_OWNER_TIDS / PARTNER_OWNER_USERNAMES (дефолт = прежние значения);
+  // при AUTH_ENFORCE identity должна совпасть с проверенной (Worker / initData), иначе @username подделывается.
+  if (gasAuthEnforced_() && !(GAS_AUTH_ && GAS_AUTH_.system)) {
+    var va = GAS_AUTH_ || {};
+    if (!va.verified) return false;
+    if (id && id !== va.tid) id = "";
+    if (u && u !== partnerNormUser_(va.username)) u = "";
+  }
+  var cfgO = partnerCanonOwnerCfg_();
+  if (id && cfgO.tids.indexOf(id) >= 0) return true;
+  if (u && cfgO.users.indexOf(u) >= 0) return true;
+  return false;
+}
+
+function partnerIsCanonOwnerLegacy_(username, tid) {
   var u = partnerNormUser_(username);
   var id = String(tid || "").trim();
   if (id) {
@@ -23934,7 +24183,7 @@ function listPartnerNotifyCandidates_() {
 
 function handlePartnerListAdmin(json, callback, fromPost) {
   var actor = String((json && json.telegramId) || "").trim();
-  if (actor && !partnerRequireOwner_(actor)) {
+  if (!(GAS_AUTH_ && GAS_AUTH_.system) && !partnerRequireOwner_(actor)) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
@@ -27860,7 +28109,20 @@ function runBpSurveyReminders_(opts) {
 
 function actorCanEditTemplates_(telegramId) {
   var tid = String(telegramId || "").trim();
-  if (!tid || tid === "undefined" || tid === "null") return true; // soft: тесты / без actor
+  // roles-audit: при AUTH_ENFORCE — только проверенный actor; Worker-фон (system) пропускаем
+  if (gasAuthEnforced_()) {
+    if (GAS_AUTH_ && GAS_AUTH_.system) return true;
+    if (!(GAS_AUTH_ && GAS_AUTH_.verified)) return false;
+    tid = GAS_AUTH_.tid;
+    if (actorIsOwner_(tid)) return true;
+    var rowV = findAccessById_(tid);
+    if (!rowV) return false;
+    var stV = String(rowV.status || "").toLowerCase();
+    if (stV === "denied" || stV === "pending") return false;
+    var tabsV = effectiveTabsFor_(rowV.role, rowV.customTabs);
+    return tabsV.indexOf("templatesScreen") >= 0 || tabsV.indexOf("orderScreen") >= 0;
+  }
+  if (!tid || tid === "undefined" || tid === "null") return true; // legacy soft
   if (actorIsOwner_(tid) || isOwnerId_(tid)) return true;
   var row = findAccessById_(tid);
   // нет строки в «Доступы» — не блочим: экран Шаблоны и так только у manager/owner во фронте
