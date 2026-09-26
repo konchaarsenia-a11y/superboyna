@@ -2557,13 +2557,16 @@ function doGet(e) {
   if (action === "getTransferTask") {
     return handleDeferredAction_("getTransferTask", {
       telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
-      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : ""
+      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : ""
     }, callback, false);
   }
   if (action === "placeTransferTask") {
     return handleDeferredAction_("placeTransferTask", {
       telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
       id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : "",
       newDate: e.parameter.newDate ? decodeURIComponent(e.parameter.newDate) : "",
       newDay: e.parameter.newDay ? decodeURIComponent(e.parameter.newDay) : "",
       cutRaw: e.parameter.cutRaw || "1"
@@ -3225,15 +3228,22 @@ function handleGetCutting(dayName, callback) {
   var totals = recalculateCuttingForDate_(ss, dateText);
   var names = cutting.getRange("A3:A48").getValues();
   var plans = cutting.getRange("D3:D48").getValues();
-  // Активная дата на листе → live E/F/G + сразу снимок в Память_Нарезки (flush внутри save),
-  // чтобы смена дня не восстановила устаревший false и не сбросила «выложено».
-  // Другой день → только память. Без OR live||mem — иначе нельзя снять галочку.
+  // Активная дата: live E/F/G только если память этого дня уже есть (клик сохранён).
+  // Пустая память — не читать и не писать хвост TRUE с листа. Другой день — только память.
+  // Без OR live||mem — иначе нельзя снять галочку. На чтении память не пишем.
   var activeState = null;
   var savedState = null;
   if (isActiveDate) {
     try { SpreadsheetApp.flush(); } catch (eFl0) {}
-    activeState = cutting.getRange("C3:G48").getValues();
-    try { saveCuttingState_(cutting, memory, dateText, tz); } catch (eSave) {}
+    savedState = getMemoryJson_(memory, dateText, tz);
+    // Чтение не пишет память. Пустая память + живые TRUE — хвост прошлого A1
+    // (setValue без onEdit). Иначе галочки «сами» встают на новый день.
+    if (savedState == null) {
+      activeState = null;
+      try { cutting.getRange("E3:G60").setValue(false); } catch (eClrFlags) {}
+    } else {
+      activeState = cutting.getRange("C3:G48").getValues();
+    }
   } else {
     savedState = getMemoryJson_(memory, dateText, tz);
   }
@@ -28848,6 +28858,30 @@ function handleGetTransferTask_(json, callback, fromPost) {
       at: data[r][1]
     };
     break;
+  }
+  if (!item) {
+    var wantClientGet = String(json.client || json.nick || "").trim();
+    if (wantClientGet) {
+      for (var rG = 1; rG < data.length; rG++) {
+        if (String(data[rG][3] || "").toLowerCase() !== "transfer") continue;
+        if (String(data[rG][6] || "open").toLowerCase() !== "open") continue;
+        var nickG = String(data[rG][5] || "").trim();
+        var pG = {};
+        try { pG = JSON.parse(String(data[rG][7] || "{}")); } catch (ePG) { pG = {}; }
+        var payloadClientG = String((pG && (pG.client || pG.clientNick)) || "").trim();
+        if (!nicksMatch_(nickG, wantClientGet) && !nicksMatch_(payloadClientG, wantClientGet)) continue;
+        item = {
+          id: String(data[rG][0] || "").trim(),
+          mode: "transfer",
+          title: String(data[rG][4] || ""),
+          clientNick: nickG || payloadClientG,
+          status: "open",
+          payload: pG,
+          at: data[rG][1]
+        };
+        break;
+      }
+    }
   }
   if (!item) {
     var miss2 = { status: "error", message: "not_found" };

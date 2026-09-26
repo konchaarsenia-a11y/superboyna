@@ -9954,6 +9954,8 @@
         tickCuttingTimer();
         return;
       }
+      var prevCutDay = String((cuttingItemsCache && cuttingItemsCache._day) || "");
+      var prevCutDate = String((cuttingItemsCache && cuttingItemsCache._date) || "");
       var prevItems = (cuttingItemsCache || []).slice();
 
       var cacheDayOk = String(cuttingItemsCache && cuttingItemsCache._day || "") === String(day);
@@ -10085,16 +10087,18 @@
 
         var flagScoreNew = cuttingFlagScore(items);
         var flagScoreOld = cuttingFlagScore(prevItems);
+        var resDateCut = String((res && res.date) || "");
+        var sameCutSession = prevCutDay === String(day) && !!prevCutDate && !!resDateCut && prevCutDate === resDateCut;
         var guardFlags = Object.keys(cuttingLocalFlags || {}).length > 0 ||
           cuttingSession.pendingWrites > 0 ||
           Date.now() < (cuttingSession.quietUntil || 0) ||
           flagScoreNew < flagScoreOld;
-        if (guardFlags && flagScoreNew < flagScoreOld) {
+        if (sameCutSession && guardFlags && flagScoreNew < flagScoreOld) {
           mergeCuttingFlagsPreferLocal_(items, prevItems);
         }
         const fp = cuttingFingerprint(items, res.session);
         applyRemoteCuttingSession(res.session || { active: false, day: day, startedAt: 0 });
-        if (fromPoll && cuttingFlagScore(items) < flagScoreOld) {
+        if (fromPoll && sameCutSession && cuttingFlagScore(items) < flagScoreOld) {
           tickCuttingTimer();
           return;
         }
@@ -10123,9 +10127,9 @@
 
           if (opts.keepCompletion && cuttingCompletionCache && cacheDayOk) {
             renderFinishedCuttingDay(cuttingCompletionCache);
-          } else if (prevItems.length) {
+          } else if (prevItems.length && prevCutDay === String(day)) {
             cuttingItemsCache = prevItems;
-            try { cuttingItemsCache._day = day; } catch (eDay) {}
+            try { cuttingItemsCache._day = day; cuttingItemsCache._date = prevCutDate; } catch (eDay) {}
             sortCuttingItems();
             renderCuttingSummary();
             paintCuttingList_(box, cuttingItemsCache.map(renderCutRowHtml).join(""));
@@ -11652,9 +11656,10 @@
     }
     window.notifyMissedDelivery_ = notifyMissedDelivery_;
 
-    async function openTransferTask_(id) {
+    async function openTransferTask_(id, clientHint) {
       id = String(id || "").trim();
-      if (!id) return;
+      clientHint = String(clientHint || "").trim();
+      if (!id && !clientHint) return;
       var tid = "";
       try { tid = String(await ensureTelegramId() || "").trim(); } catch (eT) { tid = String(myTelegramId || ""); }
       try { closeTasksDrawer(); } catch (eC) {}
@@ -11665,6 +11670,7 @@
           action: "getTransferTask",
           telegramId: tid,
           id: id,
+          client: clientHint,
           _: String(Date.now())
         }, { timeoutMs: 20000, cacheTtlMs: 0 });
       } catch (e) {
@@ -25794,7 +25800,7 @@
             escapeHtml(p.createdByName) + "</div>") : "") +
           "</div>" +
           '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
-          '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="openTransferTask_(\'' + safeId + '\')">Перенести</button>' +
+          '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="openTransferTask_(\'' + safeId + '\',\'' + String(it.clientNick || p.client || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'") + '\')">Перенести</button>' +
           '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Закрыть</button>' +
           "</div></div>";
       }).join("");

@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-22 subs-dedupe-ig-nick-h1
- * (prior: pp-rit-murr-one-r-h2 / preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-26 fix-xfer-place-cut-flags-h1
+ * (prior: subs-dedupe-ig-nick-h1 / heal-flamant-transfer-h1 / tz-p0-crumbs-h1 / pp-rit-murr-one-r-h2 / preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -2182,19 +2182,6 @@ async function repairParkedTransfersFromOrders_(env) {
   var items = Array.isArray(list.items) ? list.items.slice() : [];
   if (!items.length) return;
 
-  var activeKeys = Object.create(null);
-  try {
-    var aq = await env.DB.prepare(
-      "SELECT match_key, lower(client) AS cl FROM orders WHERE status = 'active'"
-    ).all();
-    ((aq && aq.results) || []).forEach(function (r) {
-      var mk = normalizeMatchKey_(r.match_key || r.cl || "");
-      if (mk) activeKeys[mk] = true;
-      var cl = normalizeMatchKey_(r.cl || "");
-      if (cl) activeKeys[cl] = true;
-    });
-  } catch (eA) {}
-
   var before = items.length;
   items = items.filter(function (it) {
     if (!it) return false;
@@ -2204,21 +2191,10 @@ async function repairParkedTransfersFromOrders_(env) {
     // фантом repair — всегда убрать
     return false;
   });
-  // open transfer, клиент снова active на дне — закрыть (уже вернули)
-  items = items.map(function (it) {
-    if (!deferredItemIsProtectedTransfer_(it)) return it;
-    if (String(it.status || "open").toLowerCase() !== "open") return it;
-    var k = deferredTransferClientKey_(it);
-    if (k && activeKeys[k]) {
-      return Object.assign({}, it, {
-        status: "done",
-        title: "Перенесён · на дне",
-        autoClosedActive: true
-      });
-    }
-    return it;
-  });
-  if (items.length === before && !items.some(function (it) { return it && it.autoClosedActive; })) {
+  // Не закрывать open transfer, если у ника есть другая active-доставка
+  // (календарь / другой день / CAL после close-week). Иначе менеджер жмёт
+  // «Перенести» и получает not_open.
+  if (items.length === before) {
     return;
   }
   list.items = items;
@@ -2666,13 +2642,206 @@ async function weekCountsForTransfer_(env) {
   return [];
 }
 
+/** open, либо ложно закрытая repair'ом (autoClosedActive) и ещё не поставленная. */
+function transferItemPlaceable_(it) {
+  if (!it) return false;
+  const st = String(it.status || "open").toLowerCase();
+  if (!st || st === "open") return true;
+  if (it.autoClosedActive && !it.placed) return true;
+  const p = it.payload || {};
+  if (p.autoClosedActive && !it.placed && !p.placed) return true;
+  return false;
+}
+
+function transferSourceIdsToDelete_(sourceId, targetId) {
+  const s = String(sourceId || "").trim();
+  const t = String(targetId || "").trim();
+  if (!s || s === t) return [];
+  return [s];
+}
+
+function transferPlaceMetaJson_(sourceMetaRaw, patch) {
+  return mergeMetaJsonKeepPrices_(sourceMetaRaw || "{}", JSON.stringify(patch || {}), {});
+}
+
+async function findTransferSnapItem_(env, id, clientHint) {
+  const wantId = String(id || "").trim();
+  const hit = wantId ? await findDeferredSnapItem_(env, wantId) : null;
+  if (hit) {
+    if (transferItemPlaceable_(hit)) return { item: hit, reopened: !!(hit.autoClosedActive && String(hit.status || "").toLowerCase() !== "open") };
+    return { item: hit, closed: true };
+  }
+  const nick = String(clientHint || "").trim();
+  if (!nick) return { item: null };
+  const want = normalizeMatchKey_(nick);
+  if (!want) return { item: null };
+  try {
+    const list = await getSnapRaw_(env, "listDeferred");
+    const arr = (list && list.items) || [];
+    for (let i = 0; i < arr.length; i++) {
+      const it = arr[i];
+      if (!transferItemPlaceable_(it)) continue;
+      const mode = deferredItemModeOf_(it);
+      if (mode !== "transfer" && !(it.payload && it.payload.parked)) continue;
+      const k = deferredTransferClientKey_(it);
+      const cn = normalizeMatchKey_(
+        it.clientNick || (it.payload && (it.payload.client || it.payload.clientNick)) || ""
+      );
+      if (k === want || cn === want) {
+        return {
+          item: it,
+          reopened: !!(it.autoClosedActive && String(it.status || "").toLowerCase() !== "open")
+        };
+      }
+    }
+  } catch (eFind) {}
+  return { item: null };
+}
+
+/** Строка именно этой доставки (день/дата заявки). Чужие даты не берём. */
+async function findParkedSourceOrder_(env, matchKey, client, fromDay, fromIso) {
+  if (!env || !env.DB) return null;
+  const mk = normalizeMatchKey_(matchKey || client);
+  const cl = String(client || "").trim().toLowerCase();
+  const day = String(fromDay || "").trim();
+  const iso = coerceDateIso_(fromIso) || "";
+  if (!mk && !cl) return null;
+  async function one(status, dayName, dateIso) {
+    if (dayName) {
+      try {
+        const row = await env.DB.prepare(
+          "SELECT * FROM orders WHERE status = ? AND day_name = ? AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+        )
+          .bind(status, dayName, mk, cl || mk)
+          .first();
+        if (row) return row;
+      } catch (eDay) {}
+    }
+    if (dateIso) {
+      try {
+        const row = await env.DB.prepare(
+          "SELECT * FROM orders WHERE status = ? AND date_iso = ? AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+        )
+          .bind(status, dateIso, mk, cl || mk)
+          .first();
+        if (row) return row;
+      } catch (eIso) {}
+    }
+    return null;
+  }
+  return (await one("active", day, iso)) || (await one("deleted", day, iso)) || null;
+}
+
+/**
+ * Перенос одной доставки: новая строка на целевой дате, meta с ценами источника.
+ * Сносится только id источника, если он ещё active. Другие дни и календарь живы.
+ */
+async function relocateTransferDelivery_(env, spec) {
+  spec = spec || {};
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const client = String(spec.client || "").trim();
+  const matchKey = normalizeMatchKey_(spec.matchKey || client);
+  if (!client || !matchKey) return { status: "error", message: "no_client" };
+  let newDay = String(spec.newDay || "").trim();
+  let newIso = coerceDateIso_(spec.newDate) || String(spec.newDate || "").trim();
+  if (!newDay && !newIso) return { status: "error", message: "need_date" };
+  const source = await findParkedSourceOrder_(
+    env,
+    matchKey,
+    client,
+    spec.fromDay,
+    spec.fromDate
+  );
+  const targetId = (newDay || "CAL") + ":" + matchKey + (newDay ? "" : ":" + newIso);
+  const basketArr = parseBasket_(
+    spec.basket != null && (Array.isArray(spec.basket) ? spec.basket.length : spec.basket)
+      ? spec.basket
+      : source && source.basket_json
+  );
+  const metaJson = transferPlaceMetaJson_(source && source.meta_json, {
+    noCut: !!spec.noCut,
+    segment: spec.segment || undefined,
+    ppPartner: spec.ppPartner || undefined,
+    orderType: "transfer"
+  });
+  const now = new Date().toISOString();
+  let dateIso = newIso;
+  if (!dateIso && newDay) {
+    try {
+      const info = await dayDateInfo_(env, newDay);
+      dateIso = (info && info.iso) || "";
+    } catch (eDt) {}
+  }
+  await upsertOrderRow_(
+    env,
+    {
+      id: targetId,
+      date_iso: dateIso || "",
+      day_name: newDay || "",
+      client: client,
+      match_key: matchKey,
+      address: String(spec.address || (source && source.address) || ""),
+      note: String(spec.note || (source && source.note) || ""),
+      phone: String(spec.phone || (source && source.phone) || ""),
+      basket_json: JSON.stringify(basketArr),
+      segment: String(spec.segment || (source && source.segment) || ""),
+      source: "transfer",
+      status: "active",
+      updated_at: now,
+      meta_json: metaJson
+    },
+    { params: { _skipInvalidate: "1" } }
+  );
+  const delIds = transferSourceIdsToDelete_(source && source.id, targetId);
+  for (let di = 0; di < delIds.length; di++) {
+    if (!source || String(source.status || "") !== "active") continue;
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, delIds[di])
+        .run();
+    } catch (eDel) {}
+  }
+  try {
+    if (source && source.day_name && String(source.id || "") !== targetId) {
+      await putDeleteTombstone_(env, source.day_name, matchKey);
+    }
+    if (newDay) {
+      await clearTombstonesForMatch_(env, matchKey, newDay, client);
+      await putMoveArriveProtect_(env, newDay, matchKey, client);
+      await putSnap_(env, "writeGuard:" + newDay + ":" + matchKey, {
+        day: newDay,
+        mk: matchKey,
+        at: Date.now()
+      });
+    }
+    if (dateIso) await clearCalendarTombstone_(env, dateIso, matchKey, client);
+  } catch (eTomb) {}
+  return {
+    status: "success",
+    id: targetId,
+    wrote: basketArr.length || 1,
+    sourceId: (source && source.id) || "",
+    deletedIds: source && String(source.status || "") === "active" ? delIds : [],
+    keptPrices: true
+  };
+}
+
 async function getTransferTaskCutover_(params, env) {
   const id = String((params && params.id) || "").trim();
-  if (!id) return { status: "error", message: "need_id", cutover: true };
-  let hit = await findDeferredSnapItem_(env, id);
+  const clientHint = String(
+    (params && (params.client || params.nick || params.clientNick)) || ""
+  ).trim();
+  if (!id && !clientHint) return { status: "error", message: "need_id", cutover: true };
+  const found = await findTransferSnapItem_(env, id, clientHint);
+  if (found && found.closed) {
+    return { status: "error", message: "not_open", cutover: true };
+  }
+  let hit = found && found.item;
   if (hit) {
-    const st = String(hit.status || "open").toLowerCase();
-    if (st && st !== "open") {
+    const st = found.reopened ? "open" : String(hit.status || "open").toLowerCase();
+    if (st && st !== "open" && !transferItemPlaceable_(hit)) {
       return { status: "error", message: "not_open", cutover: true };
     }
     try {
@@ -2883,11 +3052,15 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
 /** Поставить клиента на новый день из задачи переноса (клиент уже снят с листа). */
 async function placeTransferTaskD1_(params, env) {
   const id = String((params && params.id) || "").trim();
-  if (!id) return { status: "error", message: "need_id", cutover: true };
-  let hit = await findDeferredSnapItem_(env, id);
+  const clientHint = String(
+    (params && (params.client || params.nick || params.clientNick)) || ""
+  ).trim();
+  if (!id && !clientHint) return { status: "error", message: "need_id", cutover: true };
+  const found = await findTransferSnapItem_(env, id, clientHint);
+  if (found && found.closed) return { status: "error", message: "not_open", cutover: true };
+  let hit = found && found.item;
   if (!hit) return { status: "error", message: "not_found", cutover: true };
-  const st = String(hit.status || "open").toLowerCase();
-  if (st && st !== "open") return { status: "error", message: "not_open", cutover: true };
+  if (!transferItemPlaceable_(hit)) return { status: "error", message: "not_open", cutover: true };
 
   try {
     const enriched = await enrichTransferPayloadFromOrders_(env, hit);
@@ -2927,26 +3100,24 @@ async function placeTransferTaskD1_(params, env) {
   const basket = Array.isArray(p.basket) ? p.basket : parseBasket_(p.basket);
   const seg = String(p.segment || params.segment || "");
   const ppPartner = await resolveBpPartnerForClient_(env, client, matchKey, p.ppPartner, seg);
-  const saveRes = await saveOrder_(
-    {
-      client: client,
-      matchKey: matchKey,
-      day: newDay,
-      date: newDate,
-      address: String(p.address || params.address || ""),
-      phone: String(p.phone || params.phone || ""),
-      note: note,
-      basket: JSON.stringify(basket),
-      segment: seg,
-      source: "transfer",
-      ppPartner: ppPartner,
-      noCut: noCut ? "1" : "0",
-      cutRaw: noCut ? "0" : "1",
-      _skipInvalidate: "1"
-    },
-    env,
-    false
-  );
+  const fromDay = String(p.day || params.day || "").trim();
+  const fromDate = String(p.dateIso || p.date || params.date || "").trim();
+  const saveRes = await relocateTransferDelivery_(env, {
+    client: client,
+    matchKey: matchKey,
+    newDay: newDay,
+    newDate: newDate,
+    fromDay: fromDay,
+    fromDate: fromDate,
+    address: String(p.address || params.address || ""),
+    phone: String(p.phone || params.phone || ""),
+    note: note,
+    basket: basket,
+    segment: seg,
+    ppPartner: ppPartner,
+    noCut: noCut,
+    _skipInvalidate: "1"
+  });
   if (!saveRes || saveRes.status !== "success") {
     return Object.assign({}, saveRes || { status: "error", message: "save_failed" }, { cutover: true });
   }
@@ -3018,7 +3189,7 @@ async function placeTransferTaskD1_(params, env) {
     segment: seg,
     matchKey: matchKey,
     basket: basket,
-    deployMarker: "2026-09-15 fix-move-network-sheets-h1"
+    deployMarker: "2026-09-26 fix-xfer-place-cut-flags-h1"
   };
 }
 
@@ -5941,6 +6112,23 @@ function sameCutDate_(a, b) {
   return !!(ia && ib && ia === ib);
 }
 
+/** Обе даты известны и совпадают. Пустая want или snap — не «тот же день». */
+function cuttingSnapDateOk_(want, snap) {
+  const w = String(want || "").trim();
+  const s = String(snap || "").trim();
+  if (!w || !s) return false;
+  return sameCutDate_(s, w);
+}
+
+function zeroCuttingItemFlags_(items) {
+  return (items || []).map(function (it) {
+    if (!it) return it;
+    return normalizeCuttingItemFlags_(
+      Object.assign({}, it, { laid: false, done: false, outNext: false })
+    );
+  });
+}
+
 function cuttingRowsMapFromItems_(items, into) {
   const map = into || Object.create(null);
   (items || []).forEach(function (it) {
@@ -6146,23 +6334,23 @@ function overlayCuttingFlagsFromTable_(items, flagMap) {
 
 async function cuttingFlagsDateIso_(env, day) {
   const info = await dayDateInfo_(env, day);
-  let iso = (info && info.iso) || "";
-  if (iso) return iso;
-  try {
-    const snap = await getSnapRaw_(env, "cutting:" + day);
-    iso =
-      coerceDateIso_((snap && snap.dateIso) || "") ||
-      coerceDateIso_((snap && snap.date) || "") ||
-      dmyToIso_(snap && snap.date) ||
-      "";
-  } catch (eIso) {}
-  return iso;
+  return (info && info.iso) || "";
 }
 
-async function applyDurableCuttingFlags_(env, day, items, prevItems) {
+async function applyDurableCuttingFlags_(env, day, items, prevItems, prevDate) {
   let out = Array.isArray(items) ? items.slice() : [];
-  if (prevItems && prevItems.length) {
+  let same = false;
+  try {
+    const info = await dayDateInfo_(env, day);
+    const want = String((info && (info.date || info.iso)) || "");
+    same = cuttingSnapDateOk_(want, prevDate);
+  } catch (eSame) {
+    same = false;
+  }
+  if (same && prevItems && prevItems.length) {
     out = overlayCuttingKeepFlags_(out, prevItems, true, true);
+  } else {
+    out = zeroCuttingItemFlags_(out);
   }
   try {
     const tbl = await loadCuttingFlagsTable_(env, day);
@@ -7231,8 +7419,8 @@ async function getCutting_(params, env) {
   const wantDate = String((info && info.date) || "");
   let hit = await getSnapRaw_(env, "cutting:" + day);
   if (hit) {
-    const snapDate = String((hit && hit.date) || "");
-    const dateOk = !wantDate || !snapDate || sameCutDate_(snapDate, wantDate);
+    const snapDate = String((hit && (hit.date || hit.dateIso)) || "");
+    const dateOk = cuttingSnapDateOk_(wantDate, snapDate);
     const staleDone = !!(hit && hit.completion && wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
     if (!dateOk || staleDone) hit = null;
   }
@@ -14039,7 +14227,10 @@ async function handleCutover_(a, params, env, ctx) {
       const info = await dayDateInfo_(env, params.day);
       const snapDate = String((fast && fast.date) || (fast && fast.dateIso) || "");
       const wantDate = String((info && info.date) || (info && info.iso) || "");
-      const dateMismatch = !!(wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
+      const dateMismatch =
+        a === "getCutting"
+          ? !!(wantDate && !cuttingSnapDateOk_(wantDate, snapDate))
+          : !!(wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
       const staleDone =
         a === "getCutting" && fast.completion && wantDate && (!snapDate || !sameCutDate_(snapDate, wantDate));
       if (dateMismatch || staleDone) {
@@ -14121,7 +14312,8 @@ async function handleCutover_(a, params, env, ctx) {
               env,
               params.day,
               live.items || [],
-              fast && Array.isArray(fast.items) ? fast.items : null
+              fast && Array.isArray(fast.items) ? fast.items : null,
+              fast && (fast.date || fast.dateIso)
             );
             live.fromGas = false;
             live.fromD1 = true;
@@ -14919,9 +15111,17 @@ async function cutoverStoreRead_(a, params, env, payload) {
       return;
     }
     let items = Array.isArray(payload.items) ? payload.items.slice() : [];
-    const sameDate = sameCutDate_(prev && prev.date, payload && payload.date);
+    const sameDate = cuttingSnapDateOk_(
+      prev && (prev.date || prev.dateIso),
+      payload && (payload.date || payload.dateIso)
+    );
+    if (!sameDate) {
+      items = zeroCuttingItemFlags_(items);
+    }
     // ops d1-primary: qty/row из GAS, флаги только D1 snap/table — не Sheets E/F/G
-    if (isOpsD1PrimaryCanon_(env) && prev && Array.isArray(prev.items) && prev.items.length) {
+    if (!sameDate) {
+      // чужая дата: не копировать laid/done/outNext ни из snap, ни из листа
+    } else if (isOpsD1PrimaryCanon_(env) && prev && Array.isArray(prev.items) && prev.items.length) {
       items = overlayCuttingKeepFlags_(items, prev.items, sameDate, true);
     } else if (prev && Array.isArray(prev.items) && prev.items.length) {
       const touched = Number(prev.flagsTouchedAt || 0);
