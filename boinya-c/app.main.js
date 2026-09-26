@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116010";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116011";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4848,7 +4848,222 @@
     function apiCacheBustDeferred_() {
       try { apiCacheBustMem_("listDeferred"); } catch (e) {}
     }
+    /* ── Busy-state кнопок (v71116011) ──────────────────────────────────────
+       Любая кнопка, после клика по которой уходит запрос apiGet/apiPost (Worker/GAS),
+       на время запроса: disabled + спиннер + контекстный текст («Сохраняю…» и т.п.),
+       повторные клики блокируются; по завершении (успех/ошибка) исходный текст
+       возвращается ДО обработчика вызывающего кода (его текст/ошибки не затираются).
+       >8 с — тонкая плашка сверху «Идёт обработка…».
+       Отключить для элемента: data-no-busy; свой текст: data-busy-label="…".
+       finishFullWeek не трогаем — у него свой индикатор (PR #365). */
+    var BUSY_ARM_MS_ = 2000;
+    var BUSY_BAR_MS_ = 8000;
+    var _busyArm = null;      // { el, t } — последняя нажатая кнопка вне модалки
+    var _busyModalArm = null; // { el, t } — кнопка внутри модалки (если модалка — форма)
+    var _busyActive = 0;
+    var _busyBarTimer = null;
+    var BUSY_SEL_ = "button, input[type=button], input[type=submit], [role=button], .btn-action";
+
+    function busyCandidate_(target) {
+      try {
+        if (!target || !target.closest) return null;
+        var el = target.closest(BUSY_SEL_);
+        if (!el) return null;
+        if (el.closest("[data-no-busy], .tab-link, #modalOverlay .modal-close")) return null;
+        return el;
+      } catch (e) { return null; }
+    }
+
+    document.addEventListener("click", function (ev) {
+      var el = busyCandidate_(ev.target);
+      if (!el) return;
+      if (el.__busyRef > 0) {
+        // двойной клик во время запроса — глушим до обработчиков элемента
+        try { ev.preventDefault(); ev.stopImmediatePropagation(); } catch (e0) {}
+        return;
+      }
+      var now = Date.now();
+      var inModal = !!(el.closest && el.closest("#modalOverlay"));
+      if (inModal) {
+        _busyModalArm = { el: el, t: now };
+        // подтверждение (uiConfirmAsync) закрывает модалку до запроса —
+        // тогда спиннер показываем на исходной кнопке, продлеваем её «взвод»
+        if (_busyArm) _busyArm.t = now;
+      } else {
+        _busyArm = { el: el, t: now };
+        _busyModalArm = null;
+      }
+    }, true);
+
+    function busyPickEl_() {
+      var now = Date.now();
+      var cands = [_busyModalArm, _busyArm];
+      for (var i = 0; i < cands.length; i++) {
+        var a = cands[i];
+        if (a && a.el && a.el.isConnected && now - a.t <= BUSY_ARM_MS_) return a.el;
+      }
+      return null;
+    }
+
+    function busyLabelForAction_(action) {
+      var a = String(action || "");
+      if (/^(delete|remove|wipe)/i.test(a)) return "Удаляю…";
+      if (/^(move|transfer|placeTransfer)/i.test(a)) return "Переношу…";
+      if (/^(send|notify|push|broadcast|approve|reject|submit|place)/i.test(a)) return "Отправляю…";
+      if (/^(calc|compute|estimate|export)|stats|profit|price|podbor/i.test(a) && !/^(save|set)/i.test(a)) return "Считаю…";
+      if (/^(save|set|update|enroll|ensure|materialize|repair|heal|restore|resync|undelete|start|stop|cancel|close|scrub)/i.test(a)) return "Сохраняю…";
+      if (/^(get|list|load|fetch|lookup|pull|search|find|bootstrap|check|read)/i.test(a)) return "Загружаю…";
+      return "Секунду…";
+    }
+
+    function busyBegin_(el, label) {
+      el.__busyRef = (el.__busyRef || 0) + 1;
+      if (el.__busyRef > 1) return;
+      var isInput = el.tagName === "INPUT";
+      var custom = el.getAttribute && el.getAttribute("data-busy-label");
+      var txt = custom || label || "Секунду…";
+      var w = 0;
+      try { w = el.offsetWidth || 0; } catch (eW) {}
+      var origText = isInput ? String(el.value || "") : String(el.textContent || "").trim();
+      var compact = origText.length <= 3 || (w > 0 && w < 64);
+      el.__busyOrig = {
+        html: isInput ? null : el.innerHTML,
+        value: isInput ? el.value : null,
+        disabled: !!el.disabled,
+        minWidth: el.style.minWidth,
+        ariaBusy: el.getAttribute("aria-busy")
+      };
+      el.__busyHtml = null;
+      try {
+        if ("disabled" in el) el.disabled = true;
+        el.setAttribute("aria-busy", "true");
+      } catch (eB) {}
+      // визуал (спиннер+текст) — через 180 мс: быстрые/кэшированные ответы не мигают
+      clearTimeout(el.__busyVisTimer);
+      el.__busyVisTimer = setTimeout(function () {
+        if (!(el.__busyRef > 0) || !el.__busyOrig) return;
+        try {
+          if (w > 0) el.style.minWidth = w + "px";
+          el.classList.add("is-busy");
+          if (isInput) {
+            el.value = txt;
+          } else {
+            el.innerHTML = '<span class="btn-busy-spin" aria-hidden="true"></span>' +
+              (compact ? "" : '<span class="btn-busy-label">' + escapeHtml(txt) + "</span>");
+          }
+          el.__busyHtml = isInput ? el.value : el.innerHTML;
+        } catch (eV) {}
+      }, 180);
+    }
+
+    function busyEnd_(el) {
+      if (!el || !(el.__busyRef > 0)) return;
+      el.__busyRef -= 1;
+      if (el.__busyRef > 0) return;
+      var o = el.__busyOrig || {};
+      el.__busyOrig = null;
+      try {
+        var isInput = el.tagName === "INPUT";
+        // если код успел сам перерисовать кнопку — не затираем его состояние
+        clearTimeout(el.__busyVisTimer);
+        var untouched = el.__busyHtml != null &&
+          (isInput ? el.value === el.__busyHtml : el.innerHTML === el.__busyHtml);
+        if (untouched) {
+          if (isInput) el.value = o.value; else el.innerHTML = o.html;
+        }
+        if ("disabled" in el) el.disabled = !!o.disabled;
+        el.style.minWidth = o.minWidth || "";
+        if (o.ariaBusy == null) el.removeAttribute("aria-busy"); else el.setAttribute("aria-busy", o.ariaBusy);
+        el.classList.remove("is-busy");
+      } catch (eE) {}
+      // цепочка «запрос → ещё запрос» из того же клика снова покажет спиннер
+      if (el.isConnected) {
+        var now = Date.now();
+        if (el.closest && el.closest("#modalOverlay")) _busyModalArm = { el: el, t: now };
+        else _busyArm = { el: el, t: now };
+      }
+    }
+
+    function busyBarSync_() {
+      var bar = document.getElementById("busyTopBar");
+      var fw = window.__finishWeekUi;
+      var show = _busyActive > 0 && !(fw && fw.phase === "running");
+      if (!show) {
+        if (bar) bar.classList.remove("show");
+        return;
+      }
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.id = "busyTopBar";
+        bar.setAttribute("role", "status");
+        bar.innerHTML = '<span class="btn-busy-spin" aria-hidden="true"></span><span>Идёт обработка…</span>';
+        document.body.appendChild(bar);
+      }
+      bar.classList.add("show");
+    }
+
+    function busyTrackStart_() {
+      _busyActive += 1;
+      if (_busyActive === 1) {
+        clearTimeout(_busyBarTimer);
+        _busyBarTimer = setTimeout(busyBarSync_, BUSY_BAR_MS_);
+      }
+    }
+
+    function busyTrackEnd_() {
+      _busyActive = Math.max(0, _busyActive - 1);
+      if (_busyActive === 0) {
+        clearTimeout(_busyBarTimer);
+        _busyBarTimer = null;
+        busyBarSync_();
+      }
+    }
+
+    /* Явный хелпер: withBusy(btn, "Сохраняю…", () => apiGet(...)) */
+    function withBusy(btn, label, promiseFn) {
+      var el = btn && btn.nodeType === 1 ? btn : null;
+      if (el) busyBegin_(el, label);
+      busyTrackStart_();
+      var p;
+      try {
+        p = Promise.resolve(promiseFn());
+      } catch (eFn) {
+        p = Promise.reject(eFn);
+      }
+      return p.then(function (r) {
+        busyTrackEnd_();
+        if (el) busyEnd_(el);
+        return r;
+      }, function (err) {
+        busyTrackEnd_();
+        if (el) busyEnd_(el);
+        throw err;
+      });
+    }
+    window.withBusy = withBusy;
+
+    function busyWrapApi_(action, opts, fn) {
+      var el = null;
+      try {
+        if (!(opts && (opts.noBusy || opts.background)) && !/^finishFullWeek$/i.test(String(action || ""))) {
+          el = busyPickEl_();
+        }
+      } catch (eP) { el = null; }
+      if (!el) return fn();
+      return withBusy(el, busyLabelForAction_(action), fn);
+    }
+
     function apiGet(params, opts) {
+      var act = params && params.action;
+      return busyWrapApi_(act, opts, function () { return apiGetRaw_(params, opts); });
+    }
+
+    function apiPost(payload) {
+      var act = payload && payload.action;
+      return busyWrapApi_(act, null, function () { return apiPostRaw_(payload); });
+    }
+
+    function apiGetRaw_(params, opts) {
       opts = opts || {};
       params = params || {};
       // roles-audit: подпись Telegram в каждом запросе (Worker/GAS берут tid только из неё)
@@ -5120,7 +5335,7 @@
       return p;
     }
 
-    function apiPost(payload) {
+    function apiPostRaw_(payload) {
       try {
         if (typeof window.__boinyaCGuardWrite === "function") {
           var _bw = window.__boinyaCGuardWrite(payload || {});
