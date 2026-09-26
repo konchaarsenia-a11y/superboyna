@@ -107,8 +107,7 @@ const code = [
   "pricePickParseBudget_",
   "pricePickDogProfile_",
   "pricePickJoinRu_",
-  "pricePickWhyItem_",
-  "pricePickVegWhy_",
+  "pricePickAccRu_",
   "pricePickOfferText_"
 ].map(extract).join("\n");
 
@@ -306,11 +305,13 @@ function grams(payload, name) {
   assert.deepEqual([sig.budget.min, sig.budget.max], [50, 80]);
   const r = fns.pricePickComposeForTarget_(sig, "bp1");
   const offer = fns.pricePickOfferText_(sig, "bp1", r.items);
-  assert.ok(/Джей — венгерская выжла, 6 лет, 35 кг\./.test(offer), offer);
-  assert.ok(/Почему именно это:/.test(offer) && /Что учли:/.test(offer), offer);
-  assert.ok(/рыбу/.test(offer), "allergy mentioned");
+  assert.ok(/Джей занимается дрессировкой/.test(offer), offer);
+  assert.ok(/Рыбу и трахею не кладём/.test(offer), offer);
+  assert.ok(!/Почему именно это|Что учли|•/.test(offer), "plain prose, no bullets: " + offer);
+  assert.ok(!/доставк[аи] в месяц/.test(fns.pricePickOfferText_(sig, "pp", r.items)), "no deliveries-per-month line");
+  assert.ok(offer.length < 900, "short: " + offer.length);
   assert.ok(!/(собрала|подобрала|учла|оставила|исключила|добавила|посчитаю|подстрою|Не беру)/i.test(offer), "team voice only: " + offer);
-  assert.ok(/собрали/.test(offer));
+  assert.ok(/[Сс]обрали/.test(offer));
   assert.ok(!/BYN|₽/.test(offer));
   // пустая анкета — без выдуманных фактов
   const empty = fns.parseAnketSignals_("Щенок, первая коробка");
