@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71116010" as="script">
+  <link rel="preload" href="app.main.js?v=71116011" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71116010";
+      var APP_VER = "v71116011";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1214,6 +1214,24 @@
       font-size: 14px; font-weight: 600; color: #ff9f0a; letter-spacing: 0.2px;
     }
     @keyframes loadSpin { to { transform: rotate(360deg); } }
+    /* busy-state кнопок (v71116011) */
+    .is-busy { cursor: progress !important; opacity: 0.85; }
+    .is-busy .btn-busy-label { vertical-align: middle; }
+    .btn-busy-spin {
+      display: inline-block; width: 14px; height: 14px; flex: 0 0 14px;
+      border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+      animation: loadSpin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
+    }
+    .is-busy .btn-busy-spin:only-child { margin-right: 0; }
+    #busyTopBar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100000;
+      display: none; align-items: center; justify-content: center; gap: 6px;
+      padding: calc(3px + env(safe-area-inset-top, 0px)) 10px 3px;
+      font-size: 12px; font-weight: 600; color: #1c1c1e; background: #ff9f0a;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.35); pointer-events: none;
+    }
+    #busyTopBar.show { display: flex; }
+    #busyTopBar .btn-busy-spin { width: 11px; height: 11px; flex-basis: 11px; margin-right: 0; }
     .note-block {
       border: 1px solid var(--border-color); border-radius: 10px;
       padding: 10px; margin-bottom: 8px; background: rgba(255,255,255,0.03);
@@ -2958,7 +2976,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71116010"></script>
-  <script src="app.main.js?v=71116010" defer></script>
+  <script src="courier-maps.js?v=71116011"></script>
+  <script src="app.main.js?v=71116011" defer></script>
 </body>
 </html>
