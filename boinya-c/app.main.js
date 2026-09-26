@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116012";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116013";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -27641,6 +27641,223 @@
     var peopleCacheZones_ = null;
     var peopleAllTabs_ = null;
     var peopleOpenTabs_ = {};
+    var peopleOpenNotify_ = {};
+    var peopleOpenSched_ = {};
+    var peopleSchedCache_ = null; // { at, res }
+
+    /* v71116013: 🔔 персональные уведомления (ключи = Code.gs/Worker NOTIFY_KEYS) */
+    var NOTIFY_LABELS_ = [
+      ["wh_buy", "🚨 Дозакуп / дефицит сырья"],
+      ["cut_deficit", "⚠️ Дефицит нарезки"],
+      ["out_next", "❗ Заканчивается запас"],
+      ["cut_increase", "✂️ Срочное увеличение объёма нарезки"],
+      ["date_nudge", "📅 «Подбейте даты» 11:00 / 19:00"],
+      ["missed_delivery", "🚚 Не получил доставку"],
+      ["week_done", "✅ Неделя завершена"],
+      ["access_req", "🔑 Запрос доступа"],
+      ["survey", "📋 Опросники БП2 / ПП (ответственному)"],
+      ["partner_order", "🛍 Новая заявка партнёра"],
+      ["partner_suggest", "💡 Предложение партнёра"],
+      ["gb_lead", "🐾 Заявка GOOD BOY с сайта"]
+    ];
+    var NOTIFY_ROLE_DEFAULTS_UI_ = {
+      owner: NOTIFY_LABELS_.map(function (x) { return x[0]; }),
+      manager: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey"],
+      cutter: ["cut_deficit", "out_next", "cut_increase"],
+      logistics: ["wh_buy", "cut_deficit", "out_next"],
+      courier: [],
+      all: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey", "cut_deficit", "out_next", "cut_increase"]
+    };
+
+    function notifyDefaultsOf_(p) {
+      if (p && Array.isArray(p.notifyDefaults)) return p.notifyDefaults;
+      var r = p && p.isConfigOwner ? "owner" : String((p && p.role) || "").toLowerCase();
+      return (NOTIFY_ROLE_DEFAULTS_UI_[r] || []).slice();
+    }
+
+    function notifyParseUi_(raw) {
+      var o = { plus: {}, minus: {} };
+      String(raw || "").split(/[,;\s]+/).forEach(function (t) {
+        t = String(t || "").trim();
+        if (!t) return;
+        var sign = "+";
+        if (t.charAt(0) === "+" || t.charAt(0) === "-") { sign = t.charAt(0); t = t.slice(1); }
+        if (sign === "-") { o.minus[t] = true; delete o.plus[t]; } else { o.plus[t] = true; delete o.minus[t]; }
+      });
+      return o;
+    }
+
+    function notifyEffectiveOf_(p) {
+      if (p && Array.isArray(p.notifyEffective)) return p.notifyEffective;
+      var base = notifyDefaultsOf_(p);
+      var o = notifyParseUi_(p && p.notify);
+      return NOTIFY_LABELS_.map(function (x) { return x[0]; }).filter(function (k) {
+        var on = base.indexOf(k) >= 0;
+        if (o.plus[k]) on = true;
+        if (o.minus[k]) on = false;
+        return on;
+      });
+    }
+
+    function notifyBoxHtml_(p, id, jsTid) {
+      var eff = notifyEffectiveOf_(p);
+      var defs = notifyDefaultsOf_(p);
+      var hasOverride = !!String(p.notify || "").trim();
+      var canEdit = APP_ROLE === "owner";
+      var open = !!peopleOpenNotify_[String(p.telegramId)];
+      var html = '<div style="margin-top:8px;">' +
+        '<button type="button" class="seg-btn" style="margin:0;" data-no-busy onclick="togglePeopleNotifyBox_(\'' + jsTid + '\')">🔔 Уведомления: ' +
+        (hasOverride ? "вручную" : "по роли") + ' (' + eff.length + ') ' + (open ? "▴" : "▾") + '</button>';
+      if (open) {
+        html += '<div id="notifybox_' + id + '" style="margin-top:8px;padding:8px;background:#111;border-radius:8px;">' +
+          '<div class="muted" style="font-size:12px;margin:0 0 6px;">Серым «по роли» — как у роли; оранжевым — изменено вручную.' +
+          (canEdit ? "" : " Менять может только владелец.") + '</div>' +
+          NOTIFY_LABELS_.map(function (x) {
+            var k = x[0];
+            var on = eff.indexOf(k) >= 0;
+            var byRole = defs.indexOf(k) >= 0;
+            var manual = on !== byRole;
+            var tag = manual
+              ? '<span style="color:#ff9f0a;font-size:11px;"> · вручную</span>'
+              : '<span class="muted" style="font-size:11px;"> · по роли</span>';
+            return '<label class="check-line" style="margin:0 0 6px;' + (manual ? "" : "opacity:.8;") + '"><input type="checkbox" data-nkey="' + k + '" data-notify-of="' + id + '"' +
+              (on ? " checked" : "") + (canEdit ? "" : " disabled") +
+              ' onchange="saveAccessNotifyUi_(\'' + jsTid + '\')"> <span>' + escapeHtml(x[1]) + tag + '</span></label>';
+          }).join("") +
+          (canEdit && hasOverride ? '<button type="button" class="seg-btn" style="margin:6px 0 0;" data-busy-label="Сбрасываю…" onclick="resetAccessNotifyUi_(this,\'' + jsTid + '\')">↺ Как у роли</button>' : "") +
+          '<div style="margin-top:10px;">' +
+          '<button type="button" class="seg-btn" style="margin:0;" data-busy-label="Загружаю…" onclick="togglePeopleSchedBox_(this,\'' + jsTid + '\')">⏰ Запланированные ' + (peopleOpenSched_[String(p.telegramId)] ? "▴" : "▾") + '</button>' +
+          (peopleOpenSched_[String(p.telegramId)] ? '<div id="schedbox_' + id + '" style="margin-top:8px;">' + schedHtmlFor_(p, eff) + '</div>' : "") +
+          '</div>' +
+          '</div>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    function schedHtmlFor_(p, eff) {
+      var c = peopleSchedCache_ && peopleSchedCache_.res;
+      if (!c) return '<p class="muted" style="margin:0;">Загрузка…</p>';
+      if (c.status !== "success") return '<p class="muted" style="margin:0;">Не загрузилось: ' + escapeHtml(c.message || "ошибка") + '</p>';
+      var tid = String(p.telegramId || "");
+      var rows = [];
+      function line(txt) { rows.push('<div style="font-size:13px;padding:4px 0;border-bottom:1px solid #222;">' + txt + '</div>'); }
+      (c.reminders || []).forEach(function (r) {
+        if (String(r.toTid) !== tid && String(r.fromTid) !== tid) return;
+        line('⏰ <b>' + escapeHtml(r.at) + '</b>' + (r.overdue ? ' <span style="color:#ff9f0a;">(просрочено' + (r.failed ? ", не доставлено" : "") + ')</span>' : "") +
+          ' · ' + escapeHtml(r.title || "Напоминание") + (r.client ? ' · ' + escapeHtml(r.client) : "") +
+          '<br><span class="muted" style="font-size:12px;">кому: ' + escapeHtml(r.to) + ' · от: ' + escapeHtml(r.from) + '</span>');
+      });
+      if (eff.indexOf("cut_deficit") >= 0) {
+        (c.deficits || []).forEach(function (d) {
+          line('⚠️ <b>' + escapeHtml(d.nextAt) + '</b> · дефицит нарезки: ' + escapeHtml(d.item) + ' (' + escapeHtml(d.day) + ')' +
+            (d.quietShift ? ' <span class="muted" style="font-size:12px;">· ночью тишина</span>' : ""));
+        });
+      }
+      (c.surveys || []).forEach(function (s) {
+        if (String(s.respTid) !== tid) return;
+        line('📋 <b>' + escapeHtml(s.due) + '</b> · опросник ' + escapeHtml(s.kind) + ' · ' + escapeHtml(s.nick) +
+          '<br><span class="muted" style="font-size:12px;">окно 9:00–21:00' + (s.tz ? " (" + escapeHtml(s.tz) + ")" : "") + ' · ' + escapeHtml(s.status === "due" ? "пора" : "запланирован") + '</span>');
+      });
+      if (!rows.length) rows.push('<p class="muted" style="margin:0 0 6px;">Для этого человека сейчас ничего не запланировано.</p>');
+      var fixed = (c.fixed || []).map(function (f) {
+        return '<div class="muted" style="font-size:12px;padding:2px 0;">' + escapeHtml(f) + '</div>';
+      }).join("");
+      return rows.join("") + '<div style="margin-top:8px;">' + fixed + '</div>' +
+        '<div class="muted" style="font-size:11px;margin-top:4px;">Время — Минск · обновлено ' + escapeHtml(c.now || "") +
+        (c.chatEnabled === false ? " · общий чат выключен" : "") + '</div>';
+    }
+
+    function togglePeopleNotifyBox_(targetId) {
+      var k = String(targetId || "");
+      peopleOpenNotify_[k] = !peopleOpenNotify_[k];
+      paintPeopleList_(peopleCacheList_);
+    }
+    window.togglePeopleNotifyBox_ = togglePeopleNotifyBox_;
+
+    async function loadScheduledNotifications_(force) {
+      if (!force && peopleSchedCache_ && Date.now() - peopleSchedCache_.at < 60000) return peopleSchedCache_.res;
+      var res = null;
+      try {
+        res = await apiGet({ action: "listScheduledNotifications", telegramId: myTelegramId, _: String(Date.now()) }, { timeoutMs: 30000, cacheTtlMs: 0, retries: 0 });
+      } catch (e) {
+        res = { status: "error", message: String((e && e.message) || e) };
+      }
+      peopleSchedCache_ = { at: Date.now(), res: res || { status: "error", message: "нет ответа" } };
+      return peopleSchedCache_.res;
+    }
+
+    async function togglePeopleSchedBox_(btn, targetId) {
+      var k = String(targetId || "");
+      peopleOpenSched_[k] = !peopleOpenSched_[k];
+      if (!peopleOpenSched_[k]) {
+        paintPeopleList_(peopleCacheList_);
+        return;
+      }
+      await withBusy(btn, "Загружаю…", function () { return loadScheduledNotifications_(false); });
+      paintPeopleList_(peopleCacheList_);
+    }
+    window.togglePeopleSchedBox_ = togglePeopleSchedBox_;
+
+    function applyPeopleNotifyLocal_(targetId, res, notify) {
+      for (var i = 0; peopleCacheList_ && i < peopleCacheList_.length; i++) {
+        if (String(peopleCacheList_[i].telegramId) === String(targetId)) {
+          var patch = { notify: res && res.notify != null ? res.notify : notify };
+          if (res && Array.isArray(res.notifyDefaults)) patch.notifyDefaults = res.notifyDefaults;
+          if (res && Array.isArray(res.notifyEffective)) patch.notifyEffective = res.notifyEffective;
+          else delete peopleCacheList_[i].notifyEffective;
+          peopleCacheList_[i] = Object.assign({}, peopleCacheList_[i], patch);
+        }
+      }
+    }
+
+    async function sendAccessNotify_(btn, targetId, notify) {
+      if (APP_ROLE !== "owner") { showToast("Только владелец"); return; }
+      try { apiCacheBustMem_("listAccess"); } catch (eB) {}
+      var id = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
+      var boxes = document.querySelectorAll('input[data-notify-of="' + id + '"]');
+      boxes.forEach(function (cb) { cb.disabled = true; });
+      var res = null;
+      try {
+        var body = { action: "setAccessNotify", actorId: myTelegramId, targetId: targetId };
+        if (notify) body.notify = notify;
+        else body.reset = "1";
+        res = await withBusy(btn, notify ? "Сохраняю…" : "Сбрасываю…", function () { return apiPost(body); });
+      } catch (e) {
+        res = null;
+      }
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Уведомления не сохранились");
+      } else {
+        applyPeopleNotifyLocal_(targetId, res, notify);
+        showToast(notify ? "Уведомления сохранены" : "Уведомления — как у роли");
+      }
+      paintPeopleList_(peopleCacheList_);
+    }
+
+    function saveAccessNotifyUi_(targetId) {
+      var p = null;
+      for (var i = 0; peopleCacheList_ && i < peopleCacheList_.length; i++) {
+        if (String(peopleCacheList_[i].telegramId) === String(targetId)) p = peopleCacheList_[i];
+      }
+      if (!p) return;
+      var id = String(targetId || "").replace(/[^0-9A-Za-z_-]/g, "_");
+      var defs = notifyDefaultsOf_(p);
+      var parts = [];
+      document.querySelectorAll('input[data-notify-of="' + id + '"]').forEach(function (cb) {
+        var k = cb.getAttribute("data-nkey");
+        var byRole = defs.indexOf(k) >= 0;
+        if (cb.checked && !byRole) parts.push("+" + k);
+        if (!cb.checked && byRole) parts.push("-" + k);
+      });
+      sendAccessNotify_(null, targetId, parts.join(","));
+    }
+    window.saveAccessNotifyUi_ = saveAccessNotifyUi_;
+
+    function resetAccessNotifyUi_(btn, targetId) {
+      sendAccessNotify_(btn, targetId, "");
+    }
+    window.resetAccessNotifyUi_ = resetAccessNotifyUi_;
 
     var ACCESS_TAB_LABELS_ = {
       orderScreen: "Заказы",
@@ -27772,7 +27989,7 @@
           '<div class="seg-row" style="margin-top:8px;">' +
           '<select id="tz_' + id + '" ' + selStyle + '>' + optsTz + '</select>' +
           '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + jsId(p.telegramId) + '\')">TZ</button>' +
-          '</div>' + tabsHtml + '</div>';
+          '</div>' + tabsHtml + (role !== "denied" ? notifyBoxHtml_(p, id, jsId(p.telegramId)) : "") + '</div>';
       }).join("") || '<p class="muted">Пока никого нет — пусть люди нажмут «Запросить доступ»</p>';
       window._peopleCacheHtml = html;
       window._peopleCacheAt = Date.now();
