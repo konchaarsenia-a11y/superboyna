@@ -15,6 +15,7 @@
   function wk() { return root.BoinyaWeek; }
   function tasksMod() { return root.BoinyaTasks; }
   function people() { return root.BoinyaPeople; }
+  function clients() { return root.BoinyaClients; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -62,7 +63,8 @@
     } else if (route.tab === "warehouse") {
       if (["stock", "buy", "move"].indexOf(route.seg) < 0) route.seg = "stock";
     } else if (route.tab === "clients") {
-      if (["pp", "afk", "bp", "survey"].indexOf(route.seg) < 0) route.seg = "pp";
+      var cs = clients() ? clients().segs(access) : [];
+      if (!cs.some(function (s) { return s.id === route.seg; })) route.seg = (cs[0] && cs[0].id) || "pp";
     }
   }
 
@@ -157,14 +159,8 @@
     }
     if (route.tab === "clients") {
       paintChrome();
-      sh().dock("");
-      var chips = [
-        { id: "pp", label: "ПП" },
-        { id: "afk", label: "АФК" },
-        { id: "bp", label: "БП" },
-        { id: "survey", label: "Опросник" }
-      ];
-      sh().main(segsHtml(chips, "cseg", route.seg) + stub("Клиенты", "Списки подписок, карточка и расчёт пока открываются в старой версии."));
+      clients().bind(access);
+      clients().show(route.seg);
       return;
     }
     if (route.tab === "production") {
@@ -202,6 +198,9 @@
     if (ax().tabHas(access, "peopleScreen")) {
       more += '<button type="button" class="b-li" data-act="more-people"><span class="b-li__body"><span class="b-li__title">Доступы</span><span class="b-li__sub">Роли, вкладки, уведомления, неделя</span></span><span class="b-li__chev">›</span></button>';
     }
+    if (ax().tabHas(access, "templatesScreen.ai") && ax().tabHas(access, "priceScreen.pick")) {
+      more += '<button type="button" class="b-li" data-act="more-pick"><span class="b-li__body"><span class="b-li__title">Подбор</span><span class="b-li__sub">Подбор ИИ по анкете</span></span><span class="b-li__chev">›</span></button>';
+    }
     more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, шаблоны, прайс, статистика</span></span><span class="b-li__chev">›</span></a>';
     sh().main('<div class="b-list">' + more + "</div>" + '<p class="b-mark">' + sh().esc(root.__boinyaCBadgeLabel || "Бойня") + "</p>");
   }
@@ -221,6 +220,15 @@
       return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Закрытие недели — то же, что баннер на заказах.";
     }
     if (route.tab === "goals") return "Цели — новый раздел только у владельца. В этом обновлении экрана ещё нет.";
+    if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
+      return "Клиенты: пароль один раз за этот заход. ПП, АФК, БП и опросник — те же списки, что в старой версии. Карточка сохраняет в ту же таблицу.";
+    }
+    if (route.tab === "clients" && route.seg === "calc") {
+      return "Расчёт: подписка или розница, собаки, доставки, пакеты и фракции. «Собрать сообщение» считает цену как раньше. «Внести в ПП» пишет в лист подписок.";
+    }
+    if (route.tab === "clients" && route.seg === "pick") {
+      return "Подбор по анкете. Состав и текст — те же правила, что в старом подборе. «В расчёт» переносит набор в расчёт.";
+    }
     return "Этот экран ещё не перенесён. Кнопка «Открыть в старой версии» ведёт в привычное приложение. Данные те же.";
   }
 
@@ -274,6 +282,7 @@
       return;
     }
     if (act === "more-people") { moreView = "people"; route.tab = "more"; render(); return; }
+    if (act === "more-pick") { route.tab = "clients"; route.seg = "pick"; moreView = ""; render(); return; }
     if (act === "more-back") { moreView = ""; render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
       route.seg = node.getAttribute("data-seg");
@@ -302,6 +311,7 @@
     if (act === "loader-hide") { sh().closeLoader(); return; }
     if (tasksMod() && tasksMod().onAct(act, node)) return;
     if (people() && people().onAct(act, node)) return;
+    if (clients() && clients().onAct(act, node)) return;
     if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
   }
@@ -406,6 +416,16 @@
       route.tab = "orders";
       route.seg = "week";
       if (day) wk().setDay(day);
+      render();
+    };
+    root.__nxSetSeg = function (tab, seg) {
+      route.tab = tab;
+      route.seg = seg;
+    };
+    root.__nxOpenClients = function (nextSeg, nick) {
+      route.tab = "clients";
+      route.seg = nextSeg || "pp";
+      if (nick && clients()) clients().setSearch(nick);
       render();
     };
     root.__nxTasksCount = function (n) {

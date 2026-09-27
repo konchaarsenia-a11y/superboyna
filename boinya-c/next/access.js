@@ -98,7 +98,7 @@
     var h = function (id) { return tabHas(access, id); };
     var items = [];
     if (h("orderScreen") || h("clientsScreen")) items.push({ id: "orders", label: NAV_LABELS.orders });
-    if (h("subsScreen") || h("subDetailScreen")) items.push({ id: "clients", label: NAV_LABELS.clients });
+    if (h("subsScreen") || h("subDetailScreen") || h("priceScreen")) items.push({ id: "clients", label: NAV_LABELS.clients });
     if (h("cuttingScreen") || h("courierScreen")) items.push({ id: "production", label: NAV_LABELS.production });
     if (h("warehouseScreen")) items.push({ id: "warehouse", label: NAV_LABELS.warehouse });
     if (access.role === "owner") items.push({ id: "goals", label: NAV_LABELS.goals });
