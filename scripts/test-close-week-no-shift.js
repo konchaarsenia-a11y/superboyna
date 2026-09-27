@@ -234,6 +234,13 @@ var clickEnd = ui.indexOf("async function refuseFinishWeek");
 var click = clickStart >= 0 && clickEnd > clickStart ? ui.slice(clickStart, clickEnd) : "";
 assert(click.indexOf("directGas: true") === -1, "finish start is not a direct GAS JSONP");
 assert(click.indexOf("FINISH_REAL_LS") >= 0, "UI still marks week closed only after success path");
+var bannerStart = ui.indexOf("async function refreshWeekBannersAsync_");
+var bannerEnd = ui.indexOf("function setFinishWeekUi_");
+var banner = bannerStart >= 0 && bannerEnd > bannerStart ? ui.slice(bannerStart, bannerEnd) : "";
+assert(banner.indexOf("sheetMonIso > String(wk)") >= 0, "closed only when sheet Monday is strictly ahead");
+assert(banner.indexOf("sheetMonIso >= String(wk)") === -1, "Monday morning does not lock the current week");
+assert(banner.indexOf("removeItem(FINISH_REAL_LS") >= 0, "false local closed flag is cleared");
+assert(banner.indexOf('force: "1"') >= 0, "banner state is read from GAS, not a stale snap");
 assert(worker.indexOf("getFinishWeekStatus") >= 0, "worker knows finish status");
 assert(worker.indexOf("week_finish_started") >= 0, "worker does not resync D1 on mere start");
 
