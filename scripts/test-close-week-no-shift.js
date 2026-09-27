@@ -210,6 +210,33 @@ assert(fin.indexOf("prevMondayIso") >= 0, "GAS returns prevMondayIso");
 assert(fin.indexOf("calendarUnchanged") >= 0, "GAS flags calendar unchanged");
 assert(fin.indexOf("Календарь_Дат") === -1 || fin.indexOf("НЕ сдвигаем") >= 0, "finish does not rewrite calendar dates");
 
+var hStart = gs.indexOf("function handleFinishFullWeek");
+var hEnd = gs.indexOf("function handleRepairWeekMonday");
+var hFin = hStart >= 0 && hEnd > hStart ? gs.slice(hStart, hEnd) : "";
+assert(hFin.indexOf("finishFullWeekProduction") === -1, "HTTP finish does not run production inline");
+assert(hFin.indexOf("week_finish_started") >= 0, "HTTP finish returns async start");
+assert(hFin.indexOf("week_finish_busy") >= 0, "second start is busy, not another close");
+assert(hFin.indexOf("deleteProperty(finishWeekLockKey_") >= 0, "stuck WEEK_FINISHED cleared only when sheet not advanced");
+assert(gs.indexOf("function runScheduledFinishWeek_") >= 0, "scheduled runner exists");
+var runStart = gs.indexOf("function runScheduledFinishWeek_");
+var runEnd = gs.indexOf("function handleGetFinishWeekStatus");
+var runner = runStart >= 0 && runEnd > runStart ? gs.slice(runStart, runEnd) : "";
+assert(runner.indexOf("finishFullWeekProduction") >= 0, "runner performs the close");
+assert(runner.indexOf("weekAlreadyAdvanced_") >= 0, "runner blocks a second +7");
+assert(gs.indexOf("week_finish_stale") >= 0, "stale job expires without moving the sheet");
+assert(gs.indexOf("getFinishWeekStatus") >= 0, "status action exists");
+
+assert(ui.indexOf("getFinishWeekStatus") >= 0, "UI polls finish status");
+assert(ui.indexOf("week_finish_started") >= 0, "UI waits on async start");
+assert(ui.indexOf("timeoutMs: 35000") >= 0, "finish start has a short timeout");
+var clickStart = ui.indexOf("async function onFinishWeekClick");
+var clickEnd = ui.indexOf("async function refuseFinishWeek");
+var click = clickStart >= 0 && clickEnd > clickStart ? ui.slice(clickStart, clickEnd) : "";
+assert(click.indexOf("directGas: true") === -1, "finish start is not a direct GAS JSONP");
+assert(click.indexOf("FINISH_REAL_LS") >= 0, "UI still marks week closed only after success path");
+assert(worker.indexOf("getFinishWeekStatus") >= 0, "worker knows finish status");
+assert(worker.indexOf("week_finish_started") >= 0, "worker does not resync D1 on mere start");
+
 assert(ui.indexOf("restoreFromMonday") >= 0, "UI finish asks Worker restore");
 assert(ui.indexOf("restoreShifted") >= 0, "UI resync restores shifted rows");
 assert(ui.indexOf("repairDetachedWeekSlots") >= 0, "UI resync reattaches detached slots");

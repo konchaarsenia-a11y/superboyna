@@ -681,7 +681,7 @@ async function resolveActor_(params, env) {
 
 const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry)$/i;
 const AUTH_OWNER_RE = new RegExp(
-  "^(setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|finishFullWeek[A-Za-z]*|repairWeekMonday|" +
+  "^(setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
@@ -12846,6 +12846,15 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
 }
 
 async function handleCutover_(a, params, env, ctx) {
+  // Статус переноса недели — только чтение Script Property, без D1-resync и без закрытия.
+  if (a === "getFinishWeekStatus") {
+    const live = await gasProxy_("getFinishWeekStatus", params || {}, env, { write: false });
+    if (!live || typeof live !== "object") {
+      return { status: "error", message: "gas_proxy_failed", action: a, cutover: true };
+    }
+    live.cutover = true;
+    return live;
+  }
   // Опасные действия: пускаем при allowDanger=1 ИЛИ confirm=1
   // (старый UI на Pages мог не слать allowDanger → cutover_danger_blocked)
   if (
@@ -13375,6 +13384,14 @@ async function handleCutover_(a, params, env, ctx) {
       }
     }
     const proxiedFin = await gasProxy_(a, gasFinParams, env, { write: true });
+    // Старт только ставит триггер. D1 не трогаем, пока перенос реально не закончится.
+    if (proxiedFin && /week_finish_started|week_finish_busy/i.test(String(proxiedFin.message || ""))) {
+      proxiedFin.cutover = true;
+      proxiedFin.sandbox = false;
+      proxiedFin.weekCloseAsync = true;
+      proxiedFin.d1ResyncStarted = false;
+      return proxiedFin;
+    }
     const okFin =
       proxiedFin &&
       (proxiedFin.status === "success" ||
