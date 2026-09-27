@@ -1499,7 +1499,7 @@ function runScheduledFinishWeek_() {
     var a1Key = isoDayKeyMinsk_(a1, tz);
     var calKey = currentWeekKeyServer_();
     var props = PropertiesService.getScriptProperties();
-    if (weekAlreadyAdvanced_(ss) || (a1Key && props.getProperty(finishWeekLockKey_(a1Key)) === "1")) {
+    if (weekAlreadyAdvanced_(ss)) {
       job.state = "error";
       job.message = "week_already_finished";
       job.tip = "Понедельник листа уже " + a1Key + " (неделя с " + calKey + "). Повторно не закрывали.";
@@ -1508,6 +1508,10 @@ function runScheduledFinishWeek_() {
       job.finishedAt = new Date().toISOString();
       writeFinishWeekJob_(job);
       return;
+    }
+    if (a1Key && props.getProperty(finishWeekLockKey_(a1Key)) === "1") {
+      // Флаг «уже закрыто» без сдвига понедельника — снимаем и закрываем по-настоящему. Лист здесь ещё не двигаем.
+      try { props.deleteProperty(finishWeekLockKey_(a1Key)); } catch (eStuck) {}
     }
     var result = finishFullWeekProduction(ss, {
       silent: true,
@@ -1632,84 +1636,70 @@ function handleFinishFullWeek(json, callback, fromPost) {
     var forbid = { status: "error", message: "owner_only" };
     return replyFinishWeek_(callback, fromPost, forbid);
   }
+  // Только запись задания. Таблицу и триггер здесь не трогаем: это держало HTTP >30с,
+  // клиент видел «Таймаут ответа сервера», а кнопка предлагала нажать ещё раз.
+  var existing = readFinishWeekJob_();
+  if (finishWeekJobActive_(existing)) {
+    return replyFinishWeek_(callback, fromPost, {
+      status: "accepted",
+      message: "week_finish_busy",
+      tip: "Перенос уже запущен. Подождите, второй раз неделю не сдвинет.",
+      state: existing.state,
+      ageSec: Math.round(finishWeekJobAgeMs_(existing) / 1000)
+    });
+  }
   var lock = LockService.getScriptLock();
+  var got = false;
   try {
-    lock.waitLock(15000);
-  } catch (eLock) {
-    var busyLock = { status: "error", message: "week_finish_busy", tip: "Закрытие уже идёт — подожди и не нажимай повторно." };
-    return replyFinishWeek_(callback, fromPost, busyLock);
+    lock.waitLock(3000);
+    got = true;
+  } catch (eLock) {}
+  if (!got) {
+    existing = readFinishWeekJob_();
+    if (finishWeekJobActive_(existing)) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "accepted",
+        message: "week_finish_busy",
+        tip: "Перенос уже запущен. Подождите, второй раз неделю не сдвинет.",
+        state: existing.state
+      });
+    }
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "week_finish_schedule_failed",
+      tip: "Сервер занят другим заданием. Неделя не закрыта и не сдвинута. Повторите через минуту."
+    });
   }
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
-    var a1 = sheetMondayDateObj_(ss);
-    var a1Key = isoDayKeyMinsk_(a1, tz);
-    var calKey = currentWeekKeyServer_();
-    var props = PropertiesService.getScriptProperties();
-    if (weekAlreadyAdvanced_(ss)) {
-      var advanced = {
-        status: "error",
-        message: "week_already_finished",
-        tip: "Понедельник листа уже " + a1Key + " (текущая неделя с " + calKey + "). Повторно закрывать нельзя.",
-        sheetMonday: a1Key,
-        calendarMonday: calKey
-      };
-      return replyFinishWeek_(callback, fromPost, advanced);
-    }
-    var clearedStuck = false;
-    if (a1Key && props.getProperty(finishWeekLockKey_(a1Key)) === "1") {
-      // Флаг «уже закрыто» есть, а понедельник не уехал вперёд — лок залип, лист не трогаем здесь.
-      try { props.deleteProperty(finishWeekLockKey_(a1Key)); } catch (eClr) {}
-      clearedStuck = true;
-    }
-    var existing = readFinishWeekJob_();
+    existing = readFinishWeekJob_();
     if (finishWeekJobActive_(existing)) {
-      var busy = {
+      return replyFinishWeek_(callback, fromPost, {
         status: "accepted",
         message: "week_finish_busy",
         tip: "Перенос уже запущен. Подождите, второй раз неделю не сдвинет.",
         state: existing.state,
         ageSec: Math.round(finishWeekJobAgeMs_(existing) / 1000)
-      };
-      return replyFinishWeek_(callback, fromPost, busy);
+      });
     }
     var job = {
       state: "queued",
       startedAt: new Date().toISOString(),
       weekKey: String(json.weekKey || "").trim(),
-      a1Key: a1Key,
-      calendarMonday: calKey,
       tid: tid,
-      skipWarehouseClose: finishWeekSkipWarehouse_(json),
-      clearedStuckLock: clearedStuck
+      skipWarehouseClose: finishWeekSkipWarehouse_(json)
     };
-    try {
-      writeFinishWeekJob_(job);
-      scheduleFinishWeekTrigger_();
-    } catch (eSch) {
-      try {
-        job.state = "error";
-        job.message = "week_finish_schedule_failed";
-        job.finishedAt = new Date().toISOString();
-        writeFinishWeekJob_(job);
-      } catch (eSave) {}
-      return replyFinishWeek_(callback, fromPost, {
-        status: "error",
-        message: "week_finish_schedule_failed",
-        tip: "Не удалось запустить перенос. Неделя не закрыта. " + String(eSch).slice(0, 160)
-      });
-    }
+    writeFinishWeekJob_(job);
     return replyFinishWeek_(callback, fromPost, {
       status: "accepted",
       message: "week_finish_started",
-      tip: "Перенос запущен. Это займёт пару минут, кнопку второй раз не нажимайте.",
-      sheetMonday: a1Key,
-      calendarMonday: calKey,
-      clearedStuckLock: clearedStuck
+      tip: "Перенос поставлен в очередь. Кнопку второй раз не нажимайте. Это займёт пару минут."
     });
   } catch (err) {
-    var fail = { status: "error", message: String(err).slice(0, 300) };
-    return replyFinishWeek_(callback, fromPost, fail);
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "week_finish_schedule_failed",
+      tip: "Не удалось поставить перенос в очередь. Неделя не закрыта. " + String(err).slice(0, 160)
+    });
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}
   }
@@ -30558,6 +30548,14 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
 
 /** Раз в ~1 мин: отправить TG-напоминания (абсолютное время remindAtMs). */
 function tickDeferredReminders_() {
+  // Закрытие недели: HTTP только пишет задание. Тяжёлую работу делает этот минутный триггер, не веб-запрос.
+  try {
+    var finJob = readFinishWeekJob_();
+    if (finJob && String(finJob.state || "") === "queued") {
+      runScheduledFinishWeek_();
+      return;
+    }
+  } catch (eFinJob) {}
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return;
   try {
