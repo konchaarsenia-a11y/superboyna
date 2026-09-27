@@ -156,6 +156,31 @@ html, body {
   min-width: 0;
 }
 
+.nx .b-top__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nx-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.nx-bar {
+  height: 10px;
+  background: var(--b-surface-2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.nx-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--b-warn);
+}
+
 .nx-line {
   display: flex;
   align-items: center;
