@@ -468,6 +468,7 @@
     dock: dock,
     busy: busy,
     toast: toast,
+    hideToast: hideToast,
     openSheet: openSheet,
     replaceTop: replaceTop,
     closeTop: closeTop,

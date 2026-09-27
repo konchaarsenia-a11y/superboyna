@@ -247,12 +247,23 @@
     price.baskets[price.activeDog] = list;
   }
 
+  function lineUnit(it) {
+    var name = it.main || it.name || "";
+    if (eng() && eng().unitForItem) return eng().unitForItem(it.cat, name);
+    return it.cat === "chew" ? "шт" : "гр";
+  }
+
+  function lineTitle(it) {
+    var raw = it.main || it.name || "";
+    var name = (eng() && eng().prettyProductName) ? eng().prettyProductName(raw) : raw;
+    var sub = String(it.sub || "").trim();
+    return name + (sub ? " · " + sub : "");
+  }
+
   function lineHtml(it, i) {
-    var name = (eng() && eng().prettyProductName) ? eng().prettyProductName(it.main || it.name) : (it.main || it.name || "");
-    var sub = it.sub ? " · " + it.sub : "";
     var val = it.val != null ? it.val : it.value;
     return '<div class="b-row" style="margin-top:6px">' +
-      '<span class="b-grow">' + esc(name + sub + " · " + (val || 0)) + "</span>" +
+      '<span class="b-grow">' + esc(lineTitle(it) + " · " + (val || 0) + " " + lineUnit(it)) + "</span>" +
       '<button type="button" class="b-chip" data-act="cl-del-line" data-i="' + i + '">Удалить</button></div>';
   }
 
@@ -605,9 +616,18 @@
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-clear">Очистить</button>'
     );
     if (pick.result && pick.result.items) {
+      var lastCat = "";
       pick.result.items.forEach(function (it, i) {
+        var cat = it.cat === "dressura" ? "Дрессура" : (it.cat === "chew" ? "Жевалки" : (it.cat === "veg" ? "Овощи-Фрукты" : (it.cat === "crumb" ? "Крошки" : "Другое")));
+        if (cat !== lastCat) {
+          html += '<p class="b-lbl">' + esc(cat) + "</p>";
+          lastCat = cat;
+        }
         var val = it.val != null ? it.val : it.value;
-        html += '<div class="b-row" style="margin-top:6px"><span class="b-grow">' + esc((it.main || it.name) + " · " + (it.sub || "") + " · " + val) + "</span>" +
+        var sub = String(it.sub || "").trim();
+        html += '<div class="b-row" style="margin-top:6px"><span class="b-grow"><span class="b-li__title">' + esc(it.main || it.name || "") + "</span>" +
+          (sub ? '<span class="b-li__sub">' + esc(sub) + "</span>" : "") +
+          '<span class="b-li__sub">' + esc(String(val == null ? "" : val) + " " + lineUnit(it)) + "</span></span>" +
           '<button type="button" class="b-chip" data-act="cl-pick-del" data-i="' + i + '">Удалить</button></div>';
       });
       if (pick.text) html += '<article class="b-card" style="margin-top:12px;white-space:pre-wrap">' + esc(pick.text) + "</article>";
@@ -866,6 +886,7 @@
     view = "card";
     deep = false;
     await loadPeople();
+    sh().hideToast();
     paint();
     } catch (eCard) {
       sh().toast((eCard && eCard.message) || "Не открылось");

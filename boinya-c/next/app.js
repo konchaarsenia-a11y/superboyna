@@ -78,6 +78,10 @@
       var mode = root.__boinyaCBadgeLabel || "";
       return [who, role, mode].filter(Boolean).join(" · ");
     }
+    if (route.tab === "clients") {
+      var cl = { pp: "ПП", afk: "АФК", bp: "БП", survey: "Опросник", calc: "Расчёт", pick: "Подбор" };
+      return cl[route.seg] || "Клиенты";
+    }
     if (ax().isSimple(access)) return ax().ROLE_RU[access.role] || "";
     return "Этот раздел пока в старой версии";
   }
