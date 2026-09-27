@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116015";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116016";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15817,7 +15817,7 @@
         _weekBannerInflight = (async function () {
           try {
             var st = await apiGet(
-              { action: "getWeekBannerState", weekKey: wk },
+              { action: "getWeekBannerState", weekKey: wk, force: "1" },
               { timeoutMs: soft ? 10000 : 12000, retries: soft ? 0 : 1 }
             );
             _weekBannerFetchedAt = Date.now();
@@ -15834,9 +15834,10 @@
             }
           } catch (eGet) {
             if (!_weekBannerFetchedAt) {
+              // Не брать «уже закрыто» из localStorage: пн-утро писало его, когда лист ещё на этой неделе.
               _weekBannerState = {
-                finished: localStorage.getItem(FINISH_REAL_LS + wk) === "1",
-                pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
+                finished: false,
+                pulled: false,
                 refused: false,
                 weekKey: wk
               };
@@ -15854,9 +15855,8 @@
       var hidden = localStorage.getItem(FINISH_HIDE_LS + wk) === "1";
       var refused = refuseSnoozeActive_(wk);
 
-      // Пн утро: лист уже на календарном Пн (только что закрыли) → считать закрытой,
-      // даже если кто-то снёс серверный finished:0 в том же окне. Не на вс — иначе
-      // кнопка «Завершить» не появится всю неделю (лист Пн == weekKey).
+      // Понедельник листа. Равен текущей неделе и до закрытия, и в пн после закрытия.
+      // «Уже закрыто» только если он СТРОГО впереди календаря (сдвиг +7 уже случился).
       var sheetMonIso = "";
       try {
         var cntItems =
@@ -15878,40 +15878,19 @@
           }
         }
       } catch (eAdv) {}
-      if (
-        isMondayMorning() &&
-        sheetMonIso &&
-        wk &&
-        sheetMonIso >= String(wk) &&
-        !realClosed
-      ) {
+      var sheetAhead = !!(sheetMonIso && wk && sheetMonIso > String(wk));
+      // Ложный «уже закрыли» с пн-утра (лист == календарный Пн) прятал кнопку всю неделю.
+      // Сервер говорит finished:false и понедельник не уехал — флаги в браузере снимаем, лист не трогаем.
+      if (_weekBannerFetchedAt && !_weekBannerState.finished && !sheetAhead) {
         try {
-          localStorage.setItem(FINISH_REAL_LS + wk, "1");
-          localStorage.setItem(FINISH_DONE_LS + wk, "1");
-          localStorage.setItem(FINISH_HIDE_LS + wk, "1");
-          localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-        } catch (eLsAdv) {}
+          localStorage.removeItem(FINISH_REAL_LS + wk);
+          localStorage.removeItem(FINISH_HIDE_LS + wk);
+          localStorage.removeItem(FINISH_DONE_LS + wk);
+        } catch (eClrFin) {}
+        realClosed = false;
+        hidden = false;
+      } else if (sheetAhead) {
         realClosed = true;
-        var needHealBanner = !_weekBannerState.finished;
-        if (needHealBanner) {
-          _weekBannerState.finished = true;
-          _weekBannerState.pulled = true;
-          _weekBannerState.weekKey = wk;
-          // Восстановить серверный баннер, если его снёс старый wipe
-          try {
-            apiGet(
-              {
-                action: "setWeekBannerState",
-                weekKey: wk,
-                finished: "1",
-                pulled: "1",
-                telegramId: String(myTelegramId || ""),
-                _: String(Date.now())
-              },
-              { timeoutMs: 12000, cacheTtlMs: 0 }
-            ).catch(function () {});
-          } catch (eRest) {}
-        }
       }
 
       // Старый wipe: в окне вс/пн при canFinish слал finished:0 и сносил баннер
