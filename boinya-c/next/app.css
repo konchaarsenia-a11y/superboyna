@@ -1,0 +1,188 @@
+/* Раскладка next.html поверх токенов ds.css. Новых цветов и кеглей нет. */
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--b-bg);
+  color: var(--b-text);
+}
+
+.nx {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--b-bg);
+}
+
+.nx-main {
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--b-sp16) var(--b-sp16);
+}
+
+.nx-dock {
+  background: var(--b-bg);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nx-nav--6 .b-nav__lbl {
+  letter-spacing: -0.05em;
+  transform: scale(0.8);
+  transform-origin: center top;
+  white-space: nowrap;
+}
+
+.nx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, black 60%, transparent);
+}
+
+.nx-scrim[hidden],
+.nx-toast-wrap[hidden],
+.nx-gate[hidden],
+.b-busy[hidden],
+.nx-dock[hidden],
+.b-nav[hidden] {
+  display: none !important;
+}
+
+.nx-sheet {
+  width: 100%;
+  max-height: 92dvh;
+  overflow: auto;
+  box-shadow: 0 -12px 40px color-mix(in srgb, black 45%, transparent);
+}
+
+.nx-toast-wrap {
+  position: fixed;
+  left: var(--b-sp16);
+  right: var(--b-sp16);
+  bottom: 96px;
+  z-index: 50;
+}
+
+.nx-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--b-bg);
+  padding: var(--b-sp32) var(--b-sp16);
+  overflow: auto;
+}
+
+.nx-suggest {
+  margin-top: var(--b-sp8);
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r3);
+  overflow: hidden;
+}
+
+.nx-suggest button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--b-text);
+  border: 0;
+  border-bottom: 1px solid var(--b-line);
+  padding: var(--b-sp12);
+  font: inherit;
+  cursor: pointer;
+}
+
+.nx-suggest button:last-child {
+  border-bottom: 0;
+}
+
+.nx-fold {
+  margin-top: var(--b-sp8);
+}
+
+.nx-pair {
+  display: flex;
+  gap: var(--b-sp8);
+}
+
+.nx-pair > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.nx-line {
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+  padding: var(--b-sp12) 0;
+  border-bottom: 1px solid var(--b-line);
+}
+
+.nx-line:last-child {
+  border-bottom: 0;
+}
+
+.nx-cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--b-sp4);
+}
+
+.nx-cal button {
+  height: 40px;
+  border-radius: var(--b-r2);
+  border: 0;
+  background: var(--b-surface-2);
+  color: var(--b-text);
+  font: inherit;
+  font-size: var(--b-f14);
+  cursor: pointer;
+}
+
+.nx-cal button[aria-pressed="true"] {
+  background: var(--b-text);
+  color: var(--b-bg);
+}
+
+.nx-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--b-text);
+  font: inherit;
+  font-size: var(--b-f14);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+select.b-field__input {
+  color: var(--b-text);
+}
+
+textarea.b-field__input {
+  min-height: 96px;
+  padding: var(--b-sp8) 0;
+  resize: vertical;
+}
+
+.b-field--area {
+  height: auto;
+  align-items: stretch;
+}
+
+.nx-actions {
+  display: flex;
+  gap: var(--b-sp8);
+}
+
+.nx-actions .b-btn {
+  flex: 1;
+}
+
+.b-mark {
+  padding-left: 0;
+  padding-right: 0;
+}
