@@ -2491,6 +2491,7 @@ var ASM_CHEW_PER_BIG = 4;
     setFetchPpCalcPrice: setFetchPpCalcPrice,
     useQuote: useQuote,
     getPricePpCoef: getPricePpCoef,
+    buildAssemblyPacksLocal: buildAssemblyPacksLocal,
     recountPacks: function (list) {
       _list = list || [];
       priceMode = "pp";
