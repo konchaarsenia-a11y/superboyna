@@ -34,6 +34,15 @@ html, body {
   text-align: center;
 }
 
+.nx .b-top.b-top--tight {
+  gap: 6px;
+}
+
+.nx .b-top.b-top--tight .b-ib {
+  width: 36px;
+  height: 36px;
+}
+
 .nx-main,
 .b-card,
 .b-sheet,
@@ -265,4 +274,36 @@ textarea.b-field__input {
 
 .nx-dim {
   opacity: 0.72;
+}
+
+.nx-wh-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 0.7fr);
+  gap: 6px 8px;
+  align-items: start;
+}
+
+.nx-wh-head {
+  margin-top: 8px;
+  font-size: var(--b-f12);
+  color: var(--b-text-3);
+}
+
+.nx-wh-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--b-line);
+  font-size: var(--b-f14);
+}
+
+.nx-wh-short {
+  background: color-mix(in srgb, var(--b-bad) 12%, transparent);
+}
+
+.nx-wh-short b {
+  color: var(--b-bad);
+}
+
+#whViewWeekBtn[aria-pressed="true"] {
+  background: var(--b-text);
+  color: var(--b-bg);
 }

@@ -141,6 +141,30 @@
     actHandler = fn;
   }
 
+  var fitGen = 0;
+  function fitHeaderTitle() {
+    var gen = ++fitGen;
+    var sizes = ["", "var(--b-f16)", "var(--b-f14)", "var(--b-f12)"];
+    function run() {
+      if (gen !== fitGen) return;
+      var top = el("nxTop");
+      var title = top && top.querySelector(".b-top__title");
+      if (!title) return;
+      function pass(tight) {
+        top.classList.toggle("b-top--tight", !!tight);
+        var i;
+        for (i = 0; i < sizes.length; i++) {
+          title.style.fontSize = sizes[i];
+          if (title.scrollWidth <= title.clientWidth + 1) return true;
+        }
+        return false;
+      }
+      if (!pass(false)) pass(true);
+    }
+    run();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(run);
+  }
+
   function chrome(opts) {
     opts = opts || {};
     var bell = "";
@@ -158,6 +182,7 @@
       '<button class="b-ib" type="button" data-act="help" aria-label="Справка">' + ico("info", "b-ico b-ico--20") + "</button>" +
       '<button class="b-ib" type="button" data-act="menu" aria-label="Меню">' + ico("dots", "b-ico b-ico--20") + "</button>" +
       bell;
+    fitHeaderTitle();
     var nav = el("nxNav");
     var items = opts.nav || [];
     if (!items.length) {
