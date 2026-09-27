@@ -8136,6 +8136,21 @@ async function rebuildMonthOverview_(env, monthWanted) {
   return body;
 }
 
+/**
+ * Уже введённый ПП не затирать дефолтом 1.
+ * «2/2» + входящий «1/2» → оставляем 2. Пустой входящий не стирает слот.
+ * Входящий 2 поверх пустого или 1 — берём входящий (лист сказал 2).
+ */
+function keepExplicitPpSlotLabel_(stored, incoming) {
+  const storedN = parseForcedPpSlotD1_(stored, 4);
+  const incomingN = parseForcedPpSlotD1_(incoming, 4);
+  if (storedN >= 2 && incomingN === 1) return sanitizePpSlotLabel_(stored) || String(stored);
+  if (storedN >= 1 && !(incomingN >= 1)) return sanitizePpSlotLabel_(stored) || String(stored);
+  if (incomingN >= 1) return sanitizePpSlotLabel_(incoming) || String(incoming);
+  if (storedN >= 1) return sanitizePpSlotLabel_(stored) || String(stored);
+  return "";
+}
+
 async function enrichCourierClientPp_(c, env, dateIso) {
   if (!c) return c;
   const seg = normalizeSegmentLabel_(c.segment || "");
@@ -8150,7 +8165,9 @@ async function enrichCourierClientPp_(c, env, dateIso) {
       if (sub && sub.found) deliveriesN = Math.max(1, Number(sub.deliveries) || 1);
     } catch (eSub) {}
   }
-  if (!deliverySlot && ppSlot) deliverySlot = parseForcedPpSlotD1_(ppSlot, deliveriesN || 2);
+  // явный «2/2» важнее залипшего deliverySlot=1 (иначе бейдж становится ПП 1)
+  const explicitSlot = parseForcedPpSlotD1_(ppSlot, deliveriesN >= 1 ? deliveriesN : 4);
+  if (explicitSlot >= 1) deliverySlot = explicitSlot;
   if (!deliverySlot && dateIso && c.matchKey) {
     try {
       const stored = await lookupStoredPpSlotDateD1_(env, c.name, c.matchKey, dateIso);
@@ -17079,6 +17096,11 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       }
     } catch (eLeft) {
       leftover = leftover || null;
+    }
+    if ((opts.forceShrink === true || opts.allowEmptyGasWipe === true) && leftover) {
+      const prevMetaPp = parseMeta_(leftover.meta_json);
+      const keptPp = keepExplicitPpSlotLabel_(prevMetaPp && prevMetaPp.ppSlot, c.ppSlot);
+      if (keptPp) c.ppSlot = keptPp;
     }
     const meta = parseMeta_(
       orderMetaJsonFromClient_(
