@@ -1,0 +1,387 @@
+/* Лист «Задачи»: те же разделы, что ☰ в старом приложении, и те же запросы. */
+(function (root) {
+  "use strict";
+
+  var items = [];
+  var filter = "all";
+  var access = null;
+
+  function sh() { return root.BoinyaShell; }
+  function api() { return root.BoinyaApi; }
+  function ax() { return root.BoinyaAccess; }
+  function L() { return root.BoinyaWeekLogic; }
+  function esc(s) { return sh().esc(s); }
+
+  function tid() {
+    try {
+      var u = api().telegramUser();
+      return String((u && u.id) || localStorage.getItem("superboyna_tg_id") || "");
+    } catch (e) { return ""; }
+  }
+
+  function allowed(sub) {
+    if (!access) return false;
+    if (access.role === "owner") return true;
+    return ax().tabHas(access, "deferredScreen." + sub) || ax().tabHas(access, "deferredScreen");
+  }
+
+  function openItems() {
+    return (items || []).filter(function (it) {
+      return String((it && it.status) || "open").toLowerCase() === "open";
+    });
+  }
+
+  function bucket(sub) {
+    return openItems().filter(function (it) { return L().tasksSub(it) === sub; });
+  }
+
+  function filters() {
+    var all = [
+      { id: "all", label: "Все" },
+      { id: "xfer", label: "Переносы" },
+      { id: "buy", label: "Дозакуп" },
+      { id: "orders", label: "Заказы" },
+      { id: "pp", label: "ПП/БП" },
+      { id: "remind", label: "Напоминания" }
+    ];
+    return all.filter(function (f) { return f.id === "all" || allowed(f.id); });
+  }
+
+  function visible() {
+    if (filter === "all") {
+      return openItems().filter(function (it) { return allowed(L().tasksSub(it)); });
+    }
+    return bucket(filter);
+  }
+
+  function row(it) {
+    var sub = L().tasksSub(it);
+    var subRu = { xfer: "Перенос", buy: "Дозакуп", orders: "Заказ", pp: "ПП/БП", remind: "Напоминание" }[sub] || sub;
+    var title = it.title || it.client || it.mode || "Задача";
+    var when = it.remindAt || (it.payload && it.payload.remindAt) || "";
+    return '<button type="button" class="b-li" data-act="task-open" data-id="' + esc(it.id) + '">' +
+      '<span class="b-li__body"><span class="b-li__title">' + esc(title) + "</span>" +
+      '<span class="b-li__sub">' + esc(subRu + (when ? " · " + when : "")) + "</span></span>" +
+      '<span class="b-li__chev">Открыть</span></button>';
+  }
+
+  function paintSheet() {
+    var chips = filters().map(function (f) {
+      var n = f.id === "all" ? visible().length : bucket(f.id).length;
+      var on = filter === f.id ? " b-chip--on" : "";
+      return '<button type="button" class="b-chip' + on + '" data-act="task-filter" data-f="' + f.id + '">' + esc(f.label) + " " + n + "</button>";
+    }).join("");
+    var list = visible();
+    var body = list.length
+      ? '<div class="b-list">' + list.map(row).join("") + "</div>"
+      : '<p class="b-note">Открытых задач в этом фильтре нет.</p>';
+    var add = allowed("remind")
+      ? '<button type="button" class="b-btn b-btn--sec" data-act="task-add" style="margin-bottom:12px">+ Напоминалка</button>'
+      : "";
+    sh().replaceTop({
+      title: "Задачи · " + list.length,
+      html: add + '<div class="b-row" style="margin-bottom:12px">' + chips + "</div>" + body +
+        '<p class="b-note">Тап по строке — действия. Фильтры видны по правам в Доступах.</p>'
+    });
+  }
+
+  async function refresh() {
+    var res = await api().apiGet({
+      action: "listDeferred",
+      telegramId: tid(),
+      status: "open",
+      light: "1",
+      force: "1",
+      _: String(Date.now())
+    }, { timeoutMs: 12000, cacheTtlMs: 0 });
+    items = (res && res.items) || [];
+    try {
+      var idle = await api().apiGet({ action: "listBpIdle", days: "7", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      var extra = (idle && (idle.idle || idle.items)) || [];
+      var seen = {};
+      items.forEach(function (it) { seen[String(it.id)] = true; });
+      extra.forEach(function (it) {
+        var id = "bpidle:" + String(it.nick || it.label || it.id || "");
+        if (seen[id]) return;
+        items.unshift({
+          id: id,
+          mode: "bp_idle",
+          title: "БП2 простой >7д",
+          nick: it.nick || "",
+          client: it.nick || "",
+          status: "open",
+          note: it.note || it.wishes || ""
+        });
+      });
+    } catch (eIdle) {}
+    if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
+      return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
+    }).length);
+  }
+
+  function bind(acc) { access = acc; }
+
+  async function open(acc) {
+    access = acc;
+    filter = "all";
+    sh().openSheet({ title: "Задачи", html: sh().skeleton(3) });
+    try { await refresh(); } catch (e) { items = []; }
+    paintSheet();
+  }
+
+  async function actions(id) {
+    var it = null;
+    for (var i = 0; i < items.length; i++) if (String(items[i].id) === String(id)) it = items[i];
+    if (!it) return;
+    var sub = L().tasksSub(it);
+    var pl = it.payload || {};
+    var buttons = "";
+    var mode = L().deferredMode(it);
+    if (sub === "xfer") {
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-day" data-id="' + esc(id) + '">Открыть день</button>';
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-move" data-id="' + esc(id) + '" style="margin-top:8px">Перенести</button>';
+    }
+    if (mode === "partner") {
+      var st = String(pl.orderStatus || "new").toLowerCase();
+      var needSlot = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+      var po = esc(pl.partnerOrderId || "");
+      if (needSlot) {
+        buttons += '<a class="b-btn b-btn--main" href="app.html">Назначить дату</a>';
+      } else {
+        if (st !== "in_transit" && st !== "delivered") {
+          buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-transit" data-id="' + esc(id) + '" data-po="' + po + '">В пути</button>';
+        }
+        if (st !== "delivered") {
+          buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-delivered" data-id="' + esc(id) + '" data-po="' + po + '" style="margin-top:8px">Доставлено</button>';
+        }
+      }
+    } else if (sub === "orders") {
+      buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-resume" data-id="' + esc(id) + '">Открыть</button>';
+    }
+    if (mode === "bp_idle" || String(id).indexOf("bpidle:") === 0) {
+      buttons += '<a class="b-btn b-btn--sec" href="app.html">Открыть БП</a>';
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-hide-idle" data-id="' + esc(id) + '" style="margin-top:8px">Скрыть</button>';
+    } else if (sub === "pp") {
+      buttons += '<a class="b-btn b-btn--sec" href="app.html">Править в расчёте</a>';
+      buttons += '<a class="b-btn b-btn--sec" href="app.html" style="margin-top:8px">Внести</a>';
+    }
+    if (sub === "buy") {
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-buy" data-id="' + esc(id) + '">Собрать сообщение дозакупа</button>';
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-buy-refresh" style="margin-top:8px">Обновить дефицит</button>';
+    }
+    var idle = mode === "bp_idle" || String(id).indexOf("bpidle:") === 0;
+    if (!idle && mode !== "partner" && (sub === "orders" || sub === "pp")) {
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-remind" data-id="' + esc(id) + '" style="margin-top:8px">Напомнить</button>';
+    }
+    if (!idle) {
+      var cancelLabel = mode === "partner" ? "Скрыть" : (sub === "remind" ? "Готово" : ((sub === "xfer" || sub === "buy") ? "Закрыть" : "Отменить"));
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-cancel" data-id="' + esc(id) + '" style="margin-top:8px">' + cancelLabel + "</button>";
+    }
+    sh().openSheet({
+      title: it.title || "Задача",
+      html: '<p class="b-note" style="margin-top:0">' + esc(it.note || it.client || "") + "</p>" + buttons
+    });
+  }
+
+  async function cancel(id) {
+    var ok = await sh().confirm({ title: "Убрать из задач", text: "Убрать из задач?", ok: "Убрать", cancel: "Отмена" });
+    if (!ok) return;
+    var res = await api().apiGet({ action: "cancelDeferred", telegramId: tid(), id: id, _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    sh().toast(L().peopleToast(res, "убрано"));
+    await refresh();
+    sh().closeTop("ok");
+    paintSheet();
+  }
+
+  async function remind(id) {
+    var choice = await sh().choice({
+      title: "Когда напомнить?",
+      text: "Время по часам телефона.",
+      options: [
+        { value: "1h", label: "Через 1 час" },
+        { value: "3h", label: "Через 3 часа" },
+        { value: "tomorrow10", label: "Завтра в 10:00" }
+      ]
+    });
+    if (!choice) return;
+    var when = new Date();
+    if (choice === "1h") when = new Date(Date.now() + 3600000);
+    else if (choice === "3h") when = new Date(Date.now() + 3 * 3600000);
+    else { when.setDate(when.getDate() + 1); when.setHours(10, 0, 0, 0); }
+    var res = await api().apiPost({
+      action: "setDeferredReminder",
+      telegramId: tid(),
+      id: id,
+      remindAt: when.toISOString(),
+      remindAtMs: String(when.getTime())
+    });
+    sh().toast(L().peopleToast(res, "напоминание"));
+  }
+
+  async function addRemind() {
+    var text = await sh().prompt({ title: "Напоминалка", text: "О чём напомнить?", ok: "Дальше" });
+    if (text == null || !String(text).trim()) return;
+    var when = new Date();
+    when.setDate(when.getDate() + 1);
+    when.setHours(10, 0, 0, 0);
+    var id = "def_" + Date.now().toString(36);
+    var res = await api().apiPost({
+      action: "saveDeferred",
+      telegramId: tid(),
+      id: id,
+      mode: "remind",
+      title: String(text).trim(),
+      status: "open",
+      remindAt: when.toISOString(),
+      remindAtMs: String(when.getTime()),
+      payload: JSON.stringify({ mode: "remind", title: String(text).trim(), remindAt: when.toISOString() })
+    });
+    sh().toast(L().peopleToast(res, "напоминание"));
+    await refresh();
+    paintSheet();
+  }
+
+  async function buyMessage() {
+    sh().toast("Собираю сообщение…");
+    var today = new Date().toISOString().slice(0, 10);
+    var res = await api().apiGet({ action: "composeWarehouseBuyMessage", force: "1", asOf: today, _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
+    var text = res && res.text ? String(res.text) : "";
+    if (!text) { sh().toast("Пусто"); return; }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    } catch (e) {}
+    sh().alert({ title: "Дозакуп", text: text.slice(0, 700) });
+  }
+
+  function onAct(act, node) {
+    if (act === "task-filter") { filter = node.getAttribute("data-f"); paintSheet(); return true; }
+    if (act === "task-open") { actions(node.getAttribute("data-id")); return true; }
+    if (act === "task-cancel") { cancel(node.getAttribute("data-id")); return true; }
+    if (act === "task-remind") { remind(node.getAttribute("data-id")); return true; }
+    if (act === "task-add") { addRemind(); return true; }
+    if (act === "task-resume") {
+      var id = node.getAttribute("data-id");
+      var it = null;
+      for (var i = 0; i < items.length; i++) if (String(items[i].id) === String(id)) it = items[i];
+      sh().closeAll();
+      if (it && root.BoinyaOrders && root.BoinyaOrders.loadDeferred) {
+        root.BoinyaOrders.loadDeferred(it.payload || {}, id);
+        if (root.__nxOpenNew) root.__nxOpenNew();
+      }
+      return true;
+    }
+    if (act === "task-day") {
+      var dayId = node.getAttribute("data-id");
+      var dayIt = null;
+      for (var di = 0; di < items.length; di++) if (String(items[di].id) === String(dayId)) dayIt = items[di];
+      var dayName = dayIt && (dayIt.placedDay || (dayIt.payload && (dayIt.payload.placedDay || dayIt.payload.day))) || "";
+      sh().closeAll();
+      if (root.__nxOpenWeek) root.__nxOpenWeek(dayName);
+      return true;
+    }
+    if (act === "task-transit" || act === "task-delivered") {
+      partnerStatus(node.getAttribute("data-id"), node.getAttribute("data-po"), act === "task-delivered" ? "delivered" : "in_transit");
+      return true;
+    }
+    if (act === "task-hide-idle") {
+      var hideId = String(node.getAttribute("data-id") || "");
+      items = items.filter(function (it) { return String(it.id) !== hideId; });
+      sh().closeTop("ok");
+      paintSheet();
+      if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
+        return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
+      }).length);
+      return true;
+    }
+    if (act === "task-buy") { buyMessage(); return true; }
+    if (act === "task-buy-refresh") {
+      api().apiGet({ action: "warehousePreview", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 }).then(function () {
+        return refresh();
+      }).then(paintSheet);
+      return true;
+    }
+    if (act === "task-move") { moveTransfer(node.getAttribute("data-id")); return true; }
+    return false;
+  }
+
+  async function partnerStatus(id, partnerOrderId, status) {
+    var res = await api().apiGet({
+      action: "partnerSetOrderStatus",
+      telegramId: tid(),
+      deferredId: id || "",
+      partnerOrderId: partnerOrderId || "",
+      id: partnerOrderId || id || "",
+      orderStatus: status,
+      status: status,
+      _: String(Date.now())
+    }, { timeoutMs: 25000, cacheTtlMs: 0 });
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Не обновилось");
+      return;
+    }
+    sh().toast(status === "delivered" ? "Доставлено · партнёру ушло" : "В пути · партнёру ушло");
+    await refresh();
+    sh().closeTop("ok");
+    paintSheet();
+  }
+
+  async function moveTransfer(id) {
+    var it = null;
+    for (var i = 0; i < items.length; i++) if (String(items[i].id) === String(id)) it = items[i];
+    sh().toast("Загрузка переноса…");
+    var res = await api().apiGet({
+      action: "getTransferTask",
+      telegramId: tid(),
+      id: id,
+      client: (it && (it.clientNick || (it.payload && it.payload.client))) || "",
+      _: String(Date.now())
+    }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    if (!res || res.status !== "success" || !res.item) {
+      sh().toast("Задача не найдена");
+      return;
+    }
+    var task = res.item;
+    var p = task.payload || {};
+    var go = await sh().confirm({
+      title: "Перенос · " + (task.clientNick || p.client || ""),
+      text: "Тип: " + (p.segment || "—") + "\nБыл день: " + (p.day || p.date || "—") + "\nПричина: " + (p.reason || "—"),
+      ok: "Перенести на другой день",
+      cancel: "Позже"
+    });
+    if (!go) return;
+    var picked = await sh().prompt({ title: "Дата", text: "Дата ГГГГ-ММ-ДД", value: p.dateIso || p.date || "", ok: "Дальше" });
+    if (!picked) return;
+    var target = await api().apiGet({ action: "resolveDayForDate", date: picked }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    var newDate = (target && (target.newDate || target.date)) || picked;
+    var newDay = (target && (target.dayName || target.day)) || "";
+    if (!newDate) { sh().toast("Не удалось определить дату"); return; }
+    var cut = await sh().confirm({
+      title: "Перенос клиента",
+      text: "Нарезать сырьё на этого клиента в новом дне вместе со всеми?",
+      ok: "Да, резать",
+      alt: "Нет — только перенос",
+      cancel: "Отмена"
+    });
+    if (!cut) return;
+    var placed = await api().apiGet(L().placeTransferParams({
+      telegramId: tid(),
+      id: id,
+      client: task.clientNick || p.client || "",
+      matchKey: p.matchKey || "",
+      address: p.address || "",
+      phone: p.phone || "",
+      note: p.note || "",
+      segment: p.segment || "",
+      newDate: newDate,
+      newDay: newDay,
+      cutRaw: cut === "alt" ? "no" : "yes"
+    }), { timeoutMs: 35000, cacheTtlMs: 0 });
+    sh().toast(L().peopleToast(placed, "перенесено"));
+    if (L().writeAccepted(placed)) {
+      await refresh();
+      sh().closeAll();
+    }
+  }
+
+  root.BoinyaTasks = { open: open, onAct: onAct, refresh: refresh, bind: bind };
+})(window);

@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const outDir = "/opt/cursor/artifacts";
 fs.mkdirSync(outDir, { recursive: true });
@@ -65,7 +66,53 @@ const hook = () => {
       };
     }
     if (a === "listDeferred") {
-      return { status: "success", items: [{ status: "open" }, { status: "open" }, { status: "open" }] };
+      return {
+        status: "success",
+        items: [
+          { id: "d1", status: "open", mode: "order", title: "На потом · Рекс", client: "Рекс", payload: { mode: "order", client: "Рекс", orderType: "pp", baskets: { 1: [], 2: [] } } },
+          { id: "d2", status: "open", mode: "transfer", title: "Перенос · Анна", clientNick: "Анна", payload: { client: "Анна", day: "Среда", reason: "не был дома", segment: "ПП" } },
+          { id: "d3", status: "open", mode: "buy", title: "Дозакуп · Лёгкое", payload: { name: "Лёгкое", needRaw: 2, available: 0 } },
+          { id: "d4", status: "open", mode: "remind", title: "Позвонить Рексу", remindAt: "завтра 10:00" }
+        ]
+      };
+    }
+    if (a === "listBpIdle") return { status: "success", idle: [{ nick: "Барс", note: "нет контакта 8 дней" }] };
+    if (a === "getWeekBannerState") return { status: "success", finished: false, pulled: false };
+    if (a === "getViewCompare" || a === "getClients") {
+      var sample = {
+        name: "Рекс · Анна",
+        segment: "ПП",
+        address: "Сурганова 57Б",
+        phone: "+375 29 111-22-33",
+        note: "домофон 12",
+        deliverySlot: 1,
+        deliveriesN: 2,
+        orderPrice: 43,
+        basket: [{ name: "Лёгкое", val: 200, cat: "dressura" }]
+      };
+      if (a === "getClients") return { status: "success", clients: [sample] };
+      if (params && params.date && !params.day) {
+        return { status: "success", week: [], month: [sample], dateIso: params.date, day: "Среда" };
+      }
+      return { status: "success", week: [sample], month: [], day: (params && params.day) || "Среда", dateIso: "30.09.2026" };
+    }
+    if (a === "listAccess") {
+      return {
+        status: "success",
+        people: [
+          { telegramId: "100", name: "Новый человек", role: "pending" },
+          { telegramId: "200", name: "Мария", role: "manager", timezone: "Europe/Minsk", tabs: ["orderScreen", "clientsScreen", "deferredScreen"] }
+        ],
+        timezones: ["Europe/Minsk", "Europe/Moscow"]
+      };
+    }
+    if (a === "listScheduledNotifications") {
+      return {
+        status: "success",
+        reminders: [{ toTid: "200", at: "28.09 10:00", title: "Позвонить", client: "Рекс" }],
+        surveys: [{ respTid: "200", due: "29.09", kind: "БП2", nick: "Рекс" }],
+        deficits: [{ nextAt: "30.09", item: "Лёгкое", day: "Среда" }]
+      };
     }
     if (a === "getPpFactCost") {
       return { status: "success", factCost: 41.8, statedCost: 43, deliveries: 2, suggestedSlot: 1, needManualSlot: true };
@@ -126,6 +173,31 @@ async function main() {
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await wait(200);
   await shot(page, "next-orders-new-bottom.png");
+  const hash = (name) => crypto.createHash("sha256").update(fs.readFileSync(path.join(outDir, name))).digest("hex");
+  if (hash("next-orders-new-top.png") === hash("next-orders-new-bottom.png")) {
+    throw new Error("top and bottom screenshots are identical");
+  }
+
+  await page.locator("#nxMain").evaluate((el) => { el.scrollTop = 0; });
+  await page.getByRole("button", { name: "Пт" }).click();
+  await page.locator("#nxToast").waitFor();
+  await page.locator("#nxMain").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  const toastBox = await page.evaluate(() => {
+    const t = document.getElementById("nxToast").getBoundingClientRect();
+    const d = document.getElementById("nxDock").getBoundingClientRect();
+    const top = document.getElementById("nxTop").getBoundingClientRect();
+    return {
+      toastTop: t.top,
+      toastBottom: t.bottom,
+      headerBottom: top.bottom,
+      dockTop: d.top,
+      dockHidden: document.getElementById("nxDock").hidden
+    };
+  });
+  if (toastBox.dockHidden) throw new Error("dock hidden");
+  if (toastBox.toastTop < toastBox.headerBottom - 2) throw new Error("toast overlaps header " + JSON.stringify(toastBox));
+  if (toastBox.toastBottom > toastBox.dockTop) throw new Error("toast overlaps dock " + JSON.stringify(toastBox));
+  await shot(page, "next-toast.png");
 
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = 0; });
   await page.getByRole("button", { name: "БП", exact: true }).click();
@@ -153,6 +225,58 @@ async function main() {
   await states.getByText("Заказов нет").waitFor({ timeout: 8000 });
   await states.getByText("Идёт обработка").waitFor();
   await shot(states, "next-states.png");
+
+  await page.getByRole("button", { name: "Задачи" }).click();
+  await page.getByRole("heading", { name: /Задачи/ }).waitFor();
+  await page.getByText("На потом · Рекс").waitFor();
+  await shot(page, "next-tasks.png");
+  await page.getByRole("button", { name: /Перенос · Анна/ }).click();
+  await page.getByRole("button", { name: "Перенести" }).waitFor();
+  await shot(page, "next-task-move.png");
+  await page.keyboard.press("Escape");
+
+  const week = await context.newPage();
+  await week.goto("http://127.0.0.1:8765/next.html?as=owner&tab=orders&seg=week", { waitUntil: "domcontentloaded" });
+  await week.getByText("Рекс · Анна").first().waitFor({ timeout: 10000 });
+  await week.getByRole("button", { name: "Завершить неделю" }).waitFor();
+  await shot(week, "next-orders-week.png");
+  await week.getByRole("button", { name: "Месяц" }).click();
+  await week.locator(".nx-cal").waitFor();
+  await week.locator(".nx-cal button[data-date]").nth(10).click();
+  await week.getByText("Рекс · Анна").first().waitFor();
+  await shot(week, "next-orders-month.png");
+  await week.getByRole("button", { name: "Неделя", exact: true }).click();
+  await week.getByText("Рекс · Анна").first().waitFor();
+  await week.getByRole("button", { name: "Править" }).first().click();
+  await week.getByRole("heading", { name: "Правка заказа" }).waitFor();
+  await week.locator("#client").waitFor();
+  await shot(week, "next-order-edit.png");
+
+  const access = await context.newPage();
+  await access.goto("http://127.0.0.1:8765/next.html?as=owner&tab=more&view=people", { waitUntil: "domcontentloaded" });
+  await access.getByText("Новый человек").waitFor({ timeout: 10000 });
+  await access.getByRole("button", { name: "Завершить неделю" }).waitFor();
+  await shot(access, "next-access.png");
+  await access.getByRole("button", { name: /Мария/ }).click();
+  await access.getByText("Запланированные").waitFor();
+  await access.getByText("Позвонить").waitFor();
+  await shot(access, "next-access-person.png");
+
+  const names = [
+    "next-orders-new-top.png",
+    "next-orders-new-bottom.png",
+    "next-toast.png",
+    "next-tasks.png",
+    "next-task-move.png",
+    "next-orders-week.png",
+    "next-orders-month.png",
+    "next-order-edit.png",
+    "next-access.png",
+    "next-access-person.png"
+  ];
+  const hashes = names.map((n) => hash(n));
+  const uniq = new Set(hashes);
+  if (uniq.size !== hashes.length) throw new Error("duplicate screenshots " + names.filter((n, i) => hashes.indexOf(hashes[i]) !== i).join(","));
 
   await browser.close();
   server.kill("SIGTERM");

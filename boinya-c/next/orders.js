@@ -1326,6 +1326,111 @@
     state.day = day;
   }
 
+  function loadFromClient(client, meta) {
+    client = client || {};
+    meta = meta || {};
+    var next = blank();
+    var ot = "pp";
+    try {
+      if (root.BoinyaWeekLogic) ot = root.BoinyaWeekLogic.resolveOrderType(client) || "pp";
+    } catch (eOt) {}
+    next.orderType = ot;
+    next.client = client.name || client.client || "";
+    next.phone = client.phone || "";
+    next.address = client.address || "";
+    next.deliveryAfter = client.deliveryAfter || "";
+    next.deliveryBefore = client.deliveryBefore || "";
+    next.ppPartner = client.ppPartner || "";
+    next.deliveryDate = meta.date || "";
+    next.day = meta.day || "";
+    next.isEdit = true;
+    next.editOriginalClient = next.client;
+    next.editOriginalDay = meta.calendarOnly ? "" : (meta.day || "");
+    next.editOriginalDate = meta.date || "";
+    next.editOriginalMatchKey = client.matchKey || "";
+    next.deferredId = meta.deferredId || "";
+    if (client.orderPrice != null && client.orderPrice !== "" && ot !== "bp") {
+      next.priceInput = String(client.orderPrice);
+      if (ot === "retail") next.retailPriceManual = true;
+    }
+    var slot = Number(client.deliverySlot) || 0;
+    if (!slot && client.ppSlot) {
+      var m = String(client.ppSlot).match(/(\d+)/);
+      if (m) slot = Number(m[1]) || 0;
+    }
+    if (slot === 1 || slot === 2) next.ppSlotManual = slot;
+    if (client.deliveriesN) next.deliveriesN = Number(client.deliveriesN) || 0;
+    var basket = (client.basket || []).map(function (g) {
+      return {
+        cat: g.cat || "other",
+        main: g.name || g.main,
+        name: g.name || g.main,
+        sub: g.sub || "",
+        value: g.val != null ? g.val : g.value,
+        dog: g.dog ? Number(g.dog) : 0
+      };
+    });
+    var has1 = basket.some(function (x) { return Number(x.dog) === 1; });
+    var has2 = basket.some(function (x) { return Number(x.dog) === 2; });
+    if (has1 && has2) {
+      next.dogCount = 2;
+      next.baskets[1] = basket.filter(function (x) { return Number(x.dog) !== 2; });
+      next.baskets[2] = basket.filter(function (x) { return Number(x.dog) === 2; });
+    } else {
+      next.baskets[1] = basket;
+    }
+    if (client.notes) next.notes = client.notes;
+    if (client.geo) next.geo = client.geo;
+    state = next;
+    eng().applyState(state);
+    paint();
+  }
+
+  function loadDeferred(payload, id) {
+    payload = payload || {};
+    if (payload.mode === "order" || payload.client || payload.baskets) {
+      state = blank();
+      state.orderType = payload.orderType || "pp";
+      state.client = payload.client || "";
+      state.phone = payload.phone || "";
+      state.address = payload.address || "";
+      state.entrance = payload.entrance || "";
+      state.floor = payload.floor || "";
+      state.flat = payload.flat || "";
+      state.deliveryDate = payload.deliveryDate || "";
+      state.day = payload.day || "";
+      state.deliveryAfter = payload.deliveryAfter || "";
+      state.deliveryBefore = payload.deliveryBefore || "";
+      state.priceInput = payload.orderPrice || "";
+      state.ppPartner = payload.ppPartner || "";
+      state.notes = payload.notes || [];
+      state.baskets = payload.baskets || { 1: [], 2: [] };
+      state.dogCount = Number(payload.dogCount) >= 2 ? 2 : 1;
+      state.activeDog = Number(payload.activeDog) === 2 ? 2 : 1;
+      state.deliveryMethod = payload.deliveryMethod || null;
+      state.postOffice = payload.postOffice || "";
+      state.geo = payload.geo || null;
+      state.retailPaidDelivery = !!payload.retailPaidDelivery;
+      state.partnerCouponsEnabled = !!payload.partnerCouponsEnabled;
+      state.couponsQty = payload.couponsQty || "";
+      state.couponPrice = payload.couponPrice || "";
+      state.ppSlotManual = payload.ppDeliverySlotManual || null;
+      state.igPaste = payload.igPaste || "";
+      state.deferredId = id || "";
+      eng().applyState(state);
+      paint();
+      return;
+    }
+    loadFromClient({
+      name: payload.client || payload.nick || "",
+      phone: payload.phone || "",
+      address: payload.address || "",
+      basket: payload.basket || [],
+      segment: payload.segment || "",
+      orderType: payload.orderType || payload.mode || ""
+    }, { deferredId: id || "", date: payload.deliveryDate || "", day: payload.day || "" });
+  }
+
   root.BoinyaOrders = {
     FULL_FROM: FULL_FROM,
     paint: paint,
@@ -1338,6 +1443,8 @@
     titleLine: titleLine,
     getState: function () { return state; },
     setState: function (next) { state = next || blank(); },
-    blank: blank
+    blank: blank,
+    loadFromClient: loadFromClient,
+    loadDeferred: loadDeferred
   };
 })(window);
