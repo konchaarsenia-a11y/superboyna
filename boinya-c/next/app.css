@@ -49,10 +49,21 @@ html, body {
   flex-wrap: wrap;
 }
 
+.b-seg {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+
+.b-seg::-webkit-scrollbar {
+  display: none;
+}
+
 .b-seg__item {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1 0 auto;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .nx-scrim {
