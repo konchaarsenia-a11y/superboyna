@@ -61,8 +61,9 @@ html, body {
   position: fixed;
   left: var(--b-sp16);
   right: var(--b-sp16);
-  bottom: 96px;
-  z-index: 50;
+  top: calc(64px + env(safe-area-inset-top));
+  bottom: auto;
+  z-index: 35;
 }
 
 .nx-gate {
