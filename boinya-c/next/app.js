@@ -18,6 +18,8 @@
   function clients() { return root.BoinyaClients; }
   function tpl() { return root.BoinyaTemplates; }
   function prod() { return root.BoinyaProduction; }
+  function wh() { return root.BoinyaWarehouse; }
+  function retail() { return root.BoinyaRetailAdmin; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -62,8 +64,6 @@
     } else if (route.tab === "production") {
       var ps = prodSegs();
       if (!ps.some(function (s) { return s.id === route.seg; })) route.seg = (ps[0] && ps[0].id) || "cut";
-    } else if (route.tab === "warehouse") {
-      if (["stock", "buy", "move"].indexOf(route.seg) < 0) route.seg = "stock";
     } else if (route.tab === "clients") {
       var cs = clients() ? clients().segs(access) : [];
       if (!cs.some(function (s) { return s.id === route.seg; })) route.seg = (cs[0] && cs[0].id) || "pp";
@@ -83,6 +83,9 @@
     if (route.tab === "clients") {
       var cl = { pp: "ПП", afk: "АФК", bp: "БП", survey: "Опросник", calc: "Расчёт", pick: "Подбор" };
       return cl[route.seg] || "Клиенты";
+    }
+    if (route.tab === "warehouse" || (ax().isSimple(access) && access.role === "logistics")) {
+      return wh() ? wh().contextLine() : "Склад";
     }
     if (route.tab === "production" || (ax().isSimple(access) && (access.role === "cutter" || access.role === "courier"))) {
       var pr = { cut: "Нарезка", pack: "Сборка", route: "Маршрут" };
@@ -142,6 +145,13 @@
       prod().show(route.seg);
       return;
     }
+    if (access.role === "logistics") {
+      route.tab = "warehouse";
+      paintChrome();
+      wh().bind(access);
+      wh().show();
+      return;
+    }
     paintChrome();
     sh().dock("");
     var title = ax().SIMPLE[access.role] || "Раздел";
@@ -191,14 +201,8 @@
     }
     if (route.tab === "warehouse") {
       paintChrome();
-      sh().dock("");
-      var wh = [
-        { id: "stock", label: "Остатки" },
-        { id: "buy", label: "Дозакуп" },
-        { id: "move", label: "Движения" }
-      ];
-      var whName = { stock: "Остатки", buy: "Дозакуп", move: "Движения" }[route.seg];
-      sh().main(segsHtml(wh, "wseg", route.seg) + stub(whName, "Склад пока в старой версии."));
+      wh().bind(access);
+      wh().show();
       return;
     }
     if (route.tab === "goals") {
@@ -217,6 +221,12 @@
       tpl().show();
       return;
     }
+    if (route.tab === "more" && moreView === "price" && ax().tabHas(access, "retailPriceScreen")) {
+      paintChrome();
+      retail().bind(access);
+      retail().show();
+      return;
+    }
     paintChrome();
     sh().dock("");
     var more = "";
@@ -229,7 +239,10 @@
     if (ax().tabHas(access, "templatesScreen")) {
       more += '<button type="button" class="b-li" data-act="more-templates"><span class="b-li__body"><span class="b-li__title">Шаблоны</span><span class="b-li__sub">Тексты и карточки лакомств</span></span><span class="b-li__chev">›</span></button>';
     }
-    more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, прайс, статистика</span></span><span class="b-li__chev">›</span></a>';
+    if (ax().tabHas(access, "retailPriceScreen")) {
+      more += '<button type="button" class="b-li" data-act="more-price"><span class="b-li__body"><span class="b-li__title">Прайс</span><span class="b-li__sub">Цены розницы и порог доставки</span></span><span class="b-li__chev">›</span></button>';
+    }
+    more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, статистика</span></span><span class="b-li__chev">›</span></a>';
     sh().main('<div class="b-list">' + more + "</div>" + '<p class="b-mark">' + sh().esc(root.__boinyaCBadgeLabel || "Бойня") + "</p>");
   }
 
@@ -259,6 +272,12 @@
     }
     if (route.tab === "more" && moreView === "templates") {
       return "Шаблоны: тексты и опросники, копировать, править, удалить. Карточки лакомств — описание позиции, свой текст и примечание.";
+    }
+    if (route.tab === "warehouse") {
+      return "Склад на сегодня или неделя F+B. «Позиции» — план, нужно и есть. «Дозакуп» копирует сообщение. «Закрыть дефициты» гасит открытые дефициты нарезки. В остатках прежнее поле «дозакуп» и «Сохранить» — это приход в таблицу. Новых полей прихода здесь нет.";
+    }
+    if (route.tab === "more" && moreView === "price") {
+      return "Прайс розницы: доставка, порог «бесплатно от» и цены позиций. Сохранение пишет в ту же таблицу. Уже сохранённые заказы не пересчитываются.";
     }
     if (route.tab === "production" && route.seg === "cut") {
       return "Нарезка дня, включая «Будущая неделя». «Начать нарезку», галочки «Выложено» и «Нарезано», «!» — нет на следующую, излишек. «Завершить нарезку» спрашивает по неотмеченным: заготовлена или нет в наличии.";
@@ -323,6 +342,7 @@
     }
     if (act === "more-people") { moreView = "people"; route.tab = "more"; render(); return; }
     if (act === "more-templates") { moreView = "templates"; route.tab = "more"; render(); return; }
+    if (act === "more-price") { moreView = "price"; route.tab = "more"; render(); return; }
     if (act === "more-pick") { route.tab = "clients"; route.seg = "pick"; moreView = ""; render(); return; }
     if (act === "more-back") { moreView = ""; render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
@@ -355,6 +375,8 @@
     if (clients() && clients().onAct(act, node)) return;
     if (tpl() && tpl().onAct(act, node)) return;
     if (prod() && prod().onAct(act, node)) return;
+    if (wh() && wh().onAct(act, node)) return;
+    if (retail() && retail().onAct(act, node)) return;
     if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
   }
@@ -434,6 +456,7 @@
     if (q().get("tab")) route.tab = q().get("tab");
     if (q().get("seg")) route.seg = q().get("seg");
     if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
+    if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
     ensureSeg();
     render();
     refreshTasks().then(function () { if (access) paintChrome(); });
