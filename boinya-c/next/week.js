@@ -69,10 +69,11 @@
       if (num != null && num >= logic().FULL_FROM) cls += " b-day--full";
       var date = it && it.date ? String(it.date) : "";
       var numTxt = date ? String(parseInt(date, 10) || date.split(".")[0]) : "";
+      var meta = num == null ? "" : String(num);
       html += '<button type="button" class="' + cls + '" data-act="wday" data-day="' + esc(name) + '">' +
-        '<span class="b-day__dow">' + esc(shortDay(name)) + "</span>" +
-        '<span class="b-day__num">' + esc(numTxt) + "</span>" +
-        '<span class="b-day__ord">' + (num == null ? "" : esc(String(num))) + "</span></button>";
+        '<span class="b-day__w">' + esc(shortDay(name)) + "</span>" +
+        '<span class="b-day__d">' + esc(numTxt || "·") + "</span>" +
+        '<span class="b-day__meta"><span class="b-day__n">' + esc(meta) + "</span></span></button>";
     });
     html += "</div>";
     var fut = view.day === "Будущая неделя" ? " b-chip--on" : "";

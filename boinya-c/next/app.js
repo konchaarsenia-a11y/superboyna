@@ -83,7 +83,7 @@
   function headerTitle() {
     if (q().get("shot") === "states") return "Состояния";
     if (ax().isSimple(access)) return ax().SIMPLE[access.role] || "Бойня";
-    var map = { orders: "Заказы", clients: "Клиенты", production: "Производство", warehouse: "Склад", more: "Ещё", goals: "Цели" };
+    var map = ax().NAV_LABELS;
     if (route.tab === "orders" && route.seg === "new" && ord().getState().isEdit) return "Правка заказа";
     return map[route.tab] || "Бойня";
   }
