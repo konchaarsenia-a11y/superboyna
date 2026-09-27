@@ -1,0 +1,1162 @@
+/* Бойня — дизайн-система, вариант Б.
+   Токены --b-*, компоненты .b-*. Глобальных селекторов нет: файл можно
+   подключить рядом с текущими стилями мини-аппа, не задев их.
+   Шрифты: Unbounded 600 (заголовки и крупные цифры), Onest 400/500/600. */
+
+@import url("https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@600&display=swap");
+
+:root {
+  /* 12 цветов. Оранжевый — только главная кнопка, метка активной вкладки и счётчик колокольчика. */
+  --b-bg: #0d0d0f;
+  --b-surface: #16161a;
+  --b-surface-2: #1f1f24;
+  --b-line: #2a2a31;
+  --b-text: #f3f2f0;
+  --b-text-2: #9b9aa3;
+  --b-text-3: #6c6b74;
+  --b-accent: #ff6b1a;
+  --b-ok: #3dd68c;
+  --b-bad: #ff5566;
+  --b-warn: #ffb547;
+  --b-info: #aeb6ff;
+
+  /* Ровно 5 размеров. Других кеглей в системе нет. */
+  --b-f12: 12px;
+  --b-f14: 14px;
+  --b-f16: 16px;
+  --b-f20: 20px;
+  --b-f28: 28px;
+
+  /* Радиусы r1–r5. 999px только у .b-badge, .b-switch и .b-spin. */
+  --b-r1: 6px;
+  --b-r2: 10px;
+  --b-r3: 14px;
+  --b-r4: 18px;
+  --b-r5: 24px;
+
+  /* Отступы. */
+  --b-sp4: 4px;
+  --b-sp8: 8px;
+  --b-sp12: 12px;
+  --b-sp16: 16px;
+  --b-sp24: 24px;
+  --b-sp32: 32px;
+
+  --b-font: "Onest", sans-serif;
+  --b-display: "Unbounded", sans-serif;
+}
+
+@keyframes b-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes b-pulse {
+  50% { opacity: 0.45; }
+}
+
+.b-app {
+  box-sizing: border-box;
+  background: var(--b-bg);
+  color: var(--b-text);
+  font-family: var(--b-font);
+  font-size: var(--b-f16);
+  font-weight: 400;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+.b-btn,
+.b-chip,
+.b-seg__item,
+.b-day,
+.b-nav__item,
+.b-ib,
+.b-step__btn,
+.b-switch,
+.b-check,
+.b-li,
+.b-field__input {
+  box-sizing: border-box;
+  font-family: var(--b-font);
+  font-variant-numeric: tabular-nums;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.b-display {
+  margin: 0;
+  font-family: var(--b-display);
+  font-weight: 600;
+  font-size: var(--b-f28);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.b-mark {
+  margin: 0;
+  padding: var(--b-sp16) var(--b-sp16) var(--b-sp4);
+  text-align: right;
+  font-size: var(--b-f12);
+  font-weight: 500;
+  color: var(--b-text-3);
+}
+
+.b-lbl {
+  margin: var(--b-sp24) 0 var(--b-sp8);
+  font-family: var(--b-font);
+  font-size: var(--b-f12);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--b-text-2);
+}
+
+.b-kicker {
+  margin: 0 0 var(--b-sp4);
+  font-size: var(--b-f12);
+  font-weight: 500;
+  color: var(--b-text-2);
+}
+
+.b-note,
+.b-pull {
+  margin: 0;
+  font-size: var(--b-f12);
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--b-text-3);
+}
+
+.b-pull {
+  text-align: center;
+  padding: var(--b-sp12) var(--b-sp16) 0;
+}
+
+.b-row {
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+}
+
+.b-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.b-ico {
+  width: 24px;
+  height: 24px;
+  display: block;
+  flex: none;
+}
+
+.b-btn .b-ico,
+.b-ico--20 {
+  width: 20px;
+  height: 20px;
+}
+
+.b-ico--18 {
+  width: 18px;
+  height: 18px;
+}
+
+/* Шапка: раздел + контекст, справа колокольчик «Задачи». */
+.b-top {
+  box-sizing: border-box;
+  height: 64px;
+  padding: var(--b-sp12) var(--b-sp16) 0;
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+}
+
+.b-top__ctx {
+  flex: 1;
+  min-width: 0;
+}
+
+.b-top__title {
+  margin: 0;
+  font-family: var(--b-display);
+  font-weight: 600;
+  font-size: var(--b-f20);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-top__sub {
+  margin: 2px 0 0;
+  font-size: var(--b-f12);
+  color: var(--b-text-2);
+}
+
+.b-ib {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--b-r3);
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  color: var(--b-text);
+  font-size: var(--b-f20);
+  font-weight: 400;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  position: relative;
+  flex: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.b-ib:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+/* Счётчик колокольчика — одно из трёх мест акцента. */
+.b-badge {
+  box-sizing: border-box;
+  position: absolute;
+  top: calc(var(--b-sp4) * -1);
+  right: calc(var(--b-sp4) * -1);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--b-sp4);
+  border-radius: 999px;
+  background: var(--b-accent);
+  color: var(--b-bg);
+  border: 2px solid var(--b-bg);
+  font-size: var(--b-f12);
+  font-weight: 600;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Долгий запрос (>8 с): полоса под шапкой, экран не блокируется. */
+.b-busy {
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: var(--b-sp8) var(--b-sp16);
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp8);
+  background: var(--b-surface);
+  border-top: 1px solid var(--b-line);
+  border-bottom: 1px solid var(--b-line);
+  color: var(--b-text-2);
+  font-size: var(--b-f14);
+  font-weight: 500;
+}
+
+.b-busy__sec {
+  margin-left: auto;
+  color: var(--b-text);
+  font-size: var(--b-f14);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.b-spin {
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 2.5px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  display: inline-block;
+  flex: none;
+  animation: b-spin 0.8s linear infinite;
+}
+
+.b-spin--lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+/* Сегмент: Новый/Неделя/Месяц и другие подвкладки. */
+.b-seg {
+  box-sizing: border-box;
+  display: flex;
+  gap: var(--b-sp4);
+  padding: var(--b-sp4);
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r3);
+}
+
+.b-seg__item {
+  flex: 1;
+  height: 36px;
+  border: 0;
+  border-radius: var(--b-r2);
+  background: transparent;
+  color: var(--b-text-2);
+  font-size: var(--b-f14);
+  font-weight: 500;
+  padding: 0 var(--b-sp8);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.b-seg__item--on {
+  background: var(--b-surface-2);
+  color: var(--b-text);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--b-text) 6%, transparent);
+}
+
+.b-seg__item:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+/* Чипы-фильтры со счётчиком. */
+.b-chips {
+  display: flex;
+  gap: var(--b-sp8);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.b-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.b-chip {
+  height: 36px;
+  padding: 0 var(--b-sp16);
+  border-radius: var(--b-r4);
+  border: 1px solid var(--b-line);
+  background: transparent;
+  color: var(--b-text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--b-sp8);
+  font-size: var(--b-f14);
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+}
+
+.b-chip--on {
+  border-color: var(--b-text);
+  background: var(--b-surface-2);
+  color: var(--b-text);
+}
+
+.b-chip__n {
+  font-size: var(--b-f12);
+  font-weight: 500;
+  color: var(--b-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.b-chip--on .b-chip__n {
+  color: var(--b-text-2);
+}
+
+.b-chip:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+/* Полоса из 7 дней.
+   Порог полного дня — 6 заказов.
+   .b-day--full ставится, когда заказов в этот день 6 или больше.
+   .b-day__dot — в дне есть хотя бы один заказ.
+   .b-day--off — выходной: подпись притушена.
+   .b-day--on — выбранный день. */
+.b-days {
+  display: flex;
+  gap: var(--b-sp4);
+}
+
+.b-day {
+  flex: 1;
+  min-width: 0;
+  height: 64px;
+  padding: 0;
+  border-radius: var(--b-r3);
+  border: 1px solid var(--b-line);
+  background: var(--b-surface);
+  color: var(--b-text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.b-day__w {
+  font-size: var(--b-f12);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--b-text-2);
+}
+
+.b-day__d {
+  font-size: var(--b-f16);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.b-day__meta {
+  min-height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--b-sp4);
+}
+
+.b-day__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--b-r1);
+  background: var(--b-text);
+  display: block;
+  flex: none;
+}
+
+.b-day__n {
+  font-size: var(--b-f12);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--b-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.b-day--full .b-day__n {
+  color: var(--b-warn);
+  font-weight: 600;
+}
+
+.b-day--off .b-day__w,
+.b-day--off .b-day__d {
+  color: var(--b-text-3);
+}
+
+.b-day--off .b-day__dot {
+  background: var(--b-text-3);
+}
+
+.b-day--on {
+  background: var(--b-text);
+  border-color: var(--b-text);
+}
+
+.b-day--on .b-day__w,
+.b-day--on .b-day__d,
+.b-day--on .b-day__n {
+  color: var(--b-bg);
+}
+
+.b-day--on .b-day__dot {
+  background: var(--b-bg);
+}
+
+.b-day:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+.b-card,
+.b-list,
+.b-skel,
+.b-error,
+.b-sheet,
+.b-toast,
+.b-field,
+.b-nav,
+.b-step,
+.b-meter {
+  box-sizing: border-box;
+}
+
+.b-card {
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r4);
+  padding: var(--b-sp16);
+}
+
+.b-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b-sp8);
+  margin-top: var(--b-sp12);
+}
+
+.b-pill {
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 var(--b-sp8);
+  border-radius: var(--b-r1);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--b-f12);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.b-pill--ok {
+  background: color-mix(in srgb, var(--b-ok) 13%, transparent);
+  color: var(--b-ok);
+}
+
+.b-pill--bad {
+  background: color-mix(in srgb, var(--b-bad) 13%, transparent);
+  color: var(--b-bad);
+}
+
+.b-pill--warn {
+  background: color-mix(in srgb, var(--b-warn) 13%, transparent);
+  color: var(--b-warn);
+}
+
+.b-pill--info {
+  background: color-mix(in srgb, var(--b-info) 14%, transparent);
+  color: var(--b-info);
+}
+
+.b-pill--muted {
+  background: var(--b-surface-2);
+  color: var(--b-text-2);
+}
+
+.b-list {
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r4);
+  overflow: hidden;
+}
+
+.b-li {
+  width: 100%;
+  min-height: 64px;
+  padding: var(--b-sp8) var(--b-sp16);
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+  border: 0;
+  background: transparent;
+  color: var(--b-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.b-list > .b-li + .b-li {
+  border-top: 1px solid var(--b-line);
+}
+
+.b-li__ic {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--b-r2);
+  background: var(--b-surface-2);
+  color: var(--b-text);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.b-li__ic--bare {
+  background: transparent;
+}
+
+.b-li__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.b-li__title {
+  display: block;
+  font-size: var(--b-f14);
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-li__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--b-f12);
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--b-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-li__chev {
+  color: var(--b-text-3);
+}
+
+.b-li:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: -2px;
+}
+
+.b-check {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--b-r1);
+  border: 2px solid var(--b-line);
+  background: transparent;
+  color: var(--b-bg);
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.b-check--on {
+  background: var(--b-ok);
+  border-color: var(--b-ok);
+}
+
+.b-check:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+.b-field {
+  height: 48px;
+  border-radius: var(--b-r2);
+  background: var(--b-surface-2);
+  border: 1px solid var(--b-line);
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp8);
+  padding: 0 var(--b-sp12);
+  color: var(--b-text-2);
+}
+
+.b-field:focus-within {
+  border-color: var(--b-text-2);
+}
+
+.b-field__input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--b-text);
+  font-size: var(--b-f16);
+  font-weight: 400;
+  line-height: 1.2;
+  outline: none;
+}
+
+.b-field__input::placeholder {
+  color: var(--b-text-3);
+  opacity: 1;
+}
+
+/* Степпер веса: − 2,0 кг +. Единый редактор состава. */
+.b-step {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  background: var(--b-surface-2);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r2);
+  flex: none;
+}
+
+.b-step__btn {
+  width: 36px;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--b-text-2);
+  font-size: var(--b-f20);
+  font-weight: 500;
+  line-height: 1;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.b-step__btn:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: -2px;
+}
+
+.b-step__val {
+  min-width: 64px;
+  text-align: center;
+  font-size: var(--b-f14);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--b-text);
+  white-space: nowrap;
+}
+
+.b-switch {
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--b-line);
+  background: var(--b-surface-2);
+  position: relative;
+  flex: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.b-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--b-r2);
+  background: var(--b-text);
+}
+
+.b-switch--on {
+  background: var(--b-ok);
+  border-color: var(--b-ok);
+}
+
+.b-switch--on::after {
+  left: 23px;
+  background: var(--b-bg);
+}
+
+.b-switch:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+/* 4 вида кнопок. Текст не переносится.
+   Малый размер — 40px, для действий внутри карточек.
+   Загрузка: спиннер в той же кнопке, текст «Сохраняю…», кнопка неактивна. */
+.b-btn {
+  width: 100%;
+  height: 52px;
+  padding: 0 var(--b-sp16);
+  border-radius: var(--b-r3);
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--b-sp8);
+  font-size: var(--b-f16);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.b-btn--main {
+  background: var(--b-accent);
+  color: var(--b-bg);
+}
+
+.b-btn--sec {
+  background: var(--b-surface-2);
+  color: var(--b-text);
+  border-color: var(--b-line);
+}
+
+.b-btn--dash {
+  background: transparent;
+  color: var(--b-text);
+  border-color: var(--b-line);
+  border-style: dashed;
+}
+
+.b-btn--danger {
+  background: transparent;
+  color: var(--b-bad);
+}
+
+.b-btn--sm {
+  width: auto;
+  height: 40px;
+  padding: 0 var(--b-sp16);
+  border-radius: var(--b-r2);
+  font-size: var(--b-f14);
+}
+
+.b-btn--loading,
+.b-btn:disabled {
+  pointer-events: none;
+  cursor: default;
+}
+
+.b-btn--loading {
+  opacity: 0.8;
+}
+
+.b-btn:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+/* Пусто: иконка 40px, одна строка и контекст, не больше одной вторичной кнопки. */
+.b-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--b-sp8);
+  padding: var(--b-sp8) 0;
+}
+
+.b-empty__plate {
+  width: 40px;
+  height: 40px;
+  margin-bottom: var(--b-sp4);
+  border-radius: var(--b-r2);
+  background: var(--b-surface-2);
+  color: var(--b-text-2);
+  display: grid;
+  place-items: center;
+}
+
+.b-empty__title {
+  margin: 0;
+  font-size: var(--b-f16);
+  font-weight: 600;
+}
+
+.b-empty__ctx {
+  margin: 0;
+  font-size: var(--b-f14);
+  color: var(--b-text-2);
+}
+
+.b-empty .b-btn {
+  margin-top: var(--b-sp8);
+}
+
+/* Ошибка: что не загрузилось, причина, время последних данных. Старые строки остаются. */
+.b-error {
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r4);
+  overflow: hidden;
+}
+
+.b-error__banner {
+  display: flex;
+  gap: var(--b-sp12);
+  padding: var(--b-sp16);
+  background: color-mix(in srgb, var(--b-bad) 13%, transparent);
+}
+
+.b-error__icon {
+  color: var(--b-bad);
+}
+
+.b-error__title {
+  margin: 0;
+  font-size: var(--b-f16);
+  font-weight: 600;
+}
+
+.b-error__text {
+  margin: var(--b-sp4) 0 0;
+  font-size: var(--b-f14);
+  color: var(--b-text-2);
+}
+
+.b-error__stale {
+  border-top: 1px solid var(--b-line);
+  opacity: 0.55;
+}
+
+.b-error__act {
+  padding: var(--b-sp16);
+}
+
+/* Каркас вместо спиннера на весь экран. */
+.b-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--b-sp16);
+  padding: var(--b-sp16);
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r4);
+}
+
+.b-skel__row {
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+  min-height: 36px;
+}
+
+.b-skel__avatar,
+.b-skel__bar {
+  background: var(--b-surface-2);
+  animation: b-pulse 1.4s ease-in-out infinite;
+}
+
+.b-skel__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--b-r2);
+  flex: none;
+}
+
+.b-skel__lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--b-sp8);
+}
+
+.b-skel__bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--b-r1);
+}
+
+.b-skel__bar--a { width: 72%; }
+.b-skel__bar--b { width: 46%; }
+.b-skel__bar--c { width: 64%; }
+.b-skel__bar--d { width: 38%; }
+
+.b-toast {
+  min-height: 52px;
+  padding: 0 var(--b-sp12);
+  border-radius: var(--b-r3);
+  background: var(--b-text);
+  color: var(--b-bg);
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp8);
+  font-size: var(--b-f14);
+  font-weight: 500;
+}
+
+.b-toast__mark {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+/* Нижний лист. «×» виден сразу. В приложении лист лежит на .b-scrim у нижнего края. */
+.b-scrim {
+  background: color-mix(in srgb, black 60%, transparent);
+}
+
+.b-sheet {
+  background: var(--b-surface);
+  border-radius: var(--b-r5) var(--b-r5) 0 0;
+  border-top: 1px solid var(--b-line);
+  padding: var(--b-sp12) var(--b-sp16) var(--b-sp24);
+}
+
+.b-sheet__grab {
+  width: 40px;
+  height: 4px;
+  margin: 0 auto var(--b-sp12);
+  border-radius: var(--b-r1);
+  background: var(--b-line);
+}
+
+.b-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+  margin-bottom: var(--b-sp8);
+}
+
+.b-sheet__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--b-display);
+  font-weight: 600;
+  font-size: var(--b-f20);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.b-sheet__line {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--b-sp12);
+}
+
+.b-sheet__line + .b-sheet__line {
+  border-top: 1px solid var(--b-line);
+}
+
+.b-sheet__name {
+  display: block;
+  min-width: 0;
+  font-size: var(--b-f16);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-sheet__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--b-f12);
+  color: var(--b-text-2);
+}
+
+/* Лоадер-лист: «×» с первой секунды, «Скрыть» с 4-й. Сторож 22 с живёт в приложении. */
+.b-loader {
+  display: flex;
+  align-items: center;
+  gap: var(--b-sp12);
+  margin: var(--b-sp8) 0 var(--b-sp16);
+  color: var(--b-text-2);
+}
+
+.b-loader__step {
+  margin: 0;
+  color: var(--b-text);
+  font-size: var(--b-f16);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.b-meter {
+  height: 6px;
+  border-radius: var(--b-r1);
+  background: var(--b-surface-2);
+  overflow: hidden;
+}
+
+.b-meter__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: var(--b-r1);
+  background: var(--b-ok);
+}
+
+.b-sheet .b-btn {
+  margin-top: var(--b-sp16);
+}
+
+.b-sheet .b-note {
+  margin-top: var(--b-sp8);
+}
+
+/* Низ экрана: одна главная кнопка над панелью из 5 вкладок.
+   Высота панели 78. Без панели контенту нужен safe-area 34. */
+.b-dock {
+  background: var(--b-bg);
+}
+
+.b-dock__act {
+  padding: var(--b-sp24) var(--b-sp16) var(--b-sp12);
+}
+
+.b-sum {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--b-sp12);
+  margin-bottom: var(--b-sp8);
+}
+
+.b-sum__k {
+  font-size: var(--b-f14);
+  color: var(--b-text-2);
+}
+
+.b-sum__v {
+  font-family: var(--b-display);
+  font-weight: 600;
+  font-size: var(--b-f20);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.b-nav {
+  height: 78px;
+  padding: var(--b-sp8) var(--b-sp4) var(--b-sp24);
+  border-top: 1px solid var(--b-line);
+  background: var(--b-surface);
+  display: flex;
+}
+
+.b-nav__item {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--b-text-3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--b-sp4);
+  padding: 0;
+  cursor: pointer;
+}
+
+.b-nav__lbl {
+  font-size: var(--b-f12);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.b-nav__item--on {
+  color: var(--b-accent);
+}
+
+.b-nav__item--on::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--b-sp8) * -1);
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  border-radius: 0 0 var(--b-r1) var(--b-r1);
+  background: var(--b-accent);
+  transform: translateX(-50%);
+}
+
+.b-nav__item:focus-visible {
+  outline: 2px solid var(--b-text);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b-spin,
+  .b-skel__bar,
+  .b-skel__avatar {
+    animation: none;
+  }
+}

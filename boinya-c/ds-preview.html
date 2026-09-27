@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Бойня — витрина дизайн-системы</title>
+  <link rel="stylesheet" href="ds.css">
+  <style>
+    html, body { margin: 0; background: #0D0D0F; }
+    html { scrollbar-width: none; }
+    .stage { width: 100%; max-width: 390px; margin: 0 auto; }
+    .pad { padding: 0 16px; }
+    .stack { display: flex; flex-direction: column; gap: 8px; }
+    .split { display: flex; flex-wrap: wrap; gap: 8px; }
+    .days-note { margin-top: 8px; }
+    .demo-fill { width: 66%; }
+  </style>
+</head>
+<body>
+  <div class="stage b-app">
+    <p class="b-mark">витрина · пример данных</p>
+
+    <header class="b-top">
+      <div class="b-top__ctx">
+        <h1 class="b-top__title">Заказы</h1>
+        <p class="b-top__sub">Ср 23 сен · 2 заказа</p>
+      </div>
+      <button class="b-ib" type="button" aria-label="Задачи, 3">
+        <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6.2 9.2a5.8 5.8 0 0 1 11.6 0c0 4.3 1.5 5.8 1.9 6.5H4.3c.4-.7 1.9-2.2 1.9-6.5z"/>
+          <path d="M10 19.2a2 2 0 0 0 4 0"/>
+        </svg>
+        <span class="b-badge">3</span>
+      </button>
+    </header>
+
+    <div class="b-busy" role="status">
+      <span class="b-spin" aria-hidden="true"></span>
+      <span>Идёт обработка…</span>
+      <span class="b-busy__sec">12 с</span>
+    </div>
+
+    <p class="b-pull">Потяните вниз — обновить · обновлено 09:12</p>
+
+    <div class="pad">
+      <h2 class="b-lbl">Сегмент</h2>
+      <div class="b-seg" role="tablist" aria-label="Период заказов">
+        <button class="b-seg__item b-seg__item--on" type="button">Новый</button>
+        <button class="b-seg__item" type="button">Неделя</button>
+        <button class="b-seg__item" type="button">Месяц</button>
+      </div>
+
+      <h2 class="b-lbl">Дни</h2>
+      <div class="b-days" role="group" aria-label="Неделя">
+        <button class="b-day" type="button" aria-label="Понедельник 21, 3 заказа">
+          <span class="b-day__w">Пн</span>
+          <span class="b-day__d">21</span>
+          <span class="b-day__meta"><span class="b-day__dot"></span><span class="b-day__n">3</span></span>
+        </button>
+        <button class="b-day b-day--full" type="button" aria-label="Вторник 22, 6 заказов, полный день">
+          <span class="b-day__w">Вт</span>
+          <span class="b-day__d">22</span>
+          <span class="b-day__meta"><span class="b-day__dot"></span><span class="b-day__n">6</span></span>
+        </button>
+        <button class="b-day b-day--on" type="button" aria-pressed="true" aria-label="Среда 23, 2 заказа, выбрано">
+          <span class="b-day__w">Ср</span>
+          <span class="b-day__d">23</span>
+          <span class="b-day__meta"><span class="b-day__dot"></span><span class="b-day__n">2</span></span>
+        </button>
+        <button class="b-day" type="button" aria-label="Четверг 24, нет заказов">
+          <span class="b-day__w">Чт</span>
+          <span class="b-day__d">24</span>
+          <span class="b-day__meta"></span>
+        </button>
+        <button class="b-day" type="button" aria-label="Пятница 25, 1 заказ">
+          <span class="b-day__w">Пт</span>
+          <span class="b-day__d">25</span>
+          <span class="b-day__meta"><span class="b-day__dot"></span><span class="b-day__n">1</span></span>
+        </button>
+        <button class="b-day b-day--off" type="button" aria-label="Суббота 26, выходной, нет заказов">
+          <span class="b-day__w">Сб</span>
+          <span class="b-day__d">26</span>
+          <span class="b-day__meta"></span>
+        </button>
+        <button class="b-day b-day--off" type="button" aria-label="Воскресенье 27, выходной, 4 заказа">
+          <span class="b-day__w">Вс</span>
+          <span class="b-day__d">27</span>
+          <span class="b-day__meta"><span class="b-day__dot"></span><span class="b-day__n">4</span></span>
+        </button>
+      </div>
+      <p class="b-note days-note">Точка — есть заказы. Выходной притушен. Полный день — от 6 заказов.</p>
+
+      <h2 class="b-lbl">Фильтры</h2>
+      <div class="b-chips" aria-label="Фильтры">
+        <button class="b-chip b-chip--on" type="button">Все <span class="b-chip__n">14</span></button>
+        <button class="b-chip" type="button">Свои <span class="b-chip__n">9</span></button>
+        <button class="b-chip" type="button">Подписка <span class="b-chip__n">6</span></button>
+        <button class="b-chip" type="button">Разовые <span class="b-chip__n">3</span></button>
+        <button class="b-chip" type="button">Самовывоз <span class="b-chip__n">2</span></button>
+      </div>
+
+      <h2 class="b-lbl">Карточка</h2>
+      <article class="b-card">
+        <div class="b-row">
+          <div class="b-grow">
+            <p class="b-kicker">К выдаче</p>
+            <p class="b-display">48 кг</p>
+          </div>
+          <span class="b-pill b-pill--ok">В норме</span>
+        </div>
+        <div class="b-pills">
+          <span class="b-pill b-pill--warn">Ждёт</span>
+          <span class="b-pill b-pill--bad">Нет адреса</span>
+          <span class="b-pill b-pill--info">ПП</span>
+          <span class="b-pill b-pill--muted">Черновик</span>
+        </div>
+      </article>
+
+      <h2 class="b-lbl">Список</h2>
+      <div class="b-list">
+        <button class="b-li" type="button">
+          <span class="b-li__ic">
+            <svg class="b-ico b-ico--20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.2"/>
+              <path d="M5.5 19.2c1.2-3 3.4-4.4 6.5-4.4s5.3 1.4 6.5 4.4"/>
+            </svg>
+          </span>
+          <span class="b-li__body">
+            <span class="b-li__title">Анна К.</span>
+            <span class="b-li__sub">Говядина 2,0 кг · Минск</span>
+          </span>
+          <span class="b-pill b-pill--ok">Свой</span>
+        </button>
+        <button class="b-li" type="button">
+          <span class="b-li__ic b-li__ic--bare">
+            <span class="b-check b-check--on" aria-hidden="true">
+              <svg class="b-ico b-ico--18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12.5 9.2 16.8 19 7.2"/>
+              </svg>
+            </span>
+          </span>
+          <span class="b-li__body">
+            <span class="b-li__title">Говядина нарезана</span>
+            <span class="b-li__sub">2,0 кг · партия утра</span>
+          </span>
+        </button>
+        <button class="b-li" type="button">
+          <span class="b-li__ic">
+            <svg class="b-ico b-ico--20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 8h11v8H4z"/>
+              <path d="M15 11h3.2L21 14v2h-6"/>
+              <circle cx="7.5" cy="17.5" r="1.3"/>
+              <circle cx="17.2" cy="17.5" r="1.3"/>
+            </svg>
+          </span>
+          <span class="b-li__body">
+            <span class="b-li__title">Дмитрий · доставка</span>
+            <span class="b-li__sub">Сердце 0,5 кг · после 18:00</span>
+          </span>
+          <svg class="b-ico b-ico--18 b-li__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 6 6 6-6 6"/>
+          </svg>
+        </button>
+      </div>
+
+      <h2 class="b-lbl">Поле</h2>
+      <label class="b-field">
+        <svg class="b-ico b-ico--20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="6"/>
+          <path d="m16 16 4 4"/>
+        </svg>
+        <input class="b-field__input" type="search" placeholder="Имя или телефон" aria-label="Имя или телефон">
+      </label>
+
+      <h2 class="b-lbl">Кнопки</h2>
+      <div class="stack">
+        <button class="b-btn b-btn--main" type="button">Сохранить заказ</button>
+        <button class="b-btn b-btn--sec" type="button">Отмена</button>
+        <button class="b-btn b-btn--dash" type="button">
+          <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Добавить позицию
+        </button>
+        <button class="b-btn b-btn--danger" type="button">Удалить заказ</button>
+        <div class="split">
+          <button class="b-btn b-btn--sec b-btn--sm" type="button">Изменить</button>
+          <button class="b-btn b-btn--danger b-btn--sm" type="button">Удалить</button>
+        </div>
+        <button class="b-btn b-btn--main b-btn--loading" type="button" disabled>
+          <span class="b-spin" aria-hidden="true"></span>
+          Сохраняю…
+        </button>
+      </div>
+
+      <h2 class="b-lbl">Пусто</h2>
+      <div class="b-card">
+        <div class="b-empty">
+          <div class="b-empty__plate">
+            <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 8h16l-1.4 10H5.4z"/>
+              <path d="m4 8 2.2-3h11.6L20 8"/>
+              <path d="M9 13h6"/>
+            </svg>
+          </div>
+          <p class="b-empty__title">Нет заказов</p>
+          <p class="b-empty__ctx">Среда · фильтр «Свои»</p>
+          <button class="b-btn b-btn--sec" type="button">＋ Новый заказ</button>
+        </div>
+      </div>
+
+      <h2 class="b-lbl">Ошибка</h2>
+      <section class="b-error">
+        <div class="b-error__banner">
+          <svg class="b-ico b-error__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="8"/>
+            <path d="M12 8v5"/>
+            <path d="M12 16.2h.01"/>
+          </svg>
+          <div class="b-grow">
+            <p class="b-error__title">Заказы не загрузились</p>
+            <p class="b-error__text">Нет сети · данные на 09:12</p>
+          </div>
+        </div>
+        <div class="b-error__stale">
+          <div class="b-li">
+            <span class="b-li__body">
+              <span class="b-li__title">Ольга · прошлый ответ</span>
+              <span class="b-li__sub">Рубец 1,0 кг · на 09:12</span>
+            </span>
+            <span class="b-pill b-pill--muted">Было</span>
+          </div>
+        </div>
+        <div class="b-error__act">
+          <button class="b-btn b-btn--sec" type="button">
+            <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 12a8 8 0 1 1-2.3-5.6"/>
+              <path d="M20 4.5V10h-5.5"/>
+            </svg>
+            Повторить
+          </button>
+        </div>
+      </section>
+
+      <h2 class="b-lbl">Загрузка</h2>
+      <div class="b-skel" aria-hidden="true">
+        <div class="b-skel__row">
+          <span class="b-skel__avatar"></span>
+          <span class="b-skel__lines">
+            <span class="b-skel__bar b-skel__bar--a"></span>
+            <span class="b-skel__bar b-skel__bar--b"></span>
+          </span>
+        </div>
+        <div class="b-skel__row">
+          <span class="b-skel__avatar"></span>
+          <span class="b-skel__lines">
+            <span class="b-skel__bar b-skel__bar--c"></span>
+            <span class="b-skel__bar b-skel__bar--d"></span>
+          </span>
+        </div>
+        <div class="b-skel__row">
+          <span class="b-skel__avatar"></span>
+          <span class="b-skel__lines">
+            <span class="b-skel__bar b-skel__bar--a"></span>
+            <span class="b-skel__bar b-skel__bar--d"></span>
+          </span>
+        </div>
+      </div>
+
+      <h2 class="b-lbl">Тост</h2>
+      <div class="b-toast" role="status">
+        <span class="b-toast__mark">
+          <svg class="b-ico b-ico--20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12.5 9.2 16.8 19 7.2"/>
+          </svg>
+        </span>
+        Заказ записан
+      </div>
+    </div>
+
+    <div class="pad"><h2 class="b-lbl">Нижний лист</h2></div>
+    <section class="b-sheet" aria-label="Состав заказа">
+      <div class="b-sheet__grab" aria-hidden="true"></div>
+      <div class="b-sheet__head">
+        <h2 class="b-sheet__title">Состав</h2>
+        <button class="b-ib" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <div class="b-sheet__line">
+        <span class="b-sheet__name">Говядина</span>
+        <div class="b-step" role="group" aria-label="Вес говядины">
+          <button class="b-step__btn" type="button" aria-label="Меньше">−</button>
+          <span class="b-step__val">2,0 кг</span>
+          <button class="b-step__btn" type="button" aria-label="Больше">+</button>
+        </div>
+      </div>
+      <div class="b-sheet__line">
+        <span class="b-sheet__name">Сердце</span>
+        <div class="b-step" role="group" aria-label="Вес сердца">
+          <button class="b-step__btn" type="button" aria-label="Меньше">−</button>
+          <span class="b-step__val">0,5 кг</span>
+          <button class="b-step__btn" type="button" aria-label="Больше">+</button>
+        </div>
+      </div>
+      <div class="b-sheet__line">
+        <span class="b-grow">
+          <span class="b-sheet__name">Каждую неделю</span>
+          <span class="b-sheet__sub">Подписка, пример</span>
+        </span>
+        <button class="b-switch b-switch--on" type="button" aria-pressed="true" aria-label="Повтор каждую неделю"></button>
+      </div>
+    </section>
+
+    <div class="pad"><h2 class="b-lbl">Долгая операция</h2></div>
+    <section class="b-sheet" aria-label="Завершение недели">
+      <div class="b-sheet__grab" aria-hidden="true"></div>
+      <div class="b-sheet__head">
+        <h2 class="b-sheet__title">Завершить неделю</h2>
+        <button class="b-ib" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <div class="b-loader">
+        <span class="b-spin b-spin--lg" aria-hidden="true"></span>
+        <div>
+          <p class="b-loader__step">2 из 3</p>
+          <p class="b-note">Пишу лист недели</p>
+        </div>
+      </div>
+      <div class="b-meter" aria-hidden="true"><span class="b-meter__fill demo-fill"></span></div>
+      <button class="b-btn b-btn--sec" type="button">Скрыть</button>
+      <p class="b-note">Скрыть не обрывает запись: итог придёт тостом.</p>
+    </section>
+
+    <div class="pad"><h2 class="b-lbl">Низ экрана</h2></div>
+    <div class="b-dock">
+      <div class="b-dock__act">
+        <div class="b-sum">
+          <span class="b-sum__k">К выдаче</span>
+          <span class="b-sum__v">2,0 кг</span>
+        </div>
+        <button class="b-btn b-btn--main" type="button">Сохранить заказ</button>
+      </div>
+      <nav class="b-nav" aria-label="Разделы">
+        <button class="b-nav__item b-nav__item--on" type="button">
+          <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="6" y="3.5" width="12" height="17" rx="2"/>
+            <path d="M9 8.5h6M9 12.5h6M9 16.5h4"/>
+          </svg>
+          <span class="b-nav__lbl">Заказы</span>
+        </button>
+        <button class="b-nav__item" type="button">
+          <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 8h16M4 16h16M9 4v16M15 4v16"/>
+          </svg>
+          <span class="b-nav__lbl">Нарезка</span>
+        </button>
+        <button class="b-nav__item" type="button">
+          <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3.5 8h11v8h-11z"/>
+            <path d="M14.5 11H18l3 3v2h-6.5"/>
+            <circle cx="7.2" cy="17.6" r="1.3"/>
+            <circle cx="17.4" cy="17.6" r="1.3"/>
+          </svg>
+          <span class="b-nav__lbl">Курьер</span>
+        </button>
+        <button class="b-nav__item" type="button">
+          <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 3 8 4.2v.1L12 11.5 4 7.3v-.1z"/>
+            <path d="M4 7.5V16l8 4.2L20 16V7.5"/>
+            <path d="M12 11.5V20.2"/>
+          </svg>
+          <span class="b-nav__lbl">Склад</span>
+        </button>
+        <button class="b-nav__item" type="button">
+          <svg class="b-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+            <circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+          </svg>
+          <span class="b-nav__lbl">Ещё</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+</body>
+</html>
