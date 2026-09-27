@@ -29,6 +29,15 @@
   var LEGACY_TASKS = ["manager", "all", "courier", "logistics", "cutter"];
   var SIMPLE = { cutter: "Нарезка", courier: "Маршрут", logistics: "Склад" };
 
+  var NAV_LABELS = {
+    orders: "Заказы",
+    clients: "Клиенты",
+    production: "Производство",
+    warehouse: "Склад",
+    goals: "Цели",
+    more: "Ещё"
+  };
+
   var ROLE_RU = {
     owner: "владелец",
     manager: "менеджер",
@@ -88,13 +97,13 @@
     if (!access || isSimple(access)) return [];
     var h = function (id) { return tabHas(access, id); };
     var items = [];
-    if (h("orderScreen") || h("clientsScreen")) items.push({ id: "orders", label: "Заказы" });
-    if (h("subsScreen") || h("subDetailScreen")) items.push({ id: "clients", label: "Клиенты" });
-    if (h("cuttingScreen") || h("courierScreen")) items.push({ id: "production", label: "Производство" });
-    if (h("warehouseScreen")) items.push({ id: "warehouse", label: "Склад" });
-    if (access.role === "owner") items.push({ id: "goals", label: "Цели" });
+    if (h("orderScreen") || h("clientsScreen")) items.push({ id: "orders", label: NAV_LABELS.orders });
+    if (h("subsScreen") || h("subDetailScreen")) items.push({ id: "clients", label: NAV_LABELS.clients });
+    if (h("cuttingScreen") || h("courierScreen")) items.push({ id: "production", label: NAV_LABELS.production });
+    if (h("warehouseScreen")) items.push({ id: "warehouse", label: NAV_LABELS.warehouse });
+    if (access.role === "owner") items.push({ id: "goals", label: NAV_LABELS.goals });
     if (h("templatesScreen") || h("statsScreen") || h("retailPriceScreen") || h("peopleScreen") || h("partnerHubScreen") || h("priceScreen")) {
-      items.push({ id: "more", label: "Ещё" });
+      items.push({ id: "more", label: NAV_LABELS.more });
     }
     return items;
   }
@@ -123,6 +132,7 @@
   }
 
   root.BoinyaAccess = {
+    NAV_LABELS: NAV_LABELS,
     ROLE_TABS: ROLE_TABS,
     ROLE_RU: ROLE_RU,
     SIMPLE: SIMPLE,

@@ -25,11 +25,34 @@ html, body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.nx-nav--6 .b-nav__lbl {
-  letter-spacing: -0.05em;
-  transform: scale(0.8);
-  transform-origin: center top;
+.b-nav__lbl {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  display: block;
+  text-align: center;
+}
+
+.nx-main,
+.b-card,
+.b-sheet,
+.nx-sheet,
+.b-field,
+.b-seg {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.nx-main .b-row,
+.nx-sheet .b-row {
+  flex-wrap: wrap;
+}
+
+.b-seg__item {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nx-scrim {
@@ -176,11 +199,22 @@ textarea.b-field__input {
 
 .nx-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--b-sp8);
+  max-width: 100%;
 }
 
 .nx-actions .b-btn {
-  flex: 1;
+  flex: 1 1 8.5rem;
+  width: auto;
+  max-width: 100%;
+  min-width: min(100%, 8.5rem);
+  height: auto;
+  min-height: 40px;
+  padding: 8px 12px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .b-mark {
