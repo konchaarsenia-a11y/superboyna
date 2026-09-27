@@ -232,3 +232,37 @@ textarea.b-field__input {
   padding-left: 0;
   padding-right: 0;
 }
+
+.nx-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--b-sp8);
+  margin-top: var(--b-sp8);
+}
+
+.nx-stats .b-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: var(--b-sp8);
+  text-align: left;
+}
+
+.nx-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--b-f14);
+}
+
+.nx-cut-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nx-dim {
+  opacity: 0.72;
+}

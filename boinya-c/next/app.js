@@ -16,6 +16,8 @@
   function tasksMod() { return root.BoinyaTasks; }
   function people() { return root.BoinyaPeople; }
   function clients() { return root.BoinyaClients; }
+  function tpl() { return root.BoinyaTemplates; }
+  function prod() { return root.BoinyaProduction; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -82,6 +84,11 @@
       var cl = { pp: "ПП", afk: "АФК", bp: "БП", survey: "Опросник", calc: "Расчёт", pick: "Подбор" };
       return cl[route.seg] || "Клиенты";
     }
+    if (route.tab === "production" || (ax().isSimple(access) && (access.role === "cutter" || access.role === "courier"))) {
+      var pr = { cut: "Нарезка", pack: "Сборка", route: "Маршрут" };
+      return pr[route.seg] || (access.role === "cutter" ? "Нарезка" : "Производство");
+    }
+    if (route.tab === "more" && moreView === "templates") return "Шаблоны";
     if (ax().isSimple(access)) return ax().ROLE_RU[access.role] || "";
     return "Этот раздел пока в старой версии";
   }
@@ -126,6 +133,15 @@
   }
 
   function paintSimple() {
+    if (access.role === "cutter" || access.role === "courier") {
+      if (access.role === "cutter") route.seg = "cut";
+      else if (route.seg !== "pack" && route.seg !== "route") route.seg = "route";
+      route.tab = "production";
+      paintChrome();
+      prod().bind(access);
+      prod().show(route.seg);
+      return;
+    }
     paintChrome();
     sh().dock("");
     var title = ax().SIMPLE[access.role] || "Раздел";
@@ -169,9 +185,8 @@
     }
     if (route.tab === "production") {
       paintChrome();
-      sh().dock("");
-      var labels = { cut: "Нарезка", pack: "Сборка", route: "Маршрут" };
-      sh().main(segsHtml(prodSegs(), "pseg", route.seg) + stub(labels[route.seg] || "Производство", "Нарезка, сборка и маршрут пока в старой версии."));
+      prod().bind(access);
+      prod().show(route.seg);
       return;
     }
     if (route.tab === "warehouse") {
@@ -196,6 +211,12 @@
       people().show();
       return;
     }
+    if (route.tab === "more" && moreView === "templates" && ax().tabHas(access, "templatesScreen")) {
+      paintChrome();
+      tpl().bind(access);
+      tpl().show();
+      return;
+    }
     paintChrome();
     sh().dock("");
     var more = "";
@@ -205,7 +226,10 @@
     if (ax().tabHas(access, "templatesScreen.ai") && ax().tabHas(access, "priceScreen.pick")) {
       more += '<button type="button" class="b-li" data-act="more-pick"><span class="b-li__body"><span class="b-li__title">Подбор</span><span class="b-li__sub">Подбор ИИ по анкете</span></span><span class="b-li__chev">›</span></button>';
     }
-    more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, шаблоны, прайс, статистика</span></span><span class="b-li__chev">›</span></a>';
+    if (ax().tabHas(access, "templatesScreen")) {
+      more += '<button type="button" class="b-li" data-act="more-templates"><span class="b-li__body"><span class="b-li__title">Шаблоны</span><span class="b-li__sub">Тексты и карточки лакомств</span></span><span class="b-li__chev">›</span></button>';
+    }
+    more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, прайс, статистика</span></span><span class="b-li__chev">›</span></a>';
     sh().main('<div class="b-list">' + more + "</div>" + '<p class="b-mark">' + sh().esc(root.__boinyaCBadgeLabel || "Бойня") + "</p>");
   }
 
@@ -232,6 +256,18 @@
     }
     if (route.tab === "clients" && route.seg === "pick") {
       return "Подбор по анкете. Состав и текст — те же правила, что в старом подборе. «В расчёт» переносит набор в расчёт.";
+    }
+    if (route.tab === "more" && moreView === "templates") {
+      return "Шаблоны: тексты и опросники, копировать, править, удалить. Карточки лакомств — описание позиции, свой текст и примечание.";
+    }
+    if (route.tab === "production" && route.seg === "cut") {
+      return "Нарезка дня, включая «Будущая неделя». «Начать нарезку», галочки «Выложено» и «Нарезано», «!» — нет на следующую, излишек. «Завершить нарезку» спрашивает по неотмеченным: заготовлена или нет в наличии.";
+    }
+    if (route.tab === "production" && route.seg === "pack") {
+      return "Сборка: пакеты по составу, форматы можно выключить. «Собрано» пишет в таблицу. «Пропечатка пакетов» — ручная отметка «пропечатано без лакомств», тот же запрос, что раньше. Отдельного сервера печати нет.";
+    }
+    if (route.tab === "production" && route.seg === "route") {
+      return "Маршрут: день, выезд со склада Белецкого 10к2 или свой адрес, один или два курьера. «Собрать маршруты» считает порядок как раньше. Галочка «доставлено», карта, телефон, «Не получил» создаёт перенос. Курьер и нарезчик заходят без нижней панели.";
     }
     return "Этот экран ещё не перенесён. Кнопка «Открыть в старой версии» ведёт в привычное приложение. Данные те же.";
   }
@@ -286,6 +322,7 @@
       return;
     }
     if (act === "more-people") { moreView = "people"; route.tab = "more"; render(); return; }
+    if (act === "more-templates") { moreView = "templates"; route.tab = "more"; render(); return; }
     if (act === "more-pick") { route.tab = "clients"; route.seg = "pick"; moreView = ""; render(); return; }
     if (act === "more-back") { moreView = ""; render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
@@ -316,6 +353,8 @@
     if (tasksMod() && tasksMod().onAct(act, node)) return;
     if (people() && people().onAct(act, node)) return;
     if (clients() && clients().onAct(act, node)) return;
+    if (tpl() && tpl().onAct(act, node)) return;
+    if (prod() && prod().onAct(act, node)) return;
     if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
   }
