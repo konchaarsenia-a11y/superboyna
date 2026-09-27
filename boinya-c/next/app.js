@@ -6,11 +6,15 @@
   var access = null;
   var tasksN = 0;
   var booting = false;
+  var moreView = "";
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
   function ax() { return root.BoinyaAccess; }
   function ord() { return root.BoinyaOrders; }
+  function wk() { return root.BoinyaWeek; }
+  function tasksMod() { return root.BoinyaTasks; }
+  function people() { return root.BoinyaPeople; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -65,6 +69,7 @@
   function headerSub() {
     if (q().get("shot") === "states") return "состояния экранов";
     if (route.tab === "orders" && route.seg === "new" && ax().tabHas(access, "orderScreen")) return ord().contextLine();
+    if (route.tab === "orders" && (route.seg === "week" || route.seg === "month")) return wk().contextLine();
     if (route.tab === "more") {
       var who = access.name || "Бойня";
       var role = ax().ROLE_RU[access.role] || access.role;
@@ -138,11 +143,16 @@
       ord().paintSegs(orderSegs(), "new");
       return;
     }
+    if (route.tab === "orders" && (route.seg === "week" || route.seg === "month")) {
+      paintChrome();
+      wk().setRole(access.role);
+      wk().show(route.seg, access.role);
+      return;
+    }
     if (route.tab === "orders") {
       paintChrome();
       sh().dock("");
-      var name = route.seg === "month" ? "Месяц" : "Неделя";
-      sh().main(segsHtml(orderSegs(), "oseg", route.seg) + stub(name, "Список заказов за " + name.toLowerCase() + " ещё в старой версии. Новый заказ уже здесь."));
+      sh().main(segsHtml(orderSegs(), "oseg", route.seg) + stub("Заказы", "Этот сегмент ещё в старой версии."));
       return;
     }
     if (route.tab === "clients") {
@@ -180,19 +190,35 @@
       paintStub("Цели скоро", "Раздел для владельца ещё готовится. Здесь пока пусто — отдельным обновлением.");
       return;
     }
+    if (route.tab === "more" && moreView === "people" && ax().tabHas(access, "peopleScreen")) {
+      paintChrome();
+      wk().setRole(access.role);
+      people().show();
+      return;
+    }
     paintChrome();
     sh().dock("");
-    sh().main(
-      '<p class="b-note" style="margin:8px 0 16px">Партнёры, шаблоны, прайс, статистика, доступы и неделя — в старой версии. Версия приложения указана ниже.</p>' +
-      stub("Ещё", "Откройте старую версию, чтобы работать с этими разделами.") +
-      '<p class="b-mark">' + sh().esc(root.__boinyaCBadgeLabel || "Бойня") + "</p>"
-    );
+    var more = "";
+    if (ax().tabHas(access, "peopleScreen")) {
+      more += '<button type="button" class="b-li" data-act="more-people"><span class="b-li__body"><span class="b-li__title">Доступы</span><span class="b-li__sub">Роли, вкладки, уведомления, неделя</span></span><span class="b-li__chev">›</span></button>';
+    }
+    more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, шаблоны, прайс, статистика</span></span><span class="b-li__chev">›</span></a>';
+    sh().main('<div class="b-list">' + more + "</div>" + '<p class="b-mark">' + sh().esc(root.__boinyaCBadgeLabel || "Бойня") + "</p>");
   }
 
   function helpText() {
     if (q().get("shot") === "states") return "Так выглядят пустой экран, загрузка, ошибка и долгий запрос. Кнопка «Повторить» зовёт тот же запрос ещё раз.";
     if (route.tab === "orders" && route.seg === "new") {
-      return "Новый заказ. Тип, клиент, адрес, день и состав. Оранжевая кнопка сохраняет в ту же таблицу, что и старая форма. «На потом» кладёт заказ в задачи. День с 6 заказами и больше подсвечен как полный. Суббота и воскресенье остаются в полосе.";
+      return "Новый заказ. Тип, клиент, адрес, день и состав. Оранжевая кнопка сохраняет в ту же таблицу, что и старая форма. «На потом» кладёт заказ в задачи. День с 6 заказами и больше подсвечен как полный. Суббота и воскресенье остаются в полосе. Тост появляется под шапкой и не закрывает «Итого».";
+    }
+    if (route.tab === "orders" && route.seg === "week") {
+      return "Неделя: дни Пн–Вс и «Будущая неделя». Карточка — править, перенести, удалить, слот ПП. «Выбрать» — несколько человек сразу. Баннер закрытия недели только у владельца, повторное нажатие не запускает второе закрытие.";
+    }
+    if (route.tab === "orders" && route.seg === "month") {
+      return "Месяц: календарь и заказы даты. «В черновик» собирает перенос в неделю, «Дополнить» — тип, партнёр, адрес и телефон. «Применить переносы» пишет в ту же таблицу.";
+    }
+    if (route.tab === "more" && moreView === "people") {
+      return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Закрытие недели — то же, что баннер на заказах.";
     }
     if (route.tab === "goals") return "Цели — новый раздел только у владельца. В этом обновлении экрана ещё нет.";
     return "Этот экран ещё не перенесён. Кнопка «Открыть в старой версии» ведёт в привычное приложение. Данные те же.";
@@ -229,32 +255,26 @@
   }
 
   function openTasks() {
-    sh().openSheet({
-      title: "Задачи" + (tasksN ? " · " + tasksN : ""),
-      html: stub("Задачи", "Список переносов, дозакупа, «на потом» и напоминаний пока в старой версии. Колокольчик и счётчик уже считают открытые.")
-    });
+    tasksMod().open(access);
   }
 
   async function refreshTasks() {
     if (!access || !ax().canUseTasks(access)) { tasksN = 0; return; }
-    var tid = "";
-    try {
-      var u = api().telegramUser();
-      tid = String((u && u.id) || localStorage.getItem("superboyna_tg_id") || "");
-    } catch (e) {}
-    var res = await api().apiGet({ action: "listDeferred", telegramId: tid, status: "open", light: "1" }, { timeoutMs: 12000, cacheTtlMs: 15000 });
-    var items = (res && res.items) || [];
-    tasksN = items.filter(function (it) { return String((it && it.status) || "open").toLowerCase() === "open"; }).length;
+    tasksMod().bind(access);
+    try { await tasksMod().refresh(); } catch (e) { tasksN = 0; }
   }
 
   function onAct(act, node) {
     if (act === "nav") {
       route.tab = node.getAttribute("data-tab");
       route.seg = "";
+      if (route.tab !== "more") moreView = "";
       ensureSeg();
       render();
       return;
     }
+    if (act === "more-people") { moreView = "people"; route.tab = "more"; render(); return; }
+    if (act === "more-back") { moreView = ""; render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
       route.seg = node.getAttribute("data-seg");
       if (act === "oseg") route.tab = "orders";
@@ -280,6 +300,9 @@
     if (act === "retry-demo") { sh().toast("Повтор запроса"); return; }
     if (act === "show-loader") { sh().loader({ title: "Сохраняю заказ…", step: "шаг 2 из 3 · запись в лист" }); return; }
     if (act === "loader-hide") { sh().closeLoader(); return; }
+    if (tasksMod() && tasksMod().onAct(act, node)) return;
+    if (people() && people().onAct(act, node)) return;
+    if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
   }
 
@@ -357,6 +380,7 @@
     ensureSeg();
     if (q().get("tab")) route.tab = q().get("tab");
     if (q().get("seg")) route.seg = q().get("seg");
+    if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
     ensureSeg();
     render();
     refreshTasks().then(function () { if (access) paintChrome(); });
@@ -369,6 +393,37 @@
   function start() {
     root.__nxOrderVisible = function () {
       return route.tab === "orders" && route.seg === "new" && q().get("shot") !== "states";
+    };
+    root.__nxWeekVisible = function () {
+      return route.tab === "orders" && (route.seg === "week" || route.seg === "month") && q().get("shot") !== "states";
+    };
+    root.__nxOpenNew = function () {
+      route.tab = "orders";
+      route.seg = "new";
+      render();
+    };
+    root.__nxOpenWeek = function (day) {
+      route.tab = "orders";
+      route.seg = "week";
+      if (day) wk().setDay(day);
+      render();
+    };
+    root.__nxTasksCount = function (n) {
+      tasksN = Number(n) || 0;
+      if (access) paintChrome();
+    };
+    root.__nxAfterWeekPaint = function () {
+      if (!access || route.tab !== "orders") return;
+      if (route.seg !== "week" && route.seg !== "month") return;
+      var seg = wk().segment();
+      if (seg && seg !== route.seg) route.seg = seg;
+      paintChrome();
+      var box = document.getElementById("nxSegs");
+      if (!box) return;
+      var items = orderSegs();
+      box.innerHTML = items.map(function (s) {
+        return '<button type="button" class="b-seg__item' + (s.id === route.seg ? " b-seg__item--on" : "") + '" data-act="oseg" data-seg="' + s.id + '">' + sh().esc(s.label) + "</button>";
+      }).join("");
     };
     root.__nxAfterOrderPaint = function () {
       if (!access) return;

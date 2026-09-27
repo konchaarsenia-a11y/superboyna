@@ -133,6 +133,8 @@
     isSimple: isSimple,
     navItems: navItems,
     orderSegs: orderSegs,
-    normalize: normalize
+    normalize: normalize,
+    TAB_TREE: TAB_TREE,
+    tabsInclude: tabHasIn
   };
 })(window);
