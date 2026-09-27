@@ -200,7 +200,7 @@ test("панель: владелец 6, менеджер с разделами 5
   assert.equal(A.navItems(managerFull).some((x) => x.id === "goals"), false);
   const managerPreset = A.normalize({ status: "success", role: "manager" });
   const ids = JSON.stringify(A.navItems(managerPreset).map((x) => x.id));
-  assert.equal(ids, JSON.stringify(["orders", "more"]));
+  assert.equal(ids, JSON.stringify(["orders", "clients", "more"]));
   assert.equal(A.canUseTasks(managerPreset), true);
   const cutter = A.normalize({ status: "success", role: "cutter" });
   assert.equal(A.isSimple(cutter), true);

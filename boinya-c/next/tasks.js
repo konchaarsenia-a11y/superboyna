@@ -146,7 +146,7 @@
       var needSlot = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
       var po = esc(pl.partnerOrderId || "");
       if (needSlot) {
-        buttons += '<a class="b-btn b-btn--main" href="app.html">Назначить дату</a>';
+        buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-slot" data-id="' + esc(id) + '" data-po="' + po + '">Назначить дату</button>';
       } else {
         if (st !== "in_transit" && st !== "delivered") {
           buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-transit" data-id="' + esc(id) + '" data-po="' + po + '">В пути</button>';
@@ -159,11 +159,11 @@
       buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-resume" data-id="' + esc(id) + '">Открыть</button>';
     }
     if (mode === "bp_idle" || String(id).indexOf("bpidle:") === 0) {
-      buttons += '<a class="b-btn b-btn--sec" href="app.html">Открыть БП</a>';
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-bp" data-nick="' + esc(it.nick || it.client || "") + '">Открыть БП</button>';
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-hide-idle" data-id="' + esc(id) + '" style="margin-top:8px">Скрыть</button>';
     } else if (sub === "pp") {
-      buttons += '<a class="b-btn b-btn--sec" href="app.html">Править в расчёте</a>';
-      buttons += '<a class="b-btn b-btn--sec" href="app.html" style="margin-top:8px">Внести</a>';
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-edit-pp" data-id="' + esc(id) + '">Править</button>';
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-enroll" data-id="' + esc(id) + '" style="margin-top:8px">Внести</button>';
     }
     if (sub === "buy") {
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-buy" data-id="' + esc(id) + '">Собрать сообщение дозакупа</button>';
@@ -301,7 +301,60 @@
       return true;
     }
     if (act === "task-move") { moveTransfer(node.getAttribute("data-id")); return true; }
+    if (act === "task-slot") { assignSlot(node.getAttribute("data-id"), node.getAttribute("data-po")); return true; }
+    if (act === "task-enroll") { openEnroll(node.getAttribute("data-id")); return true; }
+    if (act === "task-edit-pp") { openEdit(node.getAttribute("data-id")); return true; }
+    if (act === "task-bp") {
+      sh().closeAll();
+      if (root.__nxOpenClients) root.__nxOpenClients("bp", node.getAttribute("data-nick") || "");
+      return true;
+    }
     return false;
+  }
+
+  function findItem(id) {
+    for (var i = 0; i < items.length; i++) if (String(items[i].id) === String(id)) return items[i];
+    return null;
+  }
+
+  async function assignSlot(id, partnerOrderId) {
+    var picked = await sh().prompt({ title: "Дата", text: "Дата ГГГГ-ММ-ДД", ok: "Назначить" });
+    if (picked == null) return;
+    var dateIso = String(picked).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) { sh().toast("Выберите дату"); return; }
+    var res = await api().apiGet({
+      action: "partnerSetOrderSlot",
+      telegramId: tid(),
+      deferredId: id || "",
+      partnerOrderId: partnerOrderId || "",
+      id: partnerOrderId || id || "",
+      deliverDateIso: dateIso,
+      deliverTimeFrom: "19:00",
+      deliverTimeTo: "22:00",
+      _: String(Date.now())
+    }, { timeoutMs: 25000, cacheTtlMs: 0 });
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилась дата"); return; }
+    sh().toast("Дата назначена · партнёру ушло уведомление");
+    await refresh();
+    sh().closeTop("ok");
+    paintSheet();
+  }
+
+  function openEnroll(id) {
+    var it = findItem(id);
+    if (!it) return;
+    sh().closeAll();
+    if (root.BoinyaClients) root.BoinyaClients.armEnroll(it);
+    if (root.__nxOpenClients) root.__nxOpenClients("calc");
+  }
+
+  function openEdit(id) {
+    var it = findItem(id);
+    if (!it || !it.payload) { sh().toast("Нет данных"); return; }
+    sh().closeAll();
+    if (root.BoinyaClients) root.BoinyaClients.armEdit(it);
+    if (root.__nxOpenClients) root.__nxOpenClients("calc");
+    sh().toast("Открыто в Расчёте — после правок снова «В отложенное»");
   }
 
   async function partnerStatus(id, partnerOrderId, status) {
