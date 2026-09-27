@@ -108,6 +108,9 @@ async function main() {
   await page.locator(".b-badge").waitFor({ timeout: 8000 });
   const navOwner = await page.locator("#nxNav").getAttribute("data-nav-count");
   if (navOwner !== "6") throw new Error("owner nav " + navOwner);
+  await page.locator("#nxMain").evaluate((el) => { el.scrollTop = 0; });
+  await page.getByRole("heading", { name: "Заказы" }).waitFor();
+  await shot(page, "next-orders-new-top.png");
 
   await page.locator("#client").fill("Рекс · Анна");
   await page.locator("#phone").fill("+375 29 111-22-33");
@@ -119,7 +122,6 @@ async function main() {
   await page.getByRole("button", { name: "ломтики" }).click();
   await page.getByRole("button", { name: "В состав" }).click();
   await page.getByRole("heading", { name: "Заказы" }).waitFor();
-  await shot(page, "next-orders-new-top.png");
 
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await wait(200);
