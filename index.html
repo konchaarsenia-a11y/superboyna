@@ -2,13 +2,25 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="refresh" content="0;url=boinya-c/app.html?cutover=1&v=71115879" />
+  <title>Бойня → next</title>
   <script>
-    location.replace('boinya-c/app.html?cutover=1&v=71115879');
+    (function () {
+      var fallback = "boinya-c/next.html?cutover=1&v=71116018";
+      try {
+        var u = new URL(location.href);
+        var q = new URLSearchParams(u.search);
+        if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && q.get("cutover") !== "1" && q.get("mode") !== "live" && q.get("live") !== "1") {
+          q.set("cutover", "1");
+        }
+        if (!q.get("v")) q.set("v", "71116018");
+        location.replace("boinya-c/next.html?" + q.toString() + (u.hash || ""));
+      } catch (e) {
+        location.replace(fallback + (location.hash || ""));
+      }
+    })();
   </script>
-  <title>Бойня → C</title>
 </head>
 <body>
-  <p><a href="boinya-c/app.html?cutover=1&v=71115879">Открыть Бойню C</a></p>
+  <p><a href="boinya-c/next.html?cutover=1&v=71116018">Открыть Бойню</a></p>
 </body>
 </html>
