@@ -18,6 +18,8 @@
   var courDetail = false;
   var courOpen = Object.create(null);
   var courFlags = Object.create(null);
+  var courAsmPoll = null;
+  var courAsmBusy = false;
   var planHtml = "";
   var depotAddr = "Белецкого 10к2";
   var couriersN = 1;
@@ -612,6 +614,7 @@
     if (patch.assembled === false) asmDetail = true;
     asmFlags[key] = { assembled: c.assembled, printed: c.printed, ts: Date.now() };
     paintAsm();
+    try { overlayCour(cour, (asm && asm.clients) || []); } catch (eOv) {}
     try {
       var body = patch.printed !== undefined
         ? { action: "setPrinted", day: day, client: c.name, printed: !!c.printed }
@@ -624,9 +627,61 @@
       c.assembled = prev.assembled;
       c.printed = prev.printed;
       asmFlags[key] = { assembled: c.assembled, printed: c.printed, ts: Date.now() };
+      try { overlayCour(cour, (asm && asm.clients) || []); } catch (eOv2) {}
       sh().toast("Не удалось сохранить");
       paintAsm();
     }
+  }
+
+  function overlayCour(list, asmClients) {
+    var lib = root.BoinyaCourierAsm;
+    if (!lib || !list) return list;
+    lib.apply(list, asmClients || [], { localFlags: asmFlags });
+    return list;
+  }
+
+  function courBadge(c) {
+    var lib = root.BoinyaCourierAsm;
+    if (lib) return lib.badgeText(c);
+    return c && c.assembled ? "собран" : "не собран";
+  }
+
+  function stopCourAsmPoll() {
+    if (courAsmPoll) {
+      clearInterval(courAsmPoll);
+      courAsmPoll = null;
+    }
+  }
+
+  function startCourAsmPoll() {
+    if (courAsmPoll) return;
+    courAsmPoll = setInterval(function () {
+      if (seg !== "route" || (typeof document !== "undefined" && document.hidden)) return;
+      refreshCourAsm();
+    }, 12000);
+  }
+
+  async function refreshCourAsm() {
+    if (courAsmBusy || seg !== "route") return;
+    var day = (cour && cour._day) || currentDay("nxCourDay", "route");
+    if (!day || !cour || !cour.length) return;
+    var lib = root.BoinyaCourierAsm;
+    if (!lib) return;
+    courAsmBusy = true;
+    try {
+      var res = await api().apiGet(
+        { action: "getAssembly", day: day, _: String(Date.now()) },
+        { timeoutMs: 7000, cacheTtlMs: 0 }
+      );
+      if (seg !== "route" || !res || res.status !== "success" || !Array.isArray(res.clients)) return;
+      if (String(cour._day || "") !== String(day)) return;
+      var before = lib.sig(cour);
+      overlayCour(cour, res.clients);
+      if (lib.sig(cour) === before) return;
+      readDepot();
+      paintRoute();
+    } catch (eR) {}
+    finally { courAsmBusy = false; }
   }
 
   function phoneOf(c) {
@@ -698,12 +753,13 @@
     }
     if (!list.length) html += '<p class="b-note">Нет клиентов на день</p>';
     var doneCount = list.filter(function (c) { return c.delivered; }).length;
-    if (list.length) html += '<p class="b-note">' + esc(String((cour._date || day))) + " · " + list.length + " клиентов · доставлено " + doneCount + "</p>";
+    var asmCount = list.filter(function (c) { return c.assembled; }).length;
+    if (list.length) html += '<p class="b-note">' + esc(String((cour._date || day))) + " · " + list.length + " клиентов · собрано " + asmCount + " · доставлено " + doneCount + "</p>";
     list.forEach(function (c, idx) {
       var addr = publicAddr(c.address || "");
       var tel = phoneOf(c);
       var open = !!courOpen[idx];
-      var badge = c.assembled ? "собран" : (c.delivered ? "" : "не собран");
+      var badge = courBadge(c);
       html += '<article class="b-card' + (c.delivered ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> " +
         (idx + 1) + ". " + esc(c.name || "") + (badge ? " · " + badge : "") + "</label>" +
@@ -745,6 +801,18 @@
       var o = courFlags[String(c.name || "").trim().toUpperCase()];
       if (o && Date.now() - o.ts < 1800000) c.delivered = !!o.delivered;
     });
+    var asmClients = [];
+    try {
+      var asmRes = await api().apiGet(
+        { action: "getAssembly", day: day, _: String(Date.now()) },
+        { timeoutMs: 8000, cacheTtlMs: 0 }
+      );
+      if (asmRes && asmRes.status === "success" && Array.isArray(asmRes.clients)) asmClients = asmRes.clients;
+    } catch (eAsm) {}
+    if (!asmClients.length && asm && String(asm.day || "") === String(day) && Array.isArray(asm.clients)) {
+      asmClients = asm.clients;
+    }
+    overlayCour(list, asmClients);
     list.sort(function (a, b) {
       var d = (a.delivered ? 1 : 0) - (b.delivered ? 1 : 0);
       if (d) return d;
@@ -755,6 +823,7 @@
     cour = list;
     paintRoute();
     registerCourier();
+    startCourAsmPoll();
   }
 
   async function registerCourier() {
@@ -865,7 +934,13 @@
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">Курьер ' + (r + 1) + " · " + stops.length + " точ.</p>";
       html += '<p class="b-note">ориентир ' + esc(route.formatMinutes(mins)) + "</p>";
       stops.forEach(function (s, i) {
-        html += '<p style="margin:8px 0 0"><b>' + (i + 1) + ". " + esc(s.name) + "</b><br>" + esc(s.address || "") + "</p>";
+        var stopAsm = "";
+        var courHit = null;
+        for (var ci = 0; ci < (cour || []).length; ci++) {
+          if (cour[ci] && (cour[ci].name === s.name || (s.clientIndex === ci))) { courHit = cour[ci]; break; }
+        }
+        if (courHit) stopAsm = " · " + courBadge(courHit);
+        html += '<p style="margin:8px 0 0"><b>' + (i + 1) + ". " + esc(s.name) + esc(stopAsm) + "</b><br>" + esc(s.address || "") + "</p>";
         if (s.deliveryLabel) html += '<p class="b-note">' + esc(s.deliveryLabel) + (s.clientAddress ? " → " + esc(s.clientAddress) : "") + "</p>";
         html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-ig" data-r="' + r + '" data-i="' + i + '">Копировать через N мин</button>';
         if (count === 2) html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-move" data-r="' + r + '" data-i="' + i + '">→ ' + ((r === 0 ? 1 : 0) + 1) + "</button>";
@@ -1114,6 +1189,7 @@
     if (!items.some(function (s) { return s.id === next; })) next = (items[0] && items[0].id) || "cut";
     seg = next;
     if (seg !== "cut" && cutSession.timer) { clearInterval(cutSession.timer); cutSession.timer = null; }
+    if (next !== "route") stopCourAsmPoll();
     paint();
     if (seg === "cut") await loadCut();
     else if (seg === "pack") await loadAsm(false);

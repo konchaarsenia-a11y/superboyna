@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116017";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116018";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -102,6 +102,9 @@
     };
     var _cuttingLoadSeq = 0;
     var _courierLoadSeq = 0;
+    var _courierAsmPollId = null;
+    var _courierAsmBusy = false;
+    var courierAsmClients_ = null;
     var _assemblyLoadSeq = 0;
     var _viewClientsLoadSeq = 0;
     var _deliveryDateResolveSeq = 0;
@@ -4272,6 +4275,8 @@
             ensureOpsDaySelected({ forceSmart: true });
             if (!window._courierOpenAssembly) setCourierSub("route");
             window._courierOpenAssembly = false;
+          } else {
+            try { stopCourierAsmPoll_(); } catch (eAsmPoll) {}
           }
         } catch (e3) {}
       };
@@ -4348,6 +4353,7 @@
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) {
         try { hideSaveLoading(); closeTasksDrawer(); } catch (eV) {}
+        try { if (courierRouteVisible_()) refreshCourierAssemblyFlags_(); } catch (eAsmVis) {}
         try {
           document.body.style.pointerEvents = "auto";
           document.documentElement.style.pointerEvents = "auto";
@@ -11678,8 +11684,11 @@
       }
 
       if (!force && courierClientsCache && courierClientsCache.length && courierClientsCache._day === day) {
+        overlayCourierAsm_(courierClientsCache, null);
         refreshCourierSummary();
         renderCourierClientsUi_();
+        refreshCourierAssemblyFlags_();
+        startCourierAsmPoll_();
         return;
       }
       courierClientsCache = [];
@@ -11689,10 +11698,18 @@
       routePlanState.routes = [[], []];
       box.innerHTML = loadingDanceHtml("Собираю маршрут…");
       try {
-        const res = await apiGet(
-          { action: "getCourier", day: day },
-          { timeoutMs: force ? 22000 : 18000, retries: force ? 1 : 0 }
-        );
+        const pair = await Promise.all([
+          apiGet(
+            { action: "getCourier", day: day },
+            { timeoutMs: force ? 22000 : 18000, retries: force ? 1 : 0 }
+          ),
+          apiGet(
+            { action: "getAssembly", day: day, _: String(Date.now()) },
+            { timeoutMs: 12000, retries: 0, cacheTtlMs: 0, background: true, noBusy: true, __boinyaNoSnap: true }
+          ).catch(function () { return null; })
+        ]);
+        const res = pair[0];
+        const asmRes = pair[1];
         if (loadSeq !== _courierLoadSeq) return;
         var curDay = document.getElementById("courierDaySelect") && document.getElementById("courierDaySelect").value;
         if (String(curDay || "") !== String(day)) return;
@@ -11708,6 +11725,12 @@
         courierClientsCache._date = res.date || day;
         courierClientsCache._day = day;
         try { applyCourierLocalFlags_(courierClientsCache); } catch (eCf) {}
+        try {
+          overlayCourierAsm_(
+            courierClientsCache,
+            asmRes && asmRes.status === "success" && Array.isArray(asmRes.clients) ? asmRes.clients : null
+          );
+        } catch (eAsmOv) {}
         try { maybeQueuePpPayAskReminders_(courierClientsCache); } catch (eAsk) {}
         courierClientsCache.sort(function (a, b) {
           var da = a && a.delivered ? 1 : 0;
@@ -11717,6 +11740,7 @@
         });
         refreshCourierSummary();
         renderCourierClientsUi_();
+        startCourierAsmPoll_();
       } catch (err) {
         if (loadSeq !== _courierLoadSeq) return;
         box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
@@ -11748,6 +11772,118 @@
       });
     }
 
+    function courierRouteVisible_() {
+      var screen = document.getElementById("courierScreen");
+      if (!screen || !screen.classList.contains("active")) return false;
+      var pane = document.getElementById("courierRoutePane");
+      if (pane && pane.style.display === "none") return false;
+      return true;
+    }
+    function courierAsmOpts_() {
+      return {
+        localFlags: assemblyLocalFlags,
+        same: function (a, b) { return nicksMatchClient_(a, b); }
+      };
+    }
+    function overlayCourierAsm_(clients, asmClients) {
+      var lib = window.BoinyaCourierAsm;
+      if (!lib || !clients) return;
+      if (asmClients && asmClients.length) courierAsmClients_ = asmClients;
+      lib.apply(clients, (asmClients && asmClients.length) ? asmClients : (courierAsmClients_ || []), courierAsmOpts_());
+    }
+    function courierAsmText_(c) {
+      var lib = window.BoinyaCourierAsm;
+      if (lib) return lib.badgeText(c);
+      return c && c.assembled ? "собран" : "не собран";
+    }
+    function courierAsmKind_(c) {
+      var lib = window.BoinyaCourierAsm;
+      if (lib) return lib.badgeKind(c);
+      return c && c.assembled ? "yes" : "no";
+    }
+    function courierAsmBadgeHtml_(c) {
+      return '<span class="client-badge courier-asm-badge courier-asm-badge--' + courierAsmKind_(c) + '">' +
+        escapeHtml(courierAsmText_(c)) + "</span>";
+    }
+    function patchRouteStopsAssembled_() {
+      var list = courierClientsCache || [];
+      function patch(stops) {
+        (stops || []).forEach(function (s) {
+          if (!s) return;
+          var c = null;
+          if (s.clientIndex >= 0 && list[s.clientIndex] && list[s.clientIndex].name === s.name) c = list[s.clientIndex];
+          else {
+            for (var i = 0; i < list.length; i++) {
+              if (list[i] && list[i].name === s.name) { c = list[i]; break; }
+            }
+          }
+          if (!c) return;
+          s.assembled = !!c.assembled;
+          s.assembledPartial = !!c.assembledPartial;
+          s.assembledDone = c.assembledDone;
+          s.assembledTotal = c.assembledTotal;
+        });
+      }
+      patch(routePlanState.routes[0]);
+      patch(routePlanState.routes[1]);
+    }
+    function paintCourierAsmFromKnown_() {
+      if (!courierClientsCache || !courierClientsCache.length) return;
+      overlayCourierAsm_(courierClientsCache, null);
+      if (!courierRouteVisible_()) return;
+      refreshCourierSummary();
+      renderCourierClientsUi_();
+      patchRouteStopsAssembled_();
+      if ((routePlanState.routes[0] && routePlanState.routes[0].length) ||
+          (routePlanState.routes[1] && routePlanState.routes[1].length)) {
+        renderRoutePlan();
+      }
+    }
+    function stopCourierAsmPoll_() {
+      if (_courierAsmPollId) {
+        clearInterval(_courierAsmPollId);
+        _courierAsmPollId = null;
+      }
+    }
+    function startCourierAsmPoll_() {
+      if (_courierAsmPollId) return;
+      _courierAsmPollId = setInterval(function () {
+        if (document.hidden) return;
+        refreshCourierAssemblyFlags_();
+      }, 12000);
+    }
+    async function refreshCourierAssemblyFlags_() {
+      if (_courierAsmBusy || !courierRouteVisible_()) return;
+      var dayEl = document.getElementById("courierDaySelect");
+      var day = dayEl && dayEl.value;
+      if (!day || !courierClientsCache || !courierClientsCache.length) return;
+      if (String(courierClientsCache._day || "") !== String(day)) return;
+      var lib = window.BoinyaCourierAsm;
+      if (!lib) return;
+      _courierAsmBusy = true;
+      try {
+        var res = await apiGet(
+          { action: "getAssembly", day: day, _: String(Date.now()) },
+          { timeoutMs: 8000, retries: 0, cacheTtlMs: 0, background: true, noBusy: true, __boinyaNoSnap: true }
+        );
+        if (!courierRouteVisible_()) return;
+        var cur = document.getElementById("courierDaySelect");
+        if (!cur || String(cur.value) !== String(day)) return;
+        if (!res || res.status !== "success" || !Array.isArray(res.clients)) return;
+        var before = lib.sig(courierClientsCache);
+        overlayCourierAsm_(courierClientsCache, res.clients);
+        if (lib.sig(courierClientsCache) === before) return;
+        refreshCourierSummary();
+        renderCourierClientsUi_();
+        patchRouteStopsAssembled_();
+        if ((routePlanState.routes[0] && routePlanState.routes[0].length) ||
+            (routePlanState.routes[1] && routePlanState.routes[1].length)) {
+          renderRoutePlan();
+        }
+      } catch (eAsm) {}
+      finally { _courierAsmBusy = false; }
+    }
+
     function courierAllDelivered_() {
       var list = courierClientsCache || [];
       return list.length > 0 && list.every(function (c) { return !!c.delivered; });
@@ -11767,6 +11903,7 @@
           '<div class="cut-done-summary">' +
             '<div class="cut-done-title">Доставки завершены' + (dateLabel ? (" · " + escapeHtml(String(dateLabel))) : "") + "</div>" +
             '<div class="cut-done-meta">Клиентов: <b>' + list.length + "</b>" +
+              " · собрано: <b>" + list.filter(function (c) { return c && c.assembled; }).length + "</b>" +
               (paidN ? (" · оплачено ПП: <b>" + paidN + "</b>") : "") +
             "</div>" +
             formatDayCollectTotalHtml_(calcDayCollectTotal_(list)) +
@@ -11795,6 +11932,13 @@
         return;
       }
       var resClients = courierClientsCache || [];
+      var openIdx = Object.create(null);
+      try {
+        box.querySelectorAll(".courier-row.is-open").forEach(function (row) {
+          var m = String(row.id || "").match(/(\d+)$/);
+          if (m) openIdx[m[1]] = true;
+        });
+      } catch (eOpen) {}
       box.innerHTML = resClients.map(function (c, idx) {
           const lines = basketLinesHtml(c.basket || []);
           const priceHtml = formatOrderPriceHtml(c);
@@ -11805,13 +11949,13 @@
           const telBlock = phoneRaw
             ? formatTelHtml(phoneRaw, { always: true })
             : '<div class="delivery-line courier-tel-line muted" onclick="event.stopPropagation()">📞 нет телефона</div>';
-          return `<div class="courier-row${c.delivered ? " is-delivered" : ""}" id="courierRow_${idx}" onclick="toggleCourierClientDetail_(${idx}, event)">
+          return `<div class="courier-row${c.delivered ? " is-delivered" : ""}${openIdx[idx] ? " is-open" : ""}" id="courierRow_${idx}" onclick="toggleCourierClientDetail_(${idx}, event)">
             <label class="check-line" onclick="event.stopPropagation()">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
-              ${!c.delivered ? (c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ('<span class="client-badge" style="margin-left:8px;background:rgba(255,69,58,0.18);color:#ff6961;opacity:0.85;">не собран</span>')) : (c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : "")}
               ${clientTechBadgesHtml_(c)}
             </label>
+            <div class="courier-asm-line">${courierAsmBadgeHtml_(c)}</div>
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
               <span class="muted" style="font-size:11px;"> · тап → этаж/кв</span>
             </div>
@@ -11855,6 +11999,7 @@
         return;
       }
       const doneCount = courierClientsCache.filter(c => c.delivered).length;
+      const asmCount = courierClientsCache.filter(function (c) { return c && c.assembled; }).length;
       const dateLabel = (courierClientsCache._date || day);
       const money = calcDayCollectTotal_(courierClientsCache);
       const payAsk = (courierClientsCache || []).filter(function (c) {
@@ -11870,7 +12015,7 @@
           "</div>";
       }
       summary.innerHTML =
-        `<div class="total-summary-badge">${escapeHtml(dateLabel)} · ${courierClientsCache.length} клиентов · доставлено <span style="color:var(--success-color)">${doneCount}</span></div>` +
+        `<div class="total-summary-badge">${escapeHtml(dateLabel)} · ${courierClientsCache.length} клиентов · собрано <span style="color:#ffd60a">${asmCount}</span> · доставлено <span style="color:var(--success-color)">${doneCount}</span></div>` +
         formatDayCollectTotalHtml_(money) +
         askHtml;
     }
@@ -14667,6 +14812,10 @@
             price: extractOrderPrice(c.note || ""),
             delivery: method,
             deliveryLabel: method === "euro" ? "Европочта" : "Белпочта",
+            assembled: !!c.assembled,
+            assembledPartial: !!c.assembledPartial,
+            assembledDone: c.assembledDone,
+            assembledTotal: c.assembledTotal,
             clientIndex: courierClientsCache.indexOf(c),
             lat: lat,
             lon: lon,
@@ -14693,6 +14842,10 @@
             price: extractOrderPrice(c.note || ""),
             delivery: "courier",
             deliveryLabel: null,
+            assembled: !!c.assembled,
+            assembledPartial: !!c.assembledPartial,
+            assembledDone: c.assembledDone,
+            assembledTotal: c.assembledTotal,
             clientIndex: courierClientsCache.indexOf(c),
             lat: lat,
             lon: lon,
@@ -15199,6 +15352,7 @@
             html += '<div class="route-stop">';
             html += '<div class="route-stop-top">';
             html += '<div><div class="route-stop-name">' + (i + 1) + ". " + escapeHtml(s.name) +
+              " " + courierAsmBadgeHtml_(s) +
               (winBits.length ? (' <span class="route-badge">' + escapeHtml(winBits.join(" · ")) + "</span>") : "") +
               "</div>";
             html += '<div class="route-stop-addr">' + escapeHtml(s.address) + "</div>";
@@ -18581,6 +18735,7 @@
       rememberAssemblyLocalFlag_(client.name, { assembled: next });
       if (!next) assemblyDetailExpanded_ = true;
       renderAssemblyView();
+      try { paintCourierAsmFromKnown_(); } catch (eCourAsm) {}
       try {
         var asmRes = await apiPost({
           action: "setAssembled",
@@ -18600,6 +18755,7 @@
         rememberAssemblyLocalFlag_(client.name, { assembled: !next });
         showToast("Не удалось сохранить");
         renderAssemblyView();
+        try { paintCourierAsmFromKnown_(); } catch (eCourAsm2) {}
       }
     }
 
