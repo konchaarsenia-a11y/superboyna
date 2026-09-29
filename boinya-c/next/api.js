@@ -126,7 +126,8 @@
         cleanup();
         reject(new Error("network"));
       };
-      s.src = webhook() + "?" + q + "&callback=" + cb;
+      var base = String(params.action || "") === "materializeWeek" ? ORIGIN : webhook();
+      s.src = base + "?" + q + "&callback=" + cb;
       document.head.appendChild(s);
     });
   }

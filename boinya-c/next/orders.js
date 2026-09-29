@@ -1059,8 +1059,9 @@
     sh().closeLoader();
     var msgOut = saveMessage(res);
     saving = false;
-    sh().toast(msgOut.text);
-    if (!msgOut.ok) { paint(); return; }
+    if (!msgOut.ok) { sh().toast(msgOut.text); paint(); return; }
+    if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено");
+    else sh().toast(msgOut.text);
     remember();
     var keepDate = state.deliveryDate;
     var keepDay = state.day;
@@ -1135,7 +1136,16 @@
   function onAct(act, node) {
     if (act === "input" || act === "change") {
       if (node && node.getAttribute && node.getAttribute("data-k")) readField(node);
-      if (node && node.id === "pq") { picker.q = node.value; sh().replaceTop({ html: addHtml() }); }
+      if (node && node.id === "pq") {
+        picker.q = node.value;
+        var caret = node.selectionStart;
+        sh().replaceTop({ html: addHtml() });
+        var again = document.getElementById("pq");
+        if (again) {
+          again.focus();
+          try { again.setSelectionRange(caret, caret); } catch (ePq) {}
+        }
+      }
       if (node && node.getAttribute && node.getAttribute("data-act") === "note-text") {
         state.notes[Number(node.getAttribute("data-i"))].text = node.value;
       }

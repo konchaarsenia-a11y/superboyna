@@ -1036,6 +1036,37 @@
     seg = "calc";
   }
 
+  async function migrateRaw() {
+    if (!card || card.sheet !== "ПП") { sh().toast("Только для ПП"); return; }
+    var nick = String(card.nick || card.label || "").trim();
+    if (!nick && !card.subId) { sh().toast("Нет ника"); return; }
+    var ok = await sh().confirm({
+      title: "Новая схема",
+      text: "Перевести на схему сырьё×2.6 + recover + 9×N?\n\nУказанная цена на карточке пересчитается.\nУже стоящие доставки в календаре не меняются.",
+      ok: "Перевести",
+      cancel: "Отмена"
+    });
+    if (!ok) return;
+    sh().toast("Перевожу…");
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "migratePpToRaw26Scheme",
+        nick: nick || card.label || "",
+        subId: card.subId || "",
+        telegramId: tid(),
+        applyStated: "1",
+        _: String(Date.now())
+      }, { timeoutMs: 28000, cacheTtlMs: 0 });
+    } catch (e) { res = null; }
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Не удалось — нужен Deploy Code.gs");
+      return;
+    }
+    sh().toast("Схема обновлена");
+    openCard(card.nick || nick, card.subId, card.sheet);
+  }
+
   function onAct(act, node) {
     if (act === "input" || act === "change") return readNode(node);
     if (!node || String(act || "").indexOf("cl-") !== 0 && act !== "cseg") {
@@ -1080,7 +1111,7 @@
       paint();
       return true;
     }
-    if (act === "cl-migrate") { if (card) { card.scheme = "RAW26"; card.coef = "2.6"; } price.scheme = "RAW26"; price.coef = 2.6; paint(); return true; }
+    if (act === "cl-migrate") { migrateRaw(); return true; }
     if (act === "cl-add" || act === "cl-manual") { openAdd(); return true; }
     if (act === "cl-cat") { pickerCat(node.getAttribute("data-cat")); return true; }
     if (act === "cl-sku") { askQty(node.getAttribute("data-cat"), node.getAttribute("data-name")); return true; }

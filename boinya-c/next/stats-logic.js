@@ -114,7 +114,32 @@
       ppDeliveryFuel: Number(res.ppDeliveryFuelCost != null ? res.ppDeliveryFuelCost : res.ppDeliveryCost) || 0,
       ppDeliveryInClean: Number(res.ppDeliveryInClean) || 0,
       staffCost: res.staffCost != null ? Number(res.staffCost) : 0,
-      feeLine: statsPpFeeEchoLine_(res)
+    feeLine: statsPpFeeEchoLine_(res)
+  };
+  }
+
+  function statsExpectedRows_(res) {
+    res = res || {};
+    var n = statsExpectedNumbers_(res);
+    var lines = [];
+    lines.push({ label: "ПП выручка", value: n.ppRevenue + " BYN" });
+    if (n.ppRecoverInClean > 0) lines.push({ label: "Recover в чистом", value: n.ppRecoverInClean + " BYN" });
+    else if (n.ppRecoverCost > 0) lines.push({ label: "Recover ПП", value: n.ppRecoverCost + " BYN" });
+    if (n.ppPackagesCost != null) lines.push({ label: "Пакеты", value: n.ppPackagesCost + " BYN" });
+    if (n.ppFractionInClean > 0) lines.push({ label: "Фракции в чистом", value: n.ppFractionInClean + " BYN" });
+    if (res.ppDeliveryCost != null || res.ppDeliveryFuelCost != null) {
+      lines.push({ label: "Топливо доставок (4×N)", value: n.ppDeliveryFuel + " BYN" });
+    }
+    if (n.ppDeliveryInClean > 0) lines.push({ label: "Доставка в чистом", value: n.ppDeliveryInClean + " BYN" });
+    if (n.staffCost > 0) lines.push({ label: "ЗП (не нарезчик)", value: n.staffCost + " BYN" });
+    return {
+      profit: n.profit,
+      clean: n.clean,
+      cost: n.cost,
+      deliveries: n.deliveries,
+      by: n.by,
+      lines: lines,
+      feeLine: n.feeLine
     };
   }
 
@@ -285,6 +310,7 @@
     statsDelta_: statsDelta_,
     statsClean_: statsClean_,
     statsExpectedNumbers_: statsExpectedNumbers_,
+    statsExpectedRows_: statsExpectedRows_,
     statsVisiblePartners_: statsVisiblePartners_,
     statsCutter_: statsCutter_,
     statsFacts_: statsFacts_

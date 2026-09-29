@@ -108,6 +108,41 @@ test("заявки, точки и доступы партнёров", () => {
   assert.equal(orders[0].id, "1");
 });
 
+test("диапазон показывает топливо только если сервер его прислал", () => {
+  const bare = stats.statsExpectedRows_({
+    profit: 80, clean: 50, cost: 30, deliveries: 4, revenue: 80,
+    bySource: { pp: 2, bp: 1, retail: 1, partner: 0 }, ppRevenue: 70, ppScheme: "RAW26"
+  });
+  assert.equal(bare.lines.some((row) => row.label.indexOf("Топливо") >= 0), false);
+  const fuel = stats.statsExpectedRows_({
+    profit: 80, clean: 50, cost: 30, ppDeliveryFuelCost: 8, ppRevenue: 70, ppScheme: "RAW26"
+  });
+  assert.equal(fuel.lines.filter((row) => row.label === "Топливо доставок (4×N)")[0].value, "8 BYN");
+});
+
+test("подписи дашборда и порядок блоков как в старом экране", () => {
+  const ui = fs.readFileSync(path.resolve(here, "stats.js"), "utf8");
+  [
+    "Вставь актуальный Code.gs → Deploy → New version.",
+    "пробник бесплатный",
+    "блок «БП» ниже",
+    "тумблер не врёт",
+    "канон 12.09: ЗП = recover",
+    "ЗП / мес (BYN)",
+    "Воронка БП (CRM)",
+    "Выхлоп (выручка − затраты БП перешедших)",
+    "Добавь партнёров и указывай при заказе БП",
+    "Только БП тех, кто стал ПП."
+  ].forEach((phrase) => assert.ok(ui.includes(phrase), phrase));
+  const order = ["Откуда деньги", "Затраты", "Нарезчик", ">БП</p>", "Партнёры", "Лист ПП (снимок)", "Воронка БП (CRM)", "Оборот по источникам"];
+  let at = -1;
+  order.forEach((mark) => {
+    const next = ui.indexOf(mark, at + 1);
+    assert.ok(next > at, mark);
+    at = next;
+  });
+});
+
 test("в интерфейсе партнёров нет сида сетей", () => {
   assert.equal(partnersUi.includes("partnerHubSeedDefaults_"), false);
   assert.equal(partnersUi.includes("partnerSeedDefaults"), false);

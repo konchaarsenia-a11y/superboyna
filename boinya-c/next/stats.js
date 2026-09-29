@@ -48,10 +48,10 @@
     var html = "";
     if (f.oldDeploy) {
       html += '<article class="b-card" style="margin-bottom:12px;border-color:var(--b-warn)"><b style="color:var(--b-warn)">Старый Deploy Code.gs</b>' +
-        '<p class="b-note">Ответ без factCutoff — цифры могут быть неполными.</p></article>';
+        '<p class="b-note">Вставь актуальный Code.gs → Deploy → New version.</p></article>';
     }
     html += '<article class="b-card"><p class="b-lbl" style="margin-top:0">' + esc(f.monthLabel) + "</p>" +
-      '<p class="b-note">Оборот = ПП + розница + партнёр. БП в оборот не входит.</p>' +
+      '<p class="b-note">Оборот = ПП + розница + партнёр. <b>БП в оборот не входит</b> (пробник бесплатный).</p>' +
       '<div class="nx-tiles">' +
       tile("Прибыль (=оборот)", f.profitFact) +
       tile("Чистое", f.cleanFact) +
@@ -67,14 +67,7 @@
       line("Розница", f.retail + " BYN") +
       line("Заказы «Партнёр»", f.partnerOrd + " BYN") +
       line("БП", "0 BYN · бесплатно") +
-      '<p class="b-note">Деньги с БП появляются только после перехода в ПП.</p></article>';
-
-    if (f.turnChart.length) {
-      var turnMax = 1;
-      f.turnChart.forEach(function (s) { if ((Number(s.value) || 0) > turnMax) turnMax = Number(s.value) || 0; });
-      html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Оборот по источникам</p>' +
-        f.turnChart.map(function (s) { return bar(s.label, s.value, turnMax); }).join("") + "</article>";
-    }
+      '<p class="b-note">Деньги с БП появляются только после перехода в ПП — блок «БП» ниже.</p></article>';
 
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Затраты</p>' +
       line("Продукция всего", f.productCost + " BYN") +
@@ -106,9 +99,15 @@
       '<div class="b-card"><span class="b-note">Этот месяц ' + esc(ensureMonth()) + "</span><b>" +
       (c.monthOn ? "В затратах: recover" : "Как OFF · recover в чистом") + "</b></div></div>";
     if (c.globalOn && !c.monthOn) {
-      html += '<p class="b-note" style="color:var(--b-warn)">Месяц раньше «с» ' + esc(c.fromMonth) + " или до пола " + esc(c.floor) + ".</p>";
+      html += '<p class="b-note" style="color:var(--b-warn)">Месяц раньше «с» ' + esc(c.fromMonth) + " или до пола " + esc(c.floor) + " — тумблер не врёт, в цифрах месяца нарезчик выкл.</p>";
     }
-    html += '<label class="b-field" style="margin-top:8px"><span class="b-note">ЗП / мес</span><input class="b-field__input" type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + esc(String(c.salary)) + '"></label>' +
+    if (c.globalOn) {
+      html += '<p class="b-note">Плоская ЗП · ' + esc(String(c.salary)) + " BYN/мес · не в затратах</p>" +
+        '<p class="b-note">с ' + esc(c.fromMonth) + " · канон 12.09: ЗП = recover</p>";
+    } else {
+      html += '<p class="b-note">Тумблер выключен — recover ПП в чистом (не в затратах). Плоская ЗП не используется.</p>';
+    }
+    html += '<label class="b-field" style="margin-top:8px"><span class="b-note">ЗП / мес (BYN)</span><input class="b-field__input" type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + esc(String(c.salary)) + '"></label>' +
       '<div class="nx-actions" style="margin-top:8px">';
     if (c.globalOn) {
       html += '<button type="button" class="b-btn b-btn--main" data-act="st-cutter-on">Обновить ЗП</button>' +
@@ -118,14 +117,8 @@
     }
     html += "</div></article>";
 
-    var stageMax = 1;
-    f.bpStages.forEach(function (s) { if ((Number(s.value) || 0) > stageMax) stageMax = Number(s.value) || 0; });
-    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Воронка БП</p>' +
-      '<p class="b-note">Живые карточки на листе БП — не деньги месяца.</p>' +
-      line("Всего на листе", f.bpTotal) +
-      f.bpStages.map(function (s) { return bar(s.label, s.value, stageMax); }).join("") +
-      '<p class="b-lbl">БП</p>' +
-      '<p class="b-note">Пробник не даёт оборот.</p>' +
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">БП</p>' +
+      '<p class="b-note">Пробник <b>не даёт оборот</b>. Считаем только затраты и переходы в ПП.</p>' +
       line("Оборот с доставок БП", "0 BYN") +
       line("Доставок БП", f.bpDeliv) +
       line("Затраты месяца", f.bpSpend + " BYN") +
@@ -134,16 +127,18 @@
     if (f.bpDelivCleanShow > 0) html += line("· доставка в чистом (2р × " + f.bpDeliv + ")", f.bpDelivCleanShow + " BYN");
     html += line("Переходов в ПП (месяц)", f.converted) +
       line("CAC (затраты ÷ переходы)", f.cac != null ? (f.cac + " BYN") : "—") +
+      '<p class="b-note">За всё время · деньги после перехода в ПП</p>' +
       line("Перешло", (f.life.converted || 0)) +
       line("Затраты БП перешедших", (f.life.bpCost || 0) + " BYN") +
       line("Выручка ПП с них", (f.life.ppRevenue || 0) + " BYN") +
-      line("Выхлоп", (f.life.profit || 0) + " BYN") +
+      line("Выхлоп (выручка − затраты БП перешедших)", (f.life.profit || 0) + " BYN") +
+      '<p class="b-note">Только БП тех, кто стал ПП. Оплаты подписки после конверсии (не цена пробника). Себест ПП в «Чистом» — без наценки 2.3/2.6.</p>' +
       "</article>";
 
     html += '<article class="b-card" id="statsPartnersCard" style="margin-top:12px"><p class="b-lbl">Партнёры</p>' +
       '<p class="b-note">БП от партнёра → сколько стало ПП. Прибыль = выручка ПП − затрата БП (если платит себест — затрата 0).</p>';
     if (!f.partners.length) {
-      html += '<p class="b-note">Пока пусто</p><button type="button" class="b-btn b-btn--sec" data-act="st-partners">Открыть список партнёров</button>';
+      html += '<p class="b-note">Пока пусто</p><p class="b-note">Добавь партнёров и указывай при заказе БП</p><button type="button" class="b-btn b-btn--sec" data-act="st-partners">Открыть список партнёров</button>';
     } else {
       html += f.partners.map(function (p) {
         var good = Number(p.profit) || 0;
@@ -164,6 +159,14 @@
       line("Выхлоп листа", f.ppClean) +
       '<p class="b-note">Не факт доставок — статичный лист подписок.</p></article>';
 
+    var stageMax = 1;
+    f.bpStages.forEach(function (s) { if ((Number(s.value) || 0) > stageMax) stageMax = Number(s.value) || 0; });
+    html += '<article class="b-card" id="statsBpFunnelCard" style="margin-top:12px"><p class="b-lbl">Воронка БП (CRM)</p>' +
+      '<p class="b-note">Живые карточки на листе БП — не деньги месяца.</p>' +
+      line("Всего на листе", f.bpTotal) +
+      f.bpStages.map(function (s) { return bar(s.label, s.value, stageMax); }).join("") +
+      "</article>";
+
     var cmp = f.compare || {};
     if (cmp.prevMonthKey) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">С прошлым месяцем · ' + esc(cmp.prevMonthKey) + "</p>" +
@@ -173,6 +176,12 @@
         '<div class="nx-line"><span class="b-note">Доставок</span><b>' + esc(f.deliveries) + deltaHtml(cmp.deliveries) + "</b></div>" +
         '<div class="nx-line"><span class="b-note">БП затраты</span><b>' + esc(f.bpSpend) + deltaHtml(cmp.bpSpend) + "</b></div>" +
         '<div class="nx-line"><span class="b-note">Переходов</span><b>' + esc(f.converted) + deltaHtml(cmp.bpConverted) + "</b></div></article>";
+    }
+    if (f.turnChart.length) {
+      var turnMax = 1;
+      f.turnChart.forEach(function (s) { if ((Number(s.value) || 0) > turnMax) turnMax = Number(s.value) || 0; });
+      html += '<article class="b-card" id="statsTurnoverChartCard" style="margin-top:12px"><p class="b-lbl">Оборот по источникам</p>' +
+        f.turnChart.map(function (s) { return bar(s.label, s.value, turnMax); }).join("") + "</article>";
     }
     return html;
   }
@@ -302,23 +311,21 @@
     if (!document.getElementById("statsExpectBox")) return;
     box = document.getElementById("statsExpectBox");
     if (!res || res.status !== "success") {
-      box.innerHTML = '<p class="b-note">' + esc((res && res.message) || "Не удалось посчитать") + "</p>";
+      var fail = (res && res.message) || "Не удалось посчитать";
+      if (fail === "unknown_action" || !res || res.status === "unknown_action") {
+        fail = "Нужен Deploy Code.gs: вставь актуальный Code.gs → Deploy → New version. Без этого нет расчёта диапазона и фильтра «только прошедшие».";
+      }
+      box.innerHTML = '<p class="b-note">' + esc(fail) + "</p>";
       return;
     }
-    var n = L().statsExpectedNumbers_(res);
+    var n = L().statsExpectedRows_(res);
     var by = n.by;
     box.innerHTML = '<div class="nx-tiles" style="margin-top:12px">' +
       tile("Прибыль (=оборот)", n.profit) + tile("Чистое", n.clean) +
       tile("Затраты", n.cost) + tile("Доставок", n.deliveries) + "</div>" +
       '<p class="b-note">' + esc(res.from) + " → " + esc(res.to) + "</p>" +
       '<p class="b-note">ПП ' + esc(by.pp || 0) + " · БП " + esc(by.bp || 0) + " · розница " + esc(by.retail || 0) + " · партнёр-заказ " + esc(by.partner || 0) + "</p>" +
-      line("ПП выручка", n.ppRevenue + " BYN") +
-      (n.ppRecoverInClean > 0 ? line("Recover в чистом", n.ppRecoverInClean + " BYN") : (n.ppRecoverCost > 0 ? line("Recover ПП", n.ppRecoverCost + " BYN") : "")) +
-      (n.ppPackagesCost != null ? line("Пакеты", n.ppPackagesCost + " BYN") : "") +
-      (n.ppFractionInClean > 0 ? line("Фракции в чистом", n.ppFractionInClean + " BYN") : "") +
-      line("Топливо доставок (4×N)", n.ppDeliveryFuel + " BYN") +
-      (n.ppDeliveryInClean > 0 ? line("Доставка в чистом", n.ppDeliveryInClean + " BYN") : "") +
-      (n.staffCost > 0 ? line("ЗП (не нарезчик)", n.staffCost + " BYN") : "") +
+      n.lines.map(function (row) { return line(row.label, row.value); }).join("") +
       (n.feeLine ? '<p class="b-note">' + esc(n.feeLine) + "</p>" : "");
   }
 
