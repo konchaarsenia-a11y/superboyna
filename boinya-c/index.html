@@ -6,11 +6,9 @@
   <meta name="robots" content="noindex">
   <title>Бойня C</title>
   <!-- Критический путь: НЕ грузим seed/bridge здесь (иначе двойная загрузка). -->
-  <link rel="preload" href="app.html?v=71116018" as="document">
-  <link rel="preload" href="app.main.js?v=71116018" as="script">
+  <link rel="preload" href="next.html?cutover=1&v=71116018" as="document">
   <link rel="preload" href="client/config.js" as="script">
-  <link rel="preload" href="seed-inline.js" as="script">
-  <link rel="preload" href="bridge.js" as="script">
+  <link rel="preload" href="next/app.js" as="script">
   <style>
     html, body {
       margin: 0; background: #0a0a0a; color: #f5f5f7;
@@ -26,20 +24,19 @@
   </style>
   <script>
     (function () {
-      // Должен совпадать с APP_VER в app.html — иначе TG делает двойной reload ~1MB
       var ver = "71116018";
-      var q = "app.html?v=" + ver;
       try {
         var u = new URL(location.href);
-        ["proxy", "allowWrite", "live", "cutover", "sandbox", "mode", "via", "tid", "telegramId"].forEach(function (k) {
-          if (u.searchParams.get(k)) q += "&" + k + "=" + encodeURIComponent(u.searchParams.get(k));
-        });
-        var sand = u.searchParams.get("sandbox") === "1" || u.searchParams.get("cutover") === "0";
-        if (!sand && !u.searchParams.get("cutover") && u.searchParams.get("mode") !== "live" && u.searchParams.get("live") !== "1") {
-          q += "&cutover=1";
+        var q = new URLSearchParams(u.search);
+        if (!q.get("v")) q.set("v", ver);
+        var sand = q.get("sandbox") === "1" || q.get("cutover") === "0";
+        if (!sand && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
+          q.set("cutover", "1");
         }
-      } catch (e) {}
-      location.replace(q);
+        location.replace("next.html?" + q.toString() + (u.hash || ""));
+      } catch (e) {
+        location.replace("next.html?cutover=1&v=" + ver + (location.hash || ""));
+      }
     })();
   </script>
 </head>
