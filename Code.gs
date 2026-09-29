@@ -9996,8 +9996,8 @@ function miniAppPublicUrl_() {
     var u = PropertiesService.getScriptProperties().getProperty("MINI_APP_URL");
     if (u && String(u).trim()) return String(u).trim().replace(/\/$/, "");
   } catch (e) {}
-  // Бойня next. Запасной откат — boinya-c/app.html (вернуть это имя в строке ниже).
-  return "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html";
+  // Бойня C (Worker+D1). Старый /app.html без Worker ломал delete/move на «Будущая неделя».
+  return "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html";
 }
 
 /** Вчера по Минску (yyyy-MM-dd). override — конкретный день для dry/теста. */
