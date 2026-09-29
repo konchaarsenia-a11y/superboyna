@@ -260,12 +260,24 @@
     try {
       st = await api().apiGet({ action: "getWeekBannerState", weekKey: wk }, { timeoutMs: 12000, cacheTtlMs: 30000 });
     } catch (e2) { st = null; }
-    var finished = !!(st && st.finished) || (function () { try { return localStorage.getItem("superboyna_finish_real_" + wk) === "1"; } catch (e3) { return false; } })();
-    var pulled = !!(st && st.pulled);
-    view.banner = {
-      showFinish: !finished && hideFin !== "1",
-      showPull: !pulled && hidePull !== "1"
-    };
+    var fetched = !!(st && st.status === "success");
+    var decided = logic().finishBannerState({
+      weekKey: wk,
+      fetched: fetched,
+      finished: !!(st && st.finished),
+      pulled: !!(st && st.pulled),
+      sheetMonday: (st && (st.sheetMonday || st.mondayIso)) || "",
+      hideFin: hideFin,
+      hidePull: hidePull
+    });
+    if (decided.clearLocal) {
+      try {
+        localStorage.removeItem("superboyna_finish_real_" + wk);
+        localStorage.removeItem("superboyna_finish_hide_" + wk);
+        localStorage.removeItem("superboyna_finish_done_" + wk);
+      } catch (e3) {}
+    }
+    view.banner = { showFinish: decided.showFinish, showPull: decided.showPull };
   }
 
   async function load(opts) {
@@ -355,7 +367,7 @@
       orderType: ot
     });
     var res = await api().apiGet(params, { timeoutMs: 35000, cacheTtlMs: 0 });
-    sh().toast(logic().peopleToast(res, "перенесено"));
+    confirmWrite(res, "перенесено");
     if (logic().writeAccepted(res)) load({ force: true });
   }
 
@@ -378,7 +390,7 @@
       calendarOnly: view.calendarOnly
     });
     var res = await api().apiGet(params, { timeoutMs: 30000, cacheTtlMs: 0 });
-    sh().toast(logic().peopleToast(res, "удалено"));
+    confirmWrite(res, "удалено");
     if (logic().writeAccepted(res)) load({ force: true });
   }
 
@@ -389,7 +401,7 @@
     if (!ok) return;
     var params = logic().slotSaveParams(c, slot, view.date, view.resolvedDay || view.day, view.calendarOnly);
     var res = await api().apiPost(params);
-    sh().toast(logic().peopleToast(res, "ПП " + slot + "/" + n));
+    confirmWrite(res, "внесено");
     if (logic().writeAccepted(res)) {
       c.deliverySlot = slot;
       c.ppSlot = slot + "/" + n;
@@ -424,44 +436,157 @@
     load({ force: true });
   }
 
+  function sleep(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
+
+  function confirmWrite(res, done) {
+    sh().toast(logic().peopleToast(res, done || "сохранено"));
+    var writeId = res && String(res.writeId || "").trim();
+    if (!res || !writeId || res.sheetsVerified) return;
+    if (res.status === "error" && !res.pendingSheets && !res.pendingSheetsMirror) return;
+    var d1 = !!(res.d1Verified || res.verified || res.peopleCanon === "d1-primary");
+    var deadline = Date.now() + (d1 ? 12000 : 48000);
+    (async function () {
+      while (Date.now() < deadline) {
+        await sleep(d1 ? 600 : 1100);
+        var p = null;
+        try {
+          p = await api().apiGet({ action: "pollPeopleWrite", writeId: writeId, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        } catch (e) { p = null; }
+        if (p && p.sheetsVerified && (p.status === "success" || p.status === "accepted")) {
+          sh().toast("Точно " + (done || "сохранено"));
+          return;
+        }
+        if (p && p.status === "error" && !p.pendingSheets && !p.pendingSheetsMirror && !p.d1Verified) {
+          sh().toast("Не закрепилось в Google-таблице" + (p.message ? (": " + p.message) : ""));
+          return;
+        }
+      }
+      sh().toast(d1 ? "D1 записано · лист может отставать" : "Ещё пишется в Google… проверь через минуту");
+    })();
+  }
+
   async function runFinish() {
     if (view.role !== "owner") { sh().toast("Закрыть неделю может только владелец"); return; }
     if (!finish) finish = logic().finishGuard();
     if (!finish.tryBegin()) { sh().toast("Закрытие уже запущено — подожди"); return; }
     var wk = logic().currentWeekKey();
+    var pendingUntil = 0;
+    try { pendingUntil = Number(localStorage.getItem("superboyna_finish_pending_" + wk) || 0); } catch (eP) {}
+    if (logic().finishPendingActive(pendingUntil, Date.now())) {
+      finish.end();
+      await sh().alert({ text: "Перенос ещё идёт, проверьте позже. Второй раз неделю не сдвинет." });
+      return;
+    }
     try {
       if (localStorage.getItem("superboyna_finish_real_" + wk) === "1") {
-        sh().toast("Эта неделя уже закрыта");
         finish.end();
+        await sh().alert({ text: "Эта неделя уже закрыта. Повторно нельзя." });
         return;
       }
     } catch (eLs) {}
     var ok = await sh().confirm({
       title: "Закрыть неделю",
-      text: "Склад, даты +7, очистка заказов Пн–Пт, «Будущая неделя» станет понедельником. Отменить будет нельзя.",
+      text: "Склад: остаток, даты +7, очистка заказов Пн–Пт, «Будущая неделя» станет понедельником. Отменить будет нельзя.",
       ok: "Продолжить",
       cancel: "Отмена"
     });
     if (!ok) { finish.end(); return; }
     var ok2 = await sh().confirm({ title: "Точно закрыть", text: "Точно закрыть неделю сейчас?", ok: "Закрыть", cancel: "Отмена" });
     if (!ok2) { finish.end(); return; }
+    if (root.__BOINYA_C_CUTOVER__) {
+      var ok3 = await sh().confirm({
+        title: "Бойня C · LIVE",
+        text: "Закрытие уйдёт в боевые Google Sheets. Это не песочница. Продолжить?",
+        ok: "Продолжить",
+        cancel: "Отмена"
+      });
+      if (!ok3) { finish.end(); return; }
+    }
     var id = tid();
     if (!id) { sh().toast("Нет Telegram ID"); finish.end(); return; }
-    sh().loader({ title: "Завершаю неделю…", step: "склад, даты +7, очистка заказов" });
+    sh().toast("Идёт перенос недели… не закрывайте");
     var payload = { action: "finishFullWeek", telegramId: id, confirm: "1", weekKey: wk };
     if (root.__BOINYA_C_CUTOVER__) payload.allowDanger = "1";
-    var res = await api().apiGet(payload, { timeoutMs: 180000, cacheTtlMs: 0 });
-    sh().closeLoader();
-    finish.end();
-    if (!res || res.status !== "success") {
-      sh().toast((res && res.message) || "Не закрылось");
+    var res = null;
+    try {
+      res = await api().apiGet(payload, { timeoutMs: 35000, cacheTtlMs: 0 });
+    } catch (e1) {
+      try { localStorage.setItem("superboyna_finish_pending_" + wk, String(Date.now() + 8 * 60 * 1000)); } catch (eMark) {}
+      var peek = null;
+      try {
+        peek = await api().apiGet({ action: "getFinishWeekStatus", telegramId: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      } catch (ePeek) {}
+      if (peek && peek.status === "success" && peek.message === "week_closed") res = peek;
+      else if (peek && /^(owner_only|auth_required|week_already_finished|week_finish_schedule_failed|week_finish_stale)$/.test(String(peek.message || ""))) {
+        finish.end();
+        await sh().alert({ text: "Не закрылось: " + logic().finishPlain(peek) + "\nМожно повторить." });
+        return;
+      } else res = { status: "accepted", message: "week_finish_started" };
+    }
+    var startMsg = res && res.message;
+    if (res && res.status === "accepted" && (startMsg === "week_finish_started" || startMsg === "week_finish_busy" || startMsg === "week_finish_running")) {
+      var deadline = Date.now() + 7.5 * 60 * 1000;
+      var started = Date.now();
+      var settled = false;
+      while (Date.now() < deadline) {
+        sh().toast("Идёт перенос недели… " + Math.round((Date.now() - started) / 1000) + " с");
+        var last = null;
+        try {
+          last = await api().apiGet({ action: "getFinishWeekStatus", telegramId: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        } catch (ePoll) { last = null; }
+        if (last && last.status === "success" && last.message === "week_closed") { res = last; settled = true; break; }
+        if (last && last.status === "error" && last.message && last.message !== "gas_proxy_failed") { res = last; settled = true; break; }
+        await sleep(4000);
+      }
+      if (!settled) res = { status: "accepted", message: "week_finish_unknown" };
+    }
+    if (res && res.message === "week_finish_unknown") {
+      try { localStorage.setItem("superboyna_finish_pending_" + wk, String(Date.now() + 8 * 60 * 1000)); } catch (eU) {}
+      finish.end();
+      await sh().alert({ text: "Перенос ещё идёт, проверьте позже. Кнопку не нажимайте. Если понедельник в заказе всё ещё прежний и прошло больше 8 минут — можно нажать ещё раз." });
       return;
     }
-    try { localStorage.setItem("superboyna_finish_real_" + wk, "1"); } catch (e2) {}
-    sh().toast(logic().peopleToast(res, "неделя закрыта"));
+    if (!res || res.status !== "success" || res.message !== "week_closed") {
+      var already = res && res.message === "week_already_finished";
+      try {
+        if (already) localStorage.setItem("superboyna_finish_real_" + wk, "1");
+        else localStorage.removeItem("superboyna_finish_pending_" + wk);
+      } catch (eClr) {}
+      finish.end();
+      await sh().alert({ text: already ? "Неделя уже закрыта — повторно нельзя." : ("Не закрылось: " + logic().finishPlain(res) + "\nМожно повторить.") });
+      return;
+    }
     try {
-      await api().apiGet({ action: "setWeekBannerState", weekKey: wk, finished: "1", pulled: "1", telegramId: id }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      localStorage.setItem("superboyna_finish_real_" + wk, "1");
+      localStorage.setItem("superboyna_finish_done_" + wk, "1");
+      localStorage.setItem("superboyna_week_pull_" + wk, "pulled");
+      localStorage.setItem("superboyna_finish_hide_" + wk, "1");
+      localStorage.removeItem("superboyna_finish_pending_" + wk);
+    } catch (e2) {}
+    var addedN = Number(res.materializeAdded != null ? res.materializeAdded : (res.materialize && res.materialize.totalAdded)) || 0;
+    sh().toast("Неделя закрыта. Пн: " + (res.mondayDate || "ок") + (addedN ? (" · из месяца +" + addedN) : ""));
+    try {
+      await api().apiGet({ action: "setWeekBannerState", weekKey: wk, finished: "1", pulled: "1", telegramId: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
     } catch (e3) {}
+    try {
+      await api().apiGet({
+        action: "forceWeekD1Resync",
+        telegramId: id,
+        confirm: "1",
+        allowDanger: "1",
+        restoreFromMonday: String(res.prevMondayIso || res.prevMondayDate || ""),
+        restoreShifted: "1",
+        _: String(Date.now())
+      }, { timeoutMs: 180000, cacheTtlMs: 0 });
+    } catch (eSync) {}
+    finish.end();
+    await sh().alert({
+      text: "Неделя закрыта.\n\nНовый понедельник: " + (res.mondayDate || "—") +
+        (addedN ? ("\nИз месяца дописано: +" + addedN) : "") +
+        "\n\nЕсли экран ещё старый — закрой Mini App и открой снова."
+    });
     if (weekOnScreen()) load({ force: true });
   }
 
@@ -650,6 +775,7 @@
     show: show,
     paint: paint,
     onAct: onAct,
+    confirmWrite: confirmWrite,
     setRole: function (role) { view.role = role || ""; },
     setDay: function (day) {
       if (!day) return;

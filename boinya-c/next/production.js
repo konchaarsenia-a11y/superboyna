@@ -561,7 +561,7 @@
       html += '<article class="b-card' + (c.assembled ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
         esc(asmTitle(c)) + " · " + bags + " пак." + (c.assembled ? " · собран" : "") + (c.printed ? " · пропечатано" : "") + "</label>" +
-        '<button type="button" class="b-btn ' + (c.printed ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-print" data-name="' + esc(c.name || "") + '" style="margin-top:8px">Пропечатка пакетов</button>' +
+        '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
         (c.address ? '<p class="b-note">' + esc(c.address) + "</p>" : "") +
         lines +
         '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? " · без лакомств" : "") + "</p></article>";

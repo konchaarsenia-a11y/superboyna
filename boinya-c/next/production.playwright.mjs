@@ -146,7 +146,7 @@ async function main() {
   await overflow(a.page, "cut");
   await shot(a.page, "next-cutting.png");
   await a.page.getByRole("button", { name: "Сборка" }).click();
-  await a.page.getByRole("button", { name: "Пропечатка пакетов" }).waitFor();
+  await a.page.getByRole("checkbox", { name: /Пропечатано/ }).waitFor();
   await overflow(a.page, "asm");
   await shot(a.page, "next-assembly.png");
   await a.page.getByRole("button", { name: "Маршрут" }).click();

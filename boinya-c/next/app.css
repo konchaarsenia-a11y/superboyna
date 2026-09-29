@@ -2,13 +2,15 @@
 
 html, body {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
   background: var(--b-bg);
   color: var(--b-text);
 }
 
 .nx {
-  min-height: 100dvh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--b-bg);
@@ -16,12 +18,15 @@ html, body {
 
 .nx-main {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 0 var(--b-sp16) var(--b-sp16);
 }
 
 .nx-dock {
+  flex: 0 0 auto;
   background: var(--b-bg);
+  border-top: 1px solid var(--b-line);
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -96,8 +101,23 @@ html, body {
 .nx-sheet {
   width: 100%;
   max-height: 92dvh;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 -12px 40px color-mix(in srgb, black 45%, transparent);
+}
+
+.nx-sheet__body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.nx-sheet__foot {
+  flex: 0 0 auto;
+  background: var(--b-surface);
+  border-top: 1px solid var(--b-line);
+  padding: 12px 16px 16px;
 }
 
 .nx-toast-wrap {
@@ -154,6 +174,31 @@ html, body {
 .nx-pair > * {
   flex: 1;
   min-width: 0;
+}
+
+.nx .b-top__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nx-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.nx-bar {
+  height: 10px;
+  background: var(--b-surface-2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.nx-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--b-warn);
 }
 
 .nx-line {

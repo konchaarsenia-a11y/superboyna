@@ -369,7 +369,10 @@
         mark + '<span class="b-li__chev">Открыть</span></button>';
     });
     html += "</div>";
-    sh().dock("");
+    if (showBpForm) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-bp-cancel">Отмена</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="cl-bp-save">Сохранить</button></div>');
+    } else sh().dock("");
     sh().main(html);
     if (focusNick) {
       var btn = document.querySelector('[data-act="cl-open"][data-nick="' + focusNick.replace(/"/g, "") + '"]');
@@ -387,7 +390,6 @@
       field("cxBpAddress", "", "Адрес") +
       field("cxBpPhone", "", "Телефон") +
       area("cxBpWishes", "", "Пожелания") +
-      actions('<button type="button" class="b-btn b-btn--main" data-act="cl-bp-save">Сохранить</button><button type="button" class="b-btn b-btn--sec" data-act="cl-bp-cancel">Отмена</button>') +
       "</article>";
   }
 
@@ -416,7 +418,6 @@
         '<label class="b-field"><select class="b-field__input" id="cxSvKind" data-k="cxSvKind"><option value="bp2">После БП1 — опросник на БП2</option><option value="final">После БП2 — финальный (→ ПП)</option></select></label>' +
         field("cxSvDue", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
         '<label class="b-field"><select class="b-field__input" id="cxSvOwner" data-k="cxSvOwner">' + ownerOptions("") + "</select></label>" +
-        actions('<button type="button" class="b-btn b-btn--main" data-act="cl-sv-save">Сохранить</button><button type="button" class="b-btn b-btn--sec" data-act="cl-sv-cancel">Отмена</button>') +
         "</article>";
     }
     rows.forEach(function (it, i) {
@@ -434,7 +435,10 @@
         ) + "</article>";
     });
     if (!rows.length) html += '<p class="b-note">Опросников нет.</p>';
-    sh().dock("");
+    if (showSurveyForm) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-sv-cancel">Отмена</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="cl-sv-save">Сохранить</button></div>');
+    } else sh().dock("");
     sh().main(html);
   }
 
@@ -555,7 +559,7 @@
         field("cxEnPhone", enroll.phone, "Телефон") +
         field("cxEnN", enroll.deliveriesN, "N", 'inputmode="numeric"') +
         field("cxEnFact", enroll.fact, "Факт", 'inputmode="decimal"') +
-        actions('<button type="button" class="b-btn b-btn--main" data-act="cl-enroll-go">Внести в лист ПП</button><button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-cancel">Отмена</button>') +
+        '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-cancel" style="margin-top:8px">Отмена</button>' +
         "</article>";
     }
     html += '<p class="b-lbl">Режим</p><div class="b-seg">' +
@@ -599,7 +603,10 @@
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-defer">В отложенное</button>' +
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-open">Внести в ПП</button>'
     );
-    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-compose">Собрать сообщение</button>');
+    if (enroll) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-compose">Собрать сообщение</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="cl-enroll-go">Внести в лист ПП</button></div>');
+    } else sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-compose">Собрать сообщение</button>');
     sh().main(html);
   }
 
@@ -611,10 +618,7 @@
     });
     html += "</div>";
     html += '<p class="b-lbl">Анкета</p>' + area("cxAnketa", pick.anketa, "Текст анкеты");
-    html += actions(
-      '<button type="button" class="b-btn b-btn--main" data-act="cl-pick-go">Подобрать</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-clear">Очистить</button>'
-    );
+    html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-clear" style="margin-top:8px">Очистить</button>';
     if (pick.result && pick.result.items) {
       var lastCat = "";
       pick.result.items.forEach(function (it, i) {
@@ -636,7 +640,7 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-again">Подобрать ещё</button>'
       );
     }
-    sh().dock("");
+    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-pick-go">Подобрать</button>');
     sh().main(html);
   }
 
@@ -1036,6 +1040,37 @@
     seg = "calc";
   }
 
+  async function migrateRaw() {
+    if (!card || card.sheet !== "ПП") { sh().toast("Только для ПП"); return; }
+    var nick = String(card.nick || card.label || "").trim();
+    if (!nick && !card.subId) { sh().toast("Нет ника"); return; }
+    var ok = await sh().confirm({
+      title: "Новая схема",
+      text: "Перевести на схему сырьё×2.6 + recover + 9×N?\n\nУказанная цена на карточке пересчитается.\nУже стоящие доставки в календаре не меняются.",
+      ok: "Перевести",
+      cancel: "Отмена"
+    });
+    if (!ok) return;
+    sh().toast("Перевожу…");
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "migratePpToRaw26Scheme",
+        nick: nick || card.label || "",
+        subId: card.subId || "",
+        telegramId: tid(),
+        applyStated: "1",
+        _: String(Date.now())
+      }, { timeoutMs: 28000, cacheTtlMs: 0 });
+    } catch (e) { res = null; }
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Не удалось — нужен Deploy Code.gs");
+      return;
+    }
+    sh().toast("Схема обновлена");
+    openCard(card.nick || nick, card.subId, card.sheet);
+  }
+
   function onAct(act, node) {
     if (act === "input" || act === "change") return readNode(node);
     if (!node || String(act || "").indexOf("cl-") !== 0 && act !== "cseg") {
@@ -1080,7 +1115,7 @@
       paint();
       return true;
     }
-    if (act === "cl-migrate") { if (card) { card.scheme = "RAW26"; card.coef = "2.6"; } price.scheme = "RAW26"; price.coef = 2.6; paint(); return true; }
+    if (act === "cl-migrate") { migrateRaw(); return true; }
     if (act === "cl-add" || act === "cl-manual") { openAdd(); return true; }
     if (act === "cl-cat") { pickerCat(node.getAttribute("data-cat")); return true; }
     if (act === "cl-sku") { askQty(node.getAttribute("data-cat"), node.getAttribute("data-name")); return true; }

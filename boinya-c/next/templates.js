@@ -151,7 +151,10 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="tpl-edit" data-i="' + idx + '">Изменить</button>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="tpl-del" data-i="' + idx + '">Удалить</button></div></article>';
     });
-    sh().dock("");
+    if (form) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="tpl-cancel">Отмена</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="tpl-save">Сохранить</button></div>');
+    } else sh().dock("");
     sh().main(html);
   }
 
@@ -163,9 +166,7 @@
       '<label class="b-field" style="margin-top:8px"><span class="b-note">Тип</span><select class="b-field__input" id="tplKind">' +
       '<option value="text"' + (kind === "text" ? " selected" : "") + ">Текст клиенту</option>" +
       '<option value="survey"' + (kind === "survey" ? " selected" : "") + ">Опросник</option></select></label>" +
-      '<label class="b-field b-field--area" style="margin-top:8px"><span class="b-note">Текст</span><textarea class="b-field__input" id="tplBody">' + esc(f.body || "") + "</textarea></label>" +
-      '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--main" data-act="tpl-save">Сохранить</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="tpl-cancel">Отмена</button></div></article>';
+      '<label class="b-field b-field--area" style="margin-top:8px"><span class="b-note">Текст</span><textarea class="b-field__input" id="tplBody">' + esc(f.body || "") + "</textarea></label></article>";
   }
 
   function cats() {

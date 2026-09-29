@@ -1,0 +1,318 @@
+/* Цифры статистики — те же ветки, что renderStatsDashboard_ / loadExpectedProfit / тариф ПП. */
+(function (root, factory) {
+  var api = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  if (root) root.BoinyaStatsLogic = api;
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  "use strict";
+
+  function currentStatsMonthKey_(now) {
+    var d = now || new Date();
+    var m = d.getMonth() + 1;
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m;
+  }
+
+  function statsMonthLabelRu_(monthKey) {
+    var mk = String(monthKey || "");
+    var parts = mk.split("-");
+    if (parts.length < 2) return mk || "—";
+    var y = Number(parts[0]);
+    var mo = Number(parts[1]);
+    var names = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+    var name = names[mo - 1] || mk;
+    return name.charAt(0).toUpperCase() + name.slice(1) + " " + y;
+  }
+
+  function shiftStatsMonthKey_(monthKey, delta, now) {
+    var mk = String(monthKey || "");
+    if (!/^\d{4}-\d{2}$/.test(mk)) mk = currentStatsMonthKey_(now);
+    var parts = mk.split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1 + (Number(delta) || 0), 1);
+    var nm = d.getMonth() + 1;
+    var next = d.getFullYear() + "-" + (nm < 10 ? "0" : "") + nm;
+    var cur = currentStatsMonthKey_(now);
+    if (next > cur) return { ok: false, next: mk, toast: "Дальше текущего месяца нельзя" };
+    var minD = now ? new Date(now.getTime()) : new Date();
+    minD.setMonth(minD.getMonth() - 24);
+    var minKey = minD.getFullYear() + "-" + ((minD.getMonth() + 1) < 10 ? "0" : "") + (minD.getMonth() + 1);
+    if (next < minKey) return { ok: false, next: mk, toast: "Дальше назад нет" };
+    return { ok: true, next: next, toast: "" };
+  }
+
+  function statsMonthBounds_(now) {
+    var d = now || new Date();
+    var y = d.getFullYear();
+    var m = d.getMonth();
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    var lastDay = new Date(y, m + 1, 0).getDate();
+    return {
+      from: y + "-" + pad(m + 1) + "-01",
+      to: y + "-" + pad(m + 1) + "-" + pad(lastDay)
+    };
+  }
+
+  function statsPpSchemeOf_(src) {
+    var sch = String((src && src.ppScheme) || "").toUpperCase();
+    if (sch === "RAW26" || sch === "LEGACY" || sch === "MIXED") return sch;
+    return "";
+  }
+  function statsPpDeliveryLabel_(src) {
+    var sch = statsPpSchemeOf_(src);
+    if (sch === "RAW26") return "Топливо доставок ПП (4×N, тариф 9 RAW26)";
+    if (sch === "LEGACY") return "Топливо доставок ПП (4×N, тариф 6 LEGACY)";
+    return "Топливо доставок ПП (4×N)";
+  }
+  function statsPpCostFootnote_(src) {
+    var sch = statsPpSchemeOf_(src);
+    if (sch === "RAW26") return "Затраты ПП: состав без наценки + recover (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (9−4)×N — в чистом. ";
+    if (sch === "LEGACY") return "Затраты ПП: состав без наценки + 11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (6−4)×N — в чистом. ";
+    return "Затраты ПП: состав без наценки + recover/11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и остаток тарифа — в чистом. ";
+  }
+  function statsPpFeeEchoLine_(src) {
+    var sch = statsPpSchemeOf_(src);
+    if (sch === "RAW26") return "Тариф клиенту RAW26: recover 3.90/100г + доставка 9×N. В статистике затрат: топливо 4×N.";
+    if (sch === "LEGACY") return "Тариф клиенту LEGACY: +11 + 6×N. В статистике затрат: топливо 4×N.";
+    if (sch === "MIXED") return "Тариф смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N. В статистике затрат: топливо 4×N.";
+    return "";
+  }
+
+  function statsBarPct_(value, maxV) {
+    var v = Number(value) || 0;
+    var max = Math.max(Number(maxV) || 0, 1);
+    return Math.max(2, Math.min(100, Math.round((v / max) * 100)));
+  }
+
+  function statsDelta_(d) {
+    if (!d || d.prev == null) return null;
+    var abs = Number(d.abs) || 0;
+    return {
+      abs: abs,
+      sign: abs > 0 ? "+" : "",
+      pct: d.pct != null ? d.pct : null,
+      dir: abs > 0 ? "up" : (abs < 0 ? "down" : "flat")
+    };
+  }
+
+  function statsClean_(turnover, cost) {
+    return Math.round((Number(turnover) - Number(cost)) * 100) / 100;
+  }
+
+  function statsExpectedNumbers_(res) {
+    res = res || {};
+    var by = res.bySource || {};
+    return {
+      profit: res.profit != null ? res.profit : res.revenue || 0,
+      clean: res.clean != null ? res.clean : statsClean_(res.revenue || 0, res.cost || 0),
+      cost: res.cost || 0,
+      deliveries: res.deliveries || 0,
+      by: by,
+      ppRevenue: res.ppRevenue != null ? res.ppRevenue : 0,
+      ppRecoverInClean: Number(res.ppRecoverInClean) || 0,
+      ppRecoverCost: Number(res.ppRecoverCost) || 0,
+      ppPackagesCost: res.ppPackagesCost != null ? (Number(res.ppPackagesCost) || 0) : null,
+      ppFractionInClean: Number(res.ppFractionInClean != null ? res.ppFractionInClean : 0) || 0,
+      ppDeliveryFuel: Number(res.ppDeliveryFuelCost != null ? res.ppDeliveryFuelCost : res.ppDeliveryCost) || 0,
+      ppDeliveryInClean: Number(res.ppDeliveryInClean) || 0,
+      staffCost: res.staffCost != null ? Number(res.staffCost) : 0,
+    feeLine: statsPpFeeEchoLine_(res)
+  };
+  }
+
+  function statsExpectedRows_(res) {
+    res = res || {};
+    var n = statsExpectedNumbers_(res);
+    var lines = [];
+    lines.push({ label: "ПП выручка", value: n.ppRevenue + " BYN" });
+    if (n.ppRecoverInClean > 0) lines.push({ label: "Recover в чистом", value: n.ppRecoverInClean + " BYN" });
+    else if (n.ppRecoverCost > 0) lines.push({ label: "Recover ПП", value: n.ppRecoverCost + " BYN" });
+    if (n.ppPackagesCost != null) lines.push({ label: "Пакеты", value: n.ppPackagesCost + " BYN" });
+    if (n.ppFractionInClean > 0) lines.push({ label: "Фракции в чистом", value: n.ppFractionInClean + " BYN" });
+    if (res.ppDeliveryCost != null || res.ppDeliveryFuelCost != null) {
+      lines.push({ label: "Топливо доставок (4×N)", value: n.ppDeliveryFuel + " BYN" });
+    }
+    if (n.ppDeliveryInClean > 0) lines.push({ label: "Доставка в чистом", value: n.ppDeliveryInClean + " BYN" });
+    if (n.staffCost > 0) lines.push({ label: "ЗП (не нарезчик)", value: n.staffCost + " BYN" });
+    return {
+      profit: n.profit,
+      clean: n.clean,
+      cost: n.cost,
+      deliveries: n.deliveries,
+      by: n.by,
+      lines: lines,
+      feeLine: n.feeLine
+    };
+  }
+
+  function statsVisiblePartners_(list) {
+    return (list || []).filter(function (p) {
+      var n = String(p && p.name || "").trim();
+      return n && n.indexOf("без партн") < 0;
+    });
+  }
+
+  function statsCutter_(res) {
+    res = res || {};
+    var st = res.staff || {};
+    var items = (st.items || (res.fact && res.fact.staff) || []).slice();
+    var floor = st.floorMonth || (res.fact && res.fact.staffFloorMonth) || "2026-09";
+    var cutter = st.cutter || res.cutter || null;
+    if (!cutter) {
+      var hitC = null;
+      for (var i = 0; i < items.length; i++) {
+        if (String(items[i].id || "") === "cutter" ||
+            String(items[i].name || "").toLowerCase() === "нарезчик") {
+          hitC = items[i];
+          break;
+        }
+      }
+      cutter = {
+        id: "cutter",
+        name: "Нарезчик",
+        enabled: !!(hitC && (hitC.active !== false)),
+        enabledForMonth: !!(res.fact && res.fact.cutter && res.fact.cutter.enabled),
+        salary: hitC ? Number(hitC.salary) || 900 : 900,
+        fromMonth: hitC ? hitC.fromMonth : floor,
+        defaultSalary: 900
+      };
+      if (hitC && hitC.active === false) cutter.enabled = false;
+      if (!hitC) cutter.enabled = false;
+      else cutter.enabled = true;
+    }
+    var salShow = Number(cutter.salary) || Number(cutter.defaultSalary) || 900;
+    var globalOn = !!cutter.enabled;
+    var monthOn = (cutter.enabledForMonth != null)
+      ? !!cutter.enabledForMonth
+      : !!(res.fact && res.fact.cutter && res.fact.cutter.enabled);
+    return {
+      floor: floor,
+      salary: salShow,
+      globalOn: globalOn,
+      monthOn: monthOn,
+      fromMonth: cutter.fromMonth || floor
+    };
+  }
+
+  function statsFacts_(res) {
+    res = res || {};
+    var pp = res.pp || {};
+    var bp = res.bp || {};
+    var m = res.month || {};
+    var money = res.money || {};
+    var fact = res.fact || {};
+    var by = fact.bySource || m.bySource || {};
+    var costBy = fact.costBySource || m.costBySource || {};
+    var deliveries = fact.deliveries != null ? fact.deliveries : (m.deliveries != null ? m.deliveries : (res.deliveries || 0));
+    var retail = fact.retail != null ? fact.retail : (money.retail != null ? money.retail : (m.retailRevenue || 0));
+    var partnerOrd = fact.partner != null ? fact.partner : (money.partner != null ? money.partner : (m.partnerRevenue || 0));
+    var ppActual = fact.ppRevenue != null ? fact.ppRevenue : (pp.actual != null ? pp.actual : (money.ppActual || 0));
+    var calTurnover = fact.revenue != null ? fact.revenue : (money.turnover != null ? money.turnover : (Number(ppActual) + Number(retail) + Number(partnerOrd)));
+    var costActual = fact.cost != null ? fact.cost : (money.cost || m.costActual || 0);
+    var bpSpend = fact.bpCost != null ? fact.bpCost : (bp.spend != null ? bp.spend : (money.bpSpend || 0));
+    var bpDeliv = fact.bpDeliveries != null ? fact.bpDeliveries : (bp.deliveries || 0);
+    var converted = (bp.convertedToPp != null) ? bp.convertedToPp : 0;
+    var productCost = fact.productCost != null ? fact.productCost : 0;
+    var couponsCost = fact.couponsCost != null ? fact.couponsCost : 0;
+    var retailCost = costBy.retail != null ? costBy.retail : 0;
+    var ppBasketCost = fact.ppBasketCost != null ? fact.ppBasketCost : 0;
+    var partnerCostApp = costBy.partner != null ? costBy.partner : 0;
+    var ppLightCost = fact.ppLightCost != null ? fact.ppLightCost : 0;
+    var ppRecoverCost = fact.ppRecoverCost != null ? Number(fact.ppRecoverCost) : Number(ppLightCost) || 0;
+    var ppRecoverInClean = Number(fact.ppRecoverInClean) || 0;
+    var cutterMonthOn = fact.cutter && fact.cutter.enabledForMonth != null
+      ? !!fact.cutter.enabledForMonth
+      : (fact.cutter ? !!fact.cutter.enabled : (ppRecoverInClean <= 0));
+    var ppPackagesCost = fact.ppPackagesCost != null ? Number(fact.ppPackagesCost) : 0;
+    var ppFractionCost = fact.ppFractionCost != null ? Number(fact.ppFractionCost) : 0;
+    var ppFractionInClean = fact.ppFractionInClean != null ? Number(fact.ppFractionInClean) : ppFractionCost;
+    var ppDeliveryCost = fact.ppDeliveryFuelCost != null ? fact.ppDeliveryFuelCost : (fact.ppDeliveryCost != null ? fact.ppDeliveryCost : 0);
+    var ppDeliveryInClean = Number(fact.ppDeliveryInClean) || 0;
+    var ppLightPeople = fact.ppLightPeople != null ? fact.ppLightPeople : 0;
+    var ppDelivN = fact.ppDeliveries != null ? fact.ppDeliveries : (by.pp || 0);
+    var profitFact = fact.profit != null ? fact.profit : calTurnover;
+    var cleanFact = fact.clean != null ? fact.clean : statsClean_(calTurnover, costActual);
+    var life = bp.life || {};
+    var partners = statsVisiblePartners_(fact.byPartner || res.byPartner || []);
+    var ppTurnover = (pp.turnover != null) ? pp.turnover : (money.ppTurnover || 0);
+    var ppClean = (pp.clean != null) ? pp.clean : (money.ppClean || 0);
+    var ppCost = (pp.cost != null) ? pp.cost : (money.ppCost || 0);
+    var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
+    var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
+    var charts = res.charts || {};
+    var bpStages = charts.bpStages || [
+      { label: "БП1", value: bp.bp1 || 0 },
+      { label: "БП2", value: bp.bp2 || 0 },
+      { label: "Финал", value: bp.final || 0 }
+    ];
+    return {
+      oldDeploy: !res.factCutoff,
+      monthLabel: res.monthLabel || res.title || "Месяц",
+      profitFact: profitFact,
+      cleanFact: cleanFact,
+      costActual: costActual,
+      deliveries: deliveries,
+      by: by,
+      ppActual: ppActual,
+      retail: retail,
+      partnerOrd: partnerOrd,
+      productCost: productCost,
+      retailCost: retailCost,
+      ppBasketCost: ppBasketCost,
+      partnerCostApp: partnerCostApp,
+      couponsCost: couponsCost,
+      ppRecoverCost: ppRecoverCost,
+      ppRecoverInClean: ppRecoverInClean,
+      ppLightPeople: ppLightPeople,
+      ppDeliveryCost: ppDeliveryCost,
+      ppDelivN: ppDelivN,
+      deliveryLabel: statsPpDeliveryLabel_(fact),
+      ppPackagesCost: ppPackagesCost,
+      bpSpend: bpSpend,
+      bpDeliv: bpDeliv,
+      staffCost: Number(staffCost) || 0,
+      staffCount: staffCount,
+      ppFractionInClean: ppFractionInClean,
+      ppFractionCost: ppFractionCost,
+      ppDeliveryInClean: ppDeliveryInClean,
+      bpDelivInClean: Number(fact.bpDeliveryInClean) || 0,
+      footnote: statsPpCostFootnote_(fact),
+      cutterMonthOn: cutterMonthOn,
+      feeLine: statsPpFeeEchoLine_(res),
+      bpBasket: fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost || 0),
+      bpDelivFee: fact.bpDeliveryCost != null ? fact.bpDeliveryCost : (bp.deliveryCost || 0),
+      bpFeeEach: fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : (bp.deliveryFeeEach != null ? bp.deliveryFeeEach : 4),
+      bpDelivCleanShow: Number(fact.bpDeliveryInClean != null ? fact.bpDeliveryInClean : bp.deliveryInClean) || 0,
+      converted: converted,
+      cac: bp.costPerConvert,
+      life: life,
+      partners: partners,
+      ppTurnover: ppTurnover,
+      ppClean: ppClean,
+      ppCost: ppCost,
+      bpTotal: bp.total || 0,
+      bpStages: bpStages,
+      compare: res.compare || {},
+      moneyTurnover: money.turnover != null ? money.turnover : calTurnover,
+      turnChart: charts.turnover || [],
+      cutter: statsCutter_(res)
+    };
+  }
+
+  return {
+    currentStatsMonthKey_: currentStatsMonthKey_,
+    statsMonthLabelRu_: statsMonthLabelRu_,
+    shiftStatsMonthKey_: shiftStatsMonthKey_,
+    statsMonthBounds_: statsMonthBounds_,
+    statsPpSchemeOf_: statsPpSchemeOf_,
+    statsPpDeliveryLabel_: statsPpDeliveryLabel_,
+    statsPpCostFootnote_: statsPpCostFootnote_,
+    statsPpFeeEchoLine_: statsPpFeeEchoLine_,
+    statsBarPct_: statsBarPct_,
+    statsDelta_: statsDelta_,
+    statsClean_: statsClean_,
+    statsExpectedNumbers_: statsExpectedNumbers_,
+    statsExpectedRows_: statsExpectedRows_,
+    statsVisiblePartners_: statsVisiblePartners_,
+    statsCutter_: statsCutter_,
+    statsFacts_: statsFacts_
+  };
+});

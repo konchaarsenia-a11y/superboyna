@@ -7,6 +7,9 @@
   var tasksN = 0;
   var booting = false;
   var moreView = "";
+  var partnersOpen = "";
+  var suppressNav = false;
+  var flyCache = [];
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -20,6 +23,8 @@
   function prod() { return root.BoinyaProduction; }
   function wh() { return root.BoinyaWarehouse; }
   function retail() { return root.BoinyaRetailAdmin; }
+  function stats() { return root.BoinyaStats; }
+  function partners() { return root.BoinyaPartners; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -104,15 +109,125 @@
     return map[route.tab] || "Бойня";
   }
 
+  function badgeLabel() {
+    return root.__boinyaCBadgeLabel || (root.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "");
+  }
+
+  function withBadge(sub) {
+    var badge = badgeLabel();
+    var text = sub || "";
+    if (!badge) return text;
+    if (text.indexOf(badge) >= 0) return text;
+    return text ? (text + " · " + badge) : badge;
+  }
+
   function paintChrome() {
     var nav = ax().isSimple(access) ? [] : ax().navItems(access);
+    try { document.body.setAttribute("data-nx-role", access && access.role ? access.role : ""); } catch (eRole) {}
     sh().chrome({
       title: headerTitle(),
-      sub: headerSub(),
+      sub: withBadge(headerSub()),
       bell: ax().canUseTasks(access),
       badge: tasksN,
       nav: nav,
       active: route.tab
+    });
+    bindLongPress();
+  }
+
+  function haptic() {
+    try {
+      var tg = root.Telegram && root.Telegram.WebApp;
+      if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) tg.HapticFeedback.impactOccurred("medium");
+    } catch (e) {}
+  }
+
+  function orderFlyoutItems() {
+    var role = access.role;
+    var custom = access.customTabs && access.customTabs.length;
+    var items = [
+      { id: "clientsScreen", label: "Просмотр", roles: "manager,owner,all", go: function () { route.tab = "orders"; route.seg = ax().tabHas(access, "clientsScreen.week") ? "week" : "month"; moreView = ""; } },
+      { id: "priceScreen", label: "Расчёт", roles: "manager,owner,all", go: function () { route.tab = "clients"; route.seg = "calc"; moreView = ""; } },
+      { id: "templatesScreen", label: "Шаблоны", roles: "manager,owner,all", go: function () { route.tab = "more"; moreView = "templates"; } },
+      { id: "subsScreen", label: "Подписки", roles: "owner,all", go: function () { route.tab = "clients"; route.seg = "pp"; moreView = ""; } },
+      { id: "statsScreen", label: "Статистика", roles: "owner,all", go: function () { route.tab = "more"; moreView = "stats"; } },
+      { id: "retailPriceScreen", label: "Прайс", roles: "owner,all", go: function () { route.tab = "more"; moreView = "price"; } },
+      { id: "peopleScreen", label: "Доступы", roles: "owner,all", go: function () { route.tab = "more"; moreView = "people"; } }
+    ];
+    return items.filter(function (it) {
+      if (!ax().tabHas(access, it.id)) return false;
+      if (role === "owner" || custom) return true;
+      return it.roles.split(",").indexOf(role) >= 0;
+    });
+  }
+
+  function orderFlyoutAllowed() {
+    var ids = ["clientsScreen", "priceScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen"];
+    return ids.some(function (id) { return ax().tabHas(access, id); });
+  }
+
+  function bindPress(btn, open) {
+    if (!btn || btn._nxPress) return;
+    btn._nxPress = true;
+    var timer = null;
+    var armed = false;
+    function clear() { if (timer) { clearTimeout(timer); timer = null; } }
+    function start() {
+      clear();
+      armed = false;
+      timer = setTimeout(function () { armed = true; }, 480);
+    }
+    function finish(e) {
+      var fire = armed;
+      clear();
+      armed = false;
+      if (!fire) return;
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      suppressNav = true;
+      open();
+      haptic();
+      setTimeout(function () { if (suppressNav) suppressNav = false; }, 400);
+    }
+    btn.addEventListener("touchstart", start, { passive: true });
+    btn.addEventListener("mousedown", start);
+    btn.addEventListener("touchend", finish);
+    btn.addEventListener("mouseup", finish);
+    btn.addEventListener("touchcancel", function () { armed = false; clear(); });
+    btn.addEventListener("mouseleave", function () { armed = false; clear(); });
+    btn.addEventListener("click", function (e) {
+      if (!suppressNav) return;
+      e.preventDefault();
+      e.stopPropagation();
+      suppressNav = false;
+    }, true);
+  }
+
+  function bindLongPress() {
+    var ordersBtn = document.querySelector("#nxNav [data-tab='orders']");
+    var prodBtn = document.querySelector("#nxNav [data-tab='production']");
+    bindPress(ordersBtn, function () {
+      if (!orderFlyoutAllowed()) { suppressNav = false; return; }
+      var items = orderFlyoutItems();
+      if (!items.length) { suppressNav = false; return; }
+      flyCache = items;
+      sh().openSheet({
+        title: "Заказы",
+        html: items.map(function (it, i) {
+          return '<button type="button" class="b-btn b-btn--sec" style="margin-top:8px" data-act="fly-go" data-i="' + i + '">' + sh().esc(it.label) + "</button>";
+        }).join("")
+      });
+    });
+    bindPress(prodBtn, function () {
+      var items = [];
+      if (ax().tabHas(access, "courierScreen.route")) items.push({ label: "Маршрут", seg: "route" });
+      if (ax().tabHas(access, "courierScreen.assembly")) items.push({ label: "Сборка", seg: "pack" });
+      if (!items.length) { suppressNav = false; return; }
+      sh().openSheet({
+        title: "Производство",
+        html: items.map(function (it) {
+          return '<button type="button" class="b-btn b-btn--sec" style="margin-top:8px" data-act="cfly" data-seg="' + it.seg + '">' + sh().esc(it.label) + "</button>";
+        }).join("")
+      });
     });
   }
 
@@ -227,6 +342,19 @@
       retail().show();
       return;
     }
+    if (route.tab === "more" && moreView === "stats" && ax().tabHas(access, "statsScreen")) {
+      paintChrome();
+      stats().bind(access);
+      stats().show();
+      return;
+    }
+    if (route.tab === "more" && moreView === "partners" && ax().tabHas(access, "partnerHubScreen")) {
+      paintChrome();
+      partners().bind(access);
+      partners().show(partnersOpen);
+      partnersOpen = "";
+      return;
+    }
     paintChrome();
     sh().dock("");
     var more = "";
@@ -242,8 +370,13 @@
     if (ax().tabHas(access, "retailPriceScreen")) {
       more += '<button type="button" class="b-li" data-act="more-price"><span class="b-li__body"><span class="b-li__title">Прайс</span><span class="b-li__sub">Цены розницы и порог доставки</span></span><span class="b-li__chev">›</span></button>';
     }
-    more += '<a class="b-li" href="' + sh().esc(oldHref()) + '"><span class="b-li__body"><span class="b-li__title">Остальное в старой версии</span><span class="b-li__sub">Партнёры, статистика</span></span><span class="b-li__chev">›</span></a>';
-    sh().main('<div class="b-list">' + more + "</div>" + '<p class="b-mark">' + sh().esc(root.__boinyaCBadgeLabel || "Бойня") + "</p>");
+    if (ax().tabHas(access, "statsScreen")) {
+      more += '<button type="button" class="b-li" data-act="more-stats"><span class="b-li__body"><span class="b-li__title">Статистика</span><span class="b-li__sub">Месяц, затраты, воронка БП</span></span><span class="b-li__chev">›</span></button>';
+    }
+    if (ax().tabHas(access, "partnerHubScreen")) {
+      more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заявки, точки, сети, пуши</span></span><span class="b-li__chev">›</span></button>';
+    }
+    sh().main('<div class="b-list">' + (more || '<p class="b-note">В этом разделе пока пусто.</p>') + "</div>" + '<p class="b-mark">' + sh().esc(badgeLabel() || "Бойня") + "</p>");
   }
 
   function helpText() {
@@ -278,6 +411,12 @@
     }
     if (route.tab === "more" && moreView === "price") {
       return "Прайс розницы: доставка, порог «бесплатно от» и цены позиций. Сохранение пишет в ту же таблицу. Уже сохранённые заказы не пересчитываются.";
+    }
+    if (route.tab === "more" && moreView === "stats") {
+      return "Статистика месяца: прибыль, чистое, затраты, доставки. Стрелки листают месяц, не дальше текущего и не глубже двух лет. «Экспорт TSV» копирует выгрузку бухгалтера. «Посчитать» — диапазон, включая будущие записи. Нарезчик включает recover в затратах.";
+    }
+    if (route.tab === "more" && moreView === "partners") {
+      return "Партнёры: заявки с датой 19:00–22:00, люди, точки, сети и пуши. «Мини-апп» открывает партнёрку. Сид сетей здесь нет. Вкладка «БП» — только у владельца: кто привёл клиента.";
     }
     if (route.tab === "production" && route.seg === "cut") {
       return "Нарезка дня, включая «Будущая неделя». «Начать нарезку», галочки «Выложено» и «Нарезано», «!» — нет на следующую, излишек. «Завершить нарезку» спрашивает по неотмеченным: заготовлена или нет в наличии.";
@@ -333,6 +472,7 @@
 
   function onAct(act, node) {
     if (act === "nav") {
+      if (suppressNav) { suppressNav = false; return; }
       route.tab = node.getAttribute("data-tab");
       route.seg = "";
       if (route.tab !== "more") moreView = "";
@@ -340,9 +480,26 @@
       render();
       return;
     }
+    if (act === "fly-go") {
+      var fly = flyCache[Number(node.getAttribute("data-i"))];
+      sh().closeTop("ok");
+      if (fly && fly.go) fly.go();
+      render();
+      return;
+    }
+    if (act === "cfly") {
+      route.tab = "production";
+      route.seg = node.getAttribute("data-seg") || "route";
+      moreView = "";
+      sh().closeTop("ok");
+      render();
+      return;
+    }
     if (act === "more-people") { moreView = "people"; route.tab = "more"; render(); return; }
     if (act === "more-templates") { moreView = "templates"; route.tab = "more"; render(); return; }
     if (act === "more-price") { moreView = "price"; route.tab = "more"; render(); return; }
+    if (act === "more-stats") { moreView = "stats"; route.tab = "more"; render(); return; }
+    if (act === "more-partners") { moreView = "partners"; route.tab = "more"; render(); return; }
     if (act === "more-pick") { route.tab = "clients"; route.seg = "pick"; moreView = ""; render(); return; }
     if (act === "more-back") { moreView = ""; render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
@@ -377,6 +534,8 @@
     if (prod() && prod().onAct(act, node)) return;
     if (wh() && wh().onAct(act, node)) return;
     if (retail() && retail().onAct(act, node)) return;
+    if (stats() && stats().onAct(act, node)) return;
+    if (partners() && partners().onAct(act, node)) return;
     if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
   }
@@ -457,12 +616,15 @@
     if (q().get("seg")) route.seg = q().get("seg");
     if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
     if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
+    if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
+    if (q().get("view") === "partners") { route.tab = "more"; moreView = "partners"; }
     ensureSeg();
     render();
     refreshTasks().then(function () { if (access) paintChrome(); });
     if (ax().tabHas(access, "orderScreen")) {
       ord().loadDays();
       ord().bootPrices();
+      ord().syncProfiles();
     }
   }
 
@@ -487,6 +649,12 @@
     root.__nxSetSeg = function (tab, seg) {
       route.tab = tab;
       route.seg = seg;
+    };
+    root.__nxOpenPartners = function (nextTab) {
+      route.tab = "more";
+      moreView = "partners";
+      partnersOpen = nextTab || "";
+      render();
     };
     root.__nxOpenClients = function (nextSeg, nick) {
       route.tab = "clients";

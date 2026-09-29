@@ -227,6 +227,51 @@
     return "pp";
   }
 
+  function finishPlain(res) {
+    var msg = (res && res.message) || "finish_failed";
+    var map = {
+      owner_only: "Только владелец может закрыть неделю.",
+      auth_required: "Сессия Telegram не подтвердилась. Закройте мини-апп и откройте снова из бота.",
+      need_confirm: "Нет подтверждения.",
+      unknown_action: "Нужен деплой Code.gs с закрытием недели.",
+      week_already_finished: "Неделя уже закрыта — повторно нельзя.",
+      week_finish_busy: "Перенос уже идёт. Второй раз неделю не сдвинет.",
+      week_finish_stale: "Прошлый перенос не подтвердился. Неделя не закрыта.",
+      week_finish_schedule_failed: "Не удалось запустить перенос. Неделя не закрыта.",
+      week_finish_timeout: "Перенос ещё идёт, проверьте позже. Кнопку не нажимайте.",
+      week_finish_unknown: "Перенос ещё идёт, проверьте позже. Кнопку не нажимайте.",
+      cutover_danger_blocked: "Закрытие заблокировано. Обновите мини-апп и повторите.",
+      sandbox_no_prod_week: "Это песочница: боевая неделя не меняется. Откройте без sandbox.",
+      gas_proxy_failed: "Сервер не дошёл до таблицы. Неделя не закрыта."
+    };
+    if (map[msg]) msg = map[msg];
+    var tip = res && res.tip ? String(res.tip) : "";
+    if (tip && msg.indexOf(tip) < 0) msg += "\n" + tip;
+    return msg;
+  }
+
+  function finishPendingActive(stored, now) {
+    return Number(stored || 0) > Number(now || 0);
+  }
+
+  function finishBannerState(opts) {
+    opts = opts || {};
+    var wk = String(opts.weekKey || "");
+    var fetched = !!opts.fetched;
+    var sheetMonday = String(opts.sheetMonday || "");
+    var sheetAhead = !!(sheetMonday && wk && sheetMonday > wk);
+    var serverFinished = !!opts.finished;
+    var clearLocal = fetched && !serverFinished && !sheetAhead;
+    var realClosed = fetched ? (sheetAhead || serverFinished) : false;
+    var hideFin = clearLocal ? "" : String(opts.hideFin || "");
+    return {
+      clearLocal: clearLocal,
+      realClosed: realClosed,
+      showFinish: !realClosed && hideFin !== "1",
+      showPull: realClosed && !opts.pulled && String(opts.hidePull || "") !== "1"
+    };
+  }
+
   function finishGuard() {
     var inflight = false;
     return {
@@ -330,6 +375,9 @@
     slotSaveParams: slotSaveParams,
     deferredMode: deferredMode,
     tasksSub: tasksSub,
+    finishPlain: finishPlain,
+    finishPendingActive: finishPendingActive,
+    finishBannerState: finishBannerState,
     finishGuard: finishGuard,
     placeTransferParams: placeTransferParams,
     collectAccessTabs: collectAccessTabs,

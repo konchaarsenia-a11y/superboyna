@@ -78,6 +78,44 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && sheetStack.length) closeTop("x");
     });
+    bindTitleUnlock();
+  }
+
+  var holdAt = 0;
+  function bindTitleUnlock() {
+    function onTitle(e) {
+      return !!(e.target && e.target.closest && e.target.closest(".b-top__title"));
+    }
+    appEl.addEventListener("pointerdown", function (e) {
+      if (!onTitle(e)) return;
+      holdAt = Date.now();
+    });
+    appEl.addEventListener("pointerup", function () {
+      if (!holdAt) return;
+      if ((Date.now() - holdAt) >= 650) unlockStuck();
+      holdAt = 0;
+    });
+    appEl.addEventListener("pointercancel", function () { holdAt = 0; });
+  }
+
+  function roleMayDropGate() {
+    var role = "";
+    try { role = document.body.getAttribute("data-nx-role") || ""; } catch (e) {}
+    return role === "owner" || role === "manager" || role === "all" || role === "courier" || role === "cutter";
+  }
+
+  function unlockStuck() {
+    clearTimeout(loaderTimer);
+    clearTimeout(watchdog);
+    sheetStack = [];
+    paintSheet();
+    var gate = el("nxGate");
+    if (gate && !gate.hidden && roleMayDropGate()) gate.hidden = true;
+    try {
+      document.body.style.pointerEvents = "auto";
+      document.documentElement.style.pointerEvents = "auto";
+    } catch (e) {}
+    toast("UI разблокирован");
   }
 
   function onClick(e) {
@@ -259,6 +297,7 @@
         '<div class="b-sheet__grab" data-act="sheet-grab"></div>' +
         '<div class="b-sheet__head"><h2 class="b-sheet__title">' + esc(top.title || "") + "</h2>" + closeBtn + "</div>" +
         '<div class="nx-sheet__body">' + (top.html || "") + "</div>" +
+        (top.foot ? '<div class="nx-sheet__foot">' + top.foot + "</div>" : "") +
       "</section>";
   }
 
@@ -266,6 +305,7 @@
     sheetStack.push({
       title: opts.title || "",
       html: opts.html || "",
+      foot: opts.foot || "",
       hideClose: !!opts.hideClose,
       onClose: opts.onClose || null,
       id: opts.id || ""
@@ -278,6 +318,7 @@
     var cur = sheetStack[sheetStack.length - 1];
     cur.title = opts.title != null ? opts.title : cur.title;
     cur.html = opts.html != null ? opts.html : cur.html;
+    if (opts.foot != null) cur.foot = opts.foot;
     paintSheet();
   }
 

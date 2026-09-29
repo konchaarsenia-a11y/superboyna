@@ -245,6 +245,45 @@
     };
   }
 
+  function mergeClientProfiles(mem, clients) {
+    var out = mem && typeof mem === "object" ? mem : {};
+    (clients || []).forEach(function (c) {
+      if (!c) return;
+      var nick = String(c.nick || "").trim();
+      if (!nick) return;
+      var key = nick.toUpperCase();
+      var prev = out[key] || {};
+      var bask = c.basket;
+      if (typeof bask === "string") {
+        try { bask = JSON.parse(bask || "[]"); } catch (e) { bask = []; }
+      }
+      if (!Array.isArray(bask)) bask = [];
+      out[key] = {
+        nick: nick,
+        address: c.address || prev.address || "",
+        phone: c.phone || prev.phone || "",
+        note: c.note || prev.note || "",
+        basket: bask.length ? bask : (prev.basket || []),
+        orderType: c.source || c.orderType || prev.orderType || "",
+        ppPartner: c.ppPartner || prev.ppPartner || "",
+        updatedAt: Date.now()
+      };
+    });
+    return out;
+  }
+
+  function draftUseful(payload) {
+    return formHasData(payload);
+  }
+
+  function warehouseAlertOpen(wh) {
+    if (!wh) return false;
+    if (Number(wh.count) > 0 || Number(wh.clientCount) > 0) return true;
+    if (wh.totalDeficits && wh.totalDeficits.length) return true;
+    if (wh.clientDeficits && wh.clientDeficits.length) return true;
+    return false;
+  }
+
   function formHasData(state) {
     if (!state) return false;
     if (String(state.client || "").trim()) return true;
@@ -279,6 +318,9 @@
     buildSaveBookingParams: buildSaveBookingParams,
     buildDeferredSnapshot: buildDeferredSnapshot,
     formHasData: formHasData,
+    mergeClientProfiles: mergeClientProfiles,
+    draftUseful: draftUseful,
+    warehouseAlertOpen: warehouseAlertOpen,
     sourceOf: sourceOf
   };
 });

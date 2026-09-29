@@ -26,7 +26,7 @@
   }
 
   function paint() {
-    sh().dock("");
+    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="rp-save">Сохранить</button>');
     sh().main(
       '<div class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Прайс розницы</p>' +
@@ -37,7 +37,6 @@
         "</div>" +
         '<div class="nx-actions" style="margin-top:12px">' +
           '<button type="button" class="b-btn b-btn--sec" data-act="rp-reload">Обновить</button>' +
-          '<button type="button" class="b-btn b-btn--main" data-act="rp-save">Сохранить</button>' +
         "</div>" +
         '<p class="b-note" id="retailPriceAdminStatus">—</p>' +
       "</div>" +

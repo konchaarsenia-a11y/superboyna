@@ -10,6 +10,31 @@ const tree = {
   deferredScreen: ["xfer", "buy", "orders", "pp", "remind"]
 };
 
+test("баннер закрытия не верит локальной пометке, если сервер говорит что неделя открыта", () => {
+  const open = L.finishBannerState({
+    weekKey: "2026-09-21",
+    fetched: true,
+    finished: false,
+    sheetMonday: "2026-09-21",
+    hideFin: "1"
+  });
+  assert.equal(open.clearLocal, true);
+  assert.equal(open.realClosed, false);
+  assert.equal(open.showFinish, true);
+  const ahead = L.finishBannerState({
+    weekKey: "2026-09-21",
+    fetched: true,
+    finished: false,
+    sheetMonday: "2026-09-28"
+  });
+  assert.equal(ahead.realClosed, true);
+  assert.equal(ahead.showFinish, false);
+  assert.equal(L.finishPlain({ message: "week_finish_started" }), "week_finish_started");
+  assert.match(L.finishPlain({ message: "week_finish_unknown" }), /Кнопку не нажимайте/);
+  assert.equal(L.finishPendingActive(Date.now() + 1000, Date.now()), true);
+  assert.equal(L.finishPendingActive(Date.now() - 1000, Date.now()), false);
+});
+
 test("полный день с 6, неделя как в старом списке", () => {
   assert.equal(L.FULL_FROM, 6);
   assert.deepEqual(L.WEEK.slice(0, 3), ["Понедельник", "Вторник", "Среда"]);
