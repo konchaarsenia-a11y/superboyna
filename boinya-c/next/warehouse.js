@@ -7,6 +7,34 @@
   var cache = null;
   var whGen = 0;
   var prevGen = 0;
+  var previewKey = "";
+  var previewPromise = null;
+  var previewHit = null;
+
+  function sharedPreview(params, force) {
+    var key = [view, params.asOf || "", params.dateFrom || "", params.dateTo || ""].join("|");
+    if (!force && previewHit && previewHit.key === key && Date.now() - previewHit.at < 15000) {
+      return Promise.resolve(previewHit.res);
+    }
+    if (!force && previewPromise && previewKey === key) return previewPromise;
+    previewKey = key;
+    var q = {
+      action: "warehousePreview",
+      asOf: params.asOf || "",
+      dateFrom: params.dateFrom || "",
+      dateTo: params.dateTo || ""
+    };
+    if (force) q._ = String(Date.now());
+    previewPromise = api().apiGet(q, { timeoutMs: 45000, cacheTtlMs: force ? 0 : 15000 }).then(function (res) {
+      previewHit = { key: key, res: res, at: Date.now() };
+      previewPromise = null;
+      return res;
+    }, function (err) {
+      previewPromise = null;
+      throw err;
+    });
+    return previewPromise;
+  }
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -141,12 +169,8 @@
       var byRow = Object.create(null);
       if (L.warehouseNeedsPreview_(view, flags)) {
         try {
-          var prevQ = { action: "warehousePreview", force: "1", _: String(Date.now()) };
-          if (view === "asOf") {
-            prevQ.dateFrom = asOf;
-            prevQ.dateTo = asOf;
-          }
-          var prev = await api().apiGet(prevQ, { timeoutMs: 45000, cacheTtlMs: 0 });
+          var prevQ = previewParams();
+          var prev = await sharedPreview(prevQ, !!opts.force);
           ((prev && prev.plan) || []).forEach(function (p) {
             byRow[p.row] = p;
           });
@@ -207,7 +231,7 @@
     if (!opts.soft) box.innerHTML = '<p class="b-note">Считаю…</p>';
     var mine = ++prevGen;
     try {
-      var res = await api().apiGet(previewParams(), { timeoutMs: 45000, cacheTtlMs: opts.force ? 0 : 15000 });
+      var res = await sharedPreview(previewParams(), !!opts.force);
       if (mine !== prevGen || !alive("warehousePreviewBox")) return;
       box = document.getElementById("warehousePreviewBox");
       if (!res || res.status !== "success") {

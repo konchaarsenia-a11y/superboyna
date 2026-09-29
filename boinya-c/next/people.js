@@ -124,10 +124,8 @@
         '<span class="b-li__sub">' + esc(RU[p.role] || p.role || "") + '</span></span><span class="b-li__chev">›</span></button>';
     });
     html += "</div>";
-    html += '<p class="b-lbl">Неделя</p><div class="b-card"><p class="b-note">Закрытие недели — то же действие, что в баннере на «Заказах». Повтор, пока идёт запрос, не запускается.</p>' +
-      '<button type="button" class="b-btn b-btn--main" data-act="wfin">Завершить неделю</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="wpull" style="margin-top:8px">Подтянуть из месяца</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="p-resync" style="margin-top:8px">Синхронизировать D1 с листом</button></div>';
+    html += '<p class="b-lbl">Неделя</p><div class="b-card"><p class="b-note">Закрытие недели само подтягивает людей из месяца и не копирует понедельник на будущую неделю. Повтор, пока идёт запрос, не запускается. Подтянуть и синхронизация с листом — в меню ⋯.</p>' +
+      '<button type="button" class="b-btn b-btn--main" data-act="wfin">Завершить неделю</button></div>';
     sh().main(html);
   }
 
@@ -217,31 +215,31 @@
     if (!p) return;
     openId = String(id);
     sheetFlags = { tabs: false, tabsReset: false, notify: false, notifyReset: false };
-    sh().openSheet({ title: p.name || id, html: '<p class="b-note">Загрузка плана…</p>' });
-    try { await loadSched(); } catch (e) { sched = { status: "error" }; }
-    p = personById(id) || p;
-    var opts = ROLES.map(function (r) {
-      return '<option value="' + r + '"' + (p.role === r ? " selected" : "") + ">" + esc(RU[r] || r) + "</option>";
-    }).join("");
-    var tz = p.timezone || "Europe/Minsk";
-    var tzOpts = zones().map(function (z) {
-      return '<option value="' + esc(z) + '"' + (z === tz ? " selected" : "") + ">" + esc(z) + "</option>";
-    }).join("");
-    if (zones().indexOf(tz) < 0) tzOpts = '<option value="' + esc(tz) + '" selected>' + esc(tz) + "</option>" + tzOpts;
-    sh().replaceTop({
-      title: p.name || "Человек",
-      html: '<p class="b-note" id="nxDirty" hidden style="color:var(--b-warn)">Есть несохранённые изменения. В таблицу попадёт только после «Сохранить».</p>' +
+    function formHtml(person) {
+      var opts = ROLES.map(function (r) {
+        return '<option value="' + r + '"' + (person.role === r ? " selected" : "") + ">" + esc(RU[r] || r) + "</option>";
+      }).join("");
+      var tz = person.timezone || "Europe/Minsk";
+      var tzOpts = zones().map(function (z) {
+        return '<option value="' + esc(z) + '"' + (z === tz ? " selected" : "") + ">" + esc(z) + "</option>";
+      }).join("");
+      if (zones().indexOf(tz) < 0) tzOpts = '<option value="' + esc(tz) + '" selected>' + esc(tz) + "</option>" + tzOpts;
+      return '<p class="b-note" id="nxDirty" hidden style="color:var(--b-warn)">Есть несохранённые изменения. В таблицу попадёт только после «Сохранить».</p>' +
         '<label class="b-field"><span class="b-note">Роль</span><select class="b-field__input" id="nxRole" data-act="p-touch">' + opts + "</select></label>" +
         '<label class="b-field" style="margin-top:8px"><span class="b-note">Часовой пояс</span><select class="b-field__input" id="nxTz" data-act="p-touch">' + tzOpts + "</select></label>" +
-        '<p class="b-lbl">Вкладки</p>' + tabTreeHtml(p) +
+        '<p class="b-lbl">Вкладки</p>' + tabTreeHtml(person) +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="p-tabs-reset">Сбросить вкладки к роли</button>' +
-        '<p class="b-lbl">Уведомления</p>' + notifyHtml(p) +
+        '<p class="b-lbl">Уведомления</p>' + notifyHtml(person) +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="p-notify-reset">Уведомления как у роли</button>' +
-        '<p class="b-lbl">⏰ Запланированные</p>' + schedLines(p),
-      foot: '<button type="button" class="b-btn b-btn--main" data-act="p-save">Сохранить</button>' +
-        '<button type="button" class="b-btn b-btn--sec" data-act="p-cancel" style="margin-top:8px">Отмена</button>' +
-        '<button type="button" class="b-btn b-btn--sec" data-act="p-deny" data-id="' + esc(id) + '" style="margin-top:8px">Закрыть доступ</button>'
-    });
+        '<p class="b-lbl">⏰ Запланированные</p>' + schedLines(person);
+    }
+    var foot = '<button type="button" class="b-btn b-btn--main" data-act="p-save">Сохранить</button>' +
+      '<button type="button" class="b-btn b-btn--sec" data-act="p-cancel" style="margin-top:8px">Отмена</button>' +
+      '<button type="button" class="b-btn b-btn--sec" data-act="p-deny" data-id="' + esc(id) + '" style="margin-top:8px">Закрыть доступ</button>';
+    sh().openSheet({ title: p.name || id, html: formHtml(p), foot: foot });
+    try { await loadSched(); } catch (e) { sched = { status: "error" }; }
+    p = personById(id) || p;
+    sh().replaceTop({ title: p.name || "Человек", html: formHtml(p), foot: foot });
     document.querySelectorAll("[data-indet='1']").forEach(function (el) { el.indeterminate = true; });
   }
 

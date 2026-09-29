@@ -56,11 +56,11 @@
     appEl = node;
     appEl.innerHTML =
       '<div class="nx" id="nxRoot">' +
-        '<header class="b-top" id="nxTop"></header>' +
+        '<header class="top b-top" id="nxTop"></header>' +
         '<div class="b-busy" id="nxBusy" hidden></div>' +
-        '<main class="nx-main" id="nxMain"></main>' +
-        '<div class="nx-dock" id="nxDock" hidden></div>' +
-        '<nav class="b-nav" id="nxNav" hidden></nav>' +
+        '<main class="scroll nx-main" id="nxMain"></main>' +
+        '<div class="dock nx-dock" id="nxDock" hidden></div>' +
+        '<nav class="tabs b-nav" id="nxNav" hidden aria-label="Разделы"></nav>' +
       "</div>" +
       '<div class="nx-scrim" id="nxScrim" hidden></div>' +
       '<div class="nx-toast-wrap" id="nxToast" hidden></div>' +
@@ -76,7 +76,16 @@
     scrim.addEventListener("touchmove", onTouchMove, { passive: true });
     scrim.addEventListener("touchend", onTouchEnd);
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && sheetStack.length) closeTop("x");
+      if (e.key === "Escape" && sheetStack.length) { closeTop("x"); return; }
+      if (e.key !== "Tab" || !sheetStack.length) return;
+      var root = el("nxScrim");
+      if (!root || root.hidden) return;
+      var nodes = root.querySelectorAll("button, [href], input, select, textarea");
+      if (!nodes.length) return;
+      var first = nodes[0];
+      var last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     });
     bindTitleUnlock();
   }
@@ -232,8 +241,9 @@
       nav.setAttribute("data-nav-count", String(items.length));
       nav.innerHTML = items.map(function (it) {
         var on = it.id === opts.active ? " b-nav__item--on" : "";
-        return '<button class="b-nav__item' + on + '" type="button" data-act="nav" data-tab="' + esc(it.id) + '">' +
-          ico(it.id === "more" ? "dots" : it.id) +
+        return '<button class="b-nav__item' + on + '" type="button" data-act="nav" data-tab="' + esc(it.id) + '"' +
+          (it.id === opts.active ? ' aria-current="page"' : "") + ">" +
+          ico(it.id === "more" ? "dots" : (it.id === "production" ? "doc" : it.id)) +
           '<span class="b-nav__lbl">' + esc(it.label) + "</span></button>";
       }).join("");
     }
@@ -293,13 +303,23 @@
     scrim.hidden = false;
     var closeBtn = top.hideClose ? "" : '<button class="b-ib" type="button" data-act="sheet-close" aria-label="Закрыть">' + ico("close", "b-ico b-ico--20") + "</button>";
     scrim.innerHTML =
-      '<section class="b-sheet nx-sheet" role="dialog" aria-modal="true" aria-label="' + esc(top.title || "Лист") + '">' +
+      '<section class="b-sheet nx-sheet" role="dialog" aria-modal="true" tabindex="-1" aria-label="' + esc(top.title || "Лист") + '">' +
         '<div class="b-sheet__grab" data-act="sheet-grab"></div>' +
-        '<div class="b-sheet__head"><h2 class="b-sheet__title">' + esc(top.title || "") + "</h2>" + closeBtn + "</div>" +
+        '<div class="b-sheet__head"><h2 class="b-sheet__title" id="nxSheetTitle" tabindex="-1">' + esc(top.title || "") + "</h2>" + closeBtn + "</div>" +
         '<div class="nx-sheet__body">' + (top.html || "") + "</div>" +
         (top.foot ? '<div class="nx-sheet__foot">' + top.foot + "</div>" : "") +
       "</section>";
+    var title = el("nxSheetTitle");
+    var back = document.activeElement;
+    if (!sheetReturn && back && back !== document.body && !scrim.contains(back)) sheetReturn = back;
+    setTimeout(function () {
+      var close = scrim.querySelector("[data-act='sheet-close']");
+      if (close) close.focus();
+      else if (title) title.focus();
+    }, 0);
   }
+
+  var sheetReturn = null;
 
   function openSheet(opts) {
     sheetStack.push({
@@ -326,6 +346,10 @@
     var top = sheetStack.pop();
     paintSheet();
     if (top && top.onClose) top.onClose(how || "x");
+    if (!sheetStack.length && sheetReturn && sheetReturn.focus) {
+      try { sheetReturn.focus(); } catch (eF) {}
+      sheetReturn = null;
+    }
   }
 
   function closeAll() {
@@ -350,7 +374,7 @@
         html:
           '<p class="b-note" style="color:var(--b-text);font-size:var(--b-f16);margin:0 0 16px">' + esc(opts.text || "").replace(/\n/g, "<br>") + "</p>" +
           (opts.extra || "") +
-          '<button class="b-btn b-btn--main" type="button" data-act="dlg-ok">' + esc(opts.ok || "Да") + "</button>" +
+          '<button class="b-btn ' + (opts.danger ? "b-btn--danger" : "b-btn--main") + '" type="button" data-act="dlg-ok">' + esc(opts.ok || "Да") + "</button>" +
           (opts.alt ? '<button class="b-btn b-btn--sec" type="button" data-act="dlg-alt" style="margin-top:8px">' + esc(opts.alt) + "</button>" : "") +
           (opts.cancel === "" ? "" : '<button class="b-btn b-btn--sec" type="button" data-act="dlg-no" style="margin-top:8px">' + esc(opts.cancel || "Отмена") + "</button>"),
         onClose: function () { done(false); }
@@ -484,10 +508,9 @@
     g.hidden = false;
     var actions = opts.actions || "";
     g.innerHTML =
-      '<p class="b-kicker">Бойня</p>' +
-      '<h1 class="b-display">' + esc(opts.title || "") + "</h1>" +
-      '<p style="color:var(--b-text-2);margin:12px 0 24px">' + esc(opts.text || "") + "</p>" +
-      actions;
+      '<div class="gate"><h1 class="b-display">' + esc(opts.title || "") + "</h1>" +
+      '<p style="color:var(--b-text-2);margin:12px 0 0;line-height:1.45">' + esc(opts.text || "") + "</p></div>" +
+      (actions ? '<div class="dock" style="width:100%">' + actions + "</div>" : "");
   }
 
   function hideGate() {

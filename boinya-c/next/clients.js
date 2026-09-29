@@ -363,10 +363,17 @@
       var mark = editMode
         ? '<button type="button" class="b-chip' + (picked[key] ? " b-chip--on" : "") + '" data-act="cl-pick" data-key="' + esc(key) + '">' + (picked[key] ? "Выбран" : "Выбрать") + "</button>"
         : "";
-      html += '<button type="button" class="b-li" data-act="cl-open" data-nick="' + esc(s.nick || "") + '" data-sub="' + esc(s.subId || "") + '" data-sheet="' + esc(s.sheet || sheetOf(seg)) + '">' +
-        '<span class="b-li__body"><span class="b-li__title">' + esc(s.label || s.nick || "Без ника") + "</span>" +
-        '<span class="b-li__sub">' + esc([s.nick, s.status, s.phone].filter(Boolean).join(" · ")) + "</span></span>" +
-        mark + '<span class="b-li__chev">Открыть</span></button>';
+      var who = String(s.label || s.nick || "Без ника").split(/\s*[·•]\s*/);
+      var dog = who[0] || s.nick || "Без ника";
+      var nick = who[1] || "";
+      html += '<button type="button" class="row" data-act="cl-open" data-nick="' + esc(s.nick || "") + '" data-sub="' + esc(s.subId || "") + '" data-sheet="' + esc(s.sheet || sheetOf(seg)) + '">' +
+        '<span class="avatar" aria-hidden="true">' + esc(String(dog).slice(0, 1).toUpperCase()) + "</span>" +
+        '<span class="who"><span class="name">' + esc(dog) + "</span>" +
+        (nick ? '<span class="sub">' + esc(nick) + "</span>" : "") +
+        (s.phone ? '<span class="sub">' + esc(s.phone) + "</span>" : "") +
+        "</span>" +
+        (s.status ? '<span class="pill pill--ok">' + esc(s.status) + "</span>" : "") +
+        mark + "</button>";
     });
     html += "</div>";
     if (showBpForm) {
@@ -666,7 +673,7 @@
     }
     paint();
     if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list") {
-      try { await loadPeople(); await loadSubs(false); } catch (e) {}
+      try { await Promise.all([loadPeople(), loadSubs(false)]); } catch (e) {}
       if (view === "list" && seg !== "calc") paint();
     }
     if (seg === "survey" && unlocked()) {

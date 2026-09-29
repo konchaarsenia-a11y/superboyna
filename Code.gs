@@ -1272,7 +1272,8 @@ function finishFullWeekProduction(optSs, optOpts) {
     sheetManager.getRange(b.note, 3, 1, 15).clearContent();
   });
 
-  // Перенос с «Будущей недели» включая адрес и примечание (C3:Q61)
+  // Перенос только Future → понедельник (C3:Q61). Обратно, понедельник на следующую
+  // «Будущую неделю», блок не копируем: после очистки будущей её заполняет месяц.
   if (sheetFuture) {
     var futureData = sheetFuture.getRange("C3:Q61").getValues();
     sheetManager.getRange("C3:Q61").setValues(futureData);
@@ -1310,7 +1311,11 @@ function finishFullWeekProduction(optSs, optOpts) {
   var materializeInfo = null;
   try {
     SpreadsheetApp.flush();
-    materializeInfo = materializeCurrentWeek_(ss, { onlyMissing: true, includeFuture: true });
+    materializeInfo = materializeCurrentWeek_(ss, {
+      onlyMissing: true,
+      includeFuture: true,
+      skipMondayOntoFuture: true
+    });
   } catch (eMat) {
     materializeInfo = { ok: false, message: String(eMat), totalAdded: 0 };
   }
@@ -13395,7 +13400,11 @@ function materializeCurrentWeek_(ss, opts) {
     if (future) {
       var tz = ss.getSpreadsheetTimeZone();
       var fd = parseFlexibleDate_(future.getRange("A1").getValue(), tz);
-      if (fd) {
+      var skipMondayOntoFuture = !!(opts.skipMondayOntoFuture === true || opts.skipMondayOntoFuture === "1" || opts.skipMondayOntoFuture === 1 || opts.skipMondayOntoFuture === "true");
+      var mondayDate = null;
+      try { mondayDate = sheetMondayDateObj_(ss); } catch (eMon) { mondayDate = null; }
+      var mondaySame = !!(skipMondayOntoFuture && fd && mondayDate && dateKey_(fd, tz) === dateKey_(mondayDate, tz));
+      if (fd && !mondaySame) {
         var droppedF = null;
         if (dropExtras) {
           try { droppedF = dropWeekExtrasForDate_(ss, fd); } catch (eDf) {
@@ -13403,7 +13412,7 @@ function materializeCurrentWeek_(ss, opts) {
           }
           totalDropped += Number(droppedF && droppedF.dropped) || 0;
         }
-        var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing });
+        var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing, skipMondayOntoFuture: skipMondayOntoFuture });
         total += Number(fr.count) || 0;
         if (droppedF) fr.droppedExtras = droppedF;
         try {

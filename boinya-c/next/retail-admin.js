@@ -48,14 +48,12 @@
     opts = opts || {};
     var box = document.getElementById("retailPriceAdminList");
     var st = document.getElementById("retailPriceAdminStatus");
-    if (box && !opts.soft) box.innerHTML = '<p class="b-note">Загрузка…</p>';
+    if (box && opts.force) box.innerHTML = '<p class="b-note">Загрузка…</p>';
     var res = null;
     try {
-      res = await api().apiGet({
-        action: "getRetailPriceList",
-        telegramId: tid(),
-        _: String(Date.now())
-      }, { timeoutMs: 20000, cacheTtlMs: opts.soft ? 60000 : 0 });
+      var q = { action: "getRetailPriceList", telegramId: tid() };
+      if (opts.force) q._ = String(Date.now());
+      res = await api().apiGet(q, { timeoutMs: 20000, cacheTtlMs: opts.force ? 0 : 60000 });
     } catch (e) { res = null; }
     if (!document.getElementById("retailPriceAdminList")) return;
     box = document.getElementById("retailPriceAdminList");
@@ -142,11 +140,11 @@
 
   function show() {
     paint();
-    load({});
+    load({ soft: true });
   }
 
   function onAct(act) {
-    if (act === "rp-reload") { load({}); return true; }
+    if (act === "rp-reload") { load({ force: true }); return true; }
     if (act === "rp-save") { save(); return true; }
     return false;
   }

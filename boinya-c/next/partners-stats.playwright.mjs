@@ -132,13 +132,14 @@ async function main() {
   }
 
   const prod = await open("http://127.0.0.1:8775/next.html?tab=production");
-  await prod.page.locator("h1.b-top__title", { hasText: "Производство" }).waitFor();
+  await prod.page.locator("h1.b-top__title", { hasText: "Цех" }).waitFor();
   const title = prod.page.locator("h1.b-top__title");
-  if ((await title.innerText()).trim() !== "Производство") throw new Error("title");
+  if ((await title.innerText()).trim() !== "Цех") throw new Error("title");
   const fitted = await title.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, size: getComputedStyle(el).fontSize }));
   if (fitted.sw > fitted.cw + 1) throw new Error("title clipped " + JSON.stringify(fitted));
-  const navLbl = prod.page.locator(".b-nav__lbl", { hasText: "Производство" });
-  if ((await navLbl.evaluate((el) => getComputedStyle(el).textOverflow)) !== "ellipsis") throw new Error("nav css");
+  const navLbl = prod.page.locator(".b-nav__lbl", { hasText: "Цех" });
+  const navFit = await navLbl.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+  if (!navFit) throw new Error("nav clipped");
   const sub = (await prod.page.locator(".b-top__sub").innerText()).trim();
   if (sub.indexOf("C · LIVE") < 0) throw new Error("badge " + sub);
   await overflow(prod.page, "header");
@@ -148,7 +149,7 @@ async function main() {
   const prodSheet = prod.page.locator(".b-sheet");
   await prodSheet.getByRole("button", { name: "Маршрут" }).waitFor();
   await prodSheet.getByRole("button", { name: "Сборка" }).waitFor();
-  if ((await prod.page.locator("h1.b-top__title").innerText()).trim() !== "Производство") throw new Error("prod press navigated");
+  if ((await prod.page.locator("h1.b-top__title").innerText()).trim() !== "Цех") throw new Error("prod press navigated");
   await overflow(prod.page, "prod-flyout");
   await shot(prod.page, "next-flyout-production.png");
   await prod.context.close();

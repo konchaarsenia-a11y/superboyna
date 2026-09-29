@@ -83,7 +83,7 @@
       var who = access.name || "Бойня";
       var role = ax().ROLE_RU[access.role] || access.role;
       var mode = root.__boinyaCBadgeLabel || "";
-      return [who, role, mode].filter(Boolean).join(" · ");
+      return [who, role, mode].filter(Boolean).join(", ");
     }
     if (route.tab === "clients") {
       var cl = { pp: "ПП", afk: "АФК", bp: "БП", survey: "Опросник", calc: "Расчёт", pick: "Подбор" };
@@ -94,7 +94,7 @@
     }
     if (route.tab === "production" || (ax().isSimple(access) && (access.role === "cutter" || access.role === "courier"))) {
       var pr = { cut: "Нарезка", pack: "Сборка", route: "Маршрут" };
-      return pr[route.seg] || (access.role === "cutter" ? "Нарезка" : "Производство");
+      return pr[route.seg] || (access.role === "cutter" ? "Нарезка" : "Цех");
     }
     if (route.tab === "more" && moreView === "templates") return "Шаблоны";
     if (ax().isSimple(access)) return ax().ROLE_RU[access.role] || "";
@@ -118,7 +118,7 @@
     var text = sub || "";
     if (!badge) return text;
     if (text.indexOf(badge) >= 0) return text;
-    return text ? (text + " · " + badge) : badge;
+    return text ? (text + ", " + badge) : badge;
   }
 
   function paintChrome() {
@@ -223,7 +223,7 @@
       if (ax().tabHas(access, "courierScreen.assembly")) items.push({ label: "Сборка", seg: "pack" });
       if (!items.length) { suppressNav = false; return; }
       sh().openSheet({
-        title: "Производство",
+        title: "Цех",
         html: items.map(function (it) {
           return '<button type="button" class="b-btn b-btn--sec" style="margin-top:8px" data-act="cfly" data-seg="' + it.seg + '">' + sh().esc(it.label) + "</button>";
         }).join("")
@@ -290,7 +290,8 @@
       ord().paintSegs(orderSegs(), "new");
       return;
     }
-    if (route.tab === "orders" && (route.seg === "week" || route.seg === "month")) {
+    if (route.tab === "orders" && route.seg === "week") route.seg = "month";
+    if (route.tab === "orders" && route.seg === "month") {
       paintChrome();
       wk().setRole(access.role);
       wk().show(route.seg, access.role);
@@ -376,19 +377,22 @@
     if (ax().tabHas(access, "partnerHubScreen")) {
       more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заявки, точки, сети, пуши</span></span><span class="b-li__chev">›</span></button>';
     }
+    if (access.role === "owner") {
+      more += '<button type="button" class="b-li" data-act="more-goals"><span class="b-li__body"><span class="b-li__title">Цели</span><span class="b-li__sub">Раздел ещё готовится</span></span><span class="b-li__chev">›</span></button>';
+    }
     sh().main('<div class="b-list">' + (more || '<p class="b-note">В этом разделе пока пусто.</p>') + "</div>" + '<p class="b-mark">' + sh().esc(badgeLabel() || "Бойня") + "</p>");
   }
 
   function helpText() {
     if (q().get("shot") === "states") return "Так выглядят пустой экран, загрузка, ошибка и долгий запрос. Кнопка «Повторить» зовёт тот же запрос ещё раз.";
     if (route.tab === "orders" && route.seg === "new") {
-      return "Новый заказ. Тип, клиент, адрес, день и состав. Оранжевая кнопка сохраняет в ту же таблицу, что и старая форма. «На потом» кладёт заказ в задачи. День с 6 заказами и больше подсвечен как полный. Суббота и воскресенье остаются в полосе. Тост появляется под шапкой и не закрывает «Итого».";
+      return "Новый заказ. Тип, ник, адрес, день и состав. Оранжевая кнопка сохраняет в ту же таблицу. «На потом» кладёт заказ в задачи. Полный день — от 12 человек, черта сверху. Тост появляется под шапкой и не закрывает «Итого».";
     }
     if (route.tab === "orders" && route.seg === "week") {
       return "Неделя: дни Пн–Вс и «Будущая неделя». Карточка — править, перенести, удалить, слот ПП. «Выбрать» — несколько человек сразу. Баннер закрытия недели только у владельца, повторное нажатие не запускает второе закрытие.";
     }
     if (route.tab === "orders" && route.seg === "month") {
-      return "Месяц: календарь и заказы даты. «В черновик» собирает перенос в неделю, «Дополнить» — тип, партнёр, адрес и телефон. «Применить переносы» пишет в ту же таблицу.";
+      return "Месяц: люди на дне крупно, дата мелко, точки ПП, БП, розница и партнёр. Под сеткой заказы этого дня. Тап по строке — править, перенести, удалить. «Завершить неделю» подтягивает месяц сама и не копирует понедельник на будущую неделю.";
     }
     if (route.tab === "more" && moreView === "people") {
       return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Закрытие недели — то же, что баннер на заказах.";
@@ -436,9 +440,14 @@
 
   function openMenu() {
     var screen = route.tab + "/" + route.seg;
+    var weekTools = "";
+    if (route.tab === "more" && moreView === "people" && access && access.role === "owner") {
+      weekTools = '<button class="sheet-act" type="button" data-act="wpull">Подтянуть из месяца</button>' +
+        '<button class="sheet-act" type="button" data-act="p-resync">Синхронизировать с листом</button>';
+    }
     sh().openSheet({
       title: "Раздел",
-      html: '<button class="b-btn b-btn--sec" type="button" data-act="bug">Сообщить о проблеме</button>' +
+      html: weekTools + '<button class="b-btn b-btn--sec" type="button" data-act="bug">Сообщить о проблеме</button>' +
         '<p class="b-note" style="margin-top:8px">К сообщению приложатся экран «' + sh().esc(screen) + "», роль и черновик заказа, если он открыт.</p>" +
         '<a class="b-btn b-btn--sec" style="margin-top:8px" href="' + sh().esc(oldHref()) + '">Открыть в старой версии</a>'
     });
@@ -500,6 +509,7 @@
     if (act === "more-price") { moreView = "price"; route.tab = "more"; render(); return; }
     if (act === "more-stats") { moreView = "stats"; route.tab = "more"; render(); return; }
     if (act === "more-partners") { moreView = "partners"; route.tab = "more"; render(); return; }
+    if (act === "more-goals") { route.tab = "goals"; moreView = ""; render(); return; }
     if (act === "more-pick") { route.tab = "clients"; route.seg = "pick"; moreView = ""; render(); return; }
     if (act === "more-back") { moreView = ""; render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
@@ -560,7 +570,7 @@
       name: String(u.first_name || ""),
       username: String(u.username || "")
     });
-    showFail("Ожидание", "Заявка отправлена. Владелец назначит роль.", "");
+    showFail("Заявка отправлена", "Ваша заявка отправлена! Пожалуйста, подождите...", "");
     sh().toast("Заявка отправлена");
   }
 
@@ -568,7 +578,17 @@
     if (booting) return;
     booting = true;
     sh().hideGate();
-    sh().main(sh().skeleton(4));
+    var cachedAccess = null;
+    try { cachedAccess = JSON.parse(localStorage.getItem("nx_access_v1") || "null"); } catch (eC) { cachedAccess = null; }
+    if (cachedAccess && cachedAccess.role && cachedAccess.role !== "none" && cachedAccess.role !== "pending" && cachedAccess.role !== "denied") {
+      access = ax().normalize(cachedAccess);
+      var nav0 = ax().navItems(access);
+      route.tab = (nav0[0] && nav0[0].id) || "orders";
+      ensureSeg();
+      render();
+    } else {
+      sh().main(sh().skeleton(4));
+    }
     var init = api().initData();
     if (!init && !root.__NEXT_API_HOOK__) {
       booting = false;
@@ -598,12 +618,13 @@
       return;
     }
     access = ax().normalize(res);
+    try { localStorage.setItem("nx_access_v1", JSON.stringify({ role: access.role, tabs: access.tabs, name: access.name, telegramId: access.telegramId })); } catch (eSave) {}
     if (u.first_name) access.name = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
     var role = access.role;
     if (role === "none" || role === "pending" || role === "denied" || !access.tabs.length) {
       if (role === "denied") showFail("Доступ закрыт", "Обратитесь к владельцу.", "");
-      else if (role === "pending") showFail("Ожидание", "Заявка отправлена. Владелец назначит роль.", "");
-      else showFail("Нет доступа", "Нажмите «Запросить доступ». Владелец увидит заявку.",
+      else if (role === "pending") showFail("Заявка отправлена", "Ваша заявка отправлена! Пожалуйста, подождите...", "");
+      else showFail("Нет доступа", "К сожалению, у вас нет доступа. Нажмите ниже для отправки заявки",
         '<button class="b-btn b-btn--main" type="button" data-act="gate-ask">Запросить доступ</button>');
       return;
     }
@@ -618,6 +639,7 @@
     if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
     if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
     if (q().get("view") === "partners") { route.tab = "more"; moreView = "partners"; }
+    if (access.role === "partner" && !q().get("tab")) { route.tab = "more"; moreView = "partners"; }
     ensureSeg();
     render();
     refreshTasks().then(function () { if (access) paintChrome(); });
@@ -690,7 +712,14 @@
     sh().setHandler(onAct);
     try {
       var tg = root.Telegram && root.Telegram.WebApp;
-      if (tg) { tg.ready(); tg.expand(); }
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        if (tg.onEvent) tg.onEvent("themeChanged", function () {
+          if (root.__boinyaApplyScheme) root.__boinyaApplyScheme();
+        });
+      }
+      if (root.__boinyaApplyScheme) root.__boinyaApplyScheme();
     } catch (e) {}
     boot();
   }
