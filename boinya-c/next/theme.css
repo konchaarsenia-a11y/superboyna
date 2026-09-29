@@ -251,12 +251,25 @@ html, body, .b-app {
   border-color: var(--b-line);
 }
 
-.b-field, .b-field__input, select.b-field__input, textarea.b-field__input {
+.b-field {
   border-color: var(--b-line);
   background: var(--b-surface);
   color: var(--b-text);
   min-height: 48px;
+  overflow: hidden;
 }
+
+.b-field__input,
+select.b-field__input,
+textarea.b-field__input {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--b-text);
+  min-height: 0;
+}
+
+textarea.b-field__input { min-height: 96px; }
 
 .b-field__input::placeholder { color: var(--b-text-3); }
 
