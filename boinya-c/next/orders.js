@@ -29,6 +29,7 @@
   ];
   var MEM_KEY = "superboyna_client_memory_v1";
   var TG_KEY = "superboyna_tg_id";
+  var DRAFT_KEY = "superboyna_order_form_draft_v1";
 
   var state = blank();
   var week = { items: [], error: "", loading: true, meta: null };
@@ -38,7 +39,12 @@
   var folds = { details: false, checklist: false };
   var picker = blankPicker();
   var suggest = [];
+  var addrSuggest = [];
+  var addrSeq = 0;
+  var addrTimer = null;
   var priceTimer = null;
+  var draftReady = false;
+  var whCopy = "";
 
   function eng() { return root.BoinyaOrderEngine; }
   function pay() { return root.BoinyaOrderPayload; }
@@ -187,6 +193,44 @@
     try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
   }
 
+  function persistDraft() {
+    if (state.isEdit) return;
+    try {
+      if (!pay().draftUseful(state)) localStorage.removeItem(DRAFT_KEY);
+      else localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+  }
+
+  function restoreDraft() {
+    if (draftReady || state.isEdit) { draftReady = true; return; }
+    draftReady = true;
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) { raw = null; }
+    if (!pay().draftUseful(raw)) return;
+    var date = state.deliveryDate;
+    var day = state.day;
+    state = Object.assign(blank(), raw);
+    state.isEdit = false;
+    if (!state.deliveryDate && date) state.deliveryDate = date;
+    if (!state.day && day) state.day = day;
+    if (!state.baskets) state.baskets = { 1: [], 2: [] };
+    if (!state.dogNames) state.dogNames = { 1: "", 2: "" };
+    if (!state.notes) state.notes = [];
+  }
+
+  function syncProfiles() {
+    api().apiGet({ action: "listClientProfiles" }, { timeoutMs: 20000, cacheTtlMs: 120000 }).then(function (res) {
+      if (!res || res.status !== "success" || !res.clients) return;
+      var mem = pay().mergeClientProfiles(loadMemory(), res.clients);
+      try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
+      if (String(state.client || "").trim()) scheduleSuggest();
+    }).catch(function () {});
+  }
+
   function telegramId() {
     var u = api().telegramUser() || {};
     if (u.id) return String(u.id);
@@ -261,10 +305,12 @@
     });
     html += "</div>";
     var futOn = state.day === "Будущая неделя" ? " b-chip--on" : "";
+    var offWeek = !!(state.deliveryDate && !state.day);
+    var otherOn = offWeek ? " b-chip--on" : "";
+    var otherLabel = offWeek ? pretty(state.deliveryDate) : "Другая дата";
     html += '<div class="b-row" style="margin-top:8px">' +
       '<button type="button" class="b-chip' + futOn + '" data-act="future">Будущая неделя</button>' +
-      '<span class="b-grow"></span>' +
-      '<button type="button" class="b-ib" data-act="cal" aria-label="Другая дата">' + sh().ico("cal", "b-ico b-ico--20") + "</button></div>";
+      '<button type="button" class="b-chip' + otherOn + '" data-act="cal">' + esc(otherLabel) + "</button></div>";
     if (numFullHint()) {
       html += '<p class="b-note" style="margin-top:8px"><span style="color:var(--b-warn)">●</span> полный от ' + FULL_FROM + "</p>";
     }
@@ -380,6 +426,7 @@
     html += '<p class="b-lbl">Телефон</p>' + field("phone", state.phone, "+375", 'inputmode="tel"');
     html += '<p class="b-lbl">Адрес</p><div class="b-row" style="gap:8px"><div class="b-grow">' + field("address", state.address, "Улица и дом") +
       '</div><button class="b-ib" type="button" data-act="coords" aria-label="Координаты">' + sh().ico("cal", "b-ico b-ico--20") + "</button></div>";
+    html += '<div id="nxAddr"></div>';
     html += '<button type="button" class="nx-link" data-act="fold-details" style="margin-top:8px">' + (folds.details ? "Скрыть подъезд" : "Подъезд и детали") + "</button>";
     if (folds.details) {
       html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
@@ -444,9 +491,11 @@
   }
 
   function paint() {
+    restoreDraft();
     sh().main(view());
     sh().dock(dock());
     paintSuggest();
+    paintAddr();
     if (root.__nxAfterOrderPaint) root.__nxAfterOrderPaint();
   }
 
@@ -460,6 +509,74 @@
     }
     var k = document.querySelector(".b-sum__k");
     if (k) k.textContent = "Итого · " + positions() + " позиции";
+  }
+
+  function paintAddr() {
+    var box = document.getElementById("nxAddr");
+    if (!box) return;
+    if (!addrSuggest.length) { box.innerHTML = ""; return; }
+    box.innerHTML = '<div class="nx-suggest">' + addrSuggest.map(function (s, i) {
+      var title = s.title || s.address || "";
+      return '<button type="button" data-act="pick-addr" data-i="' + i + '">' + esc(title) +
+        (s.subtitle ? '<span class="b-note"> · ' + esc(s.subtitle) + "</span>" : "") + "</button>";
+    }).join("") + "</div>";
+  }
+
+  function scheduleAddress() {
+    var q = String(state.address || "").trim();
+    clearTimeout(addrTimer);
+    if (q.length < 2 && !eng().parseLatLonFromText_(q)) {
+      addrSuggest = [];
+      paintAddr();
+      return;
+    }
+    addrTimer = setTimeout(function () { fetchAddress(q); }, 280);
+  }
+
+  function fetchAddress(q) {
+    var seq = ++addrSeq;
+    var coords = eng().parseLatLonFromText_(q);
+    var params = { action: "suggestAddress", text: q, _: String(Date.now()) };
+    if (coords) {
+      params.lat = coords.lat;
+      params.lon = coords.lon;
+    }
+    api().apiGet(params, { timeoutMs: 12000, cacheTtlMs: 0 }).then(function (res) {
+      if (seq !== addrSeq) return;
+      var list = (res && res.results) || [];
+      if (!list.length && coords) {
+        list = [{
+          title: coords.lat.toFixed(6) + ", " + coords.lon.toFixed(6),
+          address: coords.lat.toFixed(6) + ", " + coords.lon.toFixed(6),
+          lat: coords.lat,
+          lon: coords.lon
+        }];
+      }
+      addrSuggest = list.slice(0, 6);
+      paintAddr();
+    }).catch(function () {
+      if (seq !== addrSeq) return;
+      addrSuggest = [];
+      paintAddr();
+    });
+  }
+
+  function applyAddress(row) {
+    if (!row) return;
+    var text = row.address || row.title || "";
+    state.address = text;
+    if (row.lat != null && row.lon != null) {
+      state.geo = {
+        lat: Number(row.lat),
+        lon: Number(row.lon),
+        address: text,
+        yandexUrl: row.yandexUrl || ("https://yandex.ru/maps/?pt=" + row.lon + "," + row.lat + "&z=17&l=map")
+      };
+      state.outsideMinsk = eng().haversineKm(eng().MINSK_CENTER, state.geo) > eng().MINSK_RADIUS_KM;
+    }
+    addrSuggest = [];
+    persistDraft();
+    paint();
   }
 
   function paintSuggest() {
@@ -482,7 +599,9 @@
       if (state.orderType === "retail") state.retailPriceManual = true;
       patchLines();
     } else state[k] = node.value;
+    if (k !== "pq" && k.indexOf("noteItem") !== 0) persistDraft();
     if (k === "client") scheduleSuggest();
+    if (k === "address") scheduleAddress();
     if (k === "address" || k === "entrance" || k === "floor" || k === "flat") {
       var parsed = eng().parseDeliveryAddress(state.address);
       if (parsed && parsed.entrance && !state.entrance) state.entrance = parsed.entrance;
@@ -587,6 +706,7 @@
     var iso = hit ? isoFromAny(hit.date) : "";
     if (iso) state.deliveryDate = iso;
     if (!silent) {
+      persistDraft();
       paint();
       sh().toast(dayName);
       refreshPp();
@@ -600,6 +720,7 @@
       if (isoFromAny(it.date) === iso) matched = it.day;
     });
     state.day = matched || "";
+    persistDraft();
     paint();
   }
 
@@ -620,6 +741,7 @@
         state = blank();
         state.deliveryDate = date;
         state.day = day;
+        clearDraft();
       }
     }
     state.orderType = next;
@@ -695,7 +817,23 @@
   function openAdd() {
     eng().applyState(state);
     picker.open = true;
-    sh().openSheet({ title: "Добавить позицию", html: addHtml(), id: "add", onClose: function () { picker.open = false; } });
+    sh().openSheet({
+      title: "Добавить позицию",
+      html: addHtml(),
+      foot: addFoot(),
+      id: "add",
+      onClose: function () { picker.open = false; }
+    });
+  }
+
+  function addFoot() {
+    var e = eng();
+    var btn = "В состав";
+    if (picker.cat !== "crumb" && picker.name && state.orderType === "retail") {
+      var cost = e.retailLineCost(picker.name, picker.sub, picker.qty, picker.cat, { main: picker.name });
+      if (cost && cost.found) btn += " · " + money(cost.cost) + " BYN";
+    }
+    return '<button class="b-btn b-btn--main" type="button" data-act="padd">' + esc(btn) + "</button>";
   }
 
   function addHtml() {
@@ -729,16 +867,10 @@
           '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
       }
     }
-    var btn = "В состав";
-    if (picker.cat !== "crumb" && picker.name && state.orderType === "retail") {
-      var cost = e.retailLineCost(picker.name, picker.sub, picker.qty, picker.cat, { main: picker.name });
-      if (cost && cost.found) btn += " · " + money(cost.cost) + " BYN";
-    }
     return '<label class="b-field">' + sh().ico("search", "b-ico b-ico--20") +
       '<input class="b-field__input" id="pq" data-k="pq" value="' + esc(picker.q) + '" placeholder="Найти позицию"></label>' +
       '<div class="b-chips" style="margin-top:12px">' + chips + "</div>" +
       '<div class="b-list" style="margin-top:12px">' + body + "</div>" +
-      '<button class="b-btn b-btn--main" type="button" data-act="padd" style="margin-top:16px">' + esc(btn) + "</button>" +
       '<p class="b-note" style="margin-top:8px">Один и тот же лист в заказе. «Крошки» открывают конструктор: вид и источники.</p>';
   }
 
@@ -768,6 +900,7 @@
     var list = state.baskets[state.activeDog] || (state.baskets[state.activeDog] = []);
     list.push(row);
     syncRetail();
+    persistDraft();
     paint();
   }
 
@@ -1062,7 +1195,13 @@
     if (!msgOut.ok) { sh().toast(msgOut.text); paint(); return; }
     if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено");
     else sh().toast(msgOut.text);
+    var whClient = clientName;
+    var whDay = weekDay || state.day || "";
+    var whDate = state.deliveryDate || "";
+    var whBasket = [];
+    try { whBasket = eng().buildOrderSaveBasket_() || []; } catch (eWh) {}
     remember();
+    clearDraft();
     var keepDate = state.deliveryDate;
     var keepDay = state.day;
     state = blank();
@@ -1070,6 +1209,49 @@
     state.day = keepDay;
     ppFact = null;
     paint();
+    warehouseAfterSave(whClient, whDay, whDate, whBasket);
+  }
+
+  function warehouseAfterSave(client, day, date, basket) {
+    if (!client || !day) return;
+    var params = {
+      action: "checkOrderWarehouse",
+      client: client,
+      day: day,
+      date: date || "",
+      force: "1",
+      _: String(Date.now())
+    };
+    if (basket && basket.length) {
+      try { params.basket = JSON.stringify(basket); } catch (eB) {}
+    }
+    api().apiGet(params, { timeoutMs: 20000, cacheTtlMs: 0 }).then(function (res) {
+      var wh = res && res.warehouseAlert;
+      if (!pay().warehouseAlertOpen(wh)) return;
+      showWarehouse(wh, client);
+    }).catch(function () {});
+  }
+
+  function whRows(list, accent) {
+    return (list || []).map(function (d) {
+      return '<p style="margin:6px 0' + (accent ? ";color:var(--b-bad)" : "") + '"><b>' + esc(d.name || "") + "</b> −" +
+        esc(d.deficit) + " " + esc(d.unit || "кг") +
+        '<span class="b-note"> нужно ' + esc(d.needRaw) + " · есть " + esc(d.available) + "</span></p>";
+    }).join("");
+  }
+
+  function showWarehouse(wh, name) {
+    whCopy = String(wh.messageText || "");
+    var clientDefs = wh.clientDeficits || [];
+    var totalDefs = wh.totalDeficits || [];
+    var html = '<p class="b-lbl">' + esc(name || "клиент") + "</p>" +
+      (clientDefs.length ? whRows(clientDefs, true) : '<p class="b-note">По составу дефицита нет.</p>') +
+      '<p class="b-lbl">Общий дефицит</p>' +
+      (totalDefs.length ? whRows(totalDefs, false) : '<p class="b-note">Общего дефицита нет.</p>');
+    var foot = '<div class="nx-actions"><button type="button" class="b-btn b-btn--main" data-act="wh-copy">Скопировать</button>' +
+      '<button type="button" class="b-btn b-btn--sec" data-act="wh-share">Отправить</button>' +
+      '<button type="button" class="b-btn b-btn--sec" data-act="wh-ok">OK</button></div>';
+    sh().openSheet({ title: "Дефицит сырья", html: html, foot: foot, id: "wh" });
   }
 
   async function defer() {
@@ -1133,18 +1315,21 @@
     sh().toast("Отложено");
   }
 
+  function rebuildAdd(caret) {
+    sh().replaceTop({ html: addHtml(), foot: addFoot() });
+    var again = document.getElementById("pq");
+    if (!again) return;
+    again.focus();
+    var pos = caret == null ? again.value.length : caret;
+    try { again.setSelectionRange(pos, pos); } catch (ePq) {}
+  }
+
   function onAct(act, node) {
     if (act === "input" || act === "change") {
       if (node && node.getAttribute && node.getAttribute("data-k")) readField(node);
       if (node && node.id === "pq") {
         picker.q = node.value;
-        var caret = node.selectionStart;
-        sh().replaceTop({ html: addHtml() });
-        var again = document.getElementById("pq");
-        if (again) {
-          again.focus();
-          try { again.setSelectionRange(caret, caret); } catch (ePq) {}
-        }
+        rebuildAdd(node.selectionStart);
       }
       if (node && node.getAttribute && node.getAttribute("data-act") === "note-text") {
         state.notes[Number(node.getAttribute("data-i"))].text = node.value;
@@ -1210,26 +1395,26 @@
       picker.name = "";
       picker.sub = "";
       picker.qty = picker.cat === "chew" ? 1 : 200;
-      sh().replaceTop({ html: addHtml() });
+      rebuildAdd(null);
       return true;
     }
     if (act === "pname") {
       picker.name = node.getAttribute("data-name");
       picker.sub = "";
       picker.qty = eng().unitForItem(picker.cat, picker.name) === "шт" ? 1 : 200;
-      sh().replaceTop({ html: addHtml() });
+      rebuildAdd(null);
       return true;
     }
-    if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); sh().replaceTop({ html: addHtml() }); return true; }
+    if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); rebuildAdd(null); return true; }
     if (act === "pqty") {
       var step = (picker.cat === "chew" || (picker.name && eng().unitForItem(picker.cat, picker.name) === "шт")) ? 1 : 50;
       picker.qty = Math.max(step, Number(picker.qty) + Number(node.getAttribute("data-dir")) * step);
-      sh().replaceTop({ html: addHtml() });
+      rebuildAdd(null);
       return true;
     }
-    if (act === "ckind") { picker.kind = node.getAttribute("data-kind"); picker.sources = []; sh().replaceTop({ html: addHtml() }); return true; }
-    if (act === "csrc-add") { picker.sources.push(""); sh().replaceTop({ html: addHtml() }); return true; }
-    if (act === "csrc-del") { picker.sources.pop(); sh().replaceTop({ html: addHtml() }); return true; }
+    if (act === "ckind") { picker.kind = node.getAttribute("data-kind"); picker.sources = []; rebuildAdd(null); return true; }
+    if (act === "csrc-add") { picker.sources.push(""); rebuildAdd(null); return true; }
+    if (act === "csrc-del") { picker.sources.pop(); rebuildAdd(null); return true; }
     if (act === "padd") { addFromPicker(); return true; }
     if (act === "step") {
       var list = state.baskets[state.activeDog];
@@ -1250,6 +1435,22 @@
     if (act === "ig-go") { applyChecklist(); return true; }
     if (act === "ig-clear") { state.igPaste = ""; paint(); return true; }
     if (act === "price-auto") { state.retailPriceManual = false; syncRetail(); paint(); return true; }
+    if (act === "pick-addr") {
+      applyAddress(addrSuggest[Number(node.getAttribute("data-i"))]);
+      return true;
+    }
+    if (act === "wh-ok") { sh().closeTop("ok"); return true; }
+    if (act === "wh-copy" || act === "wh-share") {
+      var text = whCopy;
+      if (act === "wh-share" && navigator.share) {
+        navigator.share({ text: text, title: "Дефицит сырья" }).catch(function () {});
+        return true;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { sh().toast("Скопировано"); }).catch(function () { sh().toast("Не скопировалось"); });
+      } else sh().toast(text || "Не скопировалось");
+      return true;
+    }
     if (act === "pick-client") {
       var row = suggest[Number(node.getAttribute("data-i"))];
       if (!row) return true;
@@ -1455,6 +1656,10 @@
     setState: function (next) { state = next || blank(); },
     blank: blank,
     loadFromClient: loadFromClient,
-    loadDeferred: loadDeferred
+    loadDeferred: loadDeferred,
+    syncProfiles: syncProfiles
   };
+  try {
+    root.addEventListener("pagehide", persistDraft);
+  } catch (eHide) {}
 })(window);

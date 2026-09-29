@@ -246,7 +246,7 @@
         "<span><b>" + esc(label) + "</b>" + (meta.length ? (' <span class="b-note">' + esc(meta.join(" · ")) + "</span>") : "") + "</span></label>";
     }).join("") : '<p class="b-note">Нет сотрудников — сначала роли в «Доступах»</p>';
     return '<p class="b-note">Кому слать заявки из мини-аппа. Тот же ключ «Новая заявка партнёра», что в Доступах. Владельцы включены по умолчанию.</p>' +
-      list + '<button type="button" class="b-btn b-btn--main" style="margin-top:12px" data-act="ph-notify-save">Сохранить</button>';
+      list;
   }
 
   function paintBp() {
@@ -266,9 +266,7 @@
       '<label class="b-field"><span class="b-note">Имя</span><input class="b-field__input" id="partnerNameInput"></label>' +
       '<label class="b-field" style="margin-top:8px"><span class="b-note">Заметка</span><input class="b-field__input" id="partnerNoteInput"></label>' +
       '<label class="nx-check"><input type="checkbox" id="partnerPaysCostInput"><span>Платит себестоимость (затрата БП не считается)</span></label>' +
-      '<input type="hidden" id="partnerEditId" value="">' +
-      '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--main" id="btnPartnerSave" data-act="ph-bp-save">Добавить</button>' +
-      '<button type="button" class="b-btn b-btn--sec" id="btnPartnerEditCancel" data-act="ph-bp-cancel" hidden>Отмена</button></div>' + list;
+      '<input type="hidden" id="partnerEditId" value="">' + list;
   }
 
   function paintBody() {
@@ -276,6 +274,20 @@
     if (!box) return;
     var inner = tab === "people" ? paintPeople() : tab === "points" ? paintPoints() : tab === "nets" ? paintNets() : tab === "notify" ? paintNotify() : tab === "bp" ? paintBp() : paintOrders();
     box.innerHTML = '<article class="b-card" style="margin-top:12px">' + inner + "</article>";
+    pinDock();
+  }
+
+  function pinDock() {
+    if (tab === "notify") {
+      sh().dock('<button type="button" class="b-btn b-btn--main" data-act="ph-notify-save">Сохранить</button>');
+      return;
+    }
+    if (tab === "bp") {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--main" id="btnPartnerSave" data-act="ph-bp-save">Добавить</button>' +
+        '<button type="button" class="b-btn b-btn--sec" id="btnPartnerEditCancel" data-act="ph-bp-cancel" hidden>Отмена</button></div>');
+      return;
+    }
+    sh().dock("");
   }
 
   async function loadHub(opts) {

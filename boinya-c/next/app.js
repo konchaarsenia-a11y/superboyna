@@ -123,6 +123,7 @@
 
   function paintChrome() {
     var nav = ax().isSimple(access) ? [] : ax().navItems(access);
+    try { document.body.setAttribute("data-nx-role", access && access.role ? access.role : ""); } catch (eRole) {}
     sh().chrome({
       title: headerTitle(),
       sub: withBadge(headerSub()),
@@ -623,6 +624,7 @@
     if (ax().tabHas(access, "orderScreen")) {
       ord().loadDays();
       ord().bootPrices();
+      ord().syncProfiles();
     }
   }
 

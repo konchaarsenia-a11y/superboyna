@@ -369,7 +369,10 @@
         mark + '<span class="b-li__chev">Открыть</span></button>';
     });
     html += "</div>";
-    sh().dock("");
+    if (showBpForm) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-bp-cancel">Отмена</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="cl-bp-save">Сохранить</button></div>');
+    } else sh().dock("");
     sh().main(html);
     if (focusNick) {
       var btn = document.querySelector('[data-act="cl-open"][data-nick="' + focusNick.replace(/"/g, "") + '"]');
@@ -387,7 +390,6 @@
       field("cxBpAddress", "", "Адрес") +
       field("cxBpPhone", "", "Телефон") +
       area("cxBpWishes", "", "Пожелания") +
-      actions('<button type="button" class="b-btn b-btn--main" data-act="cl-bp-save">Сохранить</button><button type="button" class="b-btn b-btn--sec" data-act="cl-bp-cancel">Отмена</button>') +
       "</article>";
   }
 
@@ -416,7 +418,6 @@
         '<label class="b-field"><select class="b-field__input" id="cxSvKind" data-k="cxSvKind"><option value="bp2">После БП1 — опросник на БП2</option><option value="final">После БП2 — финальный (→ ПП)</option></select></label>' +
         field("cxSvDue", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
         '<label class="b-field"><select class="b-field__input" id="cxSvOwner" data-k="cxSvOwner">' + ownerOptions("") + "</select></label>" +
-        actions('<button type="button" class="b-btn b-btn--main" data-act="cl-sv-save">Сохранить</button><button type="button" class="b-btn b-btn--sec" data-act="cl-sv-cancel">Отмена</button>') +
         "</article>";
     }
     rows.forEach(function (it, i) {
@@ -434,7 +435,10 @@
         ) + "</article>";
     });
     if (!rows.length) html += '<p class="b-note">Опросников нет.</p>';
-    sh().dock("");
+    if (showSurveyForm) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-sv-cancel">Отмена</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="cl-sv-save">Сохранить</button></div>');
+    } else sh().dock("");
     sh().main(html);
   }
 
@@ -555,7 +559,7 @@
         field("cxEnPhone", enroll.phone, "Телефон") +
         field("cxEnN", enroll.deliveriesN, "N", 'inputmode="numeric"') +
         field("cxEnFact", enroll.fact, "Факт", 'inputmode="decimal"') +
-        actions('<button type="button" class="b-btn b-btn--main" data-act="cl-enroll-go">Внести в лист ПП</button><button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-cancel">Отмена</button>') +
+        '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-cancel" style="margin-top:8px">Отмена</button>' +
         "</article>";
     }
     html += '<p class="b-lbl">Режим</p><div class="b-seg">' +
@@ -599,7 +603,10 @@
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-defer">В отложенное</button>' +
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-open">Внести в ПП</button>'
     );
-    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-compose">Собрать сообщение</button>');
+    if (enroll) {
+      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-compose">Собрать сообщение</button>' +
+        '<button type="button" class="b-btn b-btn--main" data-act="cl-enroll-go">Внести в лист ПП</button></div>');
+    } else sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-compose">Собрать сообщение</button>');
     sh().main(html);
   }
 
@@ -611,10 +618,7 @@
     });
     html += "</div>";
     html += '<p class="b-lbl">Анкета</p>' + area("cxAnketa", pick.anketa, "Текст анкеты");
-    html += actions(
-      '<button type="button" class="b-btn b-btn--main" data-act="cl-pick-go">Подобрать</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-clear">Очистить</button>'
-    );
+    html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-clear" style="margin-top:8px">Очистить</button>';
     if (pick.result && pick.result.items) {
       var lastCat = "";
       pick.result.items.forEach(function (it, i) {
@@ -636,7 +640,7 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-again">Подобрать ещё</button>'
       );
     }
-    sh().dock("");
+    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-pick-go">Подобрать</button>');
     sh().main(html);
   }
 

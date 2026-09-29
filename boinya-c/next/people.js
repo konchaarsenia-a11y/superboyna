@@ -237,8 +237,8 @@
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="p-tabs-reset">Сбросить вкладки к роли</button>' +
         '<p class="b-lbl">Уведомления</p>' + notifyHtml(p) +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="p-notify-reset">Уведомления как у роли</button>' +
-        '<p class="b-lbl">⏰ Запланированные</p>' + schedLines(p) +
-        '<button type="button" class="b-btn b-btn--main" data-act="p-save" style="margin-top:12px">Сохранить</button>' +
+        '<p class="b-lbl">⏰ Запланированные</p>' + schedLines(p),
+      foot: '<button type="button" class="b-btn b-btn--main" data-act="p-save">Сохранить</button>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="p-cancel" style="margin-top:8px">Отмена</button>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="p-deny" data-id="' + esc(id) + '" style="margin-top:8px">Закрыть доступ</button>'
     });

@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const eng = require("./order-engine.js");
 const pay = require("./order-payload.js");
+const weekLogic = require("./week-logic.js");
 
 function loadBrowser(file) {
   const sandbox = { window: {}, console };
@@ -211,4 +212,50 @@ test("панель: владелец 6, менеджер с разделами 5
     tabs: ["orderScreen", "deferredScreen.none"]
   });
   assert.equal(A.canUseTasks(noTasks), false);
+  const courier = A.normalize({ status: "success", role: "courier" });
+  const logistics = A.normalize({ status: "success", role: "logistics" });
+  assert.equal(A.isSimple(courier), true);
+  assert.equal(A.isSimple(logistics), true);
+  assert.equal(A.navItems(courier).length, 0);
+  assert.equal(A.navItems(logistics).length, 0);
+  assert.equal(A.tabHas(managerPreset, "cuttingScreen"), false);
+  assert.equal(A.tabHas(managerPreset, "warehouseScreen"), false);
+  assert.equal(A.tabHas(managerPreset, "statsScreen"), false);
+  assert.equal(A.tabHas(managerPreset, "peopleScreen"), false);
+  assert.equal(A.tabHas(managerPreset, "subsScreen"), false);
+  assert.equal(A.tabHas(cutter, "cuttingScreen"), true);
+  assert.equal(A.tabHas(courier, "courierScreen"), true);
+  assert.equal(A.tabHas(logistics, "warehouseScreen"), true);
+  assert.equal(A.ROLE_TABS.manager.join("|"), "orderScreen|clientsScreen|priceScreen|deferredScreen|templatesScreen|partnerHubScreen");
+  assert.equal(A.ROLE_TABS.cutter.join("|"), "cuttingScreen|deferredScreen");
+  assert.equal(A.ROLE_TABS.courier.join("|"), "courierScreen|deferredScreen");
+  assert.equal(A.ROLE_TABS.logistics.join("|"), "warehouseScreen|deferredScreen");
+  assert.equal(A.SIMPLE.logistics, "Склад");
+  assert.equal(weekLogic.NOTIFY_DEFAULTS.manager.join("|"), "wh_buy|date_nudge|missed_delivery|week_done|survey");
+  assert.equal(weekLogic.NOTIFY_DEFAULTS.cutter.join("|"), "cut_deficit|out_next|cut_increase");
+  assert.equal(weekLogic.NOTIFY_DEFAULTS.logistics.join("|"), "wh_buy|cut_deficit|out_next");
+  assert.equal(weekLogic.NOTIFY_DEFAULTS.courier.join("|"), "");
+});
+
+test("профили, черновик заказа и дефицит после сохранения", () => {
+  const mem = pay.mergeClientProfiles({}, [
+    { nick: "Рекс", address: "Сурганова 1", phone: "+37529", basket: "[{\"name\":\"ЛЁГКОЕ\"}]", source: "pp" }
+  ]);
+  assert.equal(mem.РЕКС.address, "Сурганова 1");
+  assert.equal(mem.РЕКС.basket[0].name, "ЛЁГКОЕ");
+  assert.equal(pay.draftUseful({ client: "", address: "", baskets: { 1: [], 2: [] }, notes: [] }), false);
+  assert.equal(pay.draftUseful({ client: "Рекс", baskets: { 1: [], 2: [] }, notes: [] }), true);
+  assert.equal(pay.warehouseAlertOpen(null), false);
+  assert.equal(pay.warehouseAlertOpen({ count: 0, clientDeficits: [], totalDeficits: [] }), false);
+  assert.equal(pay.warehouseAlertOpen({ clientDeficits: [{ name: "Лёгкое", deficit: 1 }] }), true);
+  const orders = fs.readFileSync(path.join(dir, "orders.js"), "utf8");
+  assert.match(orders, /listClientProfiles/);
+  assert.match(orders, /suggestAddress/);
+  assert.match(orders, /checkOrderWarehouse/);
+  assert.match(orders, /superboyna_order_form_draft_v1/);
+  assert.doesNotMatch(orders, /Или дата/);
+  assert.doesNotMatch(orders, /type="date"/);
+  const shell = fs.readFileSync(path.join(dir, "shell.js"), "utf8");
+  assert.match(shell, />= 650/);
+  assert.match(shell, /UI разблокирован/);
 });
