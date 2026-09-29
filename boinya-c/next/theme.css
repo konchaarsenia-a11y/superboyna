@@ -143,7 +143,7 @@ html, body, .b-app {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 2px 12px 12px;
+  padding: 12px 12px 12px;
 }
 
 .dock, .nx-dock {
@@ -599,6 +599,120 @@ html, body, .b-app {
 }
 .b-day__d { font-size: 11px; color: var(--b-text-3); }
 .b-day--off .b-day__w::after { content: " вых"; font-size: 10px; }
+
+/* Соседние кнопки, чипы, поля и сегменты: не меньше 8 px, перенос если не влезает. */
+.b-top,
+.nx .b-top.b-top--tight,
+.b-seg,
+.b-days,
+.b-chips,
+.b-nav,
+.tray,
+.nx-actions,
+.actions,
+.grid.nx-cal,
+.nx-cal,
+.nx-cal.grid,
+.nx-wh-grid,
+.b-list {
+  gap: 8px;
+}
+
+.b-chips,
+.b-seg,
+.tray,
+.nx-actions,
+.actions {
+  flex-wrap: wrap;
+}
+
+.b-btn,
+.b-chip,
+.b-seg__item,
+.sheet-act,
+.tray button,
+.menu-pop button,
+.b-nav__lbl,
+.b-day {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  height: auto;
+}
+
+.b-btn--main { height: auto; }
+.b-day { min-height: 64px; }
+.b-nav { height: auto; min-height: 64px; }
+.b-nav__item { min-height: 44px; }
+
+.menu-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.nx-actions > .b-btn,
+.nx-actions > .b-field {
+  flex: 1 1 8.5rem;
+  min-width: min(100%, 8.5rem);
+  max-width: 100%;
+}
+
+.b-list {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+}
+
+.b-li {
+  border: 1px solid var(--b-line);
+  border-radius: 14px;
+  background: var(--b-surface);
+}
+
+.b-list > .b-li + .b-li { border-top: 1px solid var(--b-line); }
+
+.row { margin-top: 8px; }
+
+#nxMain .b-btn,
+#nxMain .b-field,
+#nxMain .nx-actions,
+#nxMain .b-seg,
+#nxMain .b-chips,
+#nxMain .tray,
+#nxMain .nx-link,
+#nxMain .linkish,
+.nx-sheet .b-btn,
+.nx-sheet .b-field,
+.nx-sheet .nx-actions,
+.nx-sheet .b-seg,
+.nx-sheet .b-chips,
+.nx-sheet .tray,
+.nx-sheet .sheet-act,
+.nx-sheet .nx-link,
+.nx-dock .b-btn,
+.nx-dock .nx-actions {
+  margin-top: 8px;
+}
+
+#nxMain .nx-actions > *,
+#nxMain .b-seg > *,
+#nxMain .b-chips > *,
+#nxMain .tray > *,
+#nxMain .b-step > *,
+#nxMain .actions > *,
+#nxMain .b-days > *,
+.nx-sheet .nx-actions > *,
+.nx-sheet .b-seg > *,
+.nx-sheet .b-chips > *,
+.nx-sheet .tray > *,
+.nx-sheet .b-step > *,
+.nx-dock .nx-actions > *,
+.menu-pop button {
+  margin-top: 0;
+}
 
 .sheet-act {
   width: 100%;
