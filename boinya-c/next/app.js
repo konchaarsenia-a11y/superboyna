@@ -63,6 +63,7 @@
   }
 
   function ensureSeg() {
+    if (route.tab === "orders" && route.seg === "week") route.seg = "month";
     if (route.tab === "orders") {
       var os = orderSegs();
       if (!os.some(function (s) { return s.id === route.seg; })) route.seg = (os[0] && os[0].id) || "new";
@@ -636,6 +637,7 @@
     if (q().get("tab")) route.tab = q().get("tab");
     if (q().get("seg")) route.seg = q().get("seg");
     if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
+    if (q().get("view") === "templates") { route.tab = "more"; moreView = "templates"; }
     if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
     if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
     if (q().get("view") === "partners") { route.tab = "more"; moreView = "partners"; }

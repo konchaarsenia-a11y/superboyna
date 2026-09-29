@@ -168,7 +168,7 @@ async function main() {
   await overflow(a.page, "card-360");
   await shot(a.page, "next-clients-card.png");
   await a.page.getByRole("button", { name: "Глубокий редактор" }).click();
-  await a.page.getByRole("button", { name: "Пересчитать цену" }).waitFor();
+  await a.page.getByRole("button", { name: "Пересчитать цену" }).scrollIntoViewIfNeeded();
   await overflow(a.page, "deep-360");
   await shot(a.page, "next-clients-deep.png");
   await a.page.getByRole("button", { name: "Расчёт" }).click();

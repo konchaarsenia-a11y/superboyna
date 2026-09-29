@@ -243,7 +243,7 @@ async function main() {
   await week.getByText("Рекс").first().waitFor({ timeout: 10000 });
   await week.getByRole("button", { name: "Завершить" }).waitFor();
   await shot(week, "next-orders-week.png");
-  await week.getByRole("button", { name: "Месяц" }).click();
+  await week.getByRole("button", { name: "Месяц", exact: true }).click();
   await week.locator(".nx-cal").waitFor();
   await week.locator(".nx-cal button[data-date]").nth(10).click();
   await week.getByText("Рекс").first().waitFor();

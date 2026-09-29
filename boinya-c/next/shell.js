@@ -313,6 +313,7 @@
     var back = document.activeElement;
     if (!sheetReturn && back && back !== document.body && !scrim.contains(back)) sheetReturn = back;
     setTimeout(function () {
+      if (document.activeElement && scrim.contains(document.activeElement)) return;
       var close = scrim.querySelector("[data-act='sheet-close']");
       if (close) close.focus();
       else if (title) title.focus();

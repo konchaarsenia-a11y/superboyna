@@ -187,10 +187,10 @@ async function main() {
   await shot(logi.page, "next-warehouse-logistics.png");
 
   const mgr = await open("http://127.0.0.1:8773/next.html?tab=more&as=manager");
-  await mgr.page.getByText("Остальное в старой версии").waitFor();
+  await mgr.page.getByText("Партнёры").waitFor();
   if (await mgr.page.getByRole("button", { name: "Прайс" }).count()) throw new Error("manager sees price");
   const tabs = await mgr.page.locator(".b-nav__lbl").allInnerTexts();
-  if (tabs.join("|") !== "Заказы|Клиенты|Ещё") throw new Error("manager nav " + tabs.join("|"));
+  if (tabs.join("|") !== "Заказы|Расчёт|Ещё") throw new Error("manager nav " + tabs.join("|"));
 
   if (pageErrors.length) throw new Error(pageErrors.join("\n"));
   await browser.close();

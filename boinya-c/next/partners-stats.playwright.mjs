@@ -213,7 +213,7 @@ async function main() {
   await mgr.page.locator(".b-li__title", { hasText: "Партнёры" }).waitFor();
   if (await mgr.page.locator(".b-li__title", { hasText: "Статистика" }).count()) throw new Error("manager stats");
   const nav = await mgr.page.locator(".b-nav__lbl").allInnerTexts();
-  if (nav.join("|") !== "Заказы|Клиенты|Ещё") throw new Error("manager nav " + nav.join("|"));
+  if (nav.join("|") !== "Заказы|Расчёт|Ещё") throw new Error("manager nav " + nav.join("|"));
   await shot(mgr.page, "next-manager-more.png");
   await mgr.context.close();
 

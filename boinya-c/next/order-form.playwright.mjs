@@ -107,7 +107,7 @@ try {
   if (dateInputs) throw new Error("second date field on the order form");
   await page.locator(".daybox").click();
   await page.getByRole("button", { name: "Другая дата" }).waitFor();
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Закрыть" }).click();
   await page.locator("#client").fill("");
   await page.getByRole("button", { name: "+ Позиция" }).click();
   const pq = page.locator("#pq");

@@ -331,6 +331,29 @@ html, body, .b-app {
   line-height: 1;
 }
 
+.b-seg {
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.b-seg__item {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.daybox.b-day--on {
+  background: var(--b-surface);
+  color: var(--b-text);
+  border-color: var(--b-line);
+}
+
+.daybox.b-day--on .b-day__w,
+.daybox.b-day--on .kicker,
+.daybox.b-day--on .num,
+.daybox.b-day--on .b-note {
+  color: var(--b-text);
+}
+
 .daybox, .box {
   width: 100%;
   background: var(--b-surface);
@@ -542,6 +565,12 @@ html, body, .b-app {
   color: inherit;
   font: inherit;
   font-weight: 650;
+}
+
+.b-note {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .b-nav__lbl {
