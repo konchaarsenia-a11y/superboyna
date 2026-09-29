@@ -1060,6 +1060,165 @@ function flushWarehouseCloseCol_(sheet, colLetter, startRow, values, changed, fo
   }
 }
 
+/** Номер ПП уже стоит на заказе. Пустая ячейка — не слот. */
+function explicitPpSlotNum_(raw) {
+  var label = sanitizePpSlotLabel_(raw);
+  var n = parseForcedPpSlot_(label, 4);
+  return n >= 1 ? n : 0;
+}
+
+/** Даты новой недели и новой «Будущей» — после сдвига A1, до сборки. */
+function weekCloseDatesForPp_(ss) {
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var out = [];
+  var seen = {};
+  function push_(d) {
+    if (!d || isNaN(d.getTime())) return;
+    var k = dateKey_(d, tz);
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    out.push(d);
+  }
+  try {
+    var days = getWeekDayDates_(ss);
+    for (var i = 0; i < (days || []).length; i++) {
+      if (days[i] && days[i].dateObj) push_(days[i].dateObj);
+    }
+  } catch (eD) {}
+  try {
+    var fut = ss.getSheetByName("Будущая неделя");
+    if (fut) push_(parseFlexibleDate_(fut.getRange("A1").getValue(), tz));
+  } catch (eF) {}
+  return out;
+}
+
+/**
+ * Снимок уже введённого ПП (календарь и бронь) на даты, которые затронет сборка.
+ * Слот 2 на будущей неделе не должен стать 1.
+ */
+function snapshotExplicitPpSlots_(ss) {
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var dates = weekCloseDatesForPp_(ss);
+  var want = {};
+  for (var i = 0; i < dates.length; i++) want[dateKey_(dates[i], tz)] = true;
+  var byKey = {};
+  function consider_(dateVal, client, matchKey, ppSlot) {
+    var n = explicitPpSlotNum_(ppSlot);
+    if (!(n >= 1) || !client || !dateVal) return;
+    var dk = dateKey_(dateVal, tz);
+    if (!want[dk]) return;
+    var id = dk + "|" + (matchKey || clientMatchKey_(client) || String(client).toUpperCase());
+    var prev = byKey[id];
+    if (prev && prev.slot >= n) return;
+    byKey[id] = {
+      dateKey: dk,
+      client: String(client).trim(),
+      matchKey: matchKey || "",
+      ppSlot: sanitizePpSlotLabel_(ppSlot),
+      slot: n
+    };
+  }
+  try {
+    var cal = readAllCalendarRows_();
+    for (var c = 0; c < cal.length; c++) {
+      if (String(cal[c].status || "").toLowerCase() === "cancelled") continue;
+      var bd = parseFlexibleDate_(cal[c].date, tz) || parseFlexibleDate_(cal[c].dateIso, tz);
+      if (!bd) continue;
+      consider_(bd, cal[c].client, cal[c].matchKey, cal[c].ppSlot);
+    }
+  } catch (eC) {}
+  try {
+    var books = readAllBookings_();
+    for (var b = 0; b < books.length; b++) {
+      if (String(books[b].status || "").toLowerCase() === "cancelled") continue;
+      var bdate = parseFlexibleDate_(books[b].date, tz);
+      if (!bdate) continue;
+      consider_(bdate, books[b].client, "", books[b].ppSlot);
+    }
+  } catch (eB) {}
+  var list = [];
+  for (var k in byKey) {
+    if (Object.prototype.hasOwnProperty.call(byKey, k)) list.push(byKey[k]);
+  }
+  return list;
+}
+
+/** Вернуть снятый ПП, если сборка недели подменила его на другой (часто на 1). */
+function restoreExplicitPpSlots_(ss, snaps) {
+  var out = { restored: 0, kept: 0 };
+  if (!ss || !snaps || !snaps.length) return out;
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  try { _memoCalendarRows_ = null; } catch (eM0) {}
+  var ppCol = BOOKINGS_HEADERS_.indexOf("ppSlot") + 1;
+  for (var i = 0; i < snaps.length; i++) {
+    var s = snaps[i];
+    if (!s || !(s.slot >= 1) || !s.client) continue;
+    var dateVal = parseFlexibleDate_(s.dateKey, tz);
+    if (!dateVal) continue;
+    var cur = 0;
+    try { cur = lookupStoredPpSlotForDate_(ss, s.client, dateVal, tz); } catch (eL) { cur = 0; }
+    if (cur === s.slot) {
+      out.kept++;
+      continue;
+    }
+    var hasRow = false;
+    try {
+      var rows = readCalendarForDate_(ss, dateVal);
+      for (var r = 0; r < rows.length; r++) {
+        var mk = rows[r].matchKey || clientMatchKey_(rows[r].client) || "";
+        if ((s.matchKey && mk && mk === s.matchKey) || nicksMatch_(rows[r].client, s.client)) {
+          hasRow = true;
+          break;
+        }
+      }
+    } catch (eR) {}
+    if (hasRow) {
+      try {
+        upsertCalendarEntry_(ss, {
+          date: dateVal,
+          client: s.client,
+          matchKey: s.matchKey || "",
+          ppSlot: s.ppSlot
+        });
+        out.restored++;
+      } catch (eU) {}
+      try { _memoCalendarRows_ = null; } catch (eM2) {}
+    }
+    if (ppCol >= 1) {
+      try {
+        var books = readAllBookings_();
+        var shB = getBookingsSheet_();
+        var want = dateKey_(dateVal, tz);
+        for (var b = 0; b < books.length; b++) {
+          if (String(books[b].status || "").toLowerCase() === "cancelled") continue;
+          var bd = parseFlexibleDate_(books[b].date, tz);
+          if (!bd || dateKey_(bd, tz) !== want) continue;
+          if (!nicksMatch_(books[b].client, s.client)) continue;
+          if (explicitPpSlotNum_(books[b].ppSlot) === s.slot) continue;
+          shB.getRange(books[b].rowIndex, ppCol).setValue(s.ppSlot);
+          if (!hasRow) out.restored++;
+        }
+      } catch (eBk) {}
+    }
+  }
+  try { bustClientsCache_(); } catch (eBust) {}
+  return out;
+}
+
+/** Галочки доставки стираем. Цикл ПП и якорь слота — нет, иначе ПП 2 становится 1. */
+function clearCourierMemoryKeepPp_(sheet) {
+  if (!sheet) return;
+  var last = 0;
+  try { last = sheet.getLastRow(); } catch (eL) { last = 0; }
+  if (last < 1) return;
+  var keys = sheet.getRange(1, 1, last, 1).getValues();
+  for (var i = 0; i < keys.length; i++) {
+    var k = String(keys[i][0] || "");
+    if (/^(PP_CYCLE:|PP_SLOT_ANCHOR$)/i.test(k)) continue;
+    sheet.getRange(i + 1, 1, 1, 2).clearContent();
+  }
+}
+
 function finishFullWeekProduction(optSs, optOpts) {
   var opts = optOpts || {};
   var silent = !!opts.silent;
@@ -1306,7 +1465,11 @@ function finishFullWeekProduction(optSs, optOpts) {
   var newMondayDate = sheetManager.getRange("A1").getValue();
   sheetCutting.getRange("A1").setValue(newMondayDate);
 
-  // Новая неделя: сразу записать людей из месяца/броней/CRM на лист (Пн–Вс + Будущая)
+  // Новая неделя: сразу записать людей из месяца/броней/CRM на лист (Пн–Вс + Будущая).
+  // Уже указанный ПП 1/2 на этих датах снимаем до сборки и возвращаем после —
+  // сборка иначе пишет слот «1» из истории/дефолта поверх введённого.
+  var ppSlotSnap = [];
+  try { ppSlotSnap = snapshotExplicitPpSlots_(ss); } catch (ePpSnap) { ppSlotSnap = []; }
   var materializeInfo = null;
   try {
     SpreadsheetApp.flush();
@@ -1321,15 +1484,17 @@ function finishFullWeekProduction(optSs, optOpts) {
     scrubFutureWeekOrphans_(ss, { force: true });
     unpullBeyondWeekBookings_(ss);
   } catch (eScrubClose) {}
+  var ppSlotRestoreInfo = null;
+  try { ppSlotRestoreInfo = restoreExplicitPpSlots_(ss, ppSlotSnap); } catch (ePpR) {
+    ppSlotRestoreInfo = { restored: 0, message: String(ePpR) };
+  }
 
   var sheetMemory = getMemoryCuttingSheet_();
   if (sheetMemory && sheetMemory.getLastRow() > 0) {
     sheetMemory.getRange(1, 1, sheetMemory.getLastRow(), 2).clearContent();
   }
   var sheetMemCourier2 = getMemoryCourierSheet_();
-  if (sheetMemCourier2 && sheetMemCourier2.getLastRow() > 0) {
-    sheetMemCourier2.getRange(1, 1, sheetMemCourier2.getLastRow(), 2).clearContent();
-  }
+  clearCourierMemoryKeepPp_(sheetMemCourier2);
 
   try {
     sendTelegramSnabNotification();
@@ -1355,7 +1520,8 @@ function finishFullWeekProduction(optSs, optOpts) {
     calendarUnchanged: true,
     courierDate: Utilities.formatDate(nextCourierDate, tz, "dd.MM.yyyy"),
     materialize: materializeInfo,
-    materializeAdded: materializeInfo ? (Number(materializeInfo.totalAdded) || 0) : 0
+    materializeAdded: materializeInfo ? (Number(materializeInfo.totalAdded) || 0) : 0,
+    ppSlotsPreserved: ppSlotRestoreInfo
   };
 }
 

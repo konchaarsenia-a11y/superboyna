@@ -325,6 +325,57 @@ assert(
   "old-week date_iso → skip (do not steal history)"
 );
 
+function extractFn_(src, name) {
+  var start = src.indexOf("function " + name);
+  if (start < 0) return "";
+  var i = src.indexOf("{", start);
+  var depth = 0;
+  for (var p = i; p < src.length; p++) {
+    if (src[p] === "{") depth++;
+    else if (src[p] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, p + 1);
+    }
+  }
+  return "";
+}
+
+var prodStart = gs.indexOf("function finishFullWeekProduction");
+var prodEnd = gs.indexOf("function actorIsOwner_");
+var prod = prodStart >= 0 && prodEnd > prodStart ? gs.slice(prodStart, prodEnd) : "";
+var iSnap = prod.indexOf("snapshotExplicitPpSlots_(ss)");
+var iMat = prod.indexOf("materializeCurrentWeek_(ss");
+var iRest = prod.indexOf("restoreExplicitPpSlots_(ss");
+assert(iSnap >= 0 && iMat > iSnap && iRest > iMat, "close: snapshot PP before materialize, restore after");
+assert(
+  prod.indexOf("clearCourierMemoryKeepPp_(sheetMemCourier2)") > iRest,
+  "close: courier memory clear keeps PP cycle after restore"
+);
+assert(
+  prod.indexOf("sheetMemCourier2.getRange(1, 1, sheetMemCourier2.getLastRow(), 2).clearContent()") < 0,
+  "close: courier memory is not wiped wholesale"
+);
+assert(gs.indexOf("function snapshotExplicitPpSlots_") >= 0, "GAS snapshots explicit PP slots");
+assert(gs.indexOf("function restoreExplicitPpSlots_") >= 0, "GAS restores explicit PP slots");
+assert(/PP_CYCLE:/.test(extractFn_(gs, "clearCourierMemoryKeepPp_")), "PP cycle rows survive week close");
+assert(/PP_SLOT_ANCHOR/.test(extractFn_(gs, "clearCourierMemoryKeepPp_")), "PP slot anchor survives week close");
+
+eval(extractFn_(worker, "parseForcedPpSlotD1_"));
+eval(extractFn_(worker, "sanitizePpSlotLabel_"));
+eval(extractFn_(worker, "keepExplicitPpSlotLabel_"));
+assert(keepExplicitPpSlotLabel_("2/2", "1/2") === "2/2", "future-week PP 2 is not replaced by computed 1");
+assert(keepExplicitPpSlotLabel_("2/2", "") === "2/2", "empty incoming does not wipe PP 2");
+assert(keepExplicitPpSlotLabel_("", "1/2") === "1/2", "no stored slot: incoming 1 stays");
+assert(keepExplicitPpSlotLabel_("1/2", "2/2") === "2/2", "sheet PP 2 replaces a stored 1");
+assert(
+  worker.indexOf("if (explicitSlot >= 1) deliverySlot = explicitSlot;") >= 0,
+  "courier enrich does not let stale deliverySlot 1 override PP 2"
+);
+assert(
+  worker.indexOf("keepExplicitPpSlotLabel_(prevMetaPp && prevMetaPp.ppSlot, c.ppSlot)") >= 0,
+  "week-close D1 replace keeps explicit PP"
+);
+
 if (process.exitCode) {
   console.error("\nclose-week-no-shift: FAILED");
   process.exit(1);
