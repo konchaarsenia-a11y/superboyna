@@ -995,3 +995,365 @@ html, body {
 }
 
 .person .avatar { width: 44px; height: 44px; }
+
+/* Партия 2 */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: max-content;
+  background: #2a2724;
+}
+
+.stack--light { background: #cfc6ba; }
+.stack .board { background: transparent; }
+
+.phone .top-id {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.phone .top-id h1 { font-size: 20px; }
+
+.phone .top-sub {
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.3;
+}
+
+.phone .gate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px 24px 12px;
+}
+
+.phone .gate h2 {
+  margin: 8px 0 10px;
+  font-size: 32px;
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
+
+.phone .gate p {
+  margin: 0;
+  max-width: 280px;
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.phone .ghost {
+  min-height: 52px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.phone .dock .ghost { width: 100%; }
+
+.phone .daynav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 76px;
+  margin: 2px 0 8px;
+}
+
+.phone .daynav-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.phone .banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 48px;
+  margin-bottom: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.phone .linkish {
+  border: 0;
+  background: transparent;
+  color: var(--bad);
+  font-size: 14px;
+  font-weight: 750;
+  min-height: 44px;
+  padding: 0 2px;
+}
+
+.phone .err {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 12px 8px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--pill-bad-bg);
+  color: var(--bad);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.phone .err button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 750;
+  min-height: 44px;
+  padding: 0 2px;
+}
+
+.phone .veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 2;
+}
+
+.phone--light .veil { background: rgba(28, 25, 23, 0.38); }
+
+.phone .sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  padding: 6px 16px 18px;
+}
+
+.phone .grab {
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--line);
+  margin: 6px auto 12px;
+}
+
+.phone .sheet h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.phone .sheet-lead {
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.phone .sheet-act {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  padding: 0 2px;
+}
+
+.phone .sheet-act.danger { color: var(--bad); }
+
+.phone .filters {
+  display: flex;
+  gap: 6px;
+  overflow: hidden;
+  margin: 4px 0 6px;
+}
+
+.phone .filters button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.phone .filters button[aria-pressed="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.phone .pair {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.phone .pair button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.phone .pair button[aria-pressed="true"] {
+  background: var(--surface-2);
+  border-color: var(--text-2);
+}
+
+.phone .cut {
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.phone .bang {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--warn);
+  background: transparent;
+  color: var(--warn);
+  font-family: Unbounded, sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.phone .req {
+  margin: 4px 0 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.phone .req .mainbtn { margin-top: 12px; }
+
+.phone .sw {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 8px 0;
+}
+
+.phone .pick {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.phone .note-box {
+  width: 100%;
+  min-height: 96px;
+  margin-top: 6px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.phone .empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 24px;
+}
+
+.phone .empty h2 {
+  margin: 8px 0 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.phone .empty p {
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.phone .money {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.phone .money b {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-family: Unbounded, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
