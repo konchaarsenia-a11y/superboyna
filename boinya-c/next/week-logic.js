@@ -8,7 +8,7 @@
   "use strict";
 
   var WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"];
-  var FULL_FROM = 6;
+  var FULL_FROM = 12;
 
   function segmentToOrderType(seg) {
     var s = String(seg || "").trim().toUpperCase();

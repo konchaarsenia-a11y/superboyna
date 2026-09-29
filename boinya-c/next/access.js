@@ -11,6 +11,7 @@
     cutter: ["cuttingScreen", "deferredScreen"],
     courier: ["courierScreen", "deferredScreen"],
     logistics: ["warehouseScreen", "deferredScreen"],
+    partner: ["partnerHubScreen", "deferredScreen"],
     none: [],
     pending: [],
     denied: []
@@ -32,7 +33,7 @@
   var NAV_LABELS = {
     orders: "Заказы",
     clients: "Клиенты",
-    production: "Производство",
+    production: "Цех",
     warehouse: "Склад",
     goals: "Цели",
     more: "Ещё"
@@ -47,7 +48,8 @@
     logistics: "склад",
     pending: "ожидание",
     denied: "закрыт",
-    none: "нет доступа"
+    none: "нет доступа",
+    partner: "партнёр"
   };
 
   function allowedTabs(role, tabs) {
@@ -98,21 +100,22 @@
     var h = function (id) { return tabHas(access, id); };
     var items = [];
     if (h("orderScreen") || h("clientsScreen")) items.push({ id: "orders", label: NAV_LABELS.orders });
-    if (h("subsScreen") || h("subDetailScreen") || h("priceScreen")) items.push({ id: "clients", label: NAV_LABELS.clients });
+    if (h("subsScreen") || h("subDetailScreen")) items.push({ id: "clients", label: NAV_LABELS.clients });
+    else if (h("priceScreen")) items.push({ id: "clients", label: "Расчёт" });
     if (h("cuttingScreen") || h("courierScreen")) items.push({ id: "production", label: NAV_LABELS.production });
     if (h("warehouseScreen")) items.push({ id: "warehouse", label: NAV_LABELS.warehouse });
-    if (access.role === "owner") items.push({ id: "goals", label: NAV_LABELS.goals });
-    if (h("templatesScreen") || h("statsScreen") || h("retailPriceScreen") || h("peopleScreen") || h("partnerHubScreen") || h("priceScreen")) {
-      items.push({ id: "more", label: NAV_LABELS.more });
+    if (h("templatesScreen") || h("statsScreen") || h("retailPriceScreen") || h("peopleScreen") || h("partnerHubScreen") || h("priceScreen") || access.role === "owner") {
+      items.push({ id: "more", label: access.role === "partner" ? "Партнёры" : NAV_LABELS.more });
     }
     return items;
   }
 
   function orderSegs(access) {
     var segs = [];
-    if (tabHas(access, "orderScreen")) segs.push({ id: "new", label: "Новый" });
-    if (tabHas(access, "clientsScreen.week")) segs.push({ id: "week", label: "Неделя" });
-    if (tabHas(access, "clientsScreen.month")) segs.push({ id: "month", label: "Месяц" });
+    if (tabHas(access, "orderScreen")) segs.push({ id: "new", label: "Заказ" });
+    if (tabHas(access, "clientsScreen.month") || tabHas(access, "clientsScreen.week") || tabHas(access, "clientsScreen")) {
+      segs.push({ id: "month", label: "Месяц" });
+    }
     return segs;
   }
 

@@ -141,13 +141,13 @@ async function main() {
   console.log("day", JSON.stringify(contrast));
   if (!contrast.text || !contrast.text.trim()) throw new Error("empty selected day");
   if (contrast.bg === contrast.color) throw new Error("day contrast " + JSON.stringify(contrast));
-  await a.page.getByRole("button", { name: "Неделя", exact: true }).click();
-  await a.page.getByRole("button", { name: "Завершить неделю" }).waitFor();
+  await a.page.getByRole("button", { name: "Месяц", exact: true }).click();
+  await a.page.getByRole("button", { name: "Завершить" }).waitFor();
   await overflow(a.page, "week-360");
-  const finish = await a.page.getByRole("button", { name: "Завершить неделю" }).boundingBox();
-  const card = await a.page.locator(".b-card").first().boundingBox();
-  if (finish && card && finish.x + finish.width > card.x + card.width + 2) {
-    throw new Error("finish button outside card " + JSON.stringify({ finish, card }));
+  const finish = await a.page.getByRole("button", { name: "Завершить" }).boundingBox();
+  const banner = await a.page.locator(".banner").first().boundingBox();
+  if (finish && banner && finish.x + finish.width > banner.x + banner.width + 2) {
+    throw new Error("finish button outside banner " + JSON.stringify({ finish, banner }));
   }
   if (a.pageErrors) {}
   await shot(a.page, "next-week-360.png");
@@ -160,7 +160,7 @@ async function main() {
   await shot(a.page, "next-clients-gate.png");
   await a.page.locator("#cxPass").fill("1");
   await a.page.getByRole("button", { name: "Открыть" }).click();
-  await a.page.getByText("Рекс · Анна").waitFor();
+  await a.page.getByText("Рекс").first().waitFor();
   await overflow(a.page, "list-360");
   await shot(a.page, "next-clients-list.png");
   await a.page.getByRole("button", { name: /Рекс/ }).click();
@@ -168,7 +168,7 @@ async function main() {
   await overflow(a.page, "card-360");
   await shot(a.page, "next-clients-card.png");
   await a.page.getByRole("button", { name: "Глубокий редактор" }).click();
-  await a.page.getByRole("button", { name: "Пересчитать цену" }).waitFor();
+  await a.page.getByRole("button", { name: "Пересчитать цену" }).scrollIntoViewIfNeeded();
   await overflow(a.page, "deep-360");
   await shot(a.page, "next-clients-deep.png");
   await a.page.getByRole("button", { name: "Расчёт" }).click();
@@ -217,10 +217,11 @@ async function main() {
   await a.page.getByRole("button", { name: "АФК", exact: true }).click();
   await a.page.getByText("Барс").waitFor();
   await overflow(a.page, "afk-360");
-  await a.page.getByRole("button", { name: "Производство" }).click();
+  await a.page.getByRole("button", { name: "Цех" }).click();
   await overflow(a.page, "prod-360");
   await a.page.getByRole("button", { name: "Склад" }).click();
   await overflow(a.page, "wh-360");
+  await a.page.getByRole("button", { name: "Ещё" }).click();
   await a.page.getByRole("button", { name: "Цели" }).click();
   await overflow(a.page, "goals-360");
   await a.page.getByRole("button", { name: "Ещё" }).click();
@@ -236,28 +237,29 @@ async function main() {
 
   const b = await openAt(390);
   await overflow(b.page, "orders-390");
-  await b.page.getByRole("button", { name: "Неделя", exact: true }).click();
-  await b.page.getByRole("button", { name: "Завершить неделю" }).waitFor();
+  await b.page.getByRole("button", { name: "Месяц", exact: true }).click();
+  await b.page.getByRole("button", { name: "Завершить" }).waitFor();
   await overflow(b.page, "week-390");
   await b.page.getByRole("button", { name: "Клиенты" }).click();
   await b.page.locator("#cxPass").fill("1");
   await b.page.getByRole("button", { name: "Открыть" }).click();
-  await b.page.getByText("Рекс · Анна").waitFor();
+  await b.page.getByText("Рекс").first().waitFor();
   await overflow(b.page, "list-390");
   await b.page.getByRole("button", { name: "Расчёт" }).click();
   await overflow(b.page, "calc-390");
-  await b.page.getByRole("button", { name: "Производство" }).click();
+  await b.page.getByRole("button", { name: "Цех" }).click();
   await overflow(b.page, "prod-390");
   const lbl = await b.page.locator(".b-nav__lbl").nth(2).innerText();
-  if (lbl.indexOf("Производ") !== 0) throw new Error("nav label " + lbl);
-  const ellipsis = await b.page.locator(".b-nav__lbl").nth(2).evaluate((el) => getComputedStyle(el).textOverflow);
-  if (ellipsis !== "ellipsis") throw new Error("nav ellipsis " + ellipsis);
+  if (lbl.trim() !== "Цех") throw new Error("nav label " + lbl);
+  const fit = await b.page.locator(".b-nav__lbl").nth(2).evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+  if (fit.sw > fit.cw + 1) throw new Error("nav clipped " + JSON.stringify(fit));
   await b.page.getByRole("button", { name: "Заказы" }).click();
   await b.page.getByRole("button", { name: "Месяц", exact: true }).click();
   await b.page.locator(".nx-cal").waitFor();
   await overflow(b.page, "month-390");
   await b.page.getByRole("button", { name: "Склад" }).click();
   await overflow(b.page, "wh-390");
+  await b.page.getByRole("button", { name: "Ещё" }).click();
   await b.page.getByRole("button", { name: "Цели" }).click();
   await overflow(b.page, "goals-390");
   await b.page.getByRole("button", { name: "Ещё" }).click();

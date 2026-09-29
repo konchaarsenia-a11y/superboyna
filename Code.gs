@@ -1272,7 +1272,8 @@ function finishFullWeekProduction(optSs, optOpts) {
     sheetManager.getRange(b.note, 3, 1, 15).clearContent();
   });
 
-  // Перенос с «Будущей недели» включая адрес и примечание (C3:Q61)
+  // Перенос только Future → понедельник (C3:Q61). Обратно, понедельник на следующую
+  // «Будущую неделю», блок не копируем: после очистки будущей её заполняет месяц.
   if (sheetFuture) {
     var futureData = sheetFuture.getRange("C3:Q61").getValues();
     sheetManager.getRange("C3:Q61").setValues(futureData);
@@ -1310,7 +1311,11 @@ function finishFullWeekProduction(optSs, optOpts) {
   var materializeInfo = null;
   try {
     SpreadsheetApp.flush();
-    materializeInfo = materializeCurrentWeek_(ss, { onlyMissing: true, includeFuture: true });
+    materializeInfo = materializeCurrentWeek_(ss, {
+      onlyMissing: true,
+      includeFuture: true,
+      skipMondayOntoFuture: true
+    });
   } catch (eMat) {
     materializeInfo = { ok: false, message: String(eMat), totalAdded: 0 };
   }
@@ -6497,6 +6502,8 @@ function getClientsData_(ss, dayName) {
         if (calHit && calHit.basket && basketHasDogSplit_(calHit.basket)) {
           basketOut = calHit.basket;
           dogCountOut = 2;
+        } else if (calHit && calHit.basket && calHit.basket.length) {
+          basketOut = attachCrumbSourcesFromCalendar_(basketOut, calHit.basket);
         }
         try { basketOut = normalizeBasketAliases_(basketOut); } catch (eAliasB) {}
         clientsDataList.push({
@@ -11820,6 +11827,53 @@ function mergeBasketQtyForSheet_(basket) {
   return order.map(function (k) { return map[k]; });
 }
 
+function isCrumbMixLine_(it) {
+  if (!it) return false;
+  var name = String(it.name || it.main || "").toUpperCase().replace(/Ё/g, "Е");
+  if (name.indexOf("КРОШК") >= 0 && name.indexOf("МИКС") >= 0) return true;
+  var src = it.sources;
+  if (Object.prototype.toString.call(src) === "[object Array]" && src.length >= 2) return true;
+  if (name.indexOf("КРОШК") >= 0 && String(it.sub || "").indexOf("+") >= 0) return true;
+  return false;
+}
+
+/** Лист недели хранит микс одной ячейкой. Состав (sources/ratio) остаётся в корзине календаря. */
+function attachCrumbSourcesFromCalendar_(sheetBasket, calBasket) {
+  var donors = [];
+  (calBasket || []).forEach(function (it) {
+    if (!it) return;
+    var src = it.sources;
+    if (Object.prototype.toString.call(src) !== "[object Array]" || !src.length) return;
+    if (isCrumbMixLine_(it) || String(it.cat || "").toLowerCase() === "crumb" || it.crumbKind) donors.push(it);
+  });
+  if (!donors.length) return sheetBasket || [];
+  var used = {};
+  return (sheetBasket || []).map(function (line) {
+    if (!line || !isCrumbMixLine_(line)) return line;
+    if (Object.prototype.toString.call(line.sources) === "[object Array]" && line.sources.length) return line;
+    var lVal = Number(line.val != null ? line.val : line.value) || 0;
+    var pick = -1;
+    for (var i = 0; i < donors.length; i++) {
+      if (used[i]) continue;
+      var dVal = Number(donors[i].val != null ? donors[i].val : donors[i].value) || 0;
+      if (lVal && dVal && lVal === dVal) { pick = i; break; }
+      if (pick < 0) pick = i;
+    }
+    if (pick < 0) return line;
+    used[pick] = true;
+    var d = donors[pick];
+    var copy = {};
+    var k;
+    for (k in line) if (Object.prototype.hasOwnProperty.call(line, k)) copy[k] = line[k];
+    copy.sources = d.sources;
+    if (d.ratio) copy.ratio = d.ratio;
+    if (d.crumbKind) copy.crumbKind = d.crumbKind;
+    if (!copy.cat) copy.cat = "crumb";
+    if (!copy.sub && d.sub) copy.sub = d.sub;
+    return copy;
+  });
+}
+
 function basketHasDogSplit_(basket) {
   var has1 = false, has2 = false;
   (basket || []).forEach(function (it) {
@@ -13395,7 +13449,11 @@ function materializeCurrentWeek_(ss, opts) {
     if (future) {
       var tz = ss.getSpreadsheetTimeZone();
       var fd = parseFlexibleDate_(future.getRange("A1").getValue(), tz);
-      if (fd) {
+      var skipMondayOntoFuture = !!(opts.skipMondayOntoFuture === true || opts.skipMondayOntoFuture === "1" || opts.skipMondayOntoFuture === 1 || opts.skipMondayOntoFuture === "true");
+      var mondayDate = null;
+      try { mondayDate = sheetMondayDateObj_(ss); } catch (eMon) { mondayDate = null; }
+      var mondaySame = !!(skipMondayOntoFuture && fd && mondayDate && dateKey_(fd, tz) === dateKey_(mondayDate, tz));
+      if (fd && !mondaySame) {
         var droppedF = null;
         if (dropExtras) {
           try { droppedF = dropWeekExtrasForDate_(ss, fd); } catch (eDf) {
@@ -13403,7 +13461,7 @@ function materializeCurrentWeek_(ss, opts) {
           }
           totalDropped += Number(droppedF && droppedF.dropped) || 0;
         }
-        var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing });
+        var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing, skipMondayOntoFuture: skipMondayOntoFuture });
         total += Number(fr.count) || 0;
         if (droppedF) fr.droppedExtras = droppedF;
         try {

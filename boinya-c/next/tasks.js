@@ -86,17 +86,19 @@
   }
 
   async function refresh() {
-    var res = await api().apiGet({
-      action: "listDeferred",
-      telegramId: tid(),
-      status: "open",
-      light: "1",
-      force: "1",
-      _: String(Date.now())
-    }, { timeoutMs: 12000, cacheTtlMs: 0 });
+    var pair = await Promise.all([
+      api().apiGet({
+        action: "listDeferred",
+        telegramId: tid(),
+        status: "open",
+        light: "1"
+      }, { timeoutMs: 12000, cacheTtlMs: 8000 }),
+      api().apiGet({ action: "listBpIdle", days: "7" }, { timeoutMs: 15000, cacheTtlMs: 8000 }).catch(function () { return null; })
+    ]);
+    var res = pair[0];
     items = (res && res.items) || [];
     try {
-      var idle = await api().apiGet({ action: "listBpIdle", days: "7", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      var idle = pair[1];
       var extra = (idle && (idle.idle || idle.items)) || [];
       var seen = {};
       items.forEach(function (it) { seen[String(it.id)] = true; });

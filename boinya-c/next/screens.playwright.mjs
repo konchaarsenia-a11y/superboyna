@@ -154,15 +154,17 @@ async function main() {
   await page.waitForSelector(".b-day", { timeout: 8000 });
   await page.locator(".b-badge").waitFor({ timeout: 8000 });
   const navOwner = await page.locator("#nxNav").getAttribute("data-nav-count");
-  if (navOwner !== "6") throw new Error("owner nav " + navOwner);
+  if (navOwner !== "5") throw new Error("owner nav " + navOwner);
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = 0; });
   await page.getByRole("heading", { name: "Заказы" }).waitFor();
   await shot(page, "next-orders-new-top.png");
 
   await page.locator("#client").fill("Рекс · Анна");
+  await page.getByRole("button", { name: "Ещё у доставки" }).click();
   await page.locator("#phone").fill("+375 29 111-22-33");
   await page.locator("#address").fill("Сурганова 57Б");
-  await page.getByRole("button", { name: "Ср" }).click();
+  await page.locator(".daybox").click();
+  await page.getByRole("button", { name: "Среда" }).click();
   await page.getByRole("button", { name: "+ Позиция" }).click();
   await page.getByRole("button", { name: "Дрессура" }).click();
   await page.getByRole("button", { name: /Лёгкое|ЛЁГКОЕ/i }).first().click();
@@ -179,7 +181,8 @@ async function main() {
   }
 
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = 0; });
-  await page.getByRole("button", { name: "Пт" }).click();
+  await page.locator(".daybox").click();
+  await page.getByRole("button", { name: "Пятница" }).click();
   await page.locator("#nxToast").waitFor();
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = el.scrollHeight; });
   const toastBox = await page.evaluate(() => {
@@ -237,17 +240,16 @@ async function main() {
 
   const week = await context.newPage();
   await week.goto("http://127.0.0.1:8765/next.html?as=owner&tab=orders&seg=week", { waitUntil: "domcontentloaded" });
-  await week.getByText("Рекс · Анна").first().waitFor({ timeout: 10000 });
-  await week.getByRole("button", { name: "Завершить неделю" }).waitFor();
+  await week.getByText("Рекс").first().waitFor({ timeout: 10000 });
+  await week.getByRole("button", { name: "Завершить" }).waitFor();
   await shot(week, "next-orders-week.png");
-  await week.getByRole("button", { name: "Месяц" }).click();
+  await week.getByRole("button", { name: "Месяц", exact: true }).click();
   await week.locator(".nx-cal").waitFor();
   await week.locator(".nx-cal button[data-date]").nth(10).click();
-  await week.getByText("Рекс · Анна").first().waitFor();
+  await week.getByText("Рекс").first().waitFor();
   await shot(week, "next-orders-month.png");
-  await week.getByRole("button", { name: "Неделя", exact: true }).click();
-  await week.getByText("Рекс · Анна").first().waitFor();
-  await week.getByRole("button", { name: "Править" }).first().click();
+  await week.getByRole("button", { name: /Рекс/ }).first().click();
+  await week.getByRole("button", { name: "Править" }).click();
   await week.getByRole("heading", { name: "Правка заказа" }).waitFor();
   await week.locator("#client").waitFor();
   await shot(week, "next-order-edit.png");

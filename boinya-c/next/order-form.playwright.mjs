@@ -105,7 +105,9 @@ try {
   await page.screenshot({ path: path.join(outDir, "next-order-dock.png") });
   const dateInputs = await page.locator("#nxMain input[type='date']").count();
   if (dateInputs) throw new Error("second date field on the order form");
+  await page.locator(".daybox").click();
   await page.getByRole("button", { name: "Другая дата" }).waitFor();
+  await page.getByRole("button", { name: "Закрыть" }).click();
   await page.locator("#client").fill("");
   await page.getByRole("button", { name: "+ Позиция" }).click();
   const pq = page.locator("#pq");

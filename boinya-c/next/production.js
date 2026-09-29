@@ -33,6 +33,95 @@
   function maps() { return root.CourierMaps; }
   function esc(s) { return sh().esc(s); }
 
+  function prettyName(raw) {
+    var n = String(raw || "").trim();
+    if (!n) return "";
+    var e = eng();
+    if (e && e.prettyProductName) {
+      try { return e.prettyProductName(n) || n; } catch (err) {}
+    }
+    return n;
+  }
+
+  function crumbSourcesOf(g) {
+    var out = [];
+    if (g && Array.isArray(g.sources)) {
+      g.sources.forEach(function (s) {
+        var name = "";
+        var val = null;
+        var unit = "";
+        var sub = "";
+        if (typeof s === "string") name = s;
+        else if (s) {
+          name = s.name || s.main || "";
+          val = s.val != null ? s.val : (s.value != null ? s.value : null);
+          unit = s.unit || "";
+          sub = s.sub || "";
+        }
+        name = String(name || "").trim();
+        if (!name) return;
+        out.push({ name: name, val: val, unit: unit, sub: sub });
+      });
+    }
+    if (out.length) return out;
+    var sub = String((g && g.sub) || "").trim();
+    if (sub.indexOf("+") >= 0) {
+      sub.split(/\s*\+\s*/).forEach(function (part) {
+        var p = String(part || "").trim();
+        if (p && !/^крошка$/i.test(p)) out.push({ name: p, val: null, unit: "", sub: "" });
+      });
+    }
+    return out;
+  }
+
+  function isCrumbMix(g) {
+    var name = String((g && (g.name || g.main)) || "");
+    if (/крошк\w*\s*микс/i.test(name)) return true;
+    return crumbSourcesOf(g).length >= 2;
+  }
+
+  function mixPartQty(g, src, index, count) {
+    var own = Number(src.val);
+    if (isFinite(own) && own > 0) {
+      return { qty: own, unit: src.unit || "г" };
+    }
+    var ratio = Array.isArray(g.ratio) ? g.ratio : [];
+    var sumR = 0;
+    var i;
+    for (i = 0; i < count; i++) sumR += Number(ratio[i]) || 0;
+    if (!(sumR > 0)) return null;
+    var grams = Number(g.val != null ? g.val : g.value) || 0;
+    if (!(grams > 0)) return null;
+    var part = (Number(ratio[index]) || 0) / sumR;
+    if (!(part > 0)) return null;
+    var q = Math.round(grams * part);
+    if (q <= 0) q = 1;
+    return { qty: q, unit: src.unit || g.unit || "г" };
+  }
+
+  function basketLinesHtml(basket) {
+    return (basket || []).map(function (g) {
+      if (!g) return "";
+      if (isCrumbMix(g)) {
+        var total = Number(g.val != null ? g.val : g.value);
+        var totalBit = isFinite(total) && total > 0 ? (", " + total + " " + (g.unit || "г")) : "";
+        var src = crumbSourcesOf(g);
+        var parts = src.map(function (s, i) {
+          var q = mixPartQty(g, s, i, src.length);
+          var label = prettyName(s.name);
+          if (s.sub) label += ", " + prettyName(s.sub);
+          if (q) label += ", " + q.qty + " " + (q.unit || "г");
+          return '<div class="mix-part">' + esc(label) + "</div>";
+        }).join("");
+        return '<div class="mix"><div>Крошка микс' + esc(totalBit) + "</div>" + parts + "</div>";
+      }
+      var nm = prettyName(g.name || g.main || "");
+      var val = g.val != null ? g.val : g.value;
+      var bit = val != null && val !== "" ? (" " + val + (g.unit ? " " + g.unit : "")) : "";
+      return "<div>" + esc(nm + bit) + "</div>";
+    }).filter(Boolean).join("");
+  }
+
   function days() {
     var w = root.BoinyaWeek && root.BoinyaWeek.WEEK;
     return w || ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"];
@@ -252,7 +341,7 @@
     if (!cutItems.length && !cutDone) sh().main(segBar() + dayField("nxCutDay", day) + sh().skeleton(3));
     var res = null;
     try {
-      res = await api().apiGet({ action: "getCutting", day: day }, { timeoutMs: 28000, cacheTtlMs: 0 });
+      res = await api().apiGet({ action: "getCutting", day: day }, { timeoutMs: 28000, cacheTtlMs: 8000 });
     } catch (e) {
       sh().toast("Не обновилось");
       paintCut();
@@ -553,14 +642,13 @@
         bags += n;
       });
       var summary = order.filter(function (k) { return by[k] > 0; }).map(function (k) { return by[k] + " " + k; }).join(" · ") || "—";
-      var lines = (c.basket || []).map(function (g) {
-        var unit = g.unit || ((eng() && eng().unitForItem) ? eng().unitForItem(g.cat, g.name || g.main) : "гр");
-        var sub = g.sub ? " (" + g.sub + ")" : "";
-        return '<p class="b-note">• ' + esc((g.name || g.main || "") + sub) + " — " + esc(String(g.val != null ? g.val : g.value)) + " " + esc(unit) + "</p>";
-      }).join("") || '<p class="b-note">Пустой состав</p>';
+      var lines = basketLinesHtml(c.basket);
+      lines = lines ? '<div class="b-note mix-list">' + lines + "</div>" : '<p class="b-note">Пустой состав</p>';
       html += '<article class="b-card' + (c.assembled ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
-        esc(asmTitle(c)) + " · " + bags + " пак." + (c.assembled ? " · собран" : "") + (c.printed ? " · пропечатано" : "") + "</label>" +
+        esc(asmTitle(c)) + " · " + bags + " пак. " +
+        '<span class="plaque ' + (c.assembled ? "plaque--gold" : "plaque--bad") + '">' + (c.assembled ? "собран" : "не собран") + "</span>" +
+        (c.printed ? " · пропечатано" : "") + "</label>" +
         '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
         (c.address ? '<p class="b-note">' + esc(c.address) + "</p>" : "") +
         lines +
@@ -670,8 +758,8 @@
     courAsmBusy = true;
     try {
       var res = await api().apiGet(
-        { action: "getAssembly", day: day, _: String(Date.now()) },
-        { timeoutMs: 7000, cacheTtlMs: 0 }
+        { action: "getAssembly", day: day },
+        { timeoutMs: 7000, cacheTtlMs: 8000 }
       );
       if (seg !== "route" || !res || res.status !== "success" || !Array.isArray(res.clients)) return;
       if (String(cour._day || "") !== String(day)) return;
@@ -759,11 +847,23 @@
       var addr = publicAddr(c.address || "");
       var tel = phoneOf(c);
       var open = !!courOpen[idx];
-      var badge = courBadge(c);
-      html += '<article class="b-card' + (c.delivered ? " nx-dim" : "") + '" style="margin-top:12px">' +
-        '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> " +
-        (idx + 1) + ". " + esc(c.name || "") + (badge ? " · " + badge : "") + "</label>" +
-        '<p class="b-note">' + (addr ? ("Адрес: " + esc(addr) + " · тап → этаж/кв") : "Адрес не указан") + "</p>" +
+      var assembled = !!c.assembled;
+      var who = String(c.name || "").split(/\s*[·•]\s*/);
+      var dog = who[0] || c.name || "";
+      var nick = who[1] || "";
+      var seg = c.segment || "";
+      var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
+      var basket = basketLinesHtml(c.basket);
+      html += '<article class="stop' + (c.delivered ? " nx-dim" : "") + '">' +
+        '<div class="stop-top"><span class="stop-no">' + (idx + 1) + "</span>" +
+        '<div><b>' + esc(dog) + "</b>" +
+        (nick ? '<div class="b-note">' + esc(nick) + "</div>" : "") +
+        (seg || price ? '<div class="b-note">' + esc([seg, price].filter(Boolean).join(", ")) + "</div>" : "") +
+        (basket ? '<div class="b-note mix-list">' + basket + "</div>" : "") +
+        "</div>" +
+        '<span class="plaque ' + (assembled ? "plaque--gold" : "plaque--bad") + '">' + (assembled ? "собран" : "не собран") + "</span></div>" +
+        '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> доставлен</label>" +
+        '<p class="b-note">' + (addr ? esc(addr) : "Адрес не указан") + "</p>" +
         (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '">Карта</button>' : "") +
         (tel ? '<p class="b-note"><a href="tel:' + esc(tel) + '">' + esc(tel) + "</a></p>" : '<p class="b-note">нет телефона</p>') +
         '<button type="button" class="nx-link" data-act="pr-open" data-i="' + idx + '">' + (open ? "Свернуть" : "Этаж / кв / подробности") + "</button>";
@@ -783,9 +883,16 @@
   async function loadCour(force) {
     var day = currentDay("nxCourDay", "route");
     if (force) courDetail = false;
+    var regJob = registerCourier();
     var res = null;
+    var asmRes = null;
     try {
-      res = await api().apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 });
+      var pair = await Promise.all([
+        api().apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 }),
+        api().apiGet({ action: "getAssembly", day: day }, { timeoutMs: 8000, cacheTtlMs: force ? 0 : 8000 }).catch(function () { return null; })
+      ]);
+      res = pair[0];
+      asmRes = pair[1];
     } catch (e) {
       sh().toast("Ошибка сети");
       paintRoute();
@@ -802,13 +909,8 @@
       if (o && Date.now() - o.ts < 1800000) c.delivered = !!o.delivered;
     });
     var asmClients = [];
-    try {
-      var asmRes = await api().apiGet(
-        { action: "getAssembly", day: day, _: String(Date.now()) },
-        { timeoutMs: 8000, cacheTtlMs: 0 }
-      );
-      if (asmRes && asmRes.status === "success" && Array.isArray(asmRes.clients)) asmClients = asmRes.clients;
-    } catch (eAsm) {}
+    if (asmRes && asmRes.status === "success" && Array.isArray(asmRes.clients)) asmClients = asmRes.clients;
+    try { await regJob; } catch (eReg) {}
     if (!asmClients.length && asm && String(asm.day || "") === String(day) && Array.isArray(asm.clients)) {
       asmClients = asm.clients;
     }

@@ -103,20 +103,20 @@ async function main() {
   }
 
   const prod = await open("http://127.0.0.1:8773/next.html?tab=production");
-  await prod.page.locator("h1.b-top__title", { hasText: "Производство" }).waitFor();
+  await prod.page.locator("h1.b-top__title", { hasText: "Цех" }).waitFor();
   const title = prod.page.locator("h1.b-top__title");
   const titleText = (await title.innerText()).trim();
-  if (titleText !== "Производство") throw new Error("title " + titleText);
+  if (titleText !== "Цех") throw new Error("title " + titleText);
   const fitted = await title.evaluate((el) => ({
     sw: el.scrollWidth,
     cw: el.clientWidth,
     size: getComputedStyle(el).fontSize
   }));
   if (fitted.sw > fitted.cw + 1) throw new Error("title clipped " + JSON.stringify(fitted));
-  const navLbl = prod.page.locator(".b-nav__lbl", { hasText: "Производство" });
-  const navCss = await navLbl.evaluate((el) => getComputedStyle(el).textOverflow);
-  if (navCss !== "ellipsis") throw new Error("nav label css " + navCss);
-  if ((await navLbl.innerText()).trim() !== "Производство") throw new Error("nav text changed");
+  const navLbl = prod.page.locator(".b-nav__lbl", { hasText: "Цех" });
+  const navFit = await navLbl.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, text: el.innerText }));
+  if (navFit.sw > navFit.cw + 1) throw new Error("nav clipped " + JSON.stringify(navFit));
+  if ((await navLbl.innerText()).trim() !== "Цех") throw new Error("nav text changed");
   await overflow(prod.page, "header");
   await shot(prod.page, "next-header-title.png");
   console.log("title-fit", JSON.stringify(fitted));
@@ -187,10 +187,10 @@ async function main() {
   await shot(logi.page, "next-warehouse-logistics.png");
 
   const mgr = await open("http://127.0.0.1:8773/next.html?tab=more&as=manager");
-  await mgr.page.getByText("Остальное в старой версии").waitFor();
+  await mgr.page.getByText("Партнёры").waitFor();
   if (await mgr.page.getByRole("button", { name: "Прайс" }).count()) throw new Error("manager sees price");
   const tabs = await mgr.page.locator(".b-nav__lbl").allInnerTexts();
-  if (tabs.join("|") !== "Заказы|Клиенты|Ещё") throw new Error("manager nav " + tabs.join("|"));
+  if (tabs.join("|") !== "Заказы|Расчёт|Ещё") throw new Error("manager nav " + tabs.join("|"));
 
   if (pageErrors.length) throw new Error(pageErrors.join("\n"));
   await browser.close();

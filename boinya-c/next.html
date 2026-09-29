@@ -3,10 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <title>Бойня</title>
   <link rel="stylesheet" href="ds.css">
   <link rel="stylesheet" href="next/app.css">
+  <link rel="stylesheet" href="next/theme.css">
+  <script>
+    (function () {
+      function insideTelegram(tg) {
+        if (!tg) return false;
+        try {
+          if (String(tg.initData || "")) return true;
+        } catch (e) {}
+        var user = tg.initDataUnsafe && tg.initDataUnsafe.user;
+        return !!(user && user.id);
+      }
+      function scheme() {
+        try {
+          var tg = window.Telegram && window.Telegram.WebApp;
+          if (insideTelegram(tg) && (tg.colorScheme === "light" || tg.colorScheme === "dark")) return tg.colorScheme;
+        } catch (e) {}
+        try {
+          var q = new URLSearchParams(location.search).get("scheme");
+          if (q === "light" || q === "dark") return q;
+        } catch (e2) {}
+        if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) return "light";
+        return "dark";
+      }
+      function apply() {
+        var s = scheme();
+        document.documentElement.setAttribute("data-scheme", s);
+        document.documentElement.style.colorScheme = s;
+      }
+      apply();
+      window.__boinyaApplyScheme = apply;
+      try {
+        var mq = window.matchMedia("(prefers-color-scheme: light)");
+        if (mq.addEventListener) mq.addEventListener("change", apply);
+      } catch (e3) {}
+    })();
+  </script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="client/config.js"></script>
 </head>

@@ -2,7 +2,8 @@
 (function (root) {
   "use strict";
 
-  var FULL_FROM = 6;
+  var FULL_FROM = 12;
+  var monthMap = {};
   var MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   var MONTHS_FULL = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
   var WEEK = [
@@ -36,7 +37,7 @@
   var partners = [];
   var saving = false;
   var ppFact = null;
-  var folds = { details: false, checklist: false };
+  var folds = { more: false, details: false, checklist: false };
   var picker = blankPicker();
   var suggest = [];
   var addrSuggest = [];
@@ -162,7 +163,7 @@
     var left = state.deliveryDate ? pretty(state.deliveryDate) : "Дата не выбрана";
     if (state.day === "Будущая неделя") left = "Будущая неделя";
     var n = weekSum();
-    return left + (week.loading ? "" : " · " + n + " заказов на неделю");
+    return left + (week.loading ? "" : ", " + n + " чел.");
   }
 
   function titleLine() {
@@ -286,35 +287,44 @@
     return '<label class="b-field"><input class="b-field__input" id="' + id + '" data-k="' + id + '" value="' + esc(value || "") + '" placeholder="' + esc(placeholder || "") + '" ' + (extra || "") + "></label>";
   }
 
+  function dayMeta(dayName) {
+    var it = weekItem(dayName);
+    var num = it && isFinite(Number(it.count)) ? Number(it.count) : null;
+    var dateIso = it ? isoFromAny(it.date) : "";
+    var dom = dateIso ? Number(dateIso.slice(8, 10)) : "";
+    var mon = dateIso ? MONTHS[Number(dateIso.slice(5, 7)) - 1] : "";
+    return { num: num, dom: dom, mon: mon, full: num != null && num >= FULL_FROM };
+  }
+
   function dayStrip() {
-    var html = '<div class="b-days">';
+    var html = "";
     WEEK.forEach(function (d) {
-      var it = weekItem(d.day);
-      var num = it && isFinite(Number(it.count)) ? Number(it.count) : null;
-      var dateIso = it ? isoFromAny(it.date) : "";
-      var dom = dateIso ? Number(dateIso.slice(8, 10)) : "";
-      var cls = "b-day";
-      if (d.off) cls += " b-day--off";
-      if (state.day === d.day) cls += " b-day--on";
-      if (num != null && num >= FULL_FROM) cls += " b-day--full";
-      var meta = num == null ? "·" : String(num);
-      html += '<button type="button" class="' + cls + '" data-act="day" data-day="' + esc(d.day) + '">' +
-        '<span class="b-day__w">' + esc(d.short) + "</span>" +
-        '<span class="b-day__d">' + esc(dom === "" ? "·" : String(dom)) + "</span>" +
-        '<span class="b-day__meta"><span class="b-day__n">' + esc(meta) + "</span></span></button>";
+      var m = dayMeta(d.day);
+      var on = state.day === d.day ? ' aria-pressed="true"' : "";
+      html += '<button type="button" class="sheet-act" data-act="day" data-day="' + esc(d.day) + '"' + on + ">" +
+        "<span>" + esc(d.day) + (d.off ? " вых" : "") + "</span>" +
+        '<span class="num">' + (m.num == null ? "" : esc(String(m.num))) + "</span></button>";
     });
-    html += "</div>";
-    var futOn = state.day === "Будущая неделя" ? " b-chip--on" : "";
-    var offWeek = !!(state.deliveryDate && !state.day);
-    var otherOn = offWeek ? " b-chip--on" : "";
-    var otherLabel = offWeek ? pretty(state.deliveryDate) : "Другая дата";
-    html += '<div class="b-row" style="margin-top:8px">' +
-      '<button type="button" class="b-chip' + futOn + '" data-act="future">Будущая неделя</button>' +
-      '<button type="button" class="b-chip' + otherOn + '" data-act="cal">' + esc(otherLabel) + "</button></div>";
-    if (numFullHint()) {
-      html += '<p class="b-note" style="margin-top:8px"><span style="color:var(--b-warn)">●</span> полный от ' + FULL_FROM + "</p>";
-    }
+    var fut = weekItem("Будущая неделя");
+    var futN = fut && isFinite(Number(fut.count)) ? String(fut.count) : "";
+    html += '<button type="button" class="sheet-act" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
+    html += '<button type="button" class="sheet-act" data-act="cal">Другая дата</button>';
+    html += '<p class="b-note">Полный день от ' + FULL_FROM + " человек</p>";
     return html;
+  }
+
+  function dayBox() {
+    var label = state.day || "День";
+    var m = state.day ? dayMeta(state.day) : { num: null, dom: "", mon: "" };
+    if (state.day === "Будущая неделя") {
+      var fut = weekItem("Будущая неделя");
+      m.num = fut && isFinite(Number(fut.count)) ? Number(fut.count) : null;
+    }
+    var dateBit = m.dom ? (m.dom + " " + (m.mon || "")) : (state.deliveryDate ? pretty(state.deliveryDate) : "");
+    return '<p class="kicker">День</p><button type="button" class="daybox b-day b-day--on" data-act="open-days">' +
+      "<span><span class=\"kicker b-day__w\">" + esc(label) + "</span>" +
+      '<span class="num" style="font-size:28px">' + (m.num == null ? "" : esc(String(m.num))) + "</span></span>" +
+      '<span class="b-note">' + esc(dateBit) + "</span></button>";
   }
 
   function numFullHint() {
@@ -408,61 +418,58 @@
   function view() {
     var html = "";
     if (week.error) html += sh().errorBox({ title: "Не удалось загрузить дни", text: week.error, act: "retry-days" });
-    html += '<div class="b-seg" style="margin-bottom:16px" id="nxSegs"></div>';
-    html += '<p class="b-lbl">Тип</p><div class="b-chips">';
+    html += '<div class="b-seg" id="nxSegs"></div>';
+    html += '<div class="tray" role="group" aria-label="Тип заказа">';
     TYPES.forEach(function (t) {
-      html += '<button type="button" class="b-chip' + (state.orderType === t.id ? " b-chip--on" : "") + '" data-act="type" data-type="' + t.id + '">' + esc(t.label) + "</button>";
+      html += '<button type="button" data-act="type" data-type="' + t.id + '" aria-pressed="' + (state.orderType === t.id ? "true" : "false") + '">' + esc(t.label) + "</button>";
     });
     html += "</div>";
-    html += '<p class="b-lbl">Клиент</p><label class="b-field">' + sh().ico("search", "b-ico b-ico--20") +
-      '<input class="b-field__input" id="client" data-k="client" value="' + esc(state.client) + '" placeholder="Ник или имя" autocomplete="off"></label>';
+    html += '<p class="kicker">Ник</p><label class="b-field">' +
+      '<input class="b-field__input" id="client" data-k="client" value="' + esc(state.client) + '" placeholder="Ник" autocomplete="off"></label>';
     html += '<div id="nxSuggest"></div>';
-    html += '<div class="b-row" style="margin-top:8px"><span class="b-grow b-note" style="margin:0">2 собаки</span><div class="b-seg" style="flex:none">' +
-      segBtn("dog0", "Нет", state.dogCount < 2) + segBtn("dog1", "Да", state.dogCount >= 2) + "</div></div>";
-    if (state.dogCount >= 2) {
-      html += '<div class="b-seg" style="margin-top:8px">' + segBtn("ad1", "Собака 1", state.activeDog !== 2) + segBtn("ad2", "Собака 2", state.activeDog === 2) + "</div>";
-      html += '<div class="nx-pair" style="margin-top:8px">' + field("dog1", state.dogNames[1], "кличка 1") + field("dog2", state.dogNames[2], "кличка 2") + "</div>";
+    html += '<div id="nxExtras">' + typeExtras() + "</div>";
+    if (week.loading && !(week.items || []).length) html += sh().skeleton(1);
+    else html += dayBox();
+    if (week.meta && week.meta.skew) {
+      html += sh().errorBox({ title: "Даты недели уехали", text: week.meta.skew, act: "retry-days" });
     }
-    html += '<p class="b-lbl">Телефон</p>' + field("phone", state.phone, "+375", 'inputmode="tel"');
-    html += '<p class="b-lbl">Адрес</p><div class="b-row" style="gap:8px"><div class="b-grow">' + field("address", state.address, "Улица и дом") +
+    html += '<p class="kicker">Адрес</p><div class="b-row" style="gap:8px"><div class="b-grow">' + field("address", state.address, "Улица и дом") +
       '</div><button class="b-ib" type="button" data-act="coords" aria-label="Координаты">' + sh().ico("cal", "b-ico b-ico--20") + "</button></div>";
     html += '<div id="nxAddr"></div>';
-    html += '<button type="button" class="nx-link" data-act="fold-details" style="margin-top:8px">' + (folds.details ? "Скрыть подъезд" : "Подъезд и детали") + "</button>";
-    if (folds.details) {
-      html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
-    }
-    if (outside() || state.deliveryMethod) {
-      html += '<p class="b-lbl">За Минском</p><div class="b-chips">' +
+    html += '<p class="kicker">Состав</p>';
+    html += '<div id="nxLines">' + basketLines() + "</div>";
+    html += '<button class="b-btn b-btn--sec" type="button" data-act="add" style="margin-top:8px">+ Позиция</button>';
+    html += '<button type="button" class="nx-link" data-act="fold-more">' + (folds.more ? "Скрыть доставку" : "Ещё у доставки") + "</button>";
+    if (folds.more) {
+      html += '<div class="b-row" style="margin-top:8px"><span class="b-grow b-note" style="margin:0">2 собаки</span><div class="b-seg" style="flex:none">' +
+        segBtn("dog0", "Нет", state.dogCount < 2) + segBtn("dog1", "Да", state.dogCount >= 2) + "</div></div>";
+      if (state.dogCount >= 2) {
+        html += '<div class="b-seg" style="margin-top:8px">' + segBtn("ad1", "Собака 1", state.activeDog !== 2) + segBtn("ad2", "Собака 2", state.activeDog === 2) + "</div>";
+        html += '<div class="nx-pair" style="margin-top:8px">' + field("dog1", state.dogNames[1], "кличка 1") + field("dog2", state.dogNames[2], "кличка 2") + "</div>";
+      }
+      html += '<p class="kicker">Телефон</p>' + field("phone", state.phone, "+375", 'inputmode="tel"');
+      html += '<button type="button" class="nx-link" data-act="fold-details">' + (folds.details ? "Скрыть подъезд" : "Подъезд и детали") + "</button>";
+      if (folds.details) {
+        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
+      }
+      html += '<p class="kicker">За Минском</p><div class="b-chips">' +
         chipMeth("euro", "Европочта") + chipMeth("bel", "Белпочта") + chipMeth("courier", "Курьер") + "</div>";
       if (state.deliveryMethod === "euro" || state.deliveryMethod === "bel") {
         html += '<div style="margin-top:8px">' + field("postOffice", state.postOffice, "Отделение почты") + "</div>";
       }
-    }
-    html += '<p class="b-lbl">День · заказов на день</p>';
-    if (week.loading) html += sh().skeleton(1);
-    else html += dayStrip();
-    if (week.meta && week.meta.skew) {
-      html += sh().errorBox({ title: "Даты недели уехали", text: week.meta.skew, act: "retry-days" });
-    }
-    html += '<div id="nxExtras">' + typeExtras() + "</div>";
-    html += '<p class="b-lbl">Доставка</p><div class="nx-pair">' +
-      '<label class="b-field"><input class="b-field__input" id="deliveryAfter" data-k="deliveryAfter" type="time" value="' + esc(state.deliveryAfter) + '" aria-label="Не раньше"></label>' +
-      '<label class="b-field"><input class="b-field__input" id="deliveryBefore" data-k="deliveryBefore" type="time" value="' + esc(state.deliveryBefore) + '" aria-label="Не позже"></label></div>' +
-      '<p class="b-note" style="margin-top:4px">Не раньше · не позже</p>';
-    html += '<p class="b-lbl">Примечания</p><button type="button" class="b-li" data-act="notes" style="border:1px solid var(--b-line);border-radius:var(--b-r3);background:var(--b-surface)">' +
-      '<span class="b-grow">' + esc(noteSummary()) + "</span></button>";
-    html += '<p class="b-lbl">Состав</p>';
-    html += '<div class="b-card" style="padding:0 16px"><div id="nxLines">' + basketLines() + "</div></div>";
-    html += '<div class="nx-actions" style="margin-top:8px">' +
-      '<button class="b-btn b-btn--dash" type="button" data-act="add">+ Позиция</button>' +
-      '<button class="b-btn b-btn--dash" type="button" data-act="fold-ig">Вставить чеклист</button></div>';
-    if (folds.checklist) {
-      html += '<label class="b-field b-field--area" style="margin-top:8px"><textarea class="b-field__input" id="igPaste" data-k="igPaste" placeholder="Строки из Instagram">' + esc(state.igPaste) + "</textarea></label>";
-      html += '<div class="nx-actions" style="margin-top:8px"><button class="b-btn b-btn--sec" type="button" data-act="ig-go">В корзину</button>' +
-        '<button class="b-btn b-btn--sec" type="button" data-act="ig-clear">Очистить</button></div>';
-    }
-    if ((state.baskets[state.activeDog] || []).length) {
-      html += '<button type="button" class="nx-link" data-act="clear-basket" style="margin-top:8px">Очистить состав</button>';
+      html += '<p class="kicker">Время</p><div class="nx-pair">' +
+        '<label class="b-field"><input class="b-field__input" id="deliveryAfter" data-k="deliveryAfter" type="time" value="' + esc(state.deliveryAfter) + '" aria-label="Не раньше"></label>' +
+        '<label class="b-field"><input class="b-field__input" id="deliveryBefore" data-k="deliveryBefore" type="time" value="' + esc(state.deliveryBefore) + '" aria-label="Не позже"></label></div>';
+      html += '<button type="button" class="nx-link" data-act="notes">' + esc(noteSummary()) + "</button>";
+      html += '<button class="b-btn b-btn--sec" type="button" data-act="fold-ig">Вставить чеклист</button>';
+      if (folds.checklist) {
+        html += '<label class="b-field b-field--area" style="margin-top:8px"><textarea class="b-field__input" id="igPaste" data-k="igPaste" placeholder="Строки из Instagram">' + esc(state.igPaste) + "</textarea></label>";
+        html += '<div class="nx-actions" style="margin-top:8px"><button class="b-btn b-btn--sec" type="button" data-act="ig-go">В корзину</button>' +
+          '<button class="b-btn b-btn--sec" type="button" data-act="ig-clear">Очистить</button></div>';
+      }
+      if ((state.baskets[state.activeDog] || []).length) {
+        html += '<button type="button" class="nx-link" data-act="clear-basket">Очистить состав</button>';
+      }
     }
     return html;
   }
@@ -486,7 +493,8 @@
     var box = document.getElementById("nxSegs");
     if (!box) return;
     box.innerHTML = (segs || []).map(function (s) {
-      return '<button type="button" class="b-seg__item' + (s.id === current ? " b-seg__item--on" : "") + '" data-act="oseg" data-seg="' + esc(s.id) + '">' + esc(s.label) + "</button>";
+      var on = s.id === current;
+      return '<button type="button" class="b-seg__item' + (on ? " b-seg__item--on" : "") + '" data-act="oseg" data-seg="' + esc(s.id) + '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(s.label) + "</button>";
     }).join("");
   }
 
@@ -706,6 +714,7 @@
     var iso = hit ? isoFromAny(hit.date) : "";
     if (iso) state.deliveryDate = iso;
     if (!silent) {
+      if (sh().sheetOpen()) sh().closeTop("ok");
       persistDraft();
       paint();
       sh().toast(dayName);
@@ -763,27 +772,67 @@
 
   var calCursor = null;
 
-  function openCal() {
+  function monthDays(res, y, m) {
+    var map = {};
+    ((res && res.days) || []).forEach(function (d) {
+      var iso = String(d.dateIso || d.date || "").slice(0, 10);
+      if (iso) map[iso] = d;
+    });
+    return map;
+  }
+
+  function calCell(iso, d, hit) {
+    var segs = (hit && hit.segments) || {};
+    var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
+    var dots = "";
+    if (segs["ПП"]) dots += '<i class="dot dot-pp"></i>';
+    if (segs["БП"]) dots += '<i class="dot dot-bp"></i>';
+    if (segs["Р"]) dots += '<i class="dot dot-r"></i>';
+    if (segs["ПАРТНЁР"]) dots += '<i class="dot dot-p"></i>';
+    var cls = "cell";
+    if (n > 0) cls += " cell--busy";
+    if (n >= FULL_FROM) cls += " is-full";
+    if (iso === state.deliveryDate) cls += " is-on";
+    var label = d + " " + MONTHS_FULL[Number(iso.slice(5, 7)) - 1] + (n ? ", " + n + " чел." : ", никого");
+    return '<button type="button" class="' + cls + '" data-act="cal-day" data-iso="' + iso + '" aria-label="' + esc(label) + '"' +
+      (iso === state.deliveryDate ? ' aria-pressed="true"' : "") + ">" +
+      '<span class="cell-date">' + d + "</span>" +
+      (n ? '<span class="cell-count">' + n + "</span>" : "") +
+      (dots ? '<span class="dots" aria-hidden="true">' + dots + "</span>" : "") + "</button>";
+  }
+
+  async function openCal() {
     var base = state.deliveryDate || new Date().toISOString().slice(0, 10);
     if (!calCursor) calCursor = { y: Number(base.slice(0, 4)), m: Number(base.slice(5, 7)) - 1 };
     var y = calCursor.y;
     var m = calCursor.m;
+    var key = y + "-" + String(m + 1).padStart(2, "0");
+    if (!monthMap[key]) {
+      try {
+        monthMap[key] = await api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+      } catch (eOv) { monthMap[key] = { days: [] }; }
+    }
+    var by = monthDays(monthMap[key], y, m);
     function html() {
       var first = new Date(y, m, 1);
       var start = (first.getDay() + 6) % 7;
       var days = new Date(y, m + 1, 0).getDate();
       var cells = "";
-      for (var i = 0; i < start; i++) cells += "<span></span>";
+      for (var i = 0; i < start; i++) cells += '<span class="cell cell--pad"></span>';
+      var busy = 0;
+      var people = 0;
       for (var d = 1; d <= days; d++) {
         var iso = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-        var on = iso === state.deliveryDate ? ' aria-pressed="true"' : "";
-        cells += '<button type="button" data-act="cal-day" data-iso="' + iso + '"' + on + ">" + d + "</button>";
+        var hit = by[iso];
+        var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
+        if (n > 0) { busy++; people += n; }
+        cells += calCell(iso, d, hit);
       }
-      return '<div class="b-row"><button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="cal-shift" data-dir="-1">‹</button>' +
+      return '<div class="b-row"><button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="cal-shift" data-dir="-1" aria-label="Предыдущий месяц">‹</button>' +
         '<span class="b-grow" style="text-align:center;font-weight:600">' + esc(MONTHS_FULL[m] + " " + y) + "</span>" +
-        '<button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="cal-shift" data-dir="1">›</button></div>' +
-        '<div class="nx-cal" style="margin-top:12px">' + cells + "</div>" +
-        '<p class="b-note" style="margin-top:12px">Другая дата. Если день не в текущей неделе, заказ уйдёт в календарь.</p>';
+        '<button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="cal-shift" data-dir="1" aria-label="Следующий месяц">›</button></div>' +
+        '<div class="nx-cal grid" style="margin-top:12px">' + cells + "</div>" +
+        '<p class="b-note" style="margin-top:12px">' + busy + " дн. с записями, всего " + people + " чел. Другая дата уходит в календарь, если день не в текущей неделе.</p>";
     }
     if (sh().sheetOpen()) sh().replaceTop({ title: "Другая дата", html: html() });
     else sh().openSheet({ title: "Другая дата", html: html(), id: "cal", onClose: function () { calCursor = null; } });
@@ -1164,14 +1213,14 @@
     saving = true;
     paint();
     sh().loader({ title: "Сохраняю заказ…", step: "запись в лист" });
-    var resolved = null;
-    try {
-      resolved = await api().apiGet({ action: "resolveDayForDate", date: state.deliveryDate }, { timeoutMs: 12000, cacheTtlMs: 60000 });
-    } catch (e) {}
-    var onWeek = !!(resolved && resolved.onWeek && resolved.dayName);
-    var weekDay = "";
-    if (onWeek && resolved.dayName) weekDay = resolved.dayName;
-    else if (state.isEdit && state.editOriginalDay && onWeek) weekDay = state.editOriginalDay;
+    var weekDay = state.day || "";
+    if (!weekDay && state.deliveryDate) {
+      var resolved = null;
+      try {
+        resolved = await api().apiGet({ action: "resolveDayForDate", date: state.deliveryDate }, { timeoutMs: 12000, cacheTtlMs: 60000 });
+      } catch (e) {}
+      if (resolved && resolved.onWeek && resolved.dayName) weekDay = resolved.dayName;
+    }
     if (state.isEdit && state.editOriginalClient && String(state.editOriginalClient).trim().toUpperCase() !== clientName.toUpperCase()) {
       var del = await api().apiGet({
         action: "deleteClient",
@@ -1346,6 +1395,8 @@
       return false;
     }
     if (act === "type") { setType(node.getAttribute("data-type")); return true; }
+    if (act === "open-days") { sh().openSheet({ title: "День", html: dayStrip(), id: "days" }); return true; }
+    if (act === "fold-more") { folds.more = !folds.more; paint(); return true; }
     if (act === "day") { selectDay(node.getAttribute("data-day")); return true; }
     if (act === "future") { selectDay("Будущая неделя"); return true; }
     if (act === "cal") { openCal(); return true; }

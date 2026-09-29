@@ -23,6 +23,7 @@
     error: "",
     banner: null,
     calCursor: "",
+    overview: null,
     role: "",
     notesOpen: {},
     fillIndex: -1
@@ -85,67 +86,74 @@
     return html;
   }
 
-  function card(c, index, source) {
+  function splitWho(c) {
+    var raw = String((c && c.name) || "").trim();
+    var parts = raw.split(/\s*[·•]\s*/);
+    var dog = parts[0] || raw || "Без имени";
+    var nick = (parts[1] || (c && (c.nick || c.ownerName)) || "").trim();
+    return { dog: dog, nick: nick, letter: dog.slice(0, 1).toUpperCase() };
+  }
+
+  function pillOf(seg) {
+    var s = String(seg || "");
+    var cls = "pill pill--p";
+    if (s === "ПП") cls = "pill pill--ok";
+    else if (s === "БП") cls = "pill pill--info";
+    else if (s === "Р") cls = "pill pill--warn";
+    return s ? '<span class="' + cls + '">' + esc(s === "ПАРТНЁР" ? "Партнёр" : s) + "</span>" : "";
+  }
+
+  function rowBtn(c, index, source) {
+    var who = splitWho(c);
     var ot = logic().resolveOrderType(c);
     var seg = c.segment || logic().orderTypeToSegment(ot);
-    var gaps = logic().clientGaps(c);
-    var line = logic().basketLine(c);
-    var sub = [c.address, c.phone].filter(Boolean).join(" · ");
-    var badge = seg ? '<span class="b-chip" style="margin-left:8px">' + esc(seg) + "</span>" : "";
-    var gap = gaps.length ? '<p class="b-note" style="color:var(--b-warn)">нет: ' + esc(gaps.join(", ")) + "</p>" : "";
-    var noteKey = source + ":" + index;
-    var noteHtml = "";
-    if (c.note) {
-      var opened = !!view.notesOpen[noteKey];
-      noteHtml = '<button type="button" class="nx-link" data-act="wnote" data-k="' + esc(noteKey) + '">' + (opened ? "Свернуть" : "Раскрыть") + "</button>";
-      if (opened) noteHtml += '<p class="b-note">' + esc(c.note) + "</p>";
-    }
-    var slot = "";
+    var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice).replace(".", ",") + " BYN") : "";
+    var addr = [c.address, price].filter(Boolean).join(", ");
+    return '<button type="button" class="row" data-act="wrow" data-i="' + index + '" data-src="' + source + '">' +
+      '<span class="avatar" aria-hidden="true">' + esc(who.letter) + "</span>" +
+      '<span class="who"><span class="name">' + esc(who.dog) + "</span>" +
+      (who.nick ? '<span class="sub">' + esc(who.nick) + "</span>" : "") +
+      (addr ? '<span class="sub">' + esc(addr) + "</span>" : "") +
+      "</span>" + pillOf(seg) + "</button>";
+  }
+
+  function openRow(c, index, source) {
+    if (!c) return;
+    var who = splitWho(c);
+    var ot = logic().resolveOrderType(c);
+    var seg = c.segment || logic().orderTypeToSegment(ot) || "";
+    var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
+    var lead = [esc(seg), esc(c.address || ""), esc(price)].filter(Boolean).join("<br>");
+    var html = (who.nick ? '<p class="sheet-lead">' + esc(who.nick) + "</p>" : "") +
+      (lead ? '<p class="sheet-lead">' + lead + "</p>" : "") +
+      '<button type="button" class="sheet-act" data-act="wedit" data-i="' + index + '" data-src="' + source + '">Править</button>' +
+      '<button type="button" class="sheet-act" data-act="wmove" data-i="' + index + '" data-src="' + source + '">Перенести</button>';
     if (ot === "pp") {
-      var cur = Number(c.deliverySlot) || 0;
-      slot = '<div class="b-row" style="margin-top:8px">' +
-        '<button type="button" class="b-chip' + (cur === 1 ? " b-chip--on" : "") + '" data-act="wslot" data-i="' + index + '" data-src="' + source + '" data-slot="1">ПП 1</button>' +
-        '<button type="button" class="b-chip' + (cur === 2 ? " b-chip--on" : "") + '" data-act="wslot" data-i="' + index + '" data-src="' + source + '" data-slot="2">ПП 2</button></div>';
+      html += '<button type="button" class="sheet-act" data-act="wslot" data-i="' + index + '" data-src="' + source + '" data-slot="1">Слот ПП 1</button>' +
+        '<button type="button" class="sheet-act" data-act="wslot" data-i="' + index + '" data-src="' + source + '" data-slot="2">Слот ПП 2</button>';
     }
-    var pick = "";
-    if (view.selectOn && source === "week") {
-      var on = view.picked[index] ? " b-chip--on" : "";
-      pick = '<button type="button" class="b-chip' + on + '" data-act="wpick" data-i="' + index + '">' + (view.picked[index] ? "Выбран" : "Выбрать") + "</button>";
+    if (source === "month") {
+      html += '<button type="button" class="sheet-act" data-act="wstage" data-i="' + index + '">В черновик</button>';
     }
-    var stage = source === "month"
-      ? '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wstage" data-i="' + index + '">В черновик</button>'
-      : "";
-    return '<article class="b-card" style="margin-bottom:8px">' +
-      '<p class="b-li__title" style="margin:0">' + esc(c.name || "Без имени") + badge + "</p>" +
-      (sub ? '<p class="b-li__sub">' + esc(sub) + "</p>" : "") +
-      (line ? '<p class="b-note">' + esc(line) + "</p>" : "") +
-      gap + noteHtml + slot +
-      '<div class="nx-actions" style="margin-top:8px">' + pick +
-      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wedit" data-i="' + index + '" data-src="' + source + '">Править</button>' +
-      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wmove" data-i="' + index + '" data-src="' + source + '">Перенести</button>' +
-      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wdel" data-i="' + index + '" data-src="' + source + '">Удалить</button>' +
-      stage + "</div></article>";
+    html += '<button type="button" class="sheet-act danger" data-act="wdel" data-i="' + index + '" data-src="' + source + '">Удалить</button>';
+    sh().openSheet({ title: who.dog, html: html, id: "order-row" });
   }
 
   function banners() {
     var b = view.banner;
-    if (!b || view.role !== "owner") return "";
-    var html = "";
-    if (b.showFinish) {
-      html += '<div class="b-card" style="margin-bottom:12px"><p class="b-li__title" style="margin:0">Завершить неделю?</p>' +
-        '<p class="b-note">Только владелец. Повторное нажатие, пока идёт закрытие, ничего не запускает.</p>' +
-        '<div class="nx-actions" style="margin-top:8px">' +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wfin-hide">Уже завершили — скрыть</button>' +
-        '<button type="button" class="b-btn b-btn--main b-btn--sm" data-act="wfin"' + (finish && finish.busy() ? " disabled" : "") + ">Завершить неделю</button>" +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wfin-later">Позже</button></div></div>';
-    }
-    if (b.showPull) {
-      html += '<div class="b-card" style="margin-bottom:12px"><p class="b-li__title" style="margin:0">Подтянуть из месяца</p>' +
-        '<div class="nx-actions" style="margin-top:8px">' +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wpull">Подтянуть Пн–Вс</button>' +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wpull-hide">Уже подтянули — скрыть</button></div></div>';
-    }
-    return html;
+    if (!b || view.role !== "owner" || !b.showFinish) return "";
+    return '<div class="banner"><span>Неделя ещё открыта</span>' +
+      '<button type="button" class="linkish" data-act="wfin"' + (finish && finish.busy() ? " disabled" : "") + ">Завершить</button></div>";
+  }
+
+  function overviewMap() {
+    var map = {};
+    var days = (view.overview && view.overview.days) || [];
+    days.forEach(function (d) {
+      var iso = String(d.dateIso || d.date || "").slice(0, 10);
+      if (iso) map[iso] = d;
+    });
+    return map;
   }
 
   function monthCal() {
@@ -156,18 +164,54 @@
     var first = new Date(y, m, 1);
     var start = (first.getDay() + 6) % 7;
     var days = new Date(y, m + 1, 0).getDate();
-    var names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-    var html = '<div class="b-row" style="margin-bottom:8px"><button type="button" class="b-chip" data-act="wcal-shift" data-dir="-1">‹</button>' +
-      '<span class="b-grow" style="text-align:center">' + esc(first.toLocaleString("ru-RU", { month: "long", year: "numeric" })) + "</span>" +
-      '<button type="button" class="b-chip" data-act="wcal-shift" data-dir="1">›</button></div><div class="nx-cal">';
-    names.forEach(function (n) { html += '<span class="b-note" style="text-align:center">' + n + "</span>"; });
-    for (var i = 0; i < start; i++) html += "<span></span>";
+    var names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+    var by = overviewMap();
+    var monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+    var shortM = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    var html = '<div class="cal-head b-row"><button type="button" class="b-ib" data-act="wcal-shift" data-dir="-1" aria-label="Предыдущий месяц">‹</button>' +
+      '<h2 class="b-grow" style="text-align:center;margin:0;font-size:18px">' + esc(monthNames[m] + " " + y) + "</h2>" +
+      '<button type="button" class="b-ib" data-act="wcal-shift" data-dir="1" aria-label="Следующий месяц">›</button></div>';
+    html += '<div class="wd" aria-hidden="true">' + names.map(function (n) { return "<span>" + n + "</span>"; }).join("") + "</div>";
+    html += '<div class="nx-cal grid">';
+    for (var i = 0; i < start; i++) html += '<span class="cell cell--pad"></span>';
+    var busy = 0;
+    var people = 0;
+    var sel = null;
     for (var d = 1; d <= days; d++) {
       var cur = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-      var on = cur === view.date ? ' aria-pressed="true"' : "";
-      html += '<button type="button" data-act="wcal" data-date="' + cur + '"' + on + ">" + d + "</button>";
+      var hit = by[cur];
+      var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
+      if (n > 0) { busy++; people += n; }
+      if (cur === view.date) sel = { n: n, segs: (hit && hit.segments) || {}, d: d };
+      var dots = "";
+      var segs = (hit && hit.segments) || {};
+      if (n && segs["ПП"]) dots += '<i class="dot dot-pp"></i>';
+      if (n && segs["БП"]) dots += '<i class="dot dot-bp"></i>';
+      if (n && segs["Р"]) dots += '<i class="dot dot-r"></i>';
+      if (n && segs["ПАРТНЁР"]) dots += '<i class="dot dot-p"></i>';
+      var cls = "cell" + (n ? " cell--busy" : "") + (n >= logic().FULL_FROM ? " is-full" : "") + (cur === view.date ? " is-on" : "");
+      var label = d + " " + monthNames[m] + (n ? ", " + n + " чел." : ", никого") + (n >= logic().FULL_FROM ? ", полный день" : "");
+      html += '<button type="button" class="' + cls + '" data-act="wcal" data-date="' + cur + '" aria-label="' + esc(label) + '"' +
+        (cur === view.date ? ' aria-pressed="true"' : "") + ">" +
+        '<span class="cell-date">' + d + "</span>" +
+        (n ? '<span class="cell-count">' + n + "</span>" : "") +
+        (dots ? '<span class="dots">' + dots + "</span>" : "") + "</button>";
     }
     html += "</div>";
+    var aside = "";
+    if (sel) {
+      var bits = [];
+      if (sel.segs["ПП"]) bits.push("ПП " + sel.segs["ПП"]);
+      if (sel.segs["БП"]) bits.push("БП " + sel.segs["БП"]);
+      if (sel.segs["Р"]) bits.push("розница " + sel.segs["Р"]);
+      if (sel.segs["ПАРТНЁР"]) bits.push("партнёр " + sel.segs["ПАРТНЁР"]);
+      aside = sel.d + " " + shortM[m] + (bits.length ? ", " + bits.join(", ") : "");
+    }
+    html += '<div class="sum"><div class="sum-line"><span><span class="num">' + (sel ? sel.n : 0) + "</span> чел.</span>" +
+      (aside ? '<span class="sum-aside">' + esc(aside) + "</span>" : "") + "</div>" +
+      '<div class="sum-foot">' + busy + ' дн. с записями, всего <span class="num" style="font-size:15px">' + people + "</span> чел.</div>" +
+      '<div class="legend"><span><i class="dot dot-pp"></i>ПП</span><span><i class="dot dot-bp"></i>БП</span><span><i class="dot dot-r"></i>розница</span><span><i class="dot dot-p"></i>партнёр</span>' +
+      '<span class="b-note">черта сверху — полный день, от 12 человек</span></div></div>';
     return html;
   }
 
@@ -176,40 +220,36 @@
     return !!root.__nxWeekVisible();
   }
 
+  function dayRows() {
+    var html = "";
+    var listed = false;
+    view.monthClients.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "month"); });
+    if (view.calendarOnly || !view.monthClients.length) {
+      view.weekClients.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "week"); });
+    }
+    if (!listed && !view.loading) {
+      html += sh().empty({ icon: "doc", title: "Заказов нет", text: view.date ? "На эту дату пусто." : "Выберите день.", action: "" });
+    }
+    return html;
+  }
+
   function paint() {
     if (!weekOnScreen()) return;
     var html = '<div id="nxSegs" class="b-seg" style="margin-bottom:16px"></div>';
-    if (view.loading) html += sh().skeleton(4);
-    else if (view.error) html += sh().errorBox({ title: "Не удалось загрузить заказы", text: view.error, act: "wretry" });
-    else if (view.seg === "month") {
-      html += monthCal();
-      if (view.monthClients.length && !view.calendarOnly) {
-        html += '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wstage-all" style="margin-bottom:8px">Все в черновик</button>';
-      }
-      html += '<p class="b-lbl">День</p>';
-      if (!view.monthClients.length && !view.weekClients.length) {
-        html += sh().empty({ icon: "doc", title: "Заказов нет", text: view.date ? "На эту дату пусто." : "Выберите день.", action: "" });
-      }
-      view.monthClients.forEach(function (c, i) { html += card(c, i, "month"); });
-      if (view.calendarOnly) view.weekClients.forEach(function (c, i) { html += card(c, i, "week"); });
+    html += banners();
+    if (view.loading && !view.monthClients.length && !view.weekClients.length && !(view.overview && (view.overview.days || []).length)) {
+      html += sh().skeleton(4);
+    } else if (view.error && !view.monthClients.length && !view.weekClients.length) {
+      html += sh().errorBox({ title: "Не удалось загрузить заказы", text: view.error, act: "wretry" });
     } else {
-      html += banners();
-      html += '<p class="b-lbl">День · заказов на день</p>' + dayStrip();
-      html += '<div class="b-row" style="margin:8px 0"><button type="button" class="b-chip" data-act="wrefresh">Обновить</button>' +
-        '<button type="button" class="b-chip" data-act="wselect">' + (view.selectOn ? "Снять выбор" : "Выбрать") + "</button></div>";
-      html += '<p class="b-lbl">Неделя</p>';
-      if (!view.weekClients.length) html += sh().empty({ icon: "doc", title: "Заказов нет", text: "На этот день список пуст.", action: '<button class="b-btn b-btn--sec" type="button" data-act="go-new">+ Новый заказ</button>' });
-      view.weekClients.forEach(function (c, i) { html += card(c, i, "week"); });
-      if (view.monthClients.length) {
-        html += '<p class="b-lbl">Из месяца</p>';
-        if (!view.calendarOnly) html += '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wstage-all" style="margin-bottom:8px">Все в черновик</button>';
-        view.monthClients.forEach(function (c, i) { html += card(c, i, "month"); });
-      }
+      html += monthCal();
+      html += dayRows();
       if (view.drafts.length) {
         html += '<p class="b-lbl">Черновик переносов</p>';
         view.drafts.forEach(function (c, i) {
-          html += '<div class="b-card" style="margin-bottom:8px"><p class="b-li__title" style="margin:0">' + esc(c.name) + "</p>" +
-            '<p class="b-note">' + esc([c.segment || c.orderType, c.ppPartner, c.address, c.phone].filter(Boolean).join(" · ") || "дополните тип и адрес") + "</p>" +
+          var who = splitWho(c);
+          html += '<div class="b-card" style="margin-bottom:8px"><p class="b-li__title" style="margin:0">' + esc(who.dog) + (who.nick ? " " + esc(who.nick) : "") + "</p>" +
+            '<p class="b-note">' + esc([c.address, c.phone].filter(Boolean).join(", ") || "дополните адрес и телефон") + "</p>" +
             '<button type="button" class="nx-link" data-act="wfill" data-i="' + i + '">Дополнить</button> ' +
             '<button type="button" class="nx-link" data-act="wunstage" data-i="' + i + '">Вернуть</button></div>';
         });
@@ -234,7 +274,7 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="wbatch-del">Удалить</button></div></div>');
       return;
     }
-    sh().dock("");
+    sh().dock('<div class="b-dock__act"><button type="button" class="b-btn b-btn--main" data-act="go-new">Новый заказ</button></div>');
   }
 
   function clientAt(src, index) {
@@ -280,42 +320,49 @@
     view.banner = { showFinish: decided.showFinish, showPull: decided.showPull };
   }
 
+  async function loadOverview(month) {
+    var res = await api().apiGet({ action: "getMonthOverview", month: month }, { timeoutMs: 18000, cacheTtlMs: 20000 });
+    if (res && (res.days || res.status === "success")) view.overview = res;
+  }
+
   async function load(opts) {
     opts = opts || {};
-    view.loading = true;
-    view.error = "";
-    paint();
+    var hadList = view.monthClients.length || view.weekClients.length || (view.overview && (view.overview.days || []).length);
+    if (!hadList) {
+      view.loading = true;
+      view.error = "";
+      paint();
+    }
     try {
-      if (!view.counts.length || opts.force) await loadCounts();
-      var compare = { action: "getViewCompare", force: "1", _: String(Date.now()) };
-      if (view.seg === "month" && view.date && !view.day) compare.date = view.date;
+      var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
+      var compare = { action: "getViewCompare" };
+      if (opts.force) compare.force = "1";
+      if (view.date) compare.date = view.date;
       else if (view.day) compare.day = view.day;
-      else if (view.date) compare.date = view.date;
-      var res = await api().apiGet(compare, { timeoutMs: 18000, cacheTtlMs: 0 });
-      var week = [];
-      var month = [];
+      var ttl = opts.force ? 0 : 20000;
+      var parts = await Promise.all([
+        loadCounts().catch(function () {}),
+        api().apiGet(compare, { timeoutMs: 18000, cacheTtlMs: ttl }),
+        loadBanners().catch(function () {}),
+        loadOverview(month).catch(function () {})
+      ]);
+      var res = parts[1];
+      var week = view.weekClients;
+      var monthClients = view.monthClients;
       if (res && res.status === "success") {
         week = Array.isArray(res.week) ? res.week : [];
-        month = Array.isArray(res.month) ? res.month : [];
+        monthClients = Array.isArray(res.month) ? res.month : [];
         view.resolvedDay = res.day || view.day || "";
         view.calendarOnly = !!(view.date && !res.day && res.dateNotInWeek);
         if (res.dateIso && !view.date) view.date = isoFromDmy(res.dateIso);
-        if (!week.length && view.day && !view.calendarOnly) {
-          var wr = await api().apiGet({ action: "getClients", day: view.resolvedDay || view.day, force: "1", _: String(Date.now()) }, { timeoutMs: 22000, cacheTtlMs: 0 });
-          if (wr && wr.status === "success" && Array.isArray(wr.clients)) week = wr.clients;
-        }
-        if (view.date && (!month.length || view.calendarOnly)) {
-          var cr = await api().apiGet({ action: "getClients", date: view.date, force: "1", _: String(Date.now()) }, { timeoutMs: 18000, cacheTtlMs: 0 });
-          if (cr && cr.status === "success" && Array.isArray(cr.clients) && cr.clients.length) month = cr.clients;
-        }
-      } else {
+        view.error = "";
+      } else if (!hadList) {
         view.error = (res && res.message) || "Нет ответа";
       }
       view.weekClients = week;
-      view.monthClients = month;
-      await loadBanners();
+      view.monthClients = monthClients;
     } catch (e) {
-      view.error = (e && e.message) || "Нет связи";
+      if (!hadList) view.error = (e && e.message) || "Нет связи";
     }
     view.loading = false;
     paint();
@@ -379,7 +426,8 @@
         ? "Убрать «" + c.name + "» из календаря на " + (view.date || "эту дату") + "?"
         : "Удалить «" + c.name + "» из этого дня?",
       ok: "Удалить",
-      cancel: "Отмена"
+      cancel: "Отмена",
+      danger: true
     });
     if (!ok) return;
     var params = logic().deleteParams({
@@ -637,6 +685,7 @@
       paint();
       return true;
     }
+    if (act === "wrow") { openRow(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i"))), Number(node.getAttribute("data-i")), node.getAttribute("data-src")); return true; }
     if (act === "wedit") { openEdit(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i")))); return true; }
     if (act === "wmove") { moveOne(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i")))); return true; }
     if (act === "wdel") { delOne(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i")))); return true; }
@@ -763,11 +812,11 @@
   }
 
   function show(seg, role) {
-    view.seg = seg === "month" ? "month" : "week";
+    view.seg = "month";
     view.role = role || view.role;
-    if (!view.calCursor) view.calCursor = new Date().toISOString().slice(0, 8) + "01";
-    if (view.seg === "week" && !view.day) view.day = "Среда";
-    load({ force: !view.weekClients.length });
+    if (!view.date) view.date = new Date().toISOString().slice(0, 10);
+    if (!view.calCursor) view.calCursor = view.date.slice(0, 8) + "01";
+    load({ force: !view.monthClients.length && !view.weekClients.length });
     paint();
   }
 
@@ -785,9 +834,12 @@
     segment: function () { return view.seg; },
     setSegs: function (fn) { segsFn = fn; },
     contextLine: function () {
-      if (view.seg === "month") return view.date || "Месяц";
-      var it = countOf(view.day);
-      return (shortDay(view.day) || "") + (it && it.date ? " " + it.date : "") + (it ? " · " + it.count : "");
+      var n = (view.monthClients || []).length || (view.weekClients || []).length;
+      if (!view.date) return n ? (n + " чел.") : "Месяц";
+      var p = String(view.date).split("-");
+      var months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+      var bit = (p.length === 3 ? (Number(p[2]) + " " + (months[Number(p[1]) - 1] || "")) : view.date);
+      return bit + (n ? ", " + n + " чел." : "");
     }
   };
 })(window);

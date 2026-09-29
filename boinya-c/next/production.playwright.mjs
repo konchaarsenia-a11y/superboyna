@@ -138,7 +138,7 @@ async function main() {
   await overflow(a.page, "card");
   await shot(a.page, "next-treat-card.png");
 
-  await a.page.getByRole("button", { name: "Производство" }).click();
+  await a.page.getByRole("button", { name: "Цех" }).click();
   await a.page.getByRole("button", { name: "Начать нарезку" }).waitFor();
   const prodSub = await a.page.locator("body").innerText();
   if (/Этот раздел пока в старой версии/.test(prodSub)) throw new Error("prod stub");
@@ -150,7 +150,7 @@ async function main() {
   await overflow(a.page, "asm");
   await shot(a.page, "next-assembly.png");
   await a.page.getByRole("button", { name: "Маршрут" }).click();
-  await a.page.getByText("Рекс · Анна").waitFor();
+  await a.page.getByText("Рекс").first().waitFor();
   await a.page.getByRole("button", { name: "Собрать маршруты" }).click();
   await a.page.getByText(/Курьер 1/).waitFor({ timeout: 20000 });
   await overflow(a.page, "route");
