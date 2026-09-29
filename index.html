@@ -5,7 +5,7 @@
   <title>Бойня → next</title>
   <script>
     (function () {
-      var fallback = "boinya-c/next.html?cutover=1&v=71116018";
+      var fallback = "boinya-c/next.html?cutover=1&v=71116019";
       try {
         var u = new URL(location.href);
         var q = new URLSearchParams(u.search);
@@ -13,11 +13,11 @@
         if (q.get("legacy") !== "1" && q.get("sandbox") !== "1" && q.get("cutover") !== "0" && q.get("cutover") !== "1" && q.get("mode") !== "live" && q.get("live") !== "1") {
           q.set("cutover", "1");
         }
-        if (!q.get("v")) q.set("v", "71116018");
+        if (!q.get("v")) q.set("v", "71116019");
         location.replace(file + "?" + q.toString() + (u.hash || ""));
       } catch (e) {
         if (/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
-          location.replace("boinya-c/app.html?legacy=1&cutover=1&v=71116018" + (location.hash || ""));
+          location.replace("boinya-c/app.html?legacy=1&cutover=1&v=71116019" + (location.hash || ""));
         } else {
           location.replace(fallback + (location.hash || ""));
         }
@@ -26,6 +26,6 @@
   </script>
 </head>
 <body>
-  <p><a href="boinya-c/next.html?cutover=1&v=71116018">Открыть Бойню</a></p>
+  <p><a href="boinya-c/next.html?cutover=1&v=71116019">Открыть Бойню</a></p>
 </body>
 </html>

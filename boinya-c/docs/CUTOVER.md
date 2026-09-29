@@ -2,17 +2,17 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115920
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71116019
 
 Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
 В Telegram Menu Button (бот Бойни, не @GOODBOY_LG) любая из этих ссылок открывает `next.html` и сохраняет hash с initData:
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71116019`
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1&v=71116019`
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/index.html`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/index.html?v=71116019`
 
 Старый интерфейс: тот же адрес с `?legacy=1`. Файл `boinya-c/app.html` не удалён.
 
