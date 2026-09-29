@@ -19,7 +19,7 @@ function scriptOf(html) {
   return m[1];
 }
 
-function run(src, href) {
+function run(src, href, opt) {
   var u = new URL(href);
   var replaced = null;
   var location = {
@@ -33,7 +33,7 @@ function run(src, href) {
     }
   };
   vm.runInNewContext(src, { location: location, URL: URL, URLSearchParams: URLSearchParams });
-  assert.ok(replaced, "location.replace called for " + href);
+  if (!opt || !opt.allowStay) assert.ok(replaced, "location.replace called for " + href);
   return replaced;
 }
 
@@ -51,7 +51,31 @@ assert.ok(worker.indexOf("/varka/app.html") > 0, "Varka route untouched");
 
 var legacy = read("boinya-c/app.html");
 assert.ok(legacy.indexOf("app.main.js") > 0, "old shell stays");
-assert.ok(!/location\.replace\([^)]*next\.html/.test(legacy), "old shell is not a redirect");
+
+var fromShell = run(
+  scriptOf(legacy),
+  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1&xfer=abc#tgWebAppData=TOKEN"
+);
+assert.ok(fromShell.indexOf("next.html?") === 0, fromShell);
+assert.ok(fromShell.indexOf("cutover=1") > 0, fromShell);
+assert.ok(fromShell.indexOf("xfer=abc") > 0, fromShell);
+assert.ok(fromShell.indexOf("#tgWebAppData=TOKEN") > 0, fromShell);
+
+var stayShell = run(
+  scriptOf(legacy),
+  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?legacy=1&cutover=1#tgWebAppData=OLD",
+  { allowStay: true }
+);
+assert.strictEqual(stayShell, null);
+
+var folderLegacy = run(
+  scriptOf(read("boinya-c/index.html")),
+  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?legacy=1&cutover=1#tgWebAppData=OLD"
+);
+assert.ok(folderLegacy.indexOf("app.html?") === 0, folderLegacy);
+assert.ok(folderLegacy.indexOf("legacy=1") > 0, folderLegacy);
+assert.ok(folderLegacy.indexOf("next.html") < 0, folderLegacy);
+assert.ok(folderLegacy.indexOf("#tgWebAppData=OLD") > 0, folderLegacy);
 
 var folder = run(
   scriptOf(read("boinya-c/index.html")),
@@ -97,13 +121,14 @@ var reset = read("boinya-c/reset.html");
 assert.ok(reset.indexOf("./next.html?") > 0, "reset opens next");
 assert.ok(reset.indexOf("u.hash") > 0, "reset keeps hash");
 assert.ok(reset.indexOf("new URLSearchParams(u.search)") > 0, "reset keeps query");
-assert.ok(reset.indexOf("./app.html") < 0, "reset no longer opens old shell");
+assert.ok(reset.indexOf('"./app.html?"') > 0, "reset legacy opens old shell");
+assert.ok(reset.indexOf('q.get("legacy") === "1"') > 0, "reset legacy gate");
 
 var prod = read("boinya-c/next/production.js");
 assert.ok(prod.indexOf("function courBadge") > 0);
 assert.ok(prod.indexOf('action: "getAssembly"') > 0);
 assert.ok(prod.indexOf("overlayCour(list, asmClients)") > 0);
-assert.ok(prod.indexOf("(badge ? \" · \" + badge : \"\")") > 0);
+assert.ok(prod.indexOf("badgeText") > 0, "courier badge from #390");
 var main = read("boinya-c/app.main.js");
 assert.ok(main.indexOf("function courierAsmBadgeHtml_") > 0);
 assert.ok(read("boinya-c/next.html").indexOf("courier-asm.js") > 0);

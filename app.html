@@ -12,9 +12,11 @@
       try {
         var u = new URL(location.href);
         if (u.pathname.indexOf("/boinya-c/") >= 0) return;
-        var destPath = u.pathname.replace(/\/app\.html$/i, "/boinya-c/next.html");
+        var q0 = new URLSearchParams(u.search);
+        var file = q0.get("legacy") === "1" ? "/boinya-c/app.html" : "/boinya-c/next.html";
+        var destPath = u.pathname.replace(/\/app\.html$/i, file);
         if (destPath === u.pathname) {
-          destPath = u.pathname.replace(/\/?$/, "/") + "boinya-c/next.html";
+          destPath = u.pathname.replace(/\/?$/, "/") + file.replace(/^\//, "");
         }
         var dest = u.origin + destPath;
         var q = new URLSearchParams(u.search);
@@ -23,7 +25,8 @@
         q.set("_from", "legacy-app");
         location.replace(dest + "?" + q.toString() + (u.hash || ""));
       } catch (e) {
-        location.replace("./boinya-c/next.html?cutover=1&v=71116018" + (location.hash || ""));
+        var legacy = /[?&]legacy=1(?:&|$)/.test(location.search || "");
+        location.replace((legacy ? "./boinya-c/app.html?legacy=1&cutover=1&v=71116018" : "./boinya-c/next.html?cutover=1&v=71116018") + (location.hash || ""));
       }
     })();
   </script>

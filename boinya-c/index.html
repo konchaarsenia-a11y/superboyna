@@ -28,6 +28,10 @@
       try {
         var u = new URL(location.href);
         var q = new URLSearchParams(u.search);
+        if (q.get("legacy") === "1") {
+          location.replace("app.html?" + q.toString() + (u.hash || ""));
+          return;
+        }
         if (!q.get("v")) q.set("v", ver);
         var sand = q.get("sandbox") === "1" || q.get("cutover") === "0";
         if (!sand && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
@@ -35,7 +39,11 @@
         }
         location.replace("next.html?" + q.toString() + (u.hash || ""));
       } catch (e) {
-        location.replace("next.html?cutover=1&v=" + ver + (location.hash || ""));
+        if (/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
+          location.replace("app.html?legacy=1&cutover=1&v=" + ver + (location.hash || ""));
+        } else {
+          location.replace("next.html?cutover=1&v=" + ver + (location.hash || ""));
+        }
       }
     })();
   </script>

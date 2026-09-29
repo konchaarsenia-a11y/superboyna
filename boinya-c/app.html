@@ -5,6 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
+  <script>
+    /* BotFather может открывать этот файл. Старый интерфейс только при ?legacy=1. Hash (initData) сохраняется. */
+    (function () {
+      try {
+        var u = new URL(location.href);
+        if (u.searchParams.get("legacy") === "1") return;
+        var q = new URLSearchParams(u.search);
+        if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
+          q.set("cutover", "1");
+        }
+        if (!q.get("v")) q.set("v", "71116018");
+        location.replace("next.html?" + q.toString() + (u.hash || ""));
+      } catch (e) {
+        if (!/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
+          location.replace("next.html?cutover=1&v=71116018" + (location.hash || ""));
+        }
+      }
+    })();
+  </script>
   <link rel="preload" href="app.main.js?v=71116018" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */

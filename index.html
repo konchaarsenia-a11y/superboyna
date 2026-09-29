@@ -9,13 +9,18 @@
       try {
         var u = new URL(location.href);
         var q = new URLSearchParams(u.search);
-        if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && q.get("cutover") !== "1" && q.get("mode") !== "live" && q.get("live") !== "1") {
+        var file = q.get("legacy") === "1" ? "boinya-c/app.html" : "boinya-c/next.html";
+        if (q.get("legacy") !== "1" && q.get("sandbox") !== "1" && q.get("cutover") !== "0" && q.get("cutover") !== "1" && q.get("mode") !== "live" && q.get("live") !== "1") {
           q.set("cutover", "1");
         }
         if (!q.get("v")) q.set("v", "71116018");
-        location.replace("boinya-c/next.html?" + q.toString() + (u.hash || ""));
+        location.replace(file + "?" + q.toString() + (u.hash || ""));
       } catch (e) {
-        location.replace(fallback + (location.hash || ""));
+        if (/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
+          location.replace("boinya-c/app.html?legacy=1&cutover=1&v=71116018" + (location.hash || ""));
+        } else {
+          location.replace(fallback + (location.hash || ""));
+        }
       }
     })();
   </script>
