@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116014";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116017";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -5459,9 +5459,9 @@
         }
         return new Promise(function (resolve, reject) {
           var cb = "cb_" + Math.round(Math.random() * 1e9);
+          var settled = false;
           var timer = setTimeout(function () {
-            cleanup();
-            reject(new Error("Таймаут ответа сервера"));
+            fail_(new Error("Таймаут ответа сервера"));
           }, timeoutMs);
           function cleanup() {
             clearTimeout(timer);
@@ -5469,7 +5469,15 @@
             var s = document.getElementById(cb);
             if (s && s.parentNode) s.parentNode.removeChild(s);
           }
-          window[cb] = function (res) {
+          function fail_(err) {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(err);
+          }
+          function ok_(res) {
+            if (settled) return;
+            settled = true;
             cleanup();
             if (cacheKey && cacheTtlMs > 0) {
               var packed = { exp: Date.now() + cacheTtlMs, res: res };
@@ -5477,6 +5485,9 @@
               try { apiSsSaveKey_(cacheKey, packed); } catch (eSs3) {}
             }
             resolve(res);
+          }
+          window[cb] = function (res) {
+            ok_(res);
           };
           var q = Object.keys(params).filter(function (k) {
             var v = params[k];
@@ -5484,9 +5495,10 @@
           }).map(function (k) {
             return k + "=" + encodeURIComponent(params[k]);
           }).join("&");
-          // finishFullWeek и т.п.: напрямую в GAS — Worker CF рвёт долгие запросы (~30с)
+          // materializeWeek: напрямую в GAS — Worker CF рвёт долгие запросы (~30с).
+          // finishFullWeek идёт в Worker: старт только ставит триггер и сразу отвечает.
           var baseUrl = GOOGLE_WEBHOOK_URL;
-          if (opts.directGas || action === "finishFullWeek" || action === "materializeWeek") {
+          if (opts.directGas || action === "materializeWeek") {
             baseUrl = GOOGLE_WEBHOOK_ORIGIN;
           }
           var script = document.createElement("script");
@@ -5494,8 +5506,15 @@
           script.async = true;
           script.src = baseUrl + "?" + q + "&callback=" + cb;
           script.onerror = function () {
-            cleanup();
-            reject(new Error("Ошибка сети"));
+            fail_(new Error("Ошибка сети"));
+          };
+          // HTML-страница ошибки GAS (200) не вызывает callback и в WebView часто молчит onerror
+          script.onload = function () {
+            setTimeout(function () {
+              if (!settled && window[cb]) {
+                fail_(new Error("Сервер вернул не ответ, а страницу ошибки"));
+              }
+            }, 50);
           };
           (document.head || document.body).appendChild(script);
         });
@@ -15511,6 +15530,16 @@
     const FINISH_DONE_LS = "superboyna_finish_done_";
     const FINISH_REAL_LS = "superboyna_finish_real_"; // только после успешного finishFullWeek
     const FINISH_HIDE_LS = "superboyna_finish_hide_"; // «Уже завершили — скрыть»
+    const FINISH_PENDING_LS = "superboyna_finish_pending_"; // старт не подтвердился: не жать второй раз 8 мин
+    function finishPendingActive_(wk) {
+      try { return Number(localStorage.getItem(FINISH_PENDING_LS + wk) || 0) > Date.now(); } catch (eP) { return false; }
+    }
+    function markFinishPending_(wk) {
+      try { localStorage.setItem(FINISH_PENDING_LS + wk, String(Date.now() + 8 * 60 * 1000)); } catch (eP2) {}
+    }
+    function clearFinishPending_(wk) {
+      try { localStorage.removeItem(FINISH_PENDING_LS + wk); } catch (eP3) {}
+    }
     let subsSegment = "ПП";
     var bpListFilter = "all";
     var bpEditMode = false;
@@ -15798,7 +15827,7 @@
         _weekBannerInflight = (async function () {
           try {
             var st = await apiGet(
-              { action: "getWeekBannerState", weekKey: wk },
+              { action: "getWeekBannerState", weekKey: wk, force: "1" },
               { timeoutMs: soft ? 10000 : 12000, retries: soft ? 0 : 1 }
             );
             _weekBannerFetchedAt = Date.now();
@@ -15815,9 +15844,10 @@
             }
           } catch (eGet) {
             if (!_weekBannerFetchedAt) {
+              // Не брать «уже закрыто» из localStorage: пн-утро писало его, когда лист ещё на этой неделе.
               _weekBannerState = {
-                finished: localStorage.getItem(FINISH_REAL_LS + wk) === "1",
-                pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
+                finished: false,
+                pulled: false,
                 refused: false,
                 weekKey: wk
               };
@@ -15835,9 +15865,8 @@
       var hidden = localStorage.getItem(FINISH_HIDE_LS + wk) === "1";
       var refused = refuseSnoozeActive_(wk);
 
-      // Пн утро: лист уже на календарном Пн (только что закрыли) → считать закрытой,
-      // даже если кто-то снёс серверный finished:0 в том же окне. Не на вс — иначе
-      // кнопка «Завершить» не появится всю неделю (лист Пн == weekKey).
+      // Понедельник листа. Равен текущей неделе и до закрытия, и в пн после закрытия.
+      // «Уже закрыто» только если он СТРОГО впереди календаря (сдвиг +7 уже случился).
       var sheetMonIso = "";
       try {
         var cntItems =
@@ -15859,40 +15888,19 @@
           }
         }
       } catch (eAdv) {}
-      if (
-        isMondayMorning() &&
-        sheetMonIso &&
-        wk &&
-        sheetMonIso >= String(wk) &&
-        !realClosed
-      ) {
+      var sheetAhead = !!(sheetMonIso && wk && sheetMonIso > String(wk));
+      // Ложный «уже закрыли» с пн-утра (лист == календарный Пн) прятал кнопку всю неделю.
+      // Сервер говорит finished:false и понедельник не уехал — флаги в браузере снимаем, лист не трогаем.
+      if (_weekBannerFetchedAt && !_weekBannerState.finished && !sheetAhead) {
         try {
-          localStorage.setItem(FINISH_REAL_LS + wk, "1");
-          localStorage.setItem(FINISH_DONE_LS + wk, "1");
-          localStorage.setItem(FINISH_HIDE_LS + wk, "1");
-          localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-        } catch (eLsAdv) {}
+          localStorage.removeItem(FINISH_REAL_LS + wk);
+          localStorage.removeItem(FINISH_HIDE_LS + wk);
+          localStorage.removeItem(FINISH_DONE_LS + wk);
+        } catch (eClrFin) {}
+        realClosed = false;
+        hidden = false;
+      } else if (sheetAhead) {
         realClosed = true;
-        var needHealBanner = !_weekBannerState.finished;
-        if (needHealBanner) {
-          _weekBannerState.finished = true;
-          _weekBannerState.pulled = true;
-          _weekBannerState.weekKey = wk;
-          // Восстановить серверный баннер, если его снёс старый wipe
-          try {
-            apiGet(
-              {
-                action: "setWeekBannerState",
-                weekKey: wk,
-                finished: "1",
-                pulled: "1",
-                telegramId: String(myTelegramId || ""),
-                _: String(Date.now())
-              },
-              { timeoutMs: 12000, cacheTtlMs: 0 }
-            ).catch(function () {});
-          } catch (eRest) {}
-        }
       }
 
       // Старый wipe: в окне вс/пн при canFinish слал finished:0 и сносил баннер
@@ -15951,6 +15959,12 @@
       var fwUi = window.__finishWeekUi;
       // во время переноса баннер не прячем/не возвращаем кнопку — держим индикатор
       if (fwUi && fwUi.phase === "running") canFinish = true;
+      if (finishPendingActive_(wk) && !sheetAhead) {
+        canFinish = true;
+        setFinishWeekUi_("running", "Перенос ещё идёт, проверьте позже.\nКнопку не нажимайте.");
+      } else if (sheetAhead) {
+        clearFinishPending_(wk);
+      }
       fin.style.display = canFinish ? "" : "none";
       try { applyFinishWeekProgressUi_(); } catch (eFwUi2) {}
       var showPull = false;
@@ -16116,6 +16130,10 @@
         await uiAlertAsync("Эта неделя уже закрыта. Повторно нельзя.");
         return;
       }
+      if (finishPendingActive_(wkNow)) {
+        await uiAlertAsync("Перенос ещё идёт, проверьте позже. Второй раз неделю не сдвинет.");
+        return;
+      }
       var ok = await uiConfirmAsync(
         "ЗАКРЫТЬ НЕДЕЛЮ на живой таблице?\n\n" +
         "• Склад: остаток F = F+B−расход, приход B=0\n" +
@@ -16155,8 +16173,60 @@
       }
       window.__finishWeekInFlight = true;
       setFinishWeekUi_("running", "Идёт перенос недели… не закрывайте");
-      try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({ realClosed: true }); } catch (eDis) {}
+      try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eDis) {}
       showToast("Закрываем неделю…");
+      function finishWeekPlain_(res) {
+        var msg = (res && res.message) || "finish_failed";
+        if (msg === "owner_only") msg = "Только владелец может закрыть неделю.";
+        if (msg === "auth_required") msg = "Сессия Telegram не подтвердилась. Закройте мини-апп и откройте снова из бота.";
+        if (msg === "need_confirm") msg = "Нет подтверждения.";
+        if (msg === "unknown_action") msg = "Нужен деплой Code.gs с закрытием недели.";
+        if (msg === "week_already_finished") msg = "Неделя уже закрыта — повторно нельзя.";
+        if (msg === "week_finish_busy") msg = "Перенос уже идёт. Второй раз неделю не сдвинет.";
+        if (msg === "week_finish_stale") msg = "Прошлый перенос не подтвердился. Неделя не закрыта.";
+        if (msg === "week_finish_schedule_failed") msg = "Не удалось запустить перенос. Неделя не закрыта.";
+        if (msg === "week_finish_timeout" || msg === "week_finish_unknown") msg = "Перенос ещё идёт, проверьте позже. Кнопку не нажимайте.";
+        if (msg === "cutover_danger_blocked") msg = "Закрытие заблокировано. Обновите мини-апп и повторите.";
+        if (msg === "sandbox_no_prod_week") msg = "Это песочница: боевая неделя не меняется. Откройте без sandbox.";
+        if (msg === "gas_proxy_failed") msg = "Сервер не дошёл до таблицы. Неделя не закрыта.";
+        var tip = res && res.tip ? String(res.tip) : "";
+        if (tip && msg.indexOf(tip) < 0) msg += "\n" + tip;
+        return msg;
+      }
+      function finishWeekFail_(res, netErr) {
+        window.__finishWeekInFlight = false;
+        clearFinishPending_(currentWeekKeyLocal());
+        try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn2) {}
+        var closedAlready = res && res.message === "week_already_finished";
+        var failText = netErr
+          ? ("Перенос не выполнен. " + netErr + "\nНеделя не закрыта, можно повторить.")
+          : ("Не закрылось: " + finishWeekPlain_(res) + (closedAlready ? "" : "\nМожно повторить."));
+        setFinishWeekUi_(closedAlready ? "done" : "error", closedAlready ? "Неделя уже закрыта ✓" : failText);
+        clearFinishWeekUiLater_(closedAlready ? 8000 : 20000);
+        return uiAlertAsync(failText);
+      }
+      async function pollFinishWeek_() {
+        var deadline = Date.now() + 7.5 * 60 * 1000;
+        var started = Date.now();
+        var last = null;
+        while (Date.now() < deadline) {
+          var sec = Math.round((Date.now() - started) / 1000);
+          setFinishWeekUi_("running", "Идёт перенос недели… " + sec + " с\nне закрывайте и не нажимайте снова");
+          try {
+            last = await apiGet({
+              action: "getFinishWeekStatus",
+              telegramId: tid,
+              _: String(Date.now())
+            }, { timeoutMs: 15000, cacheTtlMs: 0, retries: 0 });
+          } catch (ePoll) {
+            last = null;
+          }
+          if (last && last.status === "success" && last.message === "week_closed") return last;
+          if (last && last.status === "error" && last.message && last.message !== "gas_proxy_failed") return last;
+          await new Promise(function (r) { setTimeout(r, 4000); });
+        }
+        return { status: "accepted", message: "week_finish_unknown" };
+      }
       var res = null;
       try {
         try { apiCacheBustMem_(); } catch (eClr) {}
@@ -16170,46 +16240,46 @@
         if (window.__BOINYA_C_CUTOVER__) finishPayload.allowDanger = "1";
         res = await apiGet(
           finishPayload,
-          { timeoutMs: 180000, cacheTtlMs: 0, directGas: true }
+          { timeoutMs: 35000, cacheTtlMs: 0, retries: 0 }
         );
       } catch (e1) {
+        markFinishPending_(currentWeekKeyLocal());
+        setFinishWeekUi_("running", "Перенос ещё идёт, проверьте позже.\nКнопку не нажимайте.");
+        var peek = null;
+        try {
+          peek = await apiGet({
+            action: "getFinishWeekStatus",
+            telegramId: tid,
+            _: String(Date.now())
+          }, { timeoutMs: 15000, cacheTtlMs: 0, retries: 0 });
+        } catch (ePeek) {}
+        if (peek && peek.status === "success" && peek.message === "week_closed") {
+          res = peek;
+        } else if (peek && (peek.message === "owner_only" || peek.message === "auth_required" || peek.message === "week_already_finished" || peek.message === "week_finish_schedule_failed" || peek.message === "week_finish_stale")) {
+          await finishWeekFail_(peek, null);
+          return;
+        } else {
+          res = { status: "accepted", message: "week_finish_started" };
+        }
+      }
+      var startMsg = res && res.message;
+      if (res && res.status === "accepted" && (startMsg === "week_finish_started" || startMsg === "week_finish_busy" || startMsg === "week_finish_running")) {
+        res = await pollFinishWeek_();
+      }
+      if (res && res.message === "week_finish_unknown") {
+        markFinishPending_(currentWeekKeyLocal());
         window.__finishWeekInFlight = false;
-        var netMsg = "Ошибка сети: " + (e1 && e1.message ? e1.message : e1);
-        setFinishWeekUi_("error", "Перенос не выполнен. " + netMsg + "\nМожно повторить.");
-        clearFinishWeekUiLater_(20000);
-        try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn) {}
-        await uiAlertAsync(netMsg);
+        setFinishWeekUi_("running", "Перенос ещё идёт, проверьте позже.\nКнопку не нажимайте.");
+        await uiAlertAsync("Перенос ещё идёт, проверьте позже. Кнопку не нажимайте. Если понедельник в заказе всё ещё прежний и прошло больше 8 минут — можно нажать ещё раз.");
         return;
       }
-      if (!res || res.status !== "success") {
-        window.__finishWeekInFlight = false;
-        setFinishWeekUi_(null);
-        try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn2) {}
-        var msg = (res && res.message) || "finish_failed";
-        if (msg === "owner_only") msg = "Только владелец (Deploy Code.gs + доступ owner).";
-        if (msg === "need_confirm") msg = "Нет подтверждения.";
-        if (msg === "unknown_action") msg = "Нужен Deploy Code.gs с action finishFullWeek.";
-        if (msg === "week_already_finished") {
-          msg = "Неделя уже закрыта — повторно нельзя." + (res && res.tip ? ("\n" + res.tip) : "");
-          try { localStorage.setItem(FINISH_REAL_LS + currentWeekKeyLocal(), "1"); } catch (eLsFin) {}
-          try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({ realClosed: true }); } catch (eDis2) {}
-        }
-        if (msg === "week_finish_busy") msg = "Закрытие уже идёт. Подожди и не нажимай повторно.";
-        if (msg === "cutover_danger_blocked") {
-          msg = "Cutover заблокировал закрытие. Обнови Mini App (новая версия) и повтори.";
-        }
-        if (msg === "sandbox_no_prod_week") {
-          msg = "Песочница D1 (нет cutover=1): люди в D1 ок, боевые Sheets не меняются. Открой ?cutover=1";
-        }
-        var failText = "Не закрылось: " + msg + (res && res.tip && msg.indexOf(res.tip) < 0 ? ("\n" + res.tip) : "");
-        var closedAlready = (res && res.message) === "week_already_finished";
-        setFinishWeekUi_(closedAlready ? "done" : "error", closedAlready ? "Неделя уже закрыта ✓" : (failText + "\nМожно повторить."));
-        clearFinishWeekUiLater_(closedAlready ? 8000 : 20000);
-        await uiAlertAsync(failText);
+      if (!res || res.status !== "success" || res.message !== "week_closed") {
+        await finishWeekFail_(res, null);
         return;
       }
       setFinishWeekUi_("running", "Неделя перенесена ✓ Обновляю данные… не закрывайте");
       var wk = currentWeekKeyLocal();
+      clearFinishPending_(wk);
       localStorage.setItem(FINISH_REAL_LS + wk, "1");
       localStorage.setItem(FINISH_DONE_LS + wk, "1");
       localStorage.setItem(WEEK_PULL_LS + wk, "pulled");

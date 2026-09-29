@@ -1038,6 +1038,28 @@ function onEdit(e) {
 
 // ===================== Завершить неделю =====================
 
+/** Записать только изменённые ячейки колонки склада, не затирая формулы соседних строк. */
+function flushWarehouseCloseCol_(sheet, colLetter, startRow, values, changed, formulas) {
+  var i = 0;
+  while (i < values.length) {
+    if (!changed[i]) { i++; continue; }
+    var j = i;
+    var anyFormula = !!(formulas[i] && formulas[i][0]);
+    while (j + 1 < values.length && changed[j + 1]) {
+      j++;
+      if (formulas[j] && formulas[j][0]) anyFormula = true;
+    }
+    if (anyFormula || j === i) {
+      for (var k = i; k <= j; k++) {
+        sheet.getRange(colLetter + (startRow + k)).setValue(values[k][0]);
+      }
+    } else {
+      sheet.getRange(colLetter + (startRow + i) + ":" + colLetter + (startRow + j)).setValues(values.slice(i, j + 1));
+    }
+    i = j + 1;
+  }
+}
+
 function finishFullWeekProduction(optSs, optOpts) {
   var opts = optOpts || {};
   var silent = !!opts.silent;
@@ -1139,6 +1161,20 @@ function finishFullWeekProduction(optSs, optOpts) {
     var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
     // один read матрицы на все дни + skip [НЕ РЕЗАТЬ]
     var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
+    // B/D/F склада — одним чтением (поклеточный getValue на каждую строку не укладывался в ответ веб-приложения)
+    var whBF = sheetWarehouse.getRange("B2:F35").getValues();
+    var whBFormulas = sheetWarehouse.getRange("B2:B35").getFormulas();
+    var whFFormulas = sheetWarehouse.getRange("F2:F35").getFormulas();
+    var whBOut = [];
+    var whFOut = [];
+    var whBChanged = [];
+    var whFChanged = [];
+    for (var whi = 0; whi < whBF.length; whi++) {
+      whBOut.push([whBF[whi][0]]);
+      whFOut.push([whBF[whi][4]]);
+      whBChanged.push(false);
+      whFChanged.push(false);
+    }
     var noCutByDayOffset = {};
     for (var nd = 0; nd < weekDaysGeo.length; nd++) {
       var dayBlk = getDayBlock(weekDaysGeo[nd].name || weekDaysGeo[nd].day);
@@ -1169,22 +1205,34 @@ function finishFullWeekProduction(optSs, optOpts) {
           });
         });
         if (wRow <= 35 && wRow !== 10 && (wRow < 15 || wRow > 25)) {
+          var whIdx = wRow - 2;
+          if (whIdx < 0 || whIdx >= whBF.length) continue;
           var dryPlanKg = totalGramsWeek / 1000;
-          var currentLiveCoef = sheetWarehouse.getRange("D" + wRow).getValue() || 0.2;
+          var currentLiveCoef = Number(whBF[whIdx][2]) || 0.2;
           var cuttingSurplusKg = Number(cuttingSurplusValues[cRow - 3][0]) || 0;
           var totalRawSpentKg = dryPlanKg / currentLiveCoef + cuttingSurplusKg;
-          var currentArrival = Number(sheetWarehouse.getRange("B" + wRow).getValue()) || 0;
-          var currentRevision = Number(sheetWarehouse.getRange("F" + wRow).getValue()) || 0;
-          sheetWarehouse.getRange("F" + wRow).setValue(Math.max(0, currentRevision + currentArrival - totalRawSpentKg));
-          sheetWarehouse.getRange("B" + wRow).setValue(0);
+          var currentArrival = Number(whBF[whIdx][0]) || 0;
+          var currentRevision = Number(whBF[whIdx][4]) || 0;
+          whFOut[whIdx][0] = Math.max(0, currentRevision + currentArrival - totalRawSpentKg);
+          whBOut[whIdx][0] = 0;
+          whFChanged[whIdx] = true;
+          whBChanged[whIdx] = true;
         }
       }
     }
 
     // шт-остаток: неделя до Вс → в F берём Остаток Вс (M), не Пт (K)
     var pieceStockValues = sheetWarehouse.getRange("M15:M25").getValues();
-    sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
-    sheetWarehouse.getRange("B15:B25").setValue(0);
+    for (var pi = 0; pi < pieceStockValues.length; pi++) {
+      var pIdx = 15 + pi - 2;
+      if (pIdx < 0 || pIdx >= whFOut.length) continue;
+      whFOut[pIdx][0] = pieceStockValues[pi][0];
+      whBOut[pIdx][0] = 0;
+      whFChanged[pIdx] = true;
+      whBChanged[pIdx] = true;
+    }
+    flushWarehouseCloseCol_(sheetWarehouse, "B", 2, whBOut, whBChanged, whBFormulas);
+    flushWarehouseCloseCol_(sheetWarehouse, "F", 2, whFOut, whFChanged, whFFormulas);
   }
 
   // Указатель недели: A1 Пн +7 (Вт–Вс = формулы =A1+N).
@@ -1364,64 +1412,125 @@ function finishWeekLockKey_(mondayIso) {
   return "WEEK_FINISHED_" + String(mondayIso || "").trim();
 }
 
-function handleFinishFullWeek(json, callback, fromPost) {
+/** Флаг «перенос уже запущен». Сам снимается через 8 минут и лист при этом не двигает. */
+var FINISH_WEEK_JOB_KEY_ = "WEEK_FINISH_JOB";
+var FINISH_WEEK_JOB_STALE_MS_ = 8 * 60 * 1000;
+
+function readFinishWeekJob_() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(FINISH_WEEK_JOB_KEY_) || "";
+    if (!raw) return null;
+    var job = JSON.parse(raw);
+    return job && typeof job === "object" ? job : null;
+  } catch (eJob) {
+    return null;
+  }
+}
+
+function writeFinishWeekJob_(job) {
+  PropertiesService.getScriptProperties().setProperty(FINISH_WEEK_JOB_KEY_, JSON.stringify(job || {}));
+}
+
+function finishWeekJobAgeMs_(job, nowMs) {
+  var t = Date.parse((job && job.startedAt) || "") || 0;
+  if (!t) return FINISH_WEEK_JOB_STALE_MS_ + 1;
+  return (nowMs || Date.now()) - t;
+}
+
+function finishWeekJobActive_(job, nowMs) {
+  if (!job) return false;
+  var st = String(job.state || "");
+  if (st !== "queued" && st !== "running") return false;
+  return finishWeekJobAgeMs_(job, nowMs) < FINISH_WEEK_JOB_STALE_MS_;
+}
+
+function deleteFinishWeekTriggers_() {
+  var n = 0;
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "runScheduledFinishWeek_") {
+      ScriptApp.deleteTrigger(triggers[i]);
+      n++;
+    }
+  }
+  return n;
+}
+
+function scheduleFinishWeekTrigger_() {
+  deleteFinishWeekTriggers_();
+  // after() не меньше минуты: тяжёлое закрытие не висит в HTTP-ответе веб-приложения
+  ScriptApp.newTrigger("runScheduledFinishWeek_").timeBased().after(60 * 1000).create();
+}
+
+function finishWeekSkipWarehouse_(json) {
   json = json || {};
-  var tid = String(json.telegramId || "").trim();
-  var confirm = String(json.confirm || "").trim();
-  if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {
-    var need = { status: "error", message: "need_confirm" };
-    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
-  }
-  if (!actorIsOwner_(tid)) {
-    var forbid = { status: "error", message: "owner_only" };
-    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
-  }
+  return !!(json.skipWarehouseClose === true || json.skipWarehouseClose === "1" || json.skipWarehouseClose === 1 || json.skipWarehouseClose === "true");
+}
+
+function replyFinishWeek_(callback, fromPost, obj) {
+  return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+}
+
+/**
+ * Тяжёлое закрытие вне HTTP: веб-приложение обрывает ответ ~30с, а сдвиг дат
+ * стоит после склада — обрыв оставлял неделю незакрытой и вешал кнопку.
+ * Повторный запуск, пока job свежий, не создаёт второй триггер (+7).
+ */
+function runScheduledFinishWeek_() {
+  var job = readFinishWeekJob_();
+  if (!job || String(job.state || "") !== "queued") return;
   var lock = LockService.getScriptLock();
+  var got = false;
   try {
-    lock.waitLock(30000);
-  } catch (eLock) {
-    var busy = { status: "error", message: "week_finish_busy", tip: "Закрытие уже идёт — подожди и не нажимай повторно." };
-    return fromPost ? jsonpText(callback, busy) : jsonp(callback, busy);
+    lock.waitLock(20000);
+    got = true;
+  } catch (eLockRun) {
+    return;
   }
   try {
+    job = readFinishWeekJob_();
+    if (!job || String(job.state || "") !== "queued") return;
+    job.state = "running";
+    job.runningAt = new Date().toISOString();
+    writeFinishWeekJob_(job);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
     var a1 = sheetMondayDateObj_(ss);
     var a1Key = isoDayKeyMinsk_(a1, tz);
     var calKey = currentWeekKeyServer_();
     var props = PropertiesService.getScriptProperties();
-    var already = null;
+    if (weekAlreadyAdvanced_(ss)) {
+      job.state = "error";
+      job.message = "week_already_finished";
+      job.tip = "Понедельник листа уже " + a1Key + " (неделя с " + calKey + "). Повторно не закрывали.";
+      job.sheetMonday = a1Key;
+      job.calendarMonday = calKey;
+      job.finishedAt = new Date().toISOString();
+      writeFinishWeekJob_(job);
+      return;
+    }
     if (a1Key && props.getProperty(finishWeekLockKey_(a1Key)) === "1") {
-      already = {
-        status: "error",
-        message: "week_already_finished",
-        tip: "Неделя с " + a1Key + " уже закрыта. Повторно нельзя.",
-        sheetMonday: a1Key,
-        calendarMonday: calKey
-      };
-    } else if (weekAlreadyAdvanced_(ss)) {
-      already = {
-        status: "error",
-        message: "week_already_finished",
-        tip: "Понедельник листа уже " + a1Key + " (текущая неделя с " + calKey + "). Повторно закрывать нельзя.",
-        sheetMonday: a1Key,
-        calendarMonday: calKey
-      };
+      // Флаг «уже закрыто» без сдвига понедельника — снимаем и закрываем по-настоящему. Лист здесь ещё не двигаем.
+      try { props.deleteProperty(finishWeekLockKey_(a1Key)); } catch (eStuck) {}
     }
-    if (already) {
-      return fromPost ? jsonpText(callback, already) : jsonp(callback, already);
-    }
-    var result = finishFullWeekProduction(ss, { silent: true, skipWarehouseClose: !!(json.skipWarehouseClose === true || json.skipWarehouseClose === "1" || json.skipWarehouseClose === 1 || json.skipWarehouseClose === "true") });
-    if (result && result.status === "success" && a1Key) {
-      try { props.setProperty(finishWeekLockKey_(a1Key), "1"); } catch (eProp) {}
-    }
+    var result = finishFullWeekProduction(ss, {
+      silent: true,
+      skipWarehouseClose: !!job.skipWarehouseClose
+    });
     try { bustClientsCache_(); } catch (eB) {}
     if (!result || result.status !== "success") {
-      var bad = result || { status: "error", message: "finish_failed" };
-      return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+      job.state = "error";
+      job.message = (result && result.message) || "finish_failed";
+      job.finishedAt = new Date().toISOString();
+      writeFinishWeekJob_(job);
+      return;
     }
+    if (a1Key) {
+      try { props.setProperty(finishWeekLockKey_(a1Key), "1"); } catch (eProp) {}
+    }
+    var tid = String(job.tid || "").trim();
     try {
-      var wkFin = normalizeWeekBannerKey_(String(json.weekKey || "").trim() || currentWeekKeyServer_());
+      var wkFin = normalizeWeekBannerKey_(String(job.weekKey || "").trim() || currentWeekKeyServer_());
       writeWeekBannerState_(wkFin, {
         finished: true,
         finishedAt: new Date().toISOString(),
@@ -1433,10 +1542,164 @@ function handleFinishFullWeek(json, callback, fromPost) {
       result.banner = readWeekBannerState_(wkFin);
     } catch (eW) {}
     try { notifyWeekFinished_(tid, result.weekKey || currentWeekKeyServer_(), result); } catch (eN) {}
-    return fromPost ? jsonpText(callback, result) : jsonp(callback, result);
+    job.state = "success";
+    job.message = "week_closed";
+    job.finishedAt = new Date().toISOString();
+    job.result = {
+      status: "success",
+      message: "week_closed",
+      mondayDate: result.mondayDate || "",
+      prevMondayDate: result.prevMondayDate || "",
+      prevMondayIso: result.prevMondayIso || "",
+      materializeAdded: Number(result.materializeAdded) || 0,
+      weekKey: result.weekKey || job.weekKey || "",
+      courierDate: result.courierDate || ""
+    };
+    writeFinishWeekJob_(job);
   } catch (err) {
-    var fail = { status: "error", message: String(err) };
-    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+    try {
+      var failed = readFinishWeekJob_() || job || {};
+      failed.state = "error";
+      failed.message = String(err).slice(0, 300);
+      failed.finishedAt = new Date().toISOString();
+      writeFinishWeekJob_(failed);
+    } catch (eSave) {}
+  } finally {
+    // Сначала снять триггер, потом отпустить лок — иначе новый старт успеет поставить триггер, а этот finally его сотрёт.
+    try { deleteFinishWeekTriggers_(); } catch (eTr) {}
+    if (got) {
+      try { lock.releaseLock(); } catch (eRel) {}
+    }
+  }
+}
+
+function handleGetFinishWeekStatus(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || json.actorId || "").trim();
+  if (!gasActorOwnerOk_(tid)) {
+    return replyFinishWeek_(callback, fromPost, { status: "error", message: "owner_only", action: "getFinishWeekStatus" });
+  }
+  var job = readFinishWeekJob_();
+  if (!job) {
+    return replyFinishWeek_(callback, fromPost, { status: "success", message: "idle", action: "getFinishWeekStatus" });
+  }
+  var age = finishWeekJobAgeMs_(job);
+  if ((job.state === "queued" || job.state === "running") && age >= FINISH_WEEK_JOB_STALE_MS_) {
+    job.state = "error";
+    job.message = "week_finish_stale";
+    job.stale = true;
+    job.finishedAt = new Date().toISOString();
+    try { writeFinishWeekJob_(job); } catch (eSt) {}
+    try { deleteFinishWeekTriggers_(); } catch (eTr) {}
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "week_finish_stale",
+      tip: "Перенос не подтвердился. Даты листа не двигали. Можно нажать ещё раз.",
+      ageSec: Math.round(age / 1000),
+      action: "getFinishWeekStatus"
+    });
+  }
+  if (job.state === "success" && job.result) {
+    var ok = Object.assign({ action: "getFinishWeekStatus" }, job.result);
+    ok.status = "success";
+    ok.message = "week_closed";
+    return replyFinishWeek_(callback, fromPost, ok);
+  }
+  if (job.state === "error") {
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: job.message || "finish_failed",
+      tip: job.tip || "",
+      sheetMonday: job.sheetMonday || "",
+      calendarMonday: job.calendarMonday || "",
+      action: "getFinishWeekStatus"
+    });
+  }
+  return replyFinishWeek_(callback, fromPost, {
+    status: "accepted",
+    message: "week_finish_running",
+    state: job.state || "queued",
+    ageSec: Math.round(age / 1000),
+    action: "getFinishWeekStatus"
+  });
+}
+
+function handleFinishFullWeek(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || "").trim();
+  var confirm = String(json.confirm || "").trim();
+  if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {
+    var need = { status: "error", message: "need_confirm" };
+    return replyFinishWeek_(callback, fromPost, need);
+  }
+  if (!actorIsOwner_(tid)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return replyFinishWeek_(callback, fromPost, forbid);
+  }
+  // Только запись задания. Таблицу и триггер здесь не трогаем: это держало HTTP >30с,
+  // клиент видел «Таймаут ответа сервера», а кнопка предлагала нажать ещё раз.
+  var existing = readFinishWeekJob_();
+  if (finishWeekJobActive_(existing)) {
+    return replyFinishWeek_(callback, fromPost, {
+      status: "accepted",
+      message: "week_finish_busy",
+      tip: "Перенос уже запущен. Подождите, второй раз неделю не сдвинет.",
+      state: existing.state,
+      ageSec: Math.round(finishWeekJobAgeMs_(existing) / 1000)
+    });
+  }
+  var lock = LockService.getScriptLock();
+  var got = false;
+  try {
+    lock.waitLock(3000);
+    got = true;
+  } catch (eLock) {}
+  if (!got) {
+    existing = readFinishWeekJob_();
+    if (finishWeekJobActive_(existing)) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "accepted",
+        message: "week_finish_busy",
+        tip: "Перенос уже запущен. Подождите, второй раз неделю не сдвинет.",
+        state: existing.state
+      });
+    }
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "week_finish_schedule_failed",
+      tip: "Сервер занят другим заданием. Неделя не закрыта и не сдвинута. Повторите через минуту."
+    });
+  }
+  try {
+    existing = readFinishWeekJob_();
+    if (finishWeekJobActive_(existing)) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "accepted",
+        message: "week_finish_busy",
+        tip: "Перенос уже запущен. Подождите, второй раз неделю не сдвинет.",
+        state: existing.state,
+        ageSec: Math.round(finishWeekJobAgeMs_(existing) / 1000)
+      });
+    }
+    var job = {
+      state: "queued",
+      startedAt: new Date().toISOString(),
+      weekKey: String(json.weekKey || "").trim(),
+      tid: tid,
+      skipWarehouseClose: finishWeekSkipWarehouse_(json)
+    };
+    writeFinishWeekJob_(job);
+    return replyFinishWeek_(callback, fromPost, {
+      status: "accepted",
+      message: "week_finish_started",
+      tip: "Перенос поставлен в очередь. Кнопку второй раз не нажимайте. Это займёт пару минут."
+    });
+  } catch (err) {
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "week_finish_schedule_failed",
+      tip: "Не удалось поставить перенос в очередь. Неделя не закрыта. " + String(err).slice(0, 160)
+    });
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}
   }
@@ -2757,7 +3020,13 @@ function doGet(e) {
     return handleFinishFullWeek({
       telegramId: e.parameter.telegramId || "",
       confirm: e.parameter.confirm || "",
-      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
+      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : "",
+      skipWarehouseClose: e.parameter.skipWarehouseClose || ""
+    }, callback, false);
+  }
+  if (action === "getFinishWeekStatus") {
+    return handleGetFinishWeekStatus({
+      telegramId: e.parameter.telegramId || ""
     }, callback, false);
   }
   if (action === "repairWeekMonday") {
@@ -2914,6 +3183,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "finishFullWeek") {
     return handleFinishFullWeek(json, callback, fromPost);
+  }
+  if (action === "getFinishWeekStatus") {
+    return handleGetFinishWeekStatus(json, callback, fromPost);
   }
   if (action === "repairWeekMonday") {
     return handleRepairWeekMonday(json, callback, fromPost);
@@ -15217,7 +15489,7 @@ function validateInitDataSoft_(initData) {
  * Аварийный откат: Script Property AUTH_ENFORCE=0. Жёстко «только Worker»: GAS_REQUIRE_WORKER=1.
  */
 var GAS_AUTH_ = null;
-var GAS_OWNER_ACTIONS_RE_ = /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|listAccess|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|saveRetailPrices|finishFullWeek|finishFullWeekProduction|repairWeekMonday|closeAllOpenDeficits|restoreWeekFromBookings|repairCatalogAliases|setupWeekendFormulas|unlockPpCostBreakdown|savePartner|deletePartner|undeleteWeekFromSheet|partnerWipeOrderHistories)$/;
+var GAS_OWNER_ACTIONS_RE_ = /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|listAccess|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|saveRetailPrices|finishFullWeek|finishFullWeekProduction|getFinishWeekStatus|repairWeekMonday|closeAllOpenDeficits|restoreWeekFromBookings|repairCatalogAliases|setupWeekendFormulas|unlockPpCostBreakdown|savePartner|deletePartner|undeleteWeekFromSheet|partnerWipeOrderHistories)$/;
 var GAS_PUBLIC_RE_ = /^(getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|partner[A-Za-z0-9_]*|gb[A-Za-z0-9_]*)$/;
 var GAS_ROLE_PRESETS_ = {
   manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
@@ -30276,6 +30548,14 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
 
 /** Раз в ~1 мин: отправить TG-напоминания (абсолютное время remindAtMs). */
 function tickDeferredReminders_() {
+  // Закрытие недели: HTTP только пишет задание. Тяжёлую работу делает этот минутный триггер, не веб-запрос.
+  try {
+    var finJob = readFinishWeekJob_();
+    if (finJob && String(finJob.state || "") === "queued") {
+      runScheduledFinishWeek_();
+      return;
+    }
+  } catch (eFinJob) {}
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return;
   try {
