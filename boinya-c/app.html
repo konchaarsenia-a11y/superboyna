@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71116017" as="script">
+  <link rel="preload" href="app.main.js?v=71116018" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71116017";
+      var APP_VER = "v71116018";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -972,6 +972,12 @@
     }
     .courier-row .check-line .cut-title { flex: 1 1 120px; padding-right: 0; }
     .courier-row .client-badge { margin: 0; }
+    .courier-asm-line { display: flex; align-items: center; min-height: 22px; }
+    .courier-asm-badge { font-weight: 700; }
+    .courier-asm-badge--yes { background: rgba(255,159,10,0.25); color: #ffd60a; border-color: rgba(255,159,10,0.35); }
+    .courier-asm-badge--no { background: rgba(255,69,58,0.18); color: #ff6961; border-color: rgba(255,69,58,0.28); }
+    .courier-asm-badge--part { background: rgba(255,159,10,0.22); color: #ffd60a; border-color: rgba(255,159,10,0.35); }
+    .route-stop-name .courier-asm-badge { margin-left: 6px; vertical-align: middle; }
     .delivery-line.time-alert {
       color: #ff9500; font-weight: 600; background: rgba(255,149,0,0.1);
       padding: 4px 8px; border-radius: 6px; width: fit-content;
@@ -2976,7 +2982,8 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71116017"></script>
-  <script src="app.main.js?v=71116017" defer></script>
+  <script src="courier-maps.js?v=71116018"></script>
+  <script src="courier-asm.js?v=71116018"></script>
+  <script src="app.main.js?v=71116018" defer></script>
 </body>
 </html>
