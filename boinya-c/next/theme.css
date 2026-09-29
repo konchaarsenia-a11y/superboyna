@@ -573,6 +573,15 @@ html, body, .b-app {
   overflow-wrap: anywhere;
 }
 
+.mix-list .mix + .mix,
+.mix-list .mix + div,
+.mix-list div + .mix { margin-top: 6px; }
+.mix-part {
+  margin-top: 2px;
+  padding-left: 12px;
+  color: var(--b-text-2);
+}
+
 .b-nav__lbl {
   overflow: visible;
   text-overflow: clip;

@@ -33,6 +33,95 @@
   function maps() { return root.CourierMaps; }
   function esc(s) { return sh().esc(s); }
 
+  function prettyName(raw) {
+    var n = String(raw || "").trim();
+    if (!n) return "";
+    var e = eng();
+    if (e && e.prettyProductName) {
+      try { return e.prettyProductName(n) || n; } catch (err) {}
+    }
+    return n;
+  }
+
+  function crumbSourcesOf(g) {
+    var out = [];
+    if (g && Array.isArray(g.sources)) {
+      g.sources.forEach(function (s) {
+        var name = "";
+        var val = null;
+        var unit = "";
+        var sub = "";
+        if (typeof s === "string") name = s;
+        else if (s) {
+          name = s.name || s.main || "";
+          val = s.val != null ? s.val : (s.value != null ? s.value : null);
+          unit = s.unit || "";
+          sub = s.sub || "";
+        }
+        name = String(name || "").trim();
+        if (!name) return;
+        out.push({ name: name, val: val, unit: unit, sub: sub });
+      });
+    }
+    if (out.length) return out;
+    var sub = String((g && g.sub) || "").trim();
+    if (sub.indexOf("+") >= 0) {
+      sub.split(/\s*\+\s*/).forEach(function (part) {
+        var p = String(part || "").trim();
+        if (p && !/^крошка$/i.test(p)) out.push({ name: p, val: null, unit: "", sub: "" });
+      });
+    }
+    return out;
+  }
+
+  function isCrumbMix(g) {
+    var name = String((g && (g.name || g.main)) || "");
+    if (/крошк\w*\s*микс/i.test(name)) return true;
+    return crumbSourcesOf(g).length >= 2;
+  }
+
+  function mixPartQty(g, src, index, count) {
+    var own = Number(src.val);
+    if (isFinite(own) && own > 0) {
+      return { qty: own, unit: src.unit || "г" };
+    }
+    var ratio = Array.isArray(g.ratio) ? g.ratio : [];
+    var sumR = 0;
+    var i;
+    for (i = 0; i < count; i++) sumR += Number(ratio[i]) || 0;
+    if (!(sumR > 0)) return null;
+    var grams = Number(g.val != null ? g.val : g.value) || 0;
+    if (!(grams > 0)) return null;
+    var part = (Number(ratio[index]) || 0) / sumR;
+    if (!(part > 0)) return null;
+    var q = Math.round(grams * part);
+    if (q <= 0) q = 1;
+    return { qty: q, unit: src.unit || g.unit || "г" };
+  }
+
+  function basketLinesHtml(basket) {
+    return (basket || []).map(function (g) {
+      if (!g) return "";
+      if (isCrumbMix(g)) {
+        var total = Number(g.val != null ? g.val : g.value);
+        var totalBit = isFinite(total) && total > 0 ? (", " + total + " " + (g.unit || "г")) : "";
+        var src = crumbSourcesOf(g);
+        var parts = src.map(function (s, i) {
+          var q = mixPartQty(g, s, i, src.length);
+          var label = prettyName(s.name);
+          if (s.sub) label += ", " + prettyName(s.sub);
+          if (q) label += ", " + q.qty + " " + (q.unit || "г");
+          return '<div class="mix-part">' + esc(label) + "</div>";
+        }).join("");
+        return '<div class="mix"><div>Крошка микс' + esc(totalBit) + "</div>" + parts + "</div>";
+      }
+      var nm = prettyName(g.name || g.main || "");
+      var val = g.val != null ? g.val : g.value;
+      var bit = val != null && val !== "" ? (" " + val + (g.unit ? " " + g.unit : "")) : "";
+      return "<div>" + esc(nm + bit) + "</div>";
+    }).filter(Boolean).join("");
+  }
+
   function days() {
     var w = root.BoinyaWeek && root.BoinyaWeek.WEEK;
     return w || ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"];
@@ -553,11 +642,8 @@
         bags += n;
       });
       var summary = order.filter(function (k) { return by[k] > 0; }).map(function (k) { return by[k] + " " + k; }).join(" · ") || "—";
-      var lines = (c.basket || []).map(function (g) {
-        var unit = g.unit || ((eng() && eng().unitForItem) ? eng().unitForItem(g.cat, g.name || g.main) : "гр");
-        var sub = g.sub ? " (" + g.sub + ")" : "";
-        return '<p class="b-note">• ' + esc((g.name || g.main || "") + sub) + " — " + esc(String(g.val != null ? g.val : g.value)) + " " + esc(unit) + "</p>";
-      }).join("") || '<p class="b-note">Пустой состав</p>';
+      var lines = basketLinesHtml(c.basket);
+      lines = lines ? '<div class="b-note mix-list">' + lines + "</div>" : '<p class="b-note">Пустой состав</p>';
       html += '<article class="b-card' + (c.assembled ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
         esc(asmTitle(c)) + " · " + bags + " пак. " +
@@ -767,15 +853,13 @@
       var nick = who[1] || "";
       var seg = c.segment || "";
       var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
-      var basket = (c.basket || []).slice(0, 3).map(function (g) {
-        return (g.name || g.main || "") + (g.val != null ? " " + g.val : (g.value != null ? " " + g.value : ""));
-      }).filter(Boolean).join(", ");
+      var basket = basketLinesHtml(c.basket);
       html += '<article class="stop' + (c.delivered ? " nx-dim" : "") + '">' +
         '<div class="stop-top"><span class="stop-no">' + (idx + 1) + "</span>" +
         '<div><b>' + esc(dog) + "</b>" +
         (nick ? '<div class="b-note">' + esc(nick) + "</div>" : "") +
         (seg || price ? '<div class="b-note">' + esc([seg, price].filter(Boolean).join(", ")) + "</div>" : "") +
-        (basket ? '<div class="b-note">' + esc(basket) + "</div>" : "") +
+        (basket ? '<div class="b-note mix-list">' + basket + "</div>" : "") +
         "</div>" +
         '<span class="plaque ' + (assembled ? "plaque--gold" : "plaque--bad") + '">' + (assembled ? "собран" : "не собран") + "</span></div>" +
         '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> доставлен</label>" +
