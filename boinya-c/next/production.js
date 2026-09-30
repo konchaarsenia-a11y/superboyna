@@ -1509,9 +1509,12 @@
       var row = findCut(key);
       var el = document.getElementById("surplus_" + key);
       var surplus = Number(el && el.value) || 0;
+      var prevSurplus = row ? row.surplus : 0;
       if (row) row.surplus = surplus;
+      paintCut();
       persistCut(row || { row: key }, { surplus: surplus }).then(function (ok) {
         if (ok) sh().toast("Излишек сохранён");
+        else if (row) { row.surplus = prevSurplus; paintCut(); }
       });
       return true;
     }
