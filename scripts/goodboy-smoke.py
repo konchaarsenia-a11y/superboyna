@@ -161,7 +161,7 @@ def check_trial_redirect(page, base: str, errors: list[str], shot_dir: Path | No
     assert_true(stub.ok, f"trial stub http {stub.status}", errors)
     assert_true('name="robots"' in body and "noindex" in body, "trial stub: noindex", errors)
     assert_true('content="0; url=week.html"' in body, "trial stub: meta refresh to week.html", errors)
-    assert_true('location.replace("week.html"' in body, "trial stub: location.replace to week.html", errors)
+    assert_true('var dest = "week.html"' in body and "location.replace(dest)" in body, "trial stub: location.replace keeps query and hash", errors)
 
     page.goto(f"{base}/trial.html?coupon=zzz_test#steps", wait_until="domcontentloaded")
     page.wait_for_timeout(400)
