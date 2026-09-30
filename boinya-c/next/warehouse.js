@@ -90,13 +90,13 @@
 
   function stockCard(it, shown) {
     var L = logic();
-    var buy = it.buy ? ' · <span style="color:var(--b-accent)">закупить</span>' : "";
+    var buy = it.buy ? ', <span style="color:var(--b-accent)">закупить</span>' : "";
     return '<article class="b-card" style="margin-bottom:8px">' +
       "<b>" + esc(it.name) + '</b> <span class="b-note">' + esc(it.unit) + "</span>" +
       '<div style="margin-top:6px"><b>' + esc(L.formatWhNum(shown)) + "</b>" + buy + "</div>" +
       '<div class="nx-pair" style="margin-top:8px">' +
         '<label class="b-field"><input class="b-field__input" type="number" id="arr_' + esc(it.row) + '" placeholder="дозакуп" inputmode="decimal"></label>' +
-        '<button type="button" class="b-btn b-btn--sec" data-act="wh-save" data-row="' + esc(it.row) + '">Сохранить</button>' +
+        '<button type="button" class="b-btn b-btn--sec" data-act="wh-arr-save" data-row="' + esc(it.row) + '">Сохранить</button>' +
       "</div></article>";
   }
 
@@ -182,7 +182,7 @@
         return stockCard(it, shown);
       }).join("") || '<p class="b-note">Пусто</p>';
       var ledHtml = (res.ledger || []).slice(0, 15).map(function (x) {
-        return '<div class="nx-line">' + esc(String(x.type || "")) + " · " + esc(String(x.qty)) + " " + esc(String(x.unit || "")) + "</div>";
+        return '<div class="nx-line">' + esc(String(x.type || "")) + ", " + esc(String(x.qty)) + " " + esc(String(x.unit || "")) + "</div>";
       }).join("") || '<p class="b-note">Лента пуста</p>';
       cache = { html: html, led: ledHtml, view: view, asOf: asOf };
       applyStock(html, ledHtml);
@@ -248,7 +248,7 @@
       var today = L.warehouseTodayIso_();
       var dayLab = view === "weekStart" ? "неделя" : L.formatWarehouseDayLabel_(today);
       box.innerHTML = '<article class="b-card" style="margin-top:12px"><b>' + esc(dayLab) + "</b>" +
-        (defs.length ? (' · <span style="color:var(--b-bad)">−' + esc(String(defs.length)) + "</span>") : "") +
+        (defs.length ? (', <span style="color:var(--b-bad)">−' + esc(String(defs.length)) + "</span>") : "") +
         rowsHtml + "</article>";
     } catch (e) {
       if (mine !== prevGen || !alive("warehousePreviewBox")) return;
@@ -291,7 +291,7 @@
           copied = true;
         }
       } catch (eClip) { copied = false; }
-      if (copied) sh().toast("Скопировано · " + ((res && res.count) || 0) + " поз.");
+      if (copied) sh().toast("Скопировано, " + ((res && res.count) || 0) + " поз.");
       else await sh().alert({ title: "Дозакуп", text: text });
       try {
         if (root.BoinyaTasks && root.BoinyaTasks.refresh) await root.BoinyaTasks.refresh();
@@ -335,7 +335,7 @@
     if (act === "wh-pos") { loadWarehousePreview(); return true; }
     if (act === "wh-buy") { composeBuy(); return true; }
     if (act === "wh-close") { closeDeficits(); return true; }
-    if (act === "wh-save") { saveArrival(node.getAttribute("data-row")); return true; }
+    if (act === "wh-arr-save") { saveArrival(node.getAttribute("data-row")); return true; }
     return false;
   }
 

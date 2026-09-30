@@ -58,36 +58,36 @@
       tile("Затраты", f.costActual) +
       tile("Доставок", f.deliveries) +
       "</div>" +
-      '<p class="b-note">ПП ' + esc(f.by.pp || 0) + " · БП " + esc(f.by.bp || 0) + " дост. (0 BYN) · розница " +
-      esc(f.by.retail || 0) + " · партнёр-заказ " + esc(f.by.partner || 0) +
-      ((f.by.other || 0) ? (" · прочее " + esc(f.by.other)) : "") + "</p></article>";
+      '<p class="b-note">ПП ' + esc(f.by.pp || 0) + ", БП " + esc(f.by.bp || 0) + " дост. (0 BYN), розница " +
+      esc(f.by.retail || 0) + ", партнёр-заказ " + esc(f.by.partner || 0) +
+      ((f.by.other || 0) ? (", прочее " + esc(f.by.other)) : "") + "</p></article>";
 
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Откуда деньги</p>' +
       line("ПП", f.ppActual + " BYN") +
       line("Розница", f.retail + " BYN") +
       line("Заказы «Партнёр»", f.partnerOrd + " BYN") +
-      line("БП", "0 BYN · бесплатно") +
+      line("БП", "0 BYN, бесплатно") +
       '<p class="b-note">Деньги с БП появляются только после перехода в ПП — блок «БП» ниже.</p></article>';
 
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Затраты</p>' +
       line("Продукция всего", f.productCost + " BYN") +
-      line("· розница (состав)", f.retailCost + " BYN") +
-      line("· ПП (состав)", f.ppBasketCost + " BYN") +
-      line("· партнёр-заказ", f.partnerCostApp + " BYN") +
+      line("розница (состав)", f.retailCost + " BYN") +
+      line("ПП (состав)", f.ppBasketCost + " BYN") +
+      line("партнёр-заказ", f.partnerCostApp + " BYN") +
       line("Купоны", f.couponsCost + " BYN");
     if (f.ppRecoverCost > 0 && f.ppRecoverInClean <= 0) {
-      html += line("Recover ПП (свет+нарезка+дойпак)", f.ppRecoverCost + " BYN · " + f.ppLightPeople + " чел");
+      html += line("Recover ПП (свет+нарезка+дойпак)", f.ppRecoverCost + " BYN, " + f.ppLightPeople + " чел");
     }
-    html += line(f.deliveryLabel, f.ppDeliveryCost + " BYN · " + f.ppDelivN) +
+    html += line(f.deliveryLabel, f.ppDeliveryCost + " BYN, " + f.ppDelivN) +
       line("Пакеты", f.ppPackagesCost + " BYN") +
-      line("БП (состав + топливо 4р)", f.bpSpend + " BYN · " + f.bpDeliv + " дост.");
-    if (f.staffCost > 0) html += line("ЗП сотрудников (не нарезчик)", f.staffCost + " BYN · " + f.staffCount + " чел.");
+      line("БП (состав + топливо 4р)", f.bpSpend + " BYN, " + f.bpDeliv + " дост.");
+    if (f.staffCost > 0) html += line("ЗП сотрудников (не нарезчик)", f.staffCost + " BYN, " + f.staffCount + " чел.");
     html += line("Всего", f.costActual + " BYN");
     html += '<p class="b-note" style="color:var(--b-warn)">В чистом (не в затратах)</p>';
-    if (f.ppRecoverInClean > 0) html += line("Recover в чистом", f.ppRecoverInClean + " BYN · " + f.ppLightPeople + " чел");
+    if (f.ppRecoverInClean > 0) html += line("Recover в чистом", f.ppRecoverInClean + " BYN, " + f.ppLightPeople + " чел");
     if (f.ppFractionInClean > 0 || f.ppFractionCost > 0) html += line("Фракции в чистом", (f.ppFractionInClean || f.ppFractionCost) + " BYN");
-    if (f.ppDeliveryInClean > 0) html += line("Доставка в чистом (тариф − 4)×N", f.ppDeliveryInClean + " BYN · " + f.ppDelivN);
-    if (f.bpDelivInClean > 0) html += line("БП доставка в чистом (2р × N)", f.bpDelivInClean + " BYN · " + f.bpDeliv);
+    if (f.ppDeliveryInClean > 0) html += line("Доставка в чистом (тариф − 4)×N", f.ppDeliveryInClean + " BYN, " + f.ppDelivN);
+    if (f.bpDelivInClean > 0) html += line("БП доставка в чистом (2р × N)", f.bpDelivInClean + " BYN, " + f.bpDeliv);
     html += '<p class="b-note">' + esc(f.footnote) +
       (f.cutterMonthOn ? "Этот месяц: нарезчик вкл — recover в затратах." : "Этот месяц: нарезчик как OFF — recover в чистом, не в затратах.") +
       " БП: состав + топливо 4р. Плоская ЗП нарезчика не в затратах.</p></article>";
@@ -97,13 +97,13 @@
       '<p class="b-note">Зарплата нарезчика — recover (3.90/100г + 0.50/шт). Плоская ЗП не в затратах. Вкл → recover в затратах. Выкл → recover в чистом. Август 2026 и раньше — как OFF (пол ' + esc(c.floor) + ").</p>" +
       '<div class="nx-tiles"><div class="b-card"><span class="b-note">Тумблер</span><b>' + (c.globalOn ? "Включён" : "Выключен") + "</b></div>" +
       '<div class="b-card"><span class="b-note">Этот месяц ' + esc(ensureMonth()) + "</span><b>" +
-      (c.monthOn ? "В затратах: recover" : "Как OFF · recover в чистом") + "</b></div></div>";
+      (c.monthOn ? "В затратах: recover" : "Как OFF, recover в чистом") + "</b></div></div>";
     if (c.globalOn && !c.monthOn) {
       html += '<p class="b-note" style="color:var(--b-warn)">Месяц раньше «с» ' + esc(c.fromMonth) + " или до пола " + esc(c.floor) + " — тумблер не врёт, в цифрах месяца нарезчик выкл.</p>";
     }
     if (c.globalOn) {
-      html += '<p class="b-note">Плоская ЗП · ' + esc(String(c.salary)) + " BYN/мес · не в затратах</p>" +
-        '<p class="b-note">с ' + esc(c.fromMonth) + " · канон 12.09: ЗП = recover</p>";
+      html += '<p class="b-note">Плоская ЗП, ' + esc(String(c.salary)) + " BYN/мес, не в затратах</p>" +
+        '<p class="b-note">с ' + esc(c.fromMonth) + ", канон 12.09: ЗП = recover</p>";
     } else {
       html += '<p class="b-note">Тумблер выключен — recover ПП в чистом (не в затратах). Плоская ЗП не используется.</p>';
     }
@@ -122,12 +122,12 @@
       line("Оборот с доставок БП", "0 BYN") +
       line("Доставок БП", f.bpDeliv) +
       line("Затраты месяца", f.bpSpend + " BYN") +
-      line("· состав", f.bpBasket + " BYN") +
-      line("· топливо (" + f.bpFeeEach + "р × " + f.bpDeliv + ")", f.bpDelivFee + " BYN");
-    if (f.bpDelivCleanShow > 0) html += line("· доставка в чистом (2р × " + f.bpDeliv + ")", f.bpDelivCleanShow + " BYN");
+      line("состав", f.bpBasket + " BYN") +
+      line("топливо (" + f.bpFeeEach + "р × " + f.bpDeliv + ")", f.bpDelivFee + " BYN");
+    if (f.bpDelivCleanShow > 0) html += line("доставка в чистом (2р × " + f.bpDeliv + ")", f.bpDelivCleanShow + " BYN");
     html += line("Переходов в ПП (месяц)", f.converted) +
       line("CAC (затраты ÷ переходы)", f.cac != null ? (f.cac + " BYN") : "—") +
-      '<p class="b-note">За всё время · деньги после перехода в ПП</p>' +
+      '<p class="b-note">За всё время, деньги после перехода в ПП</p>' +
       line("Перешло", (f.life.converted || 0)) +
       line("Затраты БП перешедших", (f.life.bpCost || 0) + " BYN") +
       line("Выручка ПП с них", (f.life.ppRevenue || 0) + " BYN") +
@@ -169,7 +169,7 @@
 
     var cmp = f.compare || {};
     if (cmp.prevMonthKey) {
-      html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">С прошлым месяцем · ' + esc(cmp.prevMonthKey) + "</p>" +
+      html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">С прошлым месяцем, ' + esc(cmp.prevMonthKey) + "</p>" +
         '<div class="nx-line"><span class="b-note">Оборот</span><b>' + esc(f.moneyTurnover) + deltaHtml(cmp.calTurnover) + "</b></div>" +
         '<div class="nx-line"><span class="b-note">ПП вышло</span><b>' + esc(f.ppActual) + deltaHtml(cmp.ppActual) + "</b></div>" +
         '<div class="nx-line"><span class="b-note">Розница</span><b>' + esc(f.retail) + deltaHtml(cmp.retail) + "</b></div>" +
@@ -325,7 +325,7 @@
       tile("Прибыль (=оборот)", n.profit) + tile("Чистое", n.clean) +
       tile("Затраты", n.cost) + tile("Доставок", n.deliveries) + "</div>" +
       '<p class="b-note">' + esc(res.from) + " → " + esc(res.to) + "</p>" +
-      '<p class="b-note">ПП ' + esc(by.pp || 0) + " · БП " + esc(by.bp || 0) + " · розница " + esc(by.retail || 0) + " · партнёр-заказ " + esc(by.partner || 0) + "</p>" +
+      '<p class="b-note">ПП ' + esc(by.pp || 0) + ", БП " + esc(by.bp || 0) + ", розница " + esc(by.retail || 0) + ", партнёр-заказ " + esc(by.partner || 0) + "</p>" +
       n.lines.map(function (row) { return line(row.label, row.value); }).join("") +
       (n.feeLine ? '<p class="b-note">' + esc(n.feeLine) + "</p>" : "");
   }
@@ -339,7 +339,7 @@
       if (isFinite(salary) && salary >= 0) body.salary = salary;
       var res = await api().apiPost(body);
       if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилось — Deploy Code.gs"); return; }
-      sh().toast(enabled ? ("Нарезчик включён · " + (res.salary != null ? res.salary : "") + " BYN") : "Нарезчик выключен");
+      sh().toast(enabled ? ("Нарезчик включён, " + (res.salary != null ? res.salary : "") + " BYN") : "Нарезчик выключен");
       cache = Object.create(null);
       load({ force: true, keepLabel: true });
     } catch (e) { sh().toast("Ошибка"); }
