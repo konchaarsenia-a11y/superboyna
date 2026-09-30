@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116900";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71117000";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3267,7 +3267,7 @@
       return String(plain).replace(/^крошка\s+/i, "").trim().toLowerCase();
     }
 
-    /** Сообщение клиенту: «Крошка лёгкого — 100 г», микс со строками состава. */
+    /** Сообщение клиенту: одна строка. Микс — «Крошка микс — N г» без состава. Состав микса остаётся в заказе, сборке и курьере. */
     function crumbClientMessageLine_(item) {
       var raw = (item && Array.isArray(item.sources)) ? item.sources : [];
       var kept = [];
@@ -3282,30 +3282,7 @@
         : crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
       var qty = val + " г";
-      function nom(name) {
-        var p = name;
-        try { p = prettyProductName(name) || name; } catch (eN) { p = name; }
-        return String(p || "").replace(/^крошка\s+/i, "").trim().toLowerCase();
-      }
-      if (names.length >= 2) {
-        var lines = ["Крошка микс — " + qty];
-        if (kept.length >= 2) {
-          var ratio = Array.isArray(item.ratio) ? item.ratio : [];
-          var sumR = 0;
-          var ri;
-          for (ri = 0; ri < raw.length; ri++) sumR += Number(ratio[ri]) || 0;
-          kept.forEach(function (k) {
-            var own = Number(k.s.val != null ? k.s.val : k.s.value);
-            var q = 0;
-            if (isFinite(own) && own > 0) q = own;
-            else if (sumR > 0 && val > 0) q = Math.round(val * ((Number(ratio[k.i]) || 0) / sumR));
-            lines.push(nom(k.name) + (q > 0 ? (" — " + q + " г") : ""));
-          });
-        } else {
-          names.forEach(function (n) { lines.push(nom(n)); });
-        }
-        return lines.join("\n");
-      }
+      if (names.length >= 2) return "Крошка микс — " + qty;
       if (names.length === 1) {
         var g = String(crumbOfferGenitive_(names[0]) || names[0] || "")
           .replace(/^крошка\s+/i, "").trim().toLowerCase();

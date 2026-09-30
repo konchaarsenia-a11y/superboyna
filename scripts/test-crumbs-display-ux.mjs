@@ -101,7 +101,8 @@ const mix = {
 };
 assert(ctx.crumbBasketDisplayMain_(mix) === "ЛЁГКОЕ + РУБЕЦ Т", "mix main with spaces");
 assert(ctx.crumbBasketSubLabel_(mix) === "дрессура овощи/фрукты", "mix sub = veg chip");
-assert(ctx.crumbClientMessageLine_(mix) === "Крошка микс — 100 г\nлёгкое\nрубец т", "client mix lines, got " + ctx.crumbClientMessageLine_(mix));
+assert(ctx.crumbClientMessageLine_(mix) === "Крошка микс — 100 г", "client mix one line, got " + JSON.stringify(ctx.crumbClientMessageLine_(mix)));
+assert(!/\n/.test(ctx.crumbClientMessageLine_(mix)), "client mix has no part lines");
 
 const hypo = { cat: "crumb", crumbKind: "hypo", sources: [{ name: "СЕРДЦЕ" }], val: 50 };
 assert(ctx.crumbBasketSubLabel_(hypo) === "гипоаллергенные", "hypo chip");
@@ -109,7 +110,7 @@ assert(ctx.crumbClientMessageLine_(hypo) === "Крошка сердца — 50 �
 
 const fromSub = { cat: "crumb", crumbKind: "meat", name: "крошка", sub: "ЛЁГКОЕ + РУБЕЦ Т", val: 80 };
 assert(ctx.crumbBasketDisplayMain_(fromSub) === "ЛЁГКОЕ + РУБЕЦ Т", "fallback parse sources from sub");
-assert(ctx.crumbClientMessageLine_(fromSub) === "Крошка микс — 80 г\nлёгкое\nрубец т", "fallback client from sub, got " + ctx.crumbClientMessageLine_(fromSub));
+assert(ctx.crumbClientMessageLine_(fromSub) === "Крошка микс — 80 г", "fallback client from sub one line, got " + JSON.stringify(ctx.crumbClientMessageLine_(fromSub)));
 assert(ctx.crumbOfferGenitive_("ПОЧКИ") === "почек", "genitive почки");
 assert(ctx.crumbOfferGenitive_("РУБЕЦ Т") === "рубца", "genitive рубец");
 assert(ctx.crumbOfferGenitive_("ЯБЛОКИ") === "яблок", "genitive яблоки");

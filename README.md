@@ -26,7 +26,7 @@ superboyna/
 ## Деплой Mini App
 
 1. Выложить `app.html` на HTTPS (GitHub Pages / Cloudflare / любой хостинг).
-2. В BotFather бота Бойни: Menu Button / Web App URL → `boinya-c/next.html?cutover=1&v=71116900`. Старый экран — тот же адрес с `?legacy=1`. Не трогать Menu Button @GOODBOY_LG.
+2. В BotFather бота Бойни: Menu Button / Web App URL → `boinya-c/next.html?cutover=1&v=71117000`. Старый экран — тот же адрес с `?legacy=1`. Не трогать Menu Button @GOODBOY_LG.
 
 ## Тест API (PowerShell)
 
