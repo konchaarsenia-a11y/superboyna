@@ -587,7 +587,8 @@
 
   function pickDate(opts) {
     opts = opts || {};
-    var FULL = 12;
+    var weekLogic = root.BoinyaWeekLogic;
+    var FULL = weekLogic && weekLogic.FULL_FROM ? weekLogic.FULL_FROM : 8;
     var MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
     var selected = isoDate(opts.value);
     var cursor = { y: Number(selected.slice(0, 4)), m: Number(selected.slice(5, 7)) - 1 };

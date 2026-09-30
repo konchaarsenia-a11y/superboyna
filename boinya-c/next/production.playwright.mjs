@@ -150,7 +150,7 @@ async function main() {
   await a.page.getByRole("checkbox", { name: /Пропечатано/ }).waitFor();
   await overflow(a.page, "asm");
   await shot(a.page, "next-assembly.png");
-  await a.page.getByRole("button", { name: "Маршрут" }).click();
+  await a.page.getByRole("button", { name: "Курьер", exact: true }).click();
   await a.page.getByText("Рекс").first().waitFor();
   await a.page.getByRole("button", { name: "Собрать маршруты" }).click();
   await a.page.getByText(/Курьер 1/).waitFor({ timeout: 20000 });
@@ -173,7 +173,7 @@ async function main() {
   const navCHidden = await c.page.locator("#nxNav").getAttribute("hidden");
   if (navC || navCHidden == null) throw new Error("courier has nav " + navC);
   const courText = await c.page.locator("body").innerText();
-  if (!/Сборка/.test(courText) || !/Маршрут/.test(courText)) throw new Error("courier segs " + courText.slice(0, 200));
+  if (!/Сборка/.test(courText) || !/Курьер/.test(courText)) throw new Error("courier segs " + courText.slice(0, 200));
   await overflow(c.page, "courier");
   await shot(c.page, "next-courier-nonav.png");
   await c.context.close();

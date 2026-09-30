@@ -28,7 +28,7 @@
 
   var TAB_DEFERRED_OFF = "deferredScreen.none";
   var LEGACY_TASKS = ["manager", "all", "courier", "logistics", "cutter"];
-  var SIMPLE = { cutter: "Нарезка", courier: "Маршрут", logistics: "Склад" };
+  var SIMPLE = { cutter: "Нарезка", courier: "Курьер", logistics: "Склад" };
 
   var NAV_LABELS = {
     orders: "Заказы",

@@ -332,6 +332,7 @@
     if (picked == null) return;
     var dateIso = String(picked).trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) { sh().toast("Выберите дату"); return; }
+    if (root.BoinyaWeek && root.BoinyaWeek.confirmFullDay && !(await root.BoinyaWeek.confirmFullDay(dateIso))) return;
     var res = await api().apiGet({
       action: "partnerSetOrderSlot",
       telegramId: tid(),
@@ -426,6 +427,7 @@
     var newDate = (target && (target.newDate || target.date)) || picked;
     var newDay = (target && (target.dayName || target.day)) || "";
     if (!newDate) { sh().toast("Не удалось определить дату"); return; }
+    if (root.BoinyaWeek && root.BoinyaWeek.confirmFullDay && !(await root.BoinyaWeek.confirmFullDay(newDate))) return;
     var cut = await sh().confirm({
       title: "Перенос клиента",
       text: "Нарезать сырьё на этого клиента в новом дне вместе со всеми?",

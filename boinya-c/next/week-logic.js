@@ -8,7 +8,7 @@
   "use strict";
 
   var WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"];
-  var FULL_FROM = 12;
+  var FULL_FROM = 8;
 
   function segmentToOrderType(seg) {
     var s = String(seg || "").trim().toUpperCase();
@@ -345,6 +345,34 @@
     return parts.join(",");
   }
 
+  function recordsWord(n) {
+    n = Math.abs(Math.trunc(Number(n) || 0));
+    var m10 = n % 10;
+    var m100 = n % 100;
+    if (m100 >= 11 && m100 <= 14) return "записей";
+    if (m10 === 1) return "запись";
+    if (m10 >= 2 && m10 <= 4) return "записи";
+    return "записей";
+  }
+
+  function fullDayPrompt(count) {
+    var n = Number(count);
+    if (!isFinite(n) || n < FULL_FROM) return "";
+    n = Math.trunc(n);
+    return "На этот день уже " + n + " " + recordsWord(n) + " Добавить ещё?";
+  }
+
+  function countFromMonth(res, iso) {
+    var want = String(iso || "").slice(0, 10);
+    var days = (res && res.days) || [];
+    for (var i = 0; i < days.length; i++) {
+      var d = days[i] || {};
+      var id = String(d.dateIso || d.date || "").slice(0, 10);
+      if (id === want) return Number(d.count) || 0;
+    }
+    return 0;
+  }
+
   function basketLine(c) {
     var list = (c && c.basket) || [];
     if (!list.length) {
@@ -361,6 +389,8 @@
   return {
     WEEK: WEEK,
     FULL_FROM: FULL_FROM,
+    fullDayPrompt: fullDayPrompt,
+    countFromMonth: countFromMonth,
     segmentToOrderType: segmentToOrderType,
     orderTypeToSegment: orderTypeToSegment,
     resolveOrderType: resolveOrderType,
