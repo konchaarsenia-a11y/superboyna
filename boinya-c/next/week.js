@@ -426,6 +426,7 @@
 
   function openEdit(c, calendarOnly) {
     if (!c || !ord().loadFromClient) return;
+    sh().closeAll();
     ord().loadFromClient(c, {
       day: view.calendarOnly || calendarOnly ? "" : (view.resolvedDay || view.day),
       date: view.date,

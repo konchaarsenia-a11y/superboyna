@@ -263,8 +263,16 @@
 
   function lineHtml(it, i) {
     var val = it.val != null ? it.val : it.value;
-    return '<div class="b-row" style="margin-top:6px">' +
-      '<span class="b-grow">' + esc(lineTitle(it) + " · " + (val || 0) + " " + lineUnit(it)) + "</span>" +
+    var mix = root.BoinyaCrumbMix;
+    var body;
+    if (mix && mix.isCrumb(it) && mix.rowHtml) {
+      body = '<div class="b-grow">' + mix.rowHtml(it, function (name) {
+        return (eng() && eng().prettyProductName) ? eng().prettyProductName(name) : name;
+      }) + "</div>";
+    } else {
+      body = '<span class="b-grow">' + esc(lineTitle(it) + " · " + (val || 0) + " " + lineUnit(it)) + "</span>";
+    }
+    return '<div class="b-row" style="margin-top:6px">' + body +
       '<button type="button" class="b-chip" data-act="cl-del-line" data-i="' + i + '">Удалить</button></div>';
   }
 

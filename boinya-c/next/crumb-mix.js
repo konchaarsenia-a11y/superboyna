@@ -106,16 +106,43 @@
     return { qty: q, unit: (src && src.unit) || g.unit || "г" };
   }
 
+  function isChewName(name) {
+    var n = String(name || "");
+    if (/трахе|аорт|ухо|ушк|корен|хрящ|копыт|носы|шеи|шея|губы|лопат|перепел|станов|колен/i.test(n)) return true;
+    if (/(^|[^а-яёa-z0-9])нос([^а-яёa-z0-9]|$)/i.test(n)) return true;
+    return false;
+  }
+
+  function isChewSource(s) {
+    if (!s) return false;
+    var cat = String(s.cat || "").toLowerCase();
+    if (cat === "chew" || cat === "chews") return true;
+    return isChewName(s.name || s.main || "");
+  }
+
   function sourcesOf(g) {
     var out = [];
     if (g && Array.isArray(g.sources)) {
       g.sources.forEach(function (s) {
-        if (!s) return;
+        if (!s || isChewSource(s)) return;
         var name = String(s.name || s.main || "").trim();
-        if (name) out.push(s);
+        if (!name || isChewName(name)) return;
+        out.push(s);
       });
     }
     return out;
+  }
+
+  function sourcePos(g, s) {
+    var list = (g && g.sources) || [];
+    var i;
+    for (i = 0; i < list.length; i++) if (list[i] === s) return i;
+    return 0;
+  }
+
+  function sourceCount(g) {
+    var n = (g && g.sources && g.sources.length) || 0;
+    return n || sourcesOf(g).length;
   }
 
   function isCrumb(g) {
@@ -193,8 +220,8 @@
       var total = Number(g.val != null ? g.val : g.value);
       var head = "Крошка микс";
       if (isFinite(total) && total > 0) head += " — " + total + " " + (g.unit || "г");
-      var parts = src.map(function (s, i) {
-        var q = partQty(g, s, i, src.length);
+      var parts = src.map(function (s) {
+        var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
         var label = nominative(s.name || s.main, pretty);
         var text = q ? (label + " — " + q.qty + " " + (q.unit || "г")) : label;
         return '<div class="mix-part">' + esc(text) + "</div>";
@@ -202,7 +229,7 @@
       return '<div class="mix"><div class="mix-title">' + esc(head) + '</div><div class="mix-parts">' + parts + "</div></div>";
     }
     if (isCrumb(g) && src.length === 1) {
-      var q1 = partQty(g, src[0], 0, 1);
+      var q1 = partQty(g, src[0], sourcePos(g, src[0]), sourceCount(g));
       var grams = q1 ? q1.qty : (g.val != null ? g.val : g.value);
       return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
     }
@@ -247,8 +274,8 @@
       if (!g) return;
       var src = sourcesOf(g);
       if (isCrumb(g) && src.length) {
-        src.forEach(function (s, i) {
-          var q = partQty(g, s, i, src.length);
+        src.forEach(function (s) {
+          var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
           var key = organKey(s.name || s.main);
           if (!key || !q) return;
           out.push({ key: key, grams: q.qty, sub: s.sub || "крошка", name: s.name || s.main });
@@ -268,6 +295,7 @@
     parseText: parseText,
     partQty: partQty,
     linesHtml: linesHtml,
+    rowHtml: lineHtml,
     singleLabel: singleLabel,
     genitive: genitive,
     organParts: organParts,

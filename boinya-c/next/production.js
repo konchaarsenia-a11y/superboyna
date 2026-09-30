@@ -833,14 +833,14 @@
   }
 
   function telHref(phone) {
-    var d = String(phone || "").replace(/[^\d+]/g, "");
+    var raw = String(phone || "").replace(/[^\d+]/g, "");
+    if (!raw) return "";
+    var d = raw.replace(/\D/g, "");
     if (!d) return "";
-    if (d.charAt(0) !== "+") {
-      if (d.indexOf("375") === 0) d = "+" + d;
-      else if (d.length === 9) d = "+375" + d;
-      else d = "+" + d;
-    }
-    return "tel:" + d;
+    if (d.indexOf("375") === 0) return "tel:+" + d;
+    if (d.indexOf("80") === 0) return "tel:+375" + d.slice(2);
+    if (d.length === 9) return "tel:+375" + d;
+    return "tel:+" + d;
   }
 
   function inTelegram() {
@@ -1509,9 +1509,12 @@
       var row = findCut(key);
       var el = document.getElementById("surplus_" + key);
       var surplus = Number(el && el.value) || 0;
+      var prevSurplus = row ? row.surplus : 0;
       if (row) row.surplus = surplus;
+      paintCut();
       persistCut(row || { row: key }, { surplus: surplus }).then(function (ok) {
         if (ok) sh().toast("Излишек сохранён");
+        else if (row) { row.surplus = prevSurplus; paintCut(); }
       });
       return true;
     }

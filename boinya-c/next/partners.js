@@ -108,12 +108,12 @@
     box.innerHTML = suggests.map(function (it) {
       var st = L().partnerSuggestStatusRu_(it.status);
       var who = it.authorNick ? ("@" + String(it.authorNick).replace(/^@/, "")) : (it.authorName || it.authorTid || "");
-      var where = [it.pointName, it.networkName].filter(Boolean).join(" · ");
+      var where = [it.pointName, it.networkName].filter(Boolean).join(", ");
       return '<article class="b-card" style="margin-top:8px' + (st === "отклонено" ? ";opacity:.55" : "") + '">' +
-        "<b>" + esc(it.typeLabel || it.type || "Предложение") + "</b> · " + esc(it.name || "") +
-        '<p class="b-note">' + esc(it.cityAddress || "") + (it.contact ? (" · " + esc(it.contact)) : "") + "</p>" +
+        "<b>" + esc(it.typeLabel || it.type || "Предложение") + "</b>, " + esc(it.name || "") +
+        '<p class="b-note">' + esc(it.cityAddress || "") + (it.contact ? (", " + esc(it.contact)) : "") + "</p>" +
         (it.comment ? ('<p>' + esc(it.comment) + "</p>") : "") +
-        '<p class="b-note">от ' + esc(who) + (where ? (" · " + esc(where)) : "") + " · " + esc(st) + "</p>" +
+        '<p class="b-note">от ' + esc(who) + (where ? (", " + esc(where)) : "") + ", " + esc(st) + "</p>" +
         '<div class="nx-actions">' +
         ["просмотрено", "в работе", "отклонено"].map(function (s) {
           return '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-st" data-id="' + esc(it.id) + '" data-st="' + esc(s) + '"' +
@@ -143,7 +143,7 @@
       var stRu = st === "in_transit" ? "в пути" : (st === "delivered" ? "доставлено" : (need ? "нужна дата" : "дата есть"));
       var html = '<article class="b-card" style="margin-top:8px"><b>' + esc(it.title || pl.locationName || "Партнёр") + "</b>" +
         '<p class="b-note">' + esc(stRu) +
-        (pl.partnerName || pl.partnerUsername ? (" · " + esc(pl.partnerName || ("@" + pl.partnerUsername))) : "") + "</p>" +
+        (pl.partnerName || pl.partnerUsername ? (", " + esc(pl.partnerName || ("@" + pl.partnerUsername))) : "") + "</p>" +
         (lines ? ('<p class="b-note">' + lines + "</p>") : "") +
         (String(pl.note || pl.partnerNote || "").trim() ? ('<p>' + esc(String(pl.note || pl.partnerNote)) + "</p>") : "");
       if (need && st !== "delivered") {
@@ -180,7 +180,7 @@
     var box = checks.length ? checks.map(function (p) {
       var net = ((hub && hub.networks) || []).filter(function (n) { return n.id === p.networkId; })[0];
       var face = L().partnerPointFace_(p);
-      var lab = (net && net.name ? (net.name + " · ") : "") + face.name;
+      var lab = (net && net.name ? (net.name + ", ") : "") + face.name;
       return '<label class="nx-check"><input type="checkbox" class="ph-pt-check" value="' + esc(p.id) + '"><span>' + esc(lab) + "</span></label>";
     }).join("") : '<span class="b-note">Нет точек</span>';
     return '<div class="nx-cut-head" style="justify-content:space-between"><p class="b-note" style="margin:0">@username → точки мини-аппа</p>' +
@@ -204,7 +204,7 @@
       var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
       var inactive = p.active === false;
       return '<div class="nx-line"><div class="b-grow"><b>' + esc(face.name) + "</b>" + (inactive ? ' <span class="b-note">(выкл)</span>' : "") +
-        '<div class="b-note">' + esc((net && net.name) || p.networkId || "") + (face.address ? (" · " + esc(face.address)) : "") + "</div></div>" +
+        '<div class="b-note">' + esc((net && net.name) || p.networkId || "") + (face.address ? (", " + esc(face.address)) : "") + "</div></div>" +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-edit" data-id="' + esc(p.id) + '">Изменить</button>' +
         (inactive
           ? '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-back" data-id="' + esc(p.id) + '">Вернуть</button>'
@@ -251,7 +251,7 @@
       if (p.username) meta.push("@" + p.username);
       if (p.role) meta.push(p.role);
       return '<label class="nx-check"><input type="checkbox" class="ph-notify-check" value="' + esc(id) + '"' + (selected[id] ? " checked" : "") + ">" +
-        "<span><b>" + esc(label) + "</b>" + (meta.length ? (' <span class="b-note">' + esc(meta.join(" · ")) + "</span>") : "") + "</span></label>";
+        "<span><b>" + esc(label) + "</b>" + (meta.length ? (' <span class="b-note">' + esc(meta.join(", ")) + "</span>") : "") + "</span></label>";
     }).join("") : '<p class="b-note">Нет сотрудников — сначала роли в «Доступах»</p>';
     return '<p class="b-note">Кому слать заявки из мини-аппа. Тот же ключ «Новая заявка партнёра», что в Доступах. Владельцы включены по умолчанию.</p>' +
       list;
@@ -447,8 +447,8 @@
       deliverTimeTo: "22:00",
       _: String(Date.now())
     }, { timeoutMs: 25000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилась дата · Deploy Code.gs?"); return; }
-    sh().toast("Дата назначена · партнёру ушло уведомление");
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилась дата, Deploy Code.gs?"); return; }
+    sh().toast("Дата назначена, партнёру ушло уведомление");
     loadOrders({ force: true });
     try { if (root.BoinyaTasks && root.BoinyaTasks.refresh) await root.BoinyaTasks.refresh(); } catch (e) {}
   }
@@ -469,8 +469,8 @@
       status: status,
       _: String(Date.now())
     }, { timeoutMs: 25000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не обновилось · Deploy Code.gs?"); return; }
-    sh().toast(status === "cancelled" ? "Заявка удалена" : (status === "delivered" ? "Доставлено · партнёру ушло" : "В пути · партнёру ушло"));
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не обновилось, Deploy Code.gs?"); return; }
+    sh().toast(status === "cancelled" ? "Заявка удалена" : (status === "delivered" ? "Доставлено, партнёру ушло" : "В пути, партнёру ушло"));
     loadOrders({ force: true });
   }
 

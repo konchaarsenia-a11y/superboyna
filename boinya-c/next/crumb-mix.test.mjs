@@ -144,6 +144,41 @@ test("genitive for every allowed crumb source", () => {
   assert.equal(mix.singleLabel("ЯБЛОКИ", 100), "Крошка яблок — 100 г");
 });
 
+test("display hides a chew inside a crumb", () => {
+  const row = {
+    cat: "crumb",
+    main: "КРОШКА",
+    crumbKind: "meat",
+    value: 60,
+    val: 60,
+    ratio: [40, 20],
+    sources: [
+      { cat: "dressura", name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", val: 40, value: 40 },
+      { cat: "chew", name: "ТРАХЕЯ", main: "ТРАХЕЯ", val: 20, value: 20 }
+    ]
+  };
+  const html = mix.linesHtml([row]);
+  assert.doesNotMatch(html, /трахе/i);
+  assert.doesNotMatch(html, /Крошка микс/);
+  assert.match(html, /Крошка лёгкого — 40 г/);
+  const mixed = {
+    cat: "crumb",
+    value: 120,
+    val: 120,
+    ratio: [40, 20, 60],
+    sources: [
+      { cat: "dressura", name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", val: 40, value: 40 },
+      { cat: "chew", name: "ТРАХЕЯ", main: "ТРАХЕЯ", val: 20, value: 20 },
+      { cat: "dressura", name: "РУБЕЦ Т", main: "РУБЕЦ Т", val: 60, value: 60 }
+    ]
+  };
+  const mixHtml = mix.linesHtml([mixed]);
+  assert.match(mixHtml, /Крошка микс — 120 г/);
+  assert.match(mixHtml, /лёгкое — 40 г/);
+  assert.match(mixHtml, /рубец т — 60 г/);
+  assert.doesNotMatch(mixHtml, /трахе/i);
+});
+
 test("chew is dropped from crumb sources on save and read", () => {
   const row = {
     cat: "crumb",

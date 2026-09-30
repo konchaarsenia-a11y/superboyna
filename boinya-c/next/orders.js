@@ -1526,7 +1526,9 @@
       if (node && node.getAttribute && node.getAttribute("data-act") === "csrc") {
         var idx = Number(node.getAttribute("data-i"));
         var parts = String(node.value || "").split("|");
+        while (picker.sources.length <= idx) picker.sources.push("");
         picker.sources[idx] = parts[1] || "";
+        rebuildAdd(null);
       }
       if (node && node.getAttribute && node.getAttribute("data-act") === "cgram") {
         var gi = Number(node.getAttribute("data-i"));
@@ -1733,6 +1735,62 @@
     state.day = day;
   }
 
+  function basketFromClient(g) {
+    g = g || {};
+    var e = eng();
+    var name = String(g.name || g.main || "");
+    var crumbish = !!(g.crumbKind || String(g.cat || "").toLowerCase() === "crumb" || (Array.isArray(g.sources) && g.sources.length) || /крошк/i.test(name));
+    if (crumbish && e && e.mapApiBasketToLocal) {
+      var mapped = e.mapApiBasketToLocal([g]);
+      if (mapped && mapped[0]) {
+        var row = mapped[0];
+        row.dog = g.dog ? Number(g.dog) : 0;
+        if (row.value == null) row.value = row.val;
+        if (!row.sources || !row.sources.length) {
+          var names = String(g.sub || "").split(/\s*\+\s*/).map(function (p) { return String(p || "").trim(); }).filter(function (p) {
+            return p && !/^крошка$/i.test(p);
+          });
+          if (names.length) {
+            var pool = e.crumbSourcePool_(row.crumbKind || "meat") || [];
+            row.sources = names.map(function (n) {
+              var hit = null;
+              pool.forEach(function (p) {
+                if (String(p.name || "").toUpperCase() === n.toUpperCase()) hit = p;
+              });
+              var canon = hit ? hit.name : n;
+              return { cat: hit ? hit.cat : "", name: canon, main: canon, sub: "" };
+            });
+          }
+        }
+        var ratio = Array.isArray(row.ratio) ? row.ratio.slice() : (Array.isArray(g.ratio) ? g.ratio.slice() : []);
+        (row.sources || []).forEach(function (s, i) {
+          var own = Number(ratio[i]);
+          if (!(own > 0)) {
+            var raw = (g.sources || []).filter(function (r) {
+              return String((r && (r.name || r.main)) || "").toUpperCase() === String(s.name || s.main || "").toUpperCase();
+            })[0];
+            own = Number(raw && (raw.val != null ? raw.val : raw.value));
+          }
+          if (own > 0) {
+            s.val = own;
+            s.value = own;
+            ratio[i] = own;
+          }
+        });
+        if (ratio.some(function (n) { return Number(n) > 0; })) row.ratio = ratio;
+        return row;
+      }
+    }
+    return {
+      cat: g.cat || "other",
+      main: g.name || g.main,
+      name: g.name || g.main,
+      sub: g.sub || "",
+      value: g.val != null ? g.val : g.value,
+      dog: g.dog ? Number(g.dog) : 0
+    };
+  }
+
   function loadFromClient(client, meta) {
     client = client || {};
     meta = meta || {};
@@ -1768,14 +1826,7 @@
     if (slot === 1 || slot === 2) next.ppSlotManual = slot;
     if (client.deliveriesN) next.deliveriesN = Number(client.deliveriesN) || 0;
     var basket = (client.basket || []).map(function (g) {
-      return {
-        cat: g.cat || "other",
-        main: g.name || g.main,
-        name: g.name || g.main,
-        sub: g.sub || "",
-        value: g.val != null ? g.val : g.value,
-        dog: g.dog ? Number(g.dog) : 0
-      };
+      return basketFromClient(g);
     });
     var has1 = basket.some(function (x) { return Number(x.dog) === 1; });
     var has2 = basket.some(function (x) { return Number(x.dog) === 2; });
