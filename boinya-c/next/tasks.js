@@ -320,7 +320,15 @@
   }
 
   async function assignSlot(id, partnerOrderId) {
-    var picked = await sh().prompt({ title: "Дата", text: "Дата ГГГГ-ММ-ДД", ok: "Назначить" });
+    var it = findItem(id);
+    var picked = await sh().pickDate({
+      title: "Дата",
+      lead: (it && (it.title || it.client || it.clientNick)) || "Отложенный заказ",
+      verb: "Назначить",
+      loadMonth: function (key) {
+        return api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+      }
+    });
     if (picked == null) return;
     var dateIso = String(picked).trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) { sh().toast("Выберите дату"); return; }
@@ -404,7 +412,15 @@
       cancel: "Позже"
     });
     if (!go) return;
-    var picked = await sh().prompt({ title: "Дата", text: "Дата ГГГГ-ММ-ДД", value: p.dateIso || p.date || "", ok: "Дальше" });
+    var picked = await sh().pickDate({
+      title: "Дата",
+      lead: task.clientNick || p.client || "Перенос",
+      value: p.dateIso || p.date || "",
+      verb: "Перенести",
+      loadMonth: function (key) {
+        return api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+      }
+    });
     if (!picked) return;
     var target = await api().apiGet({ action: "resolveDayForDate", date: picked }, { timeoutMs: 15000, cacheTtlMs: 0 });
     var newDate = (target && (target.newDate || target.date)) || picked;

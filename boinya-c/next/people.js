@@ -7,6 +7,11 @@
   var sched = null;
   var timezones = ["Europe/Minsk"];
   var openId = "";
+  var warehouses = [];
+  var whDeparture = null;
+  var whSuggest = [];
+  var whAddrTimer = 0;
+  var whAddrSeq = 0;
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -124,13 +129,134 @@
         '<span class="b-li__sub">' + esc(RU[p.role] || p.role || "") + '</span></span><span class="b-li__chev">›</span></button>';
     });
     html += "</div>";
+    html += warehousesHtml();
     sh().main(html);
+  }
+
+  function whById(id) {
+    for (var i = 0; i < warehouses.length; i++) if (String(warehouses[i].id) === String(id)) return warehouses[i];
+    return null;
+  }
+
+  function warehousesHtml() {
+    var html = '<p class="b-lbl">Склады</p>';
+    if (!warehouses.length) html += '<p class="b-note">Складов пока нет, курьер видит Белецкого 10к2</p>';
+    warehouses.forEach(function (w) {
+      var dep = !!(w.departure || (whDeparture && String(whDeparture.id) === String(w.id)));
+      html += '<article class="nx-depot"><div class="nx-depot__body"><p class="b-li__title" style="margin:0">' + esc(w.name) +
+        (dep ? ' <span class="b-pill b-pill--ok">выезд</span>' : "") +
+        '</p><p class="b-note">' + esc(w.address) + "</p></div>";
+      if (!dep) html += '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wh-dep" data-id="' + esc(w.id) + '">Выезд</button>';
+      html += '<button type="button" class="b-btn b-btn--danger b-btn--sm" data-act="wh-del" data-id="' + esc(w.id) + '">Удалить</button></article>';
+    });
+    html += '<button type="button" class="b-btn b-btn--sec" data-act="wh-add">+ Склад</button>';
+    html += '<p class="b-note">точка выезда курьера: название и адрес, остатки склада не делятся</p>';
+    return html;
+  }
+
+  async function loadWarehouses() {
+    try {
+      var res = await api().apiGet({ action: "listWarehouses", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+      warehouses = (res && res.warehouses) || [];
+      whDeparture = (res && res.departure) || null;
+    } catch (e) {
+      warehouses = [];
+      whDeparture = { id: "beletskogo", name: "Склад", address: "Белецкого 10к2", departure: true, fallback: true };
+    }
+  }
+
+  function paintWhSuggest() {
+    var box = document.getElementById("whSuggest");
+    if (!box) return;
+    if (!whSuggest.length) { box.innerHTML = ""; return; }
+    box.innerHTML = '<div class="nx-suggest">' + whSuggest.map(function (s, i) {
+      return '<button type="button" data-act="wh-pick" data-i="' + i + '">' + esc(s.address || s.title || "") + "</button>";
+    }).join("") + "</div>";
+  }
+
+  function scheduleWhAddr(q) {
+    clearTimeout(whAddrTimer);
+    q = String(q || "").trim();
+    if (q.length < 2) { whSuggest = []; paintWhSuggest(); return; }
+    whAddrTimer = setTimeout(function () { fetchWhAddr(q); }, 280);
+  }
+
+  function fetchWhAddr(q) {
+    var seq = ++whAddrSeq;
+    api().apiGet({ action: "suggestAddress", text: q, _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 }).then(function (res) {
+      if (seq !== whAddrSeq) return;
+      whSuggest = ((res && res.results) || []).slice(0, 6);
+      paintWhSuggest();
+    }).catch(function () {
+      if (seq !== whAddrSeq) return;
+      whSuggest = [];
+      paintWhSuggest();
+    });
+  }
+
+  function openNewWarehouse() {
+    whSuggest = [];
+    sh().openSheet({
+      title: "Новый склад",
+      html: '<p class="b-lbl">Название</p><label class="b-field"><input class="b-field__input" id="whName" autocomplete="off"></label>' +
+        '<p class="b-lbl">Адрес</p><label class="b-field"><input class="b-field__input" id="whAddr" autocomplete="off"></label>' +
+        '<div id="whSuggest"></div>',
+      foot: '<button type="button" class="b-btn b-btn--main" data-act="wh-save">Сохранить</button>'
+    });
+  }
+
+  function openDeleteWarehouse(id) {
+    var w = whById(id);
+    if (!w) return;
+    sh().openSheet({
+      title: "Удалить склад",
+      html: '<p class="b-li__title" style="margin:0">' + esc(w.name) + "</p>" +
+        '<p class="b-note">' + esc(w.address) + "</p>" +
+        '<p class="b-note">старые маршруты сохранят этот адрес</p>',
+      foot: '<div class="nx-actions"><button type="button" class="b-btn b-btn--danger" data-act="wh-del-yes" data-id="' + esc(w.id) + '">Удалить</button>' +
+        '<button type="button" class="b-btn b-btn--sec" data-act="sheet-close">Отмена</button></div>'
+    });
+  }
+
+  async function saveWarehouse() {
+    var nameEl = document.getElementById("whName");
+    var addrEl = document.getElementById("whAddr");
+    var name = nameEl ? String(nameEl.value || "").trim() : "";
+    var address = addrEl ? String(addrEl.value || "").trim() : "";
+    if (!name || !address) { sh().toast("Укажите название и адрес"); return; }
+    var res = await api().apiPost({ action: "saveWarehouse", name: name, address: address, telegramId: tid() });
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилось"); return; }
+    warehouses = res.warehouses || [];
+    whDeparture = res.departure || null;
+    sh().closeTop("ok");
+    sh().toast("Склад сохранён");
+    paint();
+  }
+
+  async function deleteWarehouse(id) {
+    var res = await api().apiPost({ action: "deleteWarehouse", id: id, telegramId: tid() });
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не удалилось"); return; }
+    warehouses = res.warehouses || [];
+    whDeparture = res.departure || null;
+    sh().closeTop("ok");
+    sh().toast("Склад удалён");
+    paint();
+  }
+
+  async function setDeparture(id) {
+    var res = await api().apiPost({ action: "setDepartureWarehouse", id: id, telegramId: tid() });
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилась точка"); return; }
+    warehouses = res.warehouses || [];
+    whDeparture = res.departure || null;
+    sh().toast("Точка выезда обновлена");
+    paint();
   }
 
   async function show() {
     sh().dock("");
     sh().main(sh().skeleton(4));
     var res = await load();
+    await loadWarehouses();
     if (!res || res.status !== "success") {
       sh().main(sh().errorBox({ title: "Доступы", text: "Только владелец. Если это вы — нажмите «Повторить».", act: "p-reload" }));
       return;
@@ -273,7 +399,24 @@
   }
 
   function onAct(act, node) {
+    if (act === "input") {
+      if (node && node.id === "whAddr") { scheduleWhAddr(node.value); return true; }
+      return false;
+    }
     if (act === "p-reload") { show(); return true; }
+    if (act === "wh-add") { openNewWarehouse(); return true; }
+    if (act === "wh-save") { saveWarehouse(); return true; }
+    if (act === "wh-del") { openDeleteWarehouse(node.getAttribute("data-id")); return true; }
+    if (act === "wh-del-yes") { deleteWarehouse(node.getAttribute("data-id")); return true; }
+    if (act === "wh-dep") { setDeparture(node.getAttribute("data-id")); return true; }
+    if (act === "wh-pick") {
+      var row = whSuggest[Number(node.getAttribute("data-i"))];
+      var inp = document.getElementById("whAddr");
+      if (row && inp) inp.value = row.address || row.title || "";
+      whSuggest = [];
+      paintWhSuggest();
+      return true;
+    }
     if (act === "p-open") { openPerson(node.getAttribute("data-id")); return true; }
     if (act === "p-approve") {
       var card = node.closest("article");

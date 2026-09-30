@@ -107,13 +107,14 @@ async function main() {
   await a.page.getByRole("button", { name: "Клиенты" }).click();
   await a.page.locator("#cxPass").fill("1");
   await a.page.getByRole("button", { name: "Открыть" }).click();
-  await a.page.getByRole("button", { name: "Подбор" }).waitFor();
+  await a.page.getByRole("button", { name: "Опросник" }).waitFor();
   const segs = await a.page.locator(".b-seg").innerText();
-  if (!/Опросник/.test(segs) || !/Расчёт/.test(segs) || !/Подбор/.test(segs)) throw new Error("segs " + segs);
+  if (!/Опросник/.test(segs) || /Расчёт/.test(segs) || /Подбор/.test(segs)) throw new Error("segs " + segs);
   if (await a.page.locator(".b-top__sub").count()) throw new Error("subtitle still present");
   await overflow(a.page, "clients-segs");
   await shot(a.page, "next-clients-segs.png");
-  await a.page.getByRole("button", { name: "Подбор" }).click();
+  await a.page.getByRole("button", { name: "Расчёт и подбор" }).click();
+  await a.page.getByRole("button", { name: "Подбор", exact: true }).click();
   await a.page.locator("#cxAnketa").fill("любит лёгкое\nБюджет до 40 руб");
   await a.page.locator("#cxAnketa").blur();
   await a.page.getByRole("button", { name: "Подобрать" }).click();

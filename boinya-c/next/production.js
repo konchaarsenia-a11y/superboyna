@@ -23,6 +23,7 @@
   var courAsmBusy = false;
   var planHtml = "";
   var depotAddr = "Белецкого 10к2";
+  var depotName = "Склад";
   var couriersN = 1;
 
   function sh() { return root.BoinyaShell; }
@@ -297,6 +298,7 @@
     } else if (cutItems.length) {
       html += '<button type="button" class="b-btn b-btn--main" data-act="pr-cut-start" style="margin-top:12px">Начать нарезку</button>';
     }
+    html += cutProgressHtml();
     if (cutDone && cutDetail) html += '<button type="button" class="nx-link" data-act="pr-cut-back">← Итог</button><p class="b-note">Просмотр</p>';
     if (!cutItems.length && !cutDone) html += '<p class="b-note">На этот день резать нечего — или день ещё считается.</p>';
     cutItems.forEach(function (it) { html += paintCutRow(it, !!cutDone); });
@@ -306,6 +308,24 @@
     sh().dock("");
     sh().main(html);
     tickCut();
+  }
+
+  function cutProgressHtml() {
+    var lib = root.BoinyaCutProgress;
+    if (!lib || !cutItems.length) return "";
+    var r = lib.summarize(cutItems);
+    var html = '<div class="nx-prog">';
+    html += '<div class="nx-bar" role="img" aria-label="' + r.total + ' процентов"><span style="width:' + r.total + '%"></span></div>';
+    html += '<p class="nx-prog__pct">' + r.total + "%</p>";
+    html += '<p class="nx-prog__line">' + esc(r.line) + "</p>";
+    if (r.grams != null) {
+      html += '<div class="nx-thin"><span>граммы ' + r.grams + '%</span><div class="nx-bar nx-bar--thin" aria-label="граммы ' + r.grams + ' процентов"><span style="width:' + r.grams + '%"></span></div></div>';
+    }
+    if (r.pieces != null) {
+      html += '<div class="nx-thin"><span>штуки ' + r.pieces + '%</span><div class="nx-bar nx-bar--thin" aria-label="штуки ' + r.pieces + ' процентов"><span style="width:' + r.pieces + '%"></span></div></div>';
+    }
+    html += '<p class="b-note">выложено даёт половину веса, нарезано весь вес</p></div>';
+    return html;
   }
 
   function tickCut() {
@@ -860,8 +880,7 @@
     var day = dayOf("route");
     var html = segBar() + dayField("nxCourDay", day);
     html += '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--sec" data-act="pr-cour-reload">Обновить список</button></div>';
-    html += '<label class="b-field" style="margin-top:8px"><span class="b-note">Точка выезда</span><input class="b-field__input" id="nxDepot" value="' + esc(depotAddr) + '"></label>';
-    html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-depot" style="margin-top:8px">Склад (Белецкого 10к2)</button>';
+    html += '<p class="b-lbl">Точка выезда</p><article class="b-card nx-depot"><p class="b-li__title" style="margin:0">' + esc(depotName || "Склад") + '</p><p class="b-note">' + esc(depotAddr || "Белецкого 10к2") + "</p></article>";
     html += '<div class="nx-actions" style="margin-top:8px">' +
       '<button type="button" class="b-btn ' + (couriersN === 1 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="1">Курьеров 1</button>' +
       '<button type="button" class="b-btn ' + (couriersN === 2 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="2">Курьеров 2</button></div>';
@@ -922,6 +941,7 @@
   }
 
   async function loadCour(force) {
+    await loadDeparture();
     var day = currentDay("nxCourDay", "route");
     if (force) courDetail = false;
     var regJob = registerCourier();
@@ -986,9 +1006,29 @@
     } catch (e) {}
   }
 
+  function applyDeparture(res) {
+    var list = (res && res.warehouses) || [];
+    var dep = res && res.departure;
+    if (!dep) {
+      for (var i = 0; i < list.length; i++) if (list[i] && list[i].departure) dep = list[i];
+    }
+    if (dep && dep.address) {
+      depotAddr = String(dep.address);
+      depotName = String(dep.name || "Склад");
+      return;
+    }
+    depotAddr = "Белецкого 10к2";
+    depotName = "Склад";
+  }
+
+  async function loadDeparture() {
+    try {
+      var res = await api().apiGet({ action: "listWarehouses", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 15000 });
+      applyDeparture(res);
+    } catch (eDep) {}
+  }
+
   function readDepot() {
-    var el = document.getElementById("nxDepot");
-    if (el && el.value) depotAddr = String(el.value).trim();
     var h = document.getElementById("nxDepH");
     var m = document.getElementById("nxDepM");
     if (rt()) rt().setDepart(h ? h.value : 14, m ? m.value : 0);
@@ -1345,7 +1385,7 @@
       if (id === "nxCutDay") { cutDone = null; cutDetail = false; loadCut(); return true; }
       if (id === "nxAsmDay") { asm = null; asmDaySeen = ""; loadAsm(true); return true; }
       if (id === "nxCourDay") { planHtml = ""; loadCour(true); return true; }
-      if (id === "nxDepot" || id === "nxDepH" || id === "nxDepM") { readDepot(); return true; }
+      if (id === "nxDepH" || id === "nxDepM") { readDepot(); return true; }
       if (node && node.getAttribute && node.getAttribute("data-act") === "pr-laid") {
         var itL = findCut(node.getAttribute("data-key"));
         if (!itL) return true;
@@ -1439,12 +1479,6 @@
     if (act === "pr-cour-reload") { planHtml = ""; loadCour(true); return true; }
     if (act === "pr-cour-more") { courDetail = true; paintRoute(); return true; }
     if (act === "pr-cour-back") { courDetail = false; paintRoute(); return true; }
-    if (act === "pr-depot") {
-      depotAddr = "Белецкого 10к2";
-      var inp = document.getElementById("nxDepot");
-      if (inp) inp.value = depotAddr;
-      return true;
-    }
     if (act === "pr-cn") { couriersN = node.getAttribute("data-n") === "2" ? 2 : 1; readDepot(); paintRoute(); return true; }
     if (act === "pr-build") { buildPlan(); return true; }
     if (act === "pr-allmap") { allMap(); return true; }

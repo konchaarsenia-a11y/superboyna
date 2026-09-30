@@ -66,3 +66,14 @@ CREATE TABLE IF NOT EXISTS sheet_outbox (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sheet_outbox_status ON sheet_outbox(status);
+
+-- Точки выезда курьера. Остатки склада не делятся.
+CREATE TABLE IF NOT EXISTS warehouses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  is_departure INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT ''
+);

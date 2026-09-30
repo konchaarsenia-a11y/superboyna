@@ -3,6 +3,8 @@
   "use strict";
 
   var route = { tab: "orders", seg: "new" };
+  var priceView = "";
+  var priceFrom = null;
   var access = null;
   var tasksN = 0;
   var booting = false;
@@ -71,9 +73,61 @@
       var ps = prodSegs();
       if (!ps.some(function (s) { return s.id === route.seg; })) route.seg = (ps[0] && ps[0].id) || "cut";
     } else if (route.tab === "clients") {
+      if (route.seg === "calc" || route.seg === "pick") {
+        priceView = route.seg;
+        return;
+      }
       var cs = clients() ? clients().segs(access) : [];
+      if (!cs.length) {
+        var tool = ax().tabHas(access, "priceScreen.calc") ? "calc" : "";
+        if (!tool && ax().tabHas(access, "priceScreen.pick") && ax().tabHas(access, "templatesScreen.ai")) tool = "pick";
+        if (tool) {
+          if (!priceFrom) priceFrom = { tab: "orders", seg: "new", moreView: "" };
+          priceView = tool;
+          route.seg = tool;
+          return;
+        }
+      }
+      priceView = "";
       if (!cs.some(function (s) { return s.id === route.seg; })) route.seg = (cs[0] && cs[0].id) || "pp";
+    } else {
+      priceView = "";
     }
+  }
+
+  function canPriceTool() {
+    if (!access || ax().isSimple(access)) return false;
+    return ax().tabHas(access, "priceScreen.calc") || (ax().tabHas(access, "priceScreen.pick") && ax().tabHas(access, "templatesScreen.ai"));
+  }
+
+  function showPriceTool() {
+    if (!canPriceTool()) return false;
+    if (priceView) return true;
+    return route.tab === "orders" || route.tab === "clients" || route.tab === "production" || route.tab === "warehouse" || route.tab === "more";
+  }
+
+  function enterPrice(which) {
+    if (which !== "calc" && which !== "pick") return;
+    if (!priceView) priceFrom = { tab: route.tab, seg: route.seg, moreView: moreView };
+    priceView = which;
+    route.tab = "clients";
+    route.seg = which;
+    moreView = "";
+    sh().closeAll();
+    sh().resetScroll();
+    render();
+  }
+
+  function leavePrice() {
+    var back = priceFrom || { tab: "clients", seg: "pp", moreView: "" };
+    priceView = "";
+    priceFrom = null;
+    route.tab = back.tab || "clients";
+    route.seg = back.seg || "";
+    moreView = back.moreView || "";
+    if (route.tab !== "clients") priceView = "";
+    sh().resetScroll();
+    render();
   }
 
   function headerSub() {
@@ -103,6 +157,8 @@
   }
 
   function headerTitle() {
+    if (priceView === "calc") return "Расчёт";
+    if (priceView === "pick") return "Подбор";
     if (q().get("shot") === "states") return "Состояния";
     if (ax().isSimple(access)) return ax().SIMPLE[access.role] || "Бойня";
     var map = ax().NAV_LABELS;
@@ -129,6 +185,7 @@
       title: headerTitle(),
       bell: ax().canUseTasks(access),
       badge: tasksN,
+      calc: showPriceTool(),
       nav: nav,
       active: route.tab
     });
@@ -147,7 +204,7 @@
     var custom = access.customTabs && access.customTabs.length;
     var items = [
       { id: "clientsScreen", label: "Просмотр", roles: "manager,owner,all", go: function () { route.tab = "orders"; route.seg = ax().tabHas(access, "clientsScreen.week") ? "week" : "month"; moreView = ""; } },
-      { id: "priceScreen", label: "Расчёт", roles: "manager,owner,all", go: function () { route.tab = "clients"; route.seg = "calc"; moreView = ""; } },
+      { id: "priceScreen", label: "Расчёт", roles: "manager,owner,all", go: function () { enterPrice("calc"); } },
       { id: "templatesScreen", label: "Шаблоны", roles: "manager,owner,all", go: function () { route.tab = "more"; moreView = "templates"; } },
       { id: "subsScreen", label: "Подписки", roles: "owner,all", go: function () { route.tab = "clients"; route.seg = "pp"; moreView = ""; } },
       { id: "statsScreen", label: "Статистика", roles: "owner,all", go: function () { route.tab = "more"; moreView = "stats"; } },
@@ -365,9 +422,6 @@
     if (ax().tabHas(access, "peopleScreen")) {
       more += '<button type="button" class="b-li" data-act="more-people"><span class="b-li__body"><span class="b-li__title">Доступы</span><span class="b-li__sub">Роли, вкладки, уведомления</span></span><span class="b-li__chev">›</span></button>';
     }
-    if (ax().tabHas(access, "templatesScreen.ai") && ax().tabHas(access, "priceScreen.pick")) {
-      more += '<button type="button" class="b-li" data-act="more-pick"><span class="b-li__body"><span class="b-li__title">Подбор</span><span class="b-li__sub">Подбор ИИ по анкете</span></span><span class="b-li__chev">›</span></button>';
-    }
     if (ax().tabHas(access, "templatesScreen")) {
       more += '<button type="button" class="b-li" data-act="more-templates"><span class="b-li__body"><span class="b-li__title">Шаблоны</span><span class="b-li__sub">Тексты и карточки лакомств</span></span><span class="b-li__chev">›</span></button>';
     }
@@ -398,7 +452,7 @@
       return "Месяц: люди на дне крупно, дата мелко, точки ПП, БП, розница и партнёр. Под сеткой заказы этого дня. Тап по строке — править, перенести, удалить. «Завершить неделю» подтягивает месяц сама и не копирует понедельник на будущую неделю.";
     }
     if (route.tab === "more" && moreView === "people") {
-      return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце.";
+      return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце. Склады: название, адрес и одна точка выезда. Остатки склада не делятся.";
     }
     if (route.tab === "goals") return "Цели — новый раздел только у владельца. В этом обновлении экрана ещё нет.";
     if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
@@ -432,7 +486,7 @@
       return "Сборка: пакеты по составу, форматы можно выключить. «Собрано» пишет в таблицу. «Пропечатка пакетов» — ручная отметка «пропечатано без лакомств», тот же запрос, что раньше. Отдельного сервера печати нет.";
     }
     if (route.tab === "production" && route.seg === "route") {
-      return "Маршрут: день, выезд со склада Белецкого 10к2 или свой адрес, один или два курьера. «Собрать маршруты» считает порядок как раньше. Галочка «доставлено», карта, телефон, «Не получил» создаёт перенос. Курьер и нарезчик заходят без нижней панели.";
+      return "Маршрут: день, выезд с выбранного склада, один или два курьера. Точку выезда задаёт владелец в Доступах. «Собрать маршруты» считает порядок как раньше. Галочка «доставлено», карта, телефон, «Не получил» создаёт перенос. Курьер и нарезчик заходят без нижней панели.";
     }
     return "Этот экран ещё не перенесён. Кнопка «Открыть в старой версии» ведёт в привычное приложение. Данные те же.";
   }
@@ -485,6 +539,8 @@
   function onAct(act, node) {
     if (act === "nav") {
       if (suppressNav) { suppressNav = false; return; }
+      priceView = "";
+      priceFrom = null;
       route.tab = node.getAttribute("data-tab");
       route.seg = "";
       if (route.tab !== "more") moreView = "";
@@ -516,8 +572,22 @@
     if (act === "more-stats") { moreView = "stats"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-partners") { moreView = "partners"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-goals") { route.tab = "goals"; moreView = ""; sh().resetScroll(); render(); return; }
-    if (act === "more-pick") { root.__nxPickFromMore = true; route.tab = "clients"; route.seg = "pick"; moreView = ""; sh().resetScroll(); render(); return; }
-    if (act === "more-back") { route.tab = "more"; moreView = ""; root.__nxPickFromMore = false; sh().resetScroll(); render(); return; }
+    if (act === "more-back") { route.tab = "more"; moreView = ""; priceView = ""; priceFrom = null; sh().resetScroll(); render(); return; }
+    if (act === "price-tools") {
+      var tools = [];
+      if (ax().tabHas(access, "priceScreen.calc")) tools.push({ id: "calc", label: "Расчёт" });
+      if (ax().tabHas(access, "priceScreen.pick") && ax().tabHas(access, "templatesScreen.ai")) tools.push({ id: "pick", label: "Подбор" });
+      if (tools.length === 1) { enterPrice(tools[0].id); return; }
+      sh().openSheet({
+        title: "Расчёт и подбор",
+        html: tools.map(function (it) {
+          return '<button type="button" class="b-btn b-btn--sec" style="margin-top:8px" data-act="price-open" data-tool="' + it.id + '">' + sh().esc(it.label) + "</button>";
+        }).join("")
+      });
+      return;
+    }
+    if (act === "price-open") { enterPrice(node.getAttribute("data-tool")); return; }
+    if (act === "price-back") { leavePrice(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
       route.seg = node.getAttribute("data-seg");
       if (act === "oseg") route.tab = "orders";
@@ -649,6 +719,10 @@
     if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
     if (q().get("view") === "partners") { route.tab = "more"; moreView = "partners"; }
     if (access.role === "partner" && !q().get("tab")) { route.tab = "more"; moreView = "partners"; }
+    if (route.seg === "calc" || route.seg === "pick") {
+      priceView = route.seg;
+      if (!priceFrom) priceFrom = { tab: "orders", seg: "new", moreView: "" };
+    }
     ensureSeg();
     render();
     refreshTasks().then(function () { if (access) paintChrome(); });
@@ -680,6 +754,14 @@
     root.__nxSetSeg = function (tab, seg) {
       route.tab = tab;
       route.seg = seg;
+      if (seg === "calc" || seg === "pick") priceView = seg;
+    };
+    root.__nxPriceView = function (which) {
+      if (which !== "calc" && which !== "pick") return;
+      priceView = which;
+      route.tab = "clients";
+      route.seg = which;
+      paintChrome();
     };
     root.__nxOpenPartners = function (nextTab) {
       route.tab = "more";
@@ -688,6 +770,12 @@
       render();
     };
     root.__nxOpenClients = function (nextSeg, nick) {
+      if (nextSeg === "calc" || nextSeg === "pick") {
+        if (!priceView) priceFrom = { tab: route.tab, seg: route.seg, moreView: moreView };
+        priceView = nextSeg;
+      } else {
+        priceView = "";
+      }
       route.tab = "clients";
       route.seg = nextSeg || "pp";
       if (nick && clients()) clients().setSearch(nick);

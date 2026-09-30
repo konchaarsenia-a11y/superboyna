@@ -212,6 +212,82 @@ body.nx-kb #nxNav {
   background: var(--b-warn);
 }
 
+.nx-bar--thin {
+  height: 6px;
+}
+
+.nx-group {
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: 14px;
+  padding: 12px;
+  margin: 0 0 10px;
+}
+
+.nx-group h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--b-text-2);
+}
+
+.nx-prog {
+  margin: 8px 0 12px;
+}
+
+.nx-prog__pct {
+  margin: 8px 0 0;
+  font-family: var(--b-display);
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.nx-prog__line {
+  margin: 4px 0 0;
+  color: var(--b-text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.nx-thin {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  color: var(--b-text-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.nx-depot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--b-line);
+}
+
+.b-card.nx-depot {
+  display: block;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.nx-depot__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.nx-depot .b-pill {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 .nx-line {
   display: flex;
   align-items: center;

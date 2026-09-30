@@ -686,7 +686,7 @@ const AUTH_OWNER_RE = new RegExp(
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
-    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*)$"
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse)$"
 );
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
@@ -1240,6 +1240,10 @@ async function handleAction_(action, params, env, url, ctx) {
     return liveSch && typeof liveSch === "object" ? liveSch : { status: "error", message: "gas_proxy_failed", action: a };
   }
   if (a === "unlockSubs") return unlockSubs_(params, actor, env);
+  if (a === "listWarehouses") return listWarehouses_(env);
+  if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
+  if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
+  if (a === "setDepartureWarehouse") return setDepartureWarehouse_(params, env);
 
   let res = await handleActionInner_(a, params, env, url, ctx);
   if (/^(setAccessRole|setAccessTimezone)$/i.test(a)) authInvalidateRole_(params.targetId);
@@ -2521,6 +2525,129 @@ function enrichOrderRowSegment_(row) {
     source: got.source || row.source || "",
     meta_json: JSON.stringify(nextMeta)
   });
+}
+
+function fallbackWarehouse_() {
+  return { id: "beletskogo", name: "Склад", address: "Белецкого 10к2", departure: true, fallback: true };
+}
+
+function shapeWarehouses_(rows) {
+  const list = [];
+  (rows || []).forEach(function (r) {
+    if (!r || Number(r.active) === 0) return;
+    list.push({
+      id: String(r.id || ""),
+      name: String(r.name || ""),
+      address: String(r.address || ""),
+      departure: Number(r.is_departure) === 1,
+      createdAt: String(r.created_at || "")
+    });
+  });
+  let departure = null;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].departure) {
+      departure = list[i];
+      break;
+    }
+  }
+  if (!departure && list.length) {
+    list[0].departure = true;
+    departure = list[0];
+  }
+  if (!list.length) {
+    const fb = fallbackWarehouse_();
+    return { status: "success", warehouses: [], departure: fb, departureId: fb.id };
+  }
+  return { status: "success", warehouses: list, departure: departure, departureId: departure.id };
+}
+
+async function ensureWarehouses_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__whReady) return true;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS warehouses (" +
+      "id TEXT PRIMARY KEY, " +
+      "name TEXT NOT NULL, " +
+      "address TEXT NOT NULL, " +
+      "active INTEGER NOT NULL DEFAULT 1, " +
+      "is_departure INTEGER NOT NULL DEFAULT 0, " +
+      "created_at TEXT NOT NULL DEFAULT '', " +
+      "created_by TEXT NOT NULL DEFAULT ''" +
+    ")"
+  ).run();
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM warehouses").first();
+  if (!n || Number(n.n) === 0) {
+    await env.DB.prepare(
+      "INSERT INTO warehouses (id, name, address, active, is_departure, created_at, created_by) VALUES ('beletskogo', 'Склад', 'Белецкого 10к2', 1, 1, ?, 'seed')"
+    )
+      .bind(new Date().toISOString())
+      .run();
+  }
+  env.__whReady = true;
+  return true;
+}
+
+async function listWarehouses_(env) {
+  const fb = fallbackWarehouse_();
+  if (!env || !env.DB) return { status: "success", warehouses: [], departure: fb, departureId: fb.id };
+  try {
+    await ensureWarehouses_(env);
+    const q = await env.DB.prepare(
+      "SELECT id, name, address, active, is_departure, created_at FROM warehouses WHERE active = 1 ORDER BY created_at ASC"
+    ).all();
+    return shapeWarehouses_((q && q.results) || []);
+  } catch (eWh) {
+    return { status: "success", warehouses: [], departure: fb, departureId: fb.id };
+  }
+}
+
+async function saveWarehouse_(params, actor, env) {
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureWarehouses_(env);
+  const name = String((params && params.name) || "").trim();
+  const address = String((params && params.address) || "").trim();
+  if (!name || !address) return { status: "error", message: "Укажите название и адрес" };
+  if (name.length > 80) return { status: "error", message: "Название длиннее 80 знаков" };
+  if (address.length > 240) return { status: "error", message: "Адрес длиннее 240 знаков" };
+  const id = "wh_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const activeN = await env.DB.prepare("SELECT COUNT(*) AS n FROM warehouses WHERE active = 1").first();
+  const dep = !activeN || Number(activeN.n) === 0 ? 1 : 0;
+  await env.DB.prepare(
+    "INSERT INTO warehouses (id, name, address, active, is_departure, created_at, created_by) VALUES (?, ?, ?, 1, ?, ?, ?)"
+  )
+    .bind(id, name, address, dep, new Date().toISOString(), String((actor && actor.tid) || (params && params.actorId) || ""))
+    .run();
+  return listWarehouses_(env);
+}
+
+async function deleteWarehouse_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureWarehouses_(env);
+  const id = String((params && (params.id || params.warehouseId)) || "").trim();
+  if (!id) return { status: "error", message: "Не указан склад" };
+  const row = await env.DB.prepare("SELECT id, is_departure, active FROM warehouses WHERE id = ?").bind(id).first();
+  if (!row || Number(row.active) === 0) return { status: "error", message: "Склад не найден" };
+  const was = Number(row.is_departure) === 1;
+  await env.DB.prepare("UPDATE warehouses SET active = 0, is_departure = 0 WHERE id = ?").bind(id).run();
+  if (was) {
+    const next = await env.DB.prepare("SELECT id FROM warehouses WHERE active = 1 ORDER BY created_at ASC LIMIT 1").first();
+    if (next && next.id) {
+      await env.DB.prepare("UPDATE warehouses SET is_departure = 0 WHERE active = 1").run();
+      await env.DB.prepare("UPDATE warehouses SET is_departure = 1 WHERE id = ?").bind(next.id).run();
+    }
+  }
+  return listWarehouses_(env);
+}
+
+async function setDepartureWarehouse_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureWarehouses_(env);
+  const id = String((params && (params.id || params.warehouseId)) || "").trim();
+  const row = await env.DB.prepare("SELECT id FROM warehouses WHERE id = ? AND active = 1").bind(id).first();
+  if (!row) return { status: "error", message: "Склад не найден" };
+  await env.DB.prepare("UPDATE warehouses SET is_departure = 0 WHERE active = 1").run();
+  await env.DB.prepare("UPDATE warehouses SET is_departure = 1 WHERE id = ?").bind(id).run();
+  return listWarehouses_(env);
 }
 
 async function ensureMetaColumn_(env) {

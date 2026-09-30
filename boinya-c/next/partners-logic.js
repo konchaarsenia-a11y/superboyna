@@ -56,7 +56,8 @@
       var isPartner = String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
         String(pl.orderType || "") === "partner";
       if (!isPartner) return false;
-      return !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+      if (String(pl.orderStatus || "new").toLowerCase() === "delivered") return false;
+      return true;
     });
     var seenPo = Object.create(null);
     var seenFp = Object.create(null);
