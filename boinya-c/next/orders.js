@@ -875,6 +875,12 @@
     });
   }
 
+  function fractionsWithoutCrumb_(list) {
+    return (list || []).filter(function (f) {
+      return !/^крошк/i.test(String(f).trim());
+    });
+  }
+
   function addFoot() {
     var e = eng();
     var btn = "В состав";
@@ -903,7 +909,7 @@
           '</span><span class="b-note">' + esc(e.unitForItem(picker.cat, name)) + "</span></button>";
       }).join("");
       if (picker.name) {
-        var fr = e.catalogFractionsForUi_(picker.cat, picker.name);
+        var fr = fractionsWithoutCrumb_(e.catalogFractionsForUi_(picker.cat, picker.name));
         if (fr.length) {
           body += '<p class="b-lbl">' + esc(e.prettyProductName(picker.name)) + " · фракция</p><div class=\"b-chips\">" +
             fr.map(function (f) {
@@ -1017,11 +1023,12 @@
     if (!items.length) { sh().toast("В чеклисте нет позиций"); return; }
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      if (it.needFrac && it.fractions && it.fractions.length) {
+      var fracs = fractionsWithoutCrumb_(it.fractions);
+      if (it.needFrac && fracs.length) {
         var picked = await sh().choice({
           title: it.main,
           text: "Какая фракция?",
-          options: it.fractions.map(function (f) { return { label: eng().humanFraction(it.main, f), value: f }; })
+          options: fracs.map(function (f) { return { label: eng().humanFraction(it.main, f), value: f }; })
         });
         if (!picked) return;
         it.sub = picked;

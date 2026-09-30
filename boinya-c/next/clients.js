@@ -1261,8 +1261,14 @@
     paint();
   }
 
+  function fractionsWithoutCrumb_(list) {
+    return (list || []).filter(function (f) {
+      return !/^крошк/i.test(String(f).trim());
+    });
+  }
+
   async function askQty(cat, name) {
-    var fracs = eng().catalogFractionsForUi_(cat, name) || [];
+    var fracs = fractionsWithoutCrumb_(eng().catalogFractionsForUi_(cat, name) || []);
     var sub = "";
     if (fracs.length) {
       sub = await sh().choice({ title: name, text: "Фракция", options: fracs.map(function (f) { return { value: f, label: f }; }) });
