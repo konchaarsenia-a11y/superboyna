@@ -344,38 +344,67 @@
     return (week.items || []).some(function (it) { return Number(it && it.count) >= FULL_FROM; });
   }
 
+  function itemGroup(it) {
+    var mix = root.BoinyaCrumbMix;
+    if (mix && mix.isCrumb(it)) return "Крошка";
+    var cat = String((it && it.cat) || "").toLowerCase();
+    var name = String((it && (it.main || it.name)) || "");
+    var e = eng();
+    if (cat === "chew" || cat === "chews") return "Жевалки";
+    if (e && e.isChewProductName_ && e.isChewProductName_(name)) return "Жевалки";
+    return "Мясо";
+  }
+
+  function basketRow(it, i) {
+    var unit = eng().unitForItem(it.cat, it.main);
+    var mix = root.BoinyaCrumbMix;
+    var crumb = mix && mix.isCrumb(it);
+    var srcs = crumb ? (it.sources || []).filter(function (s) {
+      if (!s || !(s.name || s.main)) return false;
+      var e = eng();
+      if (e && e.isChewCrumbSource_ && e.isChewCrumbSource_(s)) return false;
+      return true;
+    }) : [];
+    var grams = it.value != null ? it.value : it.val;
+    var name = eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name);
+    var sub = "";
+    if (crumb && srcs.length >= 2) {
+      name = "Крошка микс — " + grams + " г";
+      sub = '<div class="mix-parts">' + srcs.map(function (s, si) {
+        var q = mix.partQty(it, s, si, srcs.length);
+        var label = String(eng().prettyProductName(s.name || s.main) || s.name || s.main || "").toLowerCase();
+        return '<div class="mix-part">' + esc(label + (q ? " — " + q.qty + " г" : "")) + "</div>";
+      }).join("") + "</div>";
+    } else if (crumb && srcs.length === 1) {
+      var q1 = mix.partQty(it, srcs[0], 0, 1);
+      name = mix.singleLabel(srcs[0].name || srcs[0].main, q1 ? q1.qty : grams);
+    } else if (crumb) {
+      name = grams != null && grams !== "" ? ("Крошка — " + grams + " г") : "Крошка";
+    } else if (it.sub) sub = esc(eng().humanFraction(it.main, it.sub));
+    var price = "";
+    if (state.orderType === "retail") {
+      var c = eng().retailLineCost(it.main, it.sub, grams, it.cat, it);
+      if (c && c.found) price = ", " + money(c.cost) + " BYN";
+    }
+    var subHtml = crumb && srcs.length >= 2 ? sub : ('<span class="b-sheet__sub">' + sub + esc(price) + "</span>");
+    if (crumb && srcs.length >= 2 && price) subHtml += '<span class="b-sheet__sub">' + esc(price) + "</span>";
+    return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
+      subHtml + "</div>" +
+      '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
+      '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
+      '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div></div>';
+  }
+
   function basketLines() {
     var list = state.baskets[state.activeDog] || [];
     if (!list.length) return '<p class="b-note">Состав пуст. Добавьте позицию или вставьте чеклист.</p>';
-    return list.map(function (it, i) {
-      var unit = eng().unitForItem(it.cat, it.main);
-      var mix = root.BoinyaCrumbMix;
-      var crumb = mix && mix.isCrumb(it);
-      var srcs = crumb ? (it.sources || []).filter(function (s) { return s && (s.name || s.main); }) : [];
-      var name = crumb && srcs.length >= 2
-        ? ("Крошка микс, " + (it.value != null ? it.value : it.val) + " г")
-        : (crumb && srcs.length === 1
-          ? mix.singleLabel(srcs[0].name || srcs[0].main, it.value != null ? it.value : it.val)
-          : (eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name)));
-      var sub = "";
-      if (crumb && srcs.length >= 2) {
-        sub = srcs.map(function (s, si) {
-          var q = mix.partQty(it, s, si, srcs.length);
-          var label = eng().prettyProductName(s.name || s.main);
-          return label + (q ? ", " + q.qty + " г" : "");
-        }).join("\n");
-      } else if (!crumb && it.sub) sub = eng().humanFraction(it.main, it.sub);
-      var price = "";
-      if (state.orderType === "retail") {
-        var c = eng().retailLineCost(it.main, it.sub, it.value != null ? it.value : it.val, it.cat, it);
-        if (c && c.found) price = ", " + money(c.cost) + " BYN";
-      }
-      var val = (it.value != null ? it.value : it.val);
-      return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
-        '<span class="b-sheet__sub">' + esc(sub).replace(/\n/g, "<br>") + esc(price) + "</span></div>" +
-        '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
-        '<span class="b-step__val">' + esc(val) + " " + esc(unit) + "</span>" +
-        '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div></div>';
+    var buckets = { "Мясо": [], "Крошка": [], "Жевалки": [] };
+    list.forEach(function (it, i) { buckets[itemGroup(it)].push({ it: it, i: i }); });
+    return ["Мясо", "Крошка", "Жевалки"].map(function (title) {
+      if (!buckets[title].length) return "";
+      return '<div class="nx-grp">' + esc(title) + "</div>" + buckets[title].map(function (row) {
+        return basketRow(row.it, row.i);
+      }).join("");
     }).join("");
   }
 
@@ -1030,20 +1059,31 @@
       var sources = [];
       var ratio = [];
       var sumG = 0;
+      var droppedChew = false;
       var multi = picker.sources.filter(Boolean).length >= 2;
       picker.sources.forEach(function (name, i) {
         if (!name) return;
         var pool = e.crumbSourcePool_(picker.kind);
         var hit = null;
         pool.forEach(function (p) { if (p.name === name) hit = p; });
+        var src = { cat: hit ? hit.cat : "", name: name, main: name, sub: "" };
+        if ((e.isChewCrumbSource_ && e.isChewCrumbSource_(src)) || (e.isChewProductName_ && e.isChewProductName_(name))) {
+          droppedChew = true;
+          return;
+        }
         var g = multi
           ? (Number(String((picker.grams && picker.grams[i]) || "").replace(",", ".")) || 0)
           : (Number(picker.qty) || 100);
-        sources.push({ cat: hit ? hit.cat : "", name: name, main: name, sub: "", val: g, value: g });
+        src.val = g;
+        src.value = g;
+        sources.push(src);
         ratio.push(g);
         sumG += g;
       });
-      if (!sources.length) { sh().toast("Выберите источник крошки"); return; }
+      if (!sources.length) {
+        sh().toast(droppedChew ? "Жевалки в крошку не входят" : "Выберите источник крошки");
+        return;
+      }
       if (multi && ratio.some(function (n) { return !(n > 0); })) { sh().toast("Укажите граммы каждого источника"); return; }
       pushItem({ cat: "crumb", main: "КРОШКА", crumbKind: picker.kind, sources: sources, ratio: ratio, value: sumG || picker.qty || 100, sub: "" });
       sh().closeTop("ok");

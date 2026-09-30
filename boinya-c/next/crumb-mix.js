@@ -134,17 +134,31 @@
   }
 
   function genitive(name) {
-    var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+    var n = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    n = n.replace(/^КРОШКА\s+/, "").replace(/\s*ШТ\.?$/, "").trim();
     if (/БАРАН/.test(n) && /ЛЕГК/.test(n)) return "бараньего лёгкого";
+    if (/БАРАН/.test(n) && /ПЕЧЕН/.test(n)) return "бараньей печени";
     if (/ЛЕГК/.test(n)) return "лёгкого";
     if (/СЕРДЦ/.test(n)) return "сердца";
     if (/РУБ/.test(n)) return "рубца";
     if (/ПОЧ/.test(n)) return "почек";
+    if (/ПЕЧЕН/.test(n)) return "печени";
+    if (/ИНДЕЙ/.test(n)) return "индейки";
+    if (/ВЫМ/.test(n)) return "вымени";
+    if (/СЕМЕН/.test(n)) return "семенников";
+    if (/МЯСН/.test(n) && /ЛОМТ/.test(n)) return "мясных ломтиков";
+    if (/БАНАН/.test(n)) return "бананов";
+    if (/ЯБЛОК/.test(n)) return "яблок";
+    if (/ГРУШ/.test(n)) return "груш";
+    if (/МОРКОВ/.test(n)) return "моркови";
+    if (/ТЫКВ/.test(n)) return "тыквы";
+    if (/БАТАТ/.test(n)) return "батата";
+    if (/КАБАЧ/.test(n)) return "кабачка";
     return String(name || "").toLowerCase();
   }
 
   function singleLabel(name, grams) {
-    var bit = grams ? (" " + grams + " г") : "";
+    var bit = grams ? (" — " + grams + " г") : "";
     return "Крошка " + genitive(name) + bit;
   }
 
@@ -158,36 +172,62 @@
     return String(name || "").toLowerCase().replace(/(^|\s)(\S)/g, function (_, sp, ch) { return sp + ch.toUpperCase(); });
   }
 
+  function nominative(name, pretty) {
+    return String(titleOf(name, pretty) || name || "").toLowerCase();
+  }
+
+  function groupOf(g) {
+    if (isCrumb(g)) return "Крошка";
+    var cat = String((g && g.cat) || "").toLowerCase();
+    var name = String((g && (g.name || g.main)) || "");
+    if (cat === "chew" || cat === "chews") return "Жевалки";
+    if (/трахе|аорт|ухо|ушк|корен|хрящ|копыт|носы|шеи|шея|губы|лопат|перепел|станов|колен/i.test(name)) return "Жевалки";
+    if (/(^|[^а-яёa-z0-9])нос([^а-яёa-z0-9]|$)/i.test(name)) return "Жевалки";
+    return "Мясо";
+  }
+
+  function lineHtml(g, pretty) {
+    if (!g) return "";
+    var src = sourcesOf(g);
+    if (isCrumb(g) && src.length >= 2) {
+      var total = Number(g.val != null ? g.val : g.value);
+      var head = "Крошка микс";
+      if (isFinite(total) && total > 0) head += " — " + total + " " + (g.unit || "г");
+      var parts = src.map(function (s, i) {
+        var q = partQty(g, s, i, src.length);
+        var label = nominative(s.name || s.main, pretty);
+        var text = q ? (label + " — " + q.qty + " " + (q.unit || "г")) : label;
+        return '<div class="mix-part">' + esc(text) + "</div>";
+      }).join("");
+      return '<div class="mix"><div class="mix-title">' + esc(head) + '</div><div class="mix-parts">' + parts + "</div></div>";
+    }
+    if (isCrumb(g) && src.length === 1) {
+      var q1 = partQty(g, src[0], 0, 1);
+      var grams = q1 ? q1.qty : (g.val != null ? g.val : g.value);
+      return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
+    }
+    if (isCrumb(g)) {
+      var val = g.val != null ? g.val : g.value;
+      var bit = val != null && val !== "" ? (" — " + val + " г") : "";
+      return "<div>" + esc("Крошка" + bit) + "</div>";
+    }
+    var nm = titleOf(g.name || g.main || "", pretty);
+    var v = g.val != null ? g.val : g.value;
+    var tail = v != null && v !== "" ? (" " + v + (g.unit ? " " + g.unit : "")) : "";
+    return "<div>" + esc(nm + tail) + "</div>";
+  }
+
   function linesHtml(basket, pretty) {
-    return (basket || []).map(function (g) {
-      if (!g) return "";
-      var src = sourcesOf(g);
-      if (isCrumb(g) && src.length >= 2) {
-        var total = Number(g.val != null ? g.val : g.value);
-        var totalBit = isFinite(total) && total > 0 ? (", " + total + " " + (g.unit || "г")) : "";
-        var parts = src.map(function (s, i) {
-          var q = partQty(g, s, i, src.length);
-          var label = titleOf(s.name || s.main, pretty);
-          if (s.sub) label += ", " + titleOf(s.sub, pretty);
-          if (q) label += ", " + q.qty + " " + (q.unit || "г");
-          return '<div class="mix-part">' + esc(label) + "</div>";
-        }).join("");
-        return '<div class="mix"><div>Крошка микс' + esc(totalBit) + "</div>" + parts + "</div>";
-      }
-      if (isCrumb(g) && src.length === 1) {
-        var q1 = partQty(g, src[0], 0, 1);
-        var grams = q1 ? q1.qty : (g.val != null ? g.val : g.value);
-        return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
-      }
-      if (isCrumb(g)) {
-        var val = g.val != null ? g.val : g.value;
-        var bit = val != null && val !== "" ? (" " + val + " г") : "";
-        return "<div>" + esc("Крошка" + bit) + "</div>";
-      }
-      var nm = titleOf(g.name || g.main || "", pretty);
-      var v = g.val != null ? g.val : g.value;
-      var tail = v != null && v !== "" ? (" " + v + (g.unit ? " " + g.unit : "")) : "";
-      return "<div>" + esc(nm + tail) + "</div>";
+    var order = ["Мясо", "Крошка", "Жевалки"];
+    var buckets = { "Мясо": [], "Крошка": [], "Жевалки": [] };
+    (basket || []).forEach(function (g) {
+      if (!g) return;
+      buckets[groupOf(g)].push(g);
+    });
+    return order.map(function (title) {
+      var rows = buckets[title].map(function (g) { return lineHtml(g, pretty); }).filter(Boolean);
+      if (!rows.length) return "";
+      return '<div class="nx-grp">' + esc(title) + "</div>" + rows.join("");
     }).filter(Boolean).join("");
   }
 
@@ -229,6 +269,7 @@
     partQty: partQty,
     linesHtml: linesHtml,
     singleLabel: singleLabel,
+    genitive: genitive,
     organParts: organParts,
     isCrumb: isCrumb
   };

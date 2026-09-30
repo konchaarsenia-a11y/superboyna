@@ -236,6 +236,8 @@ export function buildPriceSource(appSrc) {
   var humanFraction = eng.humanFraction;
   var isCrumbBasketItemUi_ = eng.isCrumbBasketItemUi_;
   var crumbSourceNames_ = eng.crumbSourceNames_;
+  var isChewProductName_ = eng.isChewProductName_;
+  var isChewCrumbSource_ = eng.isChewCrumbSource_;
   var catalog = eng.catalog;
   var dressuraFractionSizeKey = eng.dressuraFractionSizeKey;
   var dressuraFractionPickRate = eng.dressuraFractionPickRate;
@@ -369,6 +371,7 @@ ${body}
     setFetchPpCalcPrice: setFetchPpCalcPrice,
     useQuote: useQuote,
     getPricePpCoef: getPricePpCoef,
+    buildAssemblyPacksLocal: buildAssemblyPacksLocal,
     recountPacks: function (list) {
       _list = list || [];
       priceMode = "pp";

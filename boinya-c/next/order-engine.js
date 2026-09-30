@@ -579,16 +579,36 @@
       return crumbKindCategoryLabel_(kind) || "крошка";
     }
 
+    function isChewProductName_(name) {
+      var n = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      n = n.replace(/\s*ШТ\.?$/i, "").trim();
+      if (!n) return false;
+      if (/^(БЫЧИЙ КОРЕНЬ|ТРАХЕЯ|АОРТА|УХО Г|УХО К|НОСЫ|СТАНОВАЯ ЖИЛА|КОЛЕНИ|ПЕРЕПЕЛКИ|ЛОП ХРЯЩ|УТИНЫЕ ШЕИ|ГУБЫ|КОПЫТО)$/.test(n)) return true;
+      if (/УХО|УШК|КОРЕН|ХРЯЩ|ЛОПАТ|КОПЫТ|АОРТ|ТРАХЕ|ПЕРЕПЕЛ|СТАНОВ|КОЛЕН/.test(n)) return true;
+      if (/ГУБЫ|НОСЫ|ШЕИ|ШЕЯ/.test(n)) return true;
+      if (/(^|[^А-ЯA-Z0-9])НОС([^А-ЯA-Z0-9]|$)/.test(n)) return true;
+      return false;
+    }
+
+    function isChewCrumbSource_(src) {
+      if (!src) return false;
+      if (typeof src === "string") return isChewProductName_(src);
+      var cat = String(src.cat || "").toLowerCase();
+      if (cat === "chew" || cat === "chews") return true;
+      return isChewProductName_(src.name || src.main || "");
+    }
+
     function crumbSourceNames_(item) {
       if (!item) return [];
       var fromSrc = [];
       if (Array.isArray(item.sources) && item.sources.length) {
         fromSrc = item.sources.map(function (s) {
+          if (isChewCrumbSource_(s)) return "";
           var raw = (s && (s.name || s.main)) || "";
           var named = "";
           try { named = catalogAliasNameUi_(raw); } catch (e0) {}
           return named || raw;
-        }).filter(Boolean);
+        }).filter(function (n) { return n && !isChewProductName_(n); });
       }
       if (fromSrc.length) return fromSrc;
       var sub = String(item.sub || "").trim();
@@ -602,7 +622,7 @@
         var named = "";
         try { named = catalogAliasNameUi_(p); } catch (e1) {}
         return named || p;
-      }).filter(Boolean);
+      }).filter(function (n) { return n && !isChewProductName_(n); });
     }
 
     function crumbSourcesLabel_(item, joiner) {
@@ -706,16 +726,21 @@
       if (x.cat === "crumb" || x.crumbKind || (Array.isArray(x.sources) && x.sources.length)) {
         row.cat = "crumb";
         row.crumbKind = x.crumbKind || "";
-        row.sources = Array.isArray(x.sources) ? x.sources.map(function (s) {
+        row.sources = [];
+        row.ratio = [];
+        var srcRatio = Array.isArray(x.ratio) ? x.ratio : null;
+        (Array.isArray(x.sources) ? x.sources : []).forEach(function (s, i) {
+          if (isChewCrumbSource_(s)) return;
           var sn = catalogAliasNameUi_(s && (s.name || s.main));
-          return {
+          if (!sn || isChewProductName_(sn)) return;
+          row.sources.push({
             cat: (s && s.cat) || "",
             name: sn,
             main: sn,
             sub: (s && s.sub) || ""
-          };
-        }) : [];
-        row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
+          });
+          if (srcRatio) row.ratio.push(srcRatio[i]);
+        });
         applyCrumbBasketNames_(row);
       }
       return row;
@@ -1185,11 +1210,16 @@
         };
         if (cat === "crumb") {
           row.crumbKind = x.crumbKind || "";
-          row.sources = Array.isArray(x.sources) ? x.sources.map(function (s) {
+          row.sources = [];
+          row.ratio = [];
+          var srcRatio = Array.isArray(x.ratio) ? x.ratio : null;
+          (Array.isArray(x.sources) ? x.sources : []).forEach(function (s, i) {
+            if (isChewCrumbSource_(s)) return;
             var sn = catalogAliasNameUi_(s && (s.name || s.main));
-            return { cat: (s && s.cat) || "", name: sn, main: sn, sub: (s && s.sub) || "" };
-          }) : [];
-          row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
+            if (!sn || isChewProductName_(sn)) return;
+            row.sources.push({ cat: (s && s.cat) || "", name: sn, main: sn, sub: (s && s.sub) || "" });
+            if (srcRatio) row.ratio.push(srcRatio[i]);
+          });
           applyCrumbBasketNames_(row);
         }
         return row;
@@ -1208,7 +1238,7 @@
         var cat = catalog[k] || {};
         (cat.items || []).forEach(function (n) {
           var name = String(n || "").trim();
-          if (!name || seen[name]) return;
+          if (!name || seen[name] || k === "chew" || k === "chews" || isChewProductName_(name)) return;
           seen[name] = true;
           out.push({ cat: k, name: name });
         });
@@ -1617,6 +1647,8 @@
     dressuraFractionPickRate: dressuraFractionPickRate,
     dressuraFractionRates: dressuraFractionRates,
     crumbSourcePool_: crumbSourcePool_,
+    isChewProductName_: isChewProductName_,
+    isChewCrumbSource_: isChewCrumbSource_,
     scoreClientNick: scoreClientNick,
     isCrumbBasketItemUi_: isCrumbBasketItemUi_,
     crumbBasketDisplayMain_: crumbBasketDisplayMain_,
