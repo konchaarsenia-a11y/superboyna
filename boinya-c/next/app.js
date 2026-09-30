@@ -111,7 +111,7 @@
   }
 
   function badgeLabel() {
-    return root.__boinyaCBadgeLabel || (root.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "");
+    return String(root.__boinyaCBadgeLabel || (root.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "")).replace(/\s*·\s*/g, " ");
   }
 
   function withBadge(sub) {
@@ -127,7 +127,6 @@
     try { document.body.setAttribute("data-nx-role", access && access.role ? access.role : ""); } catch (eRole) {}
     sh().chrome({
       title: headerTitle(),
-      sub: withBadge(headerSub()),
       bell: ax().canUseTasks(access),
       badge: tasksN,
       nav: nav,
@@ -277,7 +276,10 @@
   function paintStub(title, text) {
     paintChrome();
     sh().dock("");
-    sh().main(stub(title, text));
+    var back = route.tab === "goals"
+      ? '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>'
+      : "";
+    sh().main(back + stub(title, text));
   }
 
   function render() {
@@ -361,7 +363,7 @@
     sh().dock("");
     var more = "";
     if (ax().tabHas(access, "peopleScreen")) {
-      more += '<button type="button" class="b-li" data-act="more-people"><span class="b-li__body"><span class="b-li__title">Доступы</span><span class="b-li__sub">Роли, вкладки, уведомления, неделя</span></span><span class="b-li__chev">›</span></button>';
+      more += '<button type="button" class="b-li" data-act="more-people"><span class="b-li__body"><span class="b-li__title">Доступы</span><span class="b-li__sub">Роли, вкладки, уведомления</span></span><span class="b-li__chev">›</span></button>';
     }
     if (ax().tabHas(access, "templatesScreen.ai") && ax().tabHas(access, "priceScreen.pick")) {
       more += '<button type="button" class="b-li" data-act="more-pick"><span class="b-li__body"><span class="b-li__title">Подбор</span><span class="b-li__sub">Подбор ИИ по анкете</span></span><span class="b-li__chev">›</span></button>';
@@ -396,7 +398,7 @@
       return "Месяц: люди на дне крупно, дата мелко, точки ПП, БП, розница и партнёр. Под сеткой заказы этого дня. Тап по строке — править, перенести, удалить. «Завершить неделю» подтягивает месяц сама и не копирует понедельник на будущую неделю.";
     }
     if (route.tab === "more" && moreView === "people") {
-      return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Закрытие недели — то же, что баннер на заказах.";
+      return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце.";
     }
     if (route.tab === "goals") return "Цели — новый раздел только у владельца. В этом обновлении экрана ещё нет.";
     if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
@@ -487,6 +489,7 @@
       route.seg = "";
       if (route.tab !== "more") moreView = "";
       ensureSeg();
+      sh().resetScroll();
       render();
       return;
     }
@@ -494,6 +497,7 @@
       var fly = flyCache[Number(node.getAttribute("data-i"))];
       sh().closeTop("ok");
       if (fly && fly.go) fly.go();
+      sh().resetScroll();
       render();
       return;
     }
@@ -502,23 +506,25 @@
       route.seg = node.getAttribute("data-seg") || "route";
       moreView = "";
       sh().closeTop("ok");
+      sh().resetScroll();
       render();
       return;
     }
-    if (act === "more-people") { moreView = "people"; route.tab = "more"; render(); return; }
-    if (act === "more-templates") { moreView = "templates"; route.tab = "more"; render(); return; }
-    if (act === "more-price") { moreView = "price"; route.tab = "more"; render(); return; }
-    if (act === "more-stats") { moreView = "stats"; route.tab = "more"; render(); return; }
-    if (act === "more-partners") { moreView = "partners"; route.tab = "more"; render(); return; }
-    if (act === "more-goals") { route.tab = "goals"; moreView = ""; render(); return; }
-    if (act === "more-pick") { route.tab = "clients"; route.seg = "pick"; moreView = ""; render(); return; }
-    if (act === "more-back") { moreView = ""; render(); return; }
+    if (act === "more-people") { moreView = "people"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-templates") { moreView = "templates"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-price") { moreView = "price"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-stats") { moreView = "stats"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-partners") { moreView = "partners"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-goals") { route.tab = "goals"; moreView = ""; sh().resetScroll(); render(); return; }
+    if (act === "more-pick") { root.__nxPickFromMore = true; route.tab = "clients"; route.seg = "pick"; moreView = ""; sh().resetScroll(); render(); return; }
+    if (act === "more-back") { route.tab = "more"; moreView = ""; root.__nxPickFromMore = false; sh().resetScroll(); render(); return; }
     if (act === "oseg" || act === "pseg" || act === "wseg" || act === "cseg") {
       route.seg = node.getAttribute("data-seg");
       if (act === "oseg") route.tab = "orders";
       if (act === "pseg") route.tab = "production";
       if (act === "wseg") route.tab = "warehouse";
       if (act === "cseg") route.tab = "clients";
+      sh().resetScroll();
       render();
       return;
     }
@@ -532,11 +538,12 @@
       route.tab = "orders";
       route.seg = "new";
       if (q().get("shot") === "states") history.replaceState(null, "", location.pathname);
+      sh().resetScroll();
       render();
       return;
     }
     if (act === "retry-demo") { sh().toast("Повтор запроса"); return; }
-    if (act === "show-loader") { sh().loader({ title: "Сохраняю заказ…", step: "шаг 2 из 3 · запись в лист" }); return; }
+    if (act === "show-loader") { sh().loader({ title: "Сохраняю заказ…", step: "шаг 2 из 3, запись в лист" }); return; }
     if (act === "loader-hide") { sh().closeLoader(); return; }
     if (tasksMod() && tasksMod().onAct(act, node)) return;
     if (people() && people().onAct(act, node)) return;
@@ -716,10 +723,22 @@
       var tg = root.Telegram && root.Telegram.WebApp;
       if (tg) {
         tg.ready();
-        tg.expand();
-        if (tg.onEvent) tg.onEvent("themeChanged", function () {
-          if (root.__boinyaApplyScheme) root.__boinyaApplyScheme();
-        });
+        function lockSwipes() {
+          if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+          if (tg.expand) tg.expand();
+        }
+        lockSwipes();
+        if (tg.onEvent) {
+          tg.onEvent("themeChanged", function () {
+            if (root.__boinyaApplyScheme) root.__boinyaApplyScheme();
+          });
+          tg.onEvent("viewportChanged", function (ev) {
+            if (ev && ev.isStateStable === false) return;
+            lockSwipes();
+            if (sh().syncKeyboard) sh().syncKeyboard();
+          });
+          tg.onEvent("fullscreenChanged", function () { lockSwipes(); });
+        }
       }
       if (root.__boinyaApplyScheme) root.__boinyaApplyScheme();
     } catch (e) {}

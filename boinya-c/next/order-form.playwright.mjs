@@ -90,7 +90,9 @@ try {
   const client = page.locator("#client");
   await client.waitFor();
   const restored = await client.inputValue();
-  if (restored !== "Черновик") throw new Error("draft not restored: " + restored);
+  if (restored) throw new Error("draft should be empty after open: " + restored);
+  const draftKey = await page.evaluate(() => localStorage.getItem("superboyna_order_form_draft_v1"));
+  if (draftKey) throw new Error("draft key should be cleared");
   const dock = page.locator("#nxDock");
   const dockBox = await dock.boundingBox();
   const nav = page.locator("#nxNav");

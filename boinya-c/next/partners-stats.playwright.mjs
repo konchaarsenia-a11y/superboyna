@@ -140,8 +140,7 @@ async function main() {
   const navLbl = prod.page.locator(".b-nav__lbl", { hasText: "Цех" });
   const navFit = await navLbl.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
   if (!navFit) throw new Error("nav clipped");
-  const sub = (await prod.page.locator(".b-top__sub").innerText()).trim();
-  if (sub.indexOf("C · LIVE") < 0) throw new Error("badge " + sub);
+  if (await prod.page.locator(".b-top__sub").count()) throw new Error("subtitle still present");
   await overflow(prod.page, "header");
   await shot(prod.page, "next-header-live.png");
 

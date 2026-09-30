@@ -164,7 +164,7 @@ async function main() {
   await page.locator("#phone").fill("+375 29 111-22-33");
   await page.locator("#address").fill("Сурганова 57Б");
   await page.locator(".daybox").click();
-  await page.getByRole("button", { name: "Среда" }).click();
+  await page.locator(".nx-sheet").getByRole("button", { name: "Среда" }).click();
   await page.getByRole("button", { name: "+ Позиция" }).click();
   await page.getByRole("button", { name: "Дрессура" }).click();
   await page.getByRole("button", { name: /Лёгкое|ЛЁГКОЕ/i }).first().click();
@@ -231,9 +231,9 @@ async function main() {
 
   await page.getByRole("button", { name: "Задачи" }).click();
   await page.getByRole("heading", { name: /Задачи/ }).waitFor();
-  await page.getByText("На потом · Рекс").waitFor();
+  await page.getByText("На потом, Рекс").waitFor();
   await shot(page, "next-tasks.png");
-  await page.getByRole("button", { name: /Перенос · Анна/ }).click();
+  await page.getByRole("button", { name: /Перенос, Анна/ }).click();
   await page.getByRole("button", { name: "Перенести" }).waitFor();
   await shot(page, "next-task-move.png");
   await page.keyboard.press("Escape");
@@ -257,7 +257,7 @@ async function main() {
   const access = await context.newPage();
   await access.goto("http://127.0.0.1:8765/next.html?as=owner&tab=more&view=people", { waitUntil: "domcontentloaded" });
   await access.getByText("Новый человек").waitFor({ timeout: 10000 });
-  await access.getByRole("button", { name: "Завершить неделю" }).waitFor();
+  if (await access.getByRole("button", { name: "Завершить неделю" }).count()) throw new Error("week finish should stay off the access screen");
   await shot(access, "next-access.png");
   await access.getByRole("button", { name: /Мария/ }).click();
   await access.getByText("Запланированные").waitFor();

@@ -20,6 +20,8 @@
     picked: {},
     selectOn: false,
     loading: false,
+    listLoading: false,
+    overviewLoading: false,
     error: "",
     banner: null,
     calCursor: "",
@@ -29,6 +31,9 @@
     fillIndex: -1
   };
   var finish = null;
+  var compareCache = {};
+  var overviewCache = {};
+  var COMPARE_TTL = 30000;
   var segsFn = function () { return []; };
 
   function esc(s) { return sh().esc(s); }
@@ -73,7 +78,7 @@
       var meta = num == null ? "" : String(num);
       html += '<button type="button" class="' + cls + '" data-act="wday" data-day="' + esc(name) + '">' +
         '<span class="b-day__w">' + esc(shortDay(name)) + "</span>" +
-        '<span class="b-day__d">' + esc(numTxt || "·") + "</span>" +
+        '<span class="b-day__d">' + esc(numTxt || "") + "</span>" +
         '<span class="b-day__meta"><span class="b-day__n">' + esc(meta) + "</span></span></button>";
     });
     html += "</div>";
@@ -227,7 +232,7 @@
     if (view.calendarOnly || !view.monthClients.length) {
       view.weekClients.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "week"); });
     }
-    if (!listed && !view.loading) {
+    if (!listed && !view.loading && !view.listLoading) {
       html += sh().empty({ icon: "doc", title: "Заказов нет", text: view.date ? "На эту дату пусто." : "Выберите день.", action: "" });
     }
     return html;
@@ -237,13 +242,17 @@
     if (!weekOnScreen()) return;
     var html = '<div id="nxSegs" class="b-seg" style="margin-bottom:16px"></div>';
     html += banners();
-    if (view.loading && !view.monthClients.length && !view.weekClients.length && !(view.overview && (view.overview.days || []).length)) {
+    if (view.loading && !view.overview && !view.monthClients.length && !view.weekClients.length) {
       html += sh().skeleton(4);
-    } else if (view.error && !view.monthClients.length && !view.weekClients.length) {
+    } else if (view.error && !view.monthClients.length && !view.weekClients.length && !view.overview) {
       html += sh().errorBox({ title: "Не удалось загрузить заказы", text: view.error, act: "wretry" });
     } else {
+      if (view.overviewLoading && !(view.overview && (view.overview.days || []).length)) {
+        html += '<p class="b-note">Считаю месяц…</p>';
+      }
       html += monthCal();
-      html += dayRows();
+      if (view.listLoading && !view.monthClients.length && !view.weekClients.length) html += sh().skeleton(3);
+      else html += dayRows();
       if (view.drafts.length) {
         html += '<p class="b-lbl">Черновик переносов</p>';
         view.drafts.forEach(function (c, i) {
@@ -264,7 +273,7 @@
     if (view.seg === "week" && view.drafts.length) {
       sh().dock('<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">Черновик переносов</span><span class="b-sum__v">' + view.drafts.length + "</span></div>" +
         '<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="wdraft-clear">Отмена</button>' +
-        '<button type="button" class="b-btn b-btn--main" data-act="wdraft-save">Применить переносы · ' + view.drafts.length + "</button></div></div>");
+        '<button type="button" class="b-btn b-btn--main" data-act="wdraft-save">Применить переносы, ' + view.drafts.length + "</button></div></div>");
       return;
     }
     if (view.selectOn) {
@@ -325,47 +334,94 @@
     if (res && (res.days || res.status === "success")) view.overview = res;
   }
 
+  function compareKey() {
+    return (view.date || "") + "|" + (view.day || "");
+  }
+
+  function applyCompare(res) {
+    if (res && res.status === "success") {
+      view.weekClients = Array.isArray(res.week) ? res.week : [];
+      view.monthClients = Array.isArray(res.month) ? res.month : [];
+      view.resolvedDay = res.day || view.day || "";
+      view.calendarOnly = !!(view.date && !res.day && res.dateNotInWeek);
+      if (res.dateIso && !view.date) view.date = isoFromDmy(res.dateIso);
+      view.error = "";
+    } else if (!view.monthClients.length && !view.weekClients.length) {
+      view.error = (res && res.message) || "Нет ответа";
+    }
+  }
+
+  function fetchCompare(opts) {
+    opts = opts || {};
+    var key = compareKey();
+    var hit = compareCache[key];
+    if (!opts.force && hit && Date.now() - hit.at < COMPARE_TTL) {
+      applyCompare(hit.res);
+      view.listLoading = false;
+      view.loading = false;
+      paint();
+      return Promise.resolve(hit.res);
+    }
+    var compare = { action: "getViewCompare" };
+    if (opts.force) compare.force = "1";
+    if (view.date) compare.date = view.date;
+    else if (view.day) compare.day = view.day;
+    view.listLoading = true;
+    return api().apiGet(compare, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
+      compareCache[key] = { at: Date.now(), res: res };
+      applyCompare(res);
+      view.listLoading = false;
+      view.loading = false;
+      paint();
+      return res;
+    }).catch(function (e) {
+      view.listLoading = false;
+      view.loading = false;
+      if (!view.monthClients.length && !view.weekClients.length) view.error = (e && e.message) || "Нет связи";
+      paint();
+    });
+  }
+
+  function fetchOverview(month, opts) {
+    opts = opts || {};
+    if (!opts.force && overviewCache[month]) {
+      var cur = (view.calCursor || view.date || "").slice(0, 7);
+      if (cur === month) view.overview = overviewCache[month];
+      view.overviewLoading = false;
+      view.loading = false;
+      paint();
+      return Promise.resolve(overviewCache[month]);
+    }
+    view.overviewLoading = true;
+    return api().apiGet({ action: "getMonthOverview", month: month }, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
+      if (res && (res.days || res.status === "success")) {
+        overviewCache[month] = res;
+        var now = (view.calCursor || view.date || "").slice(0, 7);
+        if (now === month) view.overview = res;
+      }
+      view.overviewLoading = false;
+      view.loading = false;
+      paint();
+      return res;
+    }).catch(function () {
+      view.overviewLoading = false;
+      view.loading = false;
+      paint();
+    });
+  }
+
   async function load(opts) {
     opts = opts || {};
-    var hadList = view.monthClients.length || view.weekClients.length || (view.overview && (view.overview.days || []).length);
-    if (!hadList) {
-      view.loading = true;
-      view.error = "";
-      paint();
-    }
-    try {
-      var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
-      var compare = { action: "getViewCompare" };
-      if (opts.force) compare.force = "1";
-      if (view.date) compare.date = view.date;
-      else if (view.day) compare.day = view.day;
-      var ttl = opts.force ? 0 : 20000;
-      var parts = await Promise.all([
-        loadCounts().catch(function () {}),
-        api().apiGet(compare, { timeoutMs: 18000, cacheTtlMs: ttl }),
-        loadBanners().catch(function () {}),
-        loadOverview(month).catch(function () {})
-      ]);
-      var res = parts[1];
-      var week = view.weekClients;
-      var monthClients = view.monthClients;
-      if (res && res.status === "success") {
-        week = Array.isArray(res.week) ? res.week : [];
-        monthClients = Array.isArray(res.month) ? res.month : [];
-        view.resolvedDay = res.day || view.day || "";
-        view.calendarOnly = !!(view.date && !res.day && res.dateNotInWeek);
-        if (res.dateIso && !view.date) view.date = isoFromDmy(res.dateIso);
-        view.error = "";
-      } else if (!hadList) {
-        view.error = (res && res.message) || "Нет ответа";
-      }
-      view.weekClients = week;
-      view.monthClients = monthClients;
-    } catch (e) {
-      if (!hadList) view.error = (e && e.message) || "Нет связи";
-    }
-    view.loading = false;
+    if (opts.force) compareCache = {};
+    var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
+    view.error = "";
+    view.listLoading = true;
+    if (!view.overview) view.loading = true;
     paint();
+    loadCounts().catch(function () {});
+    loadBanners().catch(function () {}).then(function () { if (weekOnScreen()) paint(); });
+    fetchOverview(month, opts);
+    fetchCompare(opts);
   }
 
   function openEdit(c, calendarOnly) {
@@ -659,14 +715,18 @@
       var it = countOf(view.day);
       view.date = it && it.date ? isoFromDmy(it.date) : "";
       view.picked = {};
-      load({ force: true });
+      view.monthClients = [];
+      view.weekClients = [];
+      fetchCompare({ force: false });
       return true;
     }
     if (act === "wcal") {
       view.date = node.getAttribute("data-date");
       view.day = "";
       view.seg = "month";
-      load({ force: true });
+      view.monthClients = [];
+      view.weekClients = [];
+      fetchCompare({ force: false });
       return true;
     }
     if (act === "wcal-shift") {
@@ -674,7 +734,17 @@
       var parts = base.split("-");
       var dt = new Date(Number(parts[0]), Number(parts[1]) - 1 + Number(node.getAttribute("data-dir") || 0), 1);
       view.calCursor = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-01";
-      paint();
+      var monthKey = view.calCursor.slice(0, 7);
+      if (overviewCache[monthKey]) {
+        view.overview = overviewCache[monthKey];
+        view.overviewLoading = false;
+        paint();
+      } else {
+        view.overview = { days: [] };
+        view.overviewLoading = true;
+        paint();
+        fetchOverview(monthKey, {});
+      }
       return true;
     }
     if (act === "wrefresh" || act === "wretry") { load({ force: true }); return true; }
@@ -816,8 +886,7 @@
     view.role = role || view.role;
     if (!view.date) view.date = new Date().toISOString().slice(0, 10);
     if (!view.calCursor) view.calCursor = view.date.slice(0, 8) + "01";
-    load({ force: !view.monthClients.length && !view.weekClients.length });
-    paint();
+    load();
   }
 
   root.BoinyaWeek = {

@@ -58,8 +58,6 @@
     if (lab) lab.textContent = text;
     var btn = document.getElementById("whViewWeekBtn");
     if (btn) btn.setAttribute("aria-pressed", view === "weekStart" ? "true" : "false");
-    var sub = document.querySelector("#nxTop .b-top__sub");
-    if (sub && document.getElementById("warehouseContainer")) sub.textContent = text;
   }
 
   function alive(id) {

@@ -99,8 +99,8 @@ html, body, .b-app {
 }
 
 .nx {
-  height: 100dvh;
-  max-height: 100dvh;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  max-height: var(--tg-viewport-stable-height, 100dvh);
   min-height: 0;
 }
 

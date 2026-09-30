@@ -190,9 +190,10 @@
     var bounds = L().statsMonthBounds_();
     sh().dock("");
     sh().main(
+      '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
       '<article class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Статистика</p>' +
-        '<p class="b-note">Факт за выбранный месяц · даты ≤ сегодня</p>' +
+        '<p class="b-note">Факт за выбранный месяц, даты ≤ сегодня</p>' +
         '<div class="nx-cut-head" style="justify-content:space-between">' +
           '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="st-prev" aria-label="Предыдущий месяц">‹</button>' +
           '<b id="statsMonthLabel">' + esc(L().statsMonthLabelRu_(ensureMonth())) + "</b>" +

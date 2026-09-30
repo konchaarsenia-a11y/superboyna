@@ -28,6 +28,7 @@
   function paint() {
     sh().dock('<button type="button" class="b-btn b-btn--main" data-act="rp-save">Сохранить</button>');
     sh().main(
+      '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
       '<div class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Прайс розницы</p>' +
         '<p class="b-note">Рабочие цены для новых расчётов и заказов. Уже сохранённые заказы (orderPrice) не меняются.</p>' +

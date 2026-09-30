@@ -194,13 +194,7 @@
     try { localStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) {}
   }
 
-  function persistDraft() {
-    if (state.isEdit) return;
-    try {
-      if (!pay().draftUseful(state)) localStorage.removeItem(DRAFT_KEY);
-      else localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
-    } catch (e) {}
-  }
+  function persistDraft() {}
 
   function clearDraft() {
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
@@ -209,18 +203,7 @@
   function restoreDraft() {
     if (draftReady || state.isEdit) { draftReady = true; return; }
     draftReady = true;
-    var raw = null;
-    try { raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) { raw = null; }
-    if (!pay().draftUseful(raw)) return;
-    var date = state.deliveryDate;
-    var day = state.day;
-    state = Object.assign(blank(), raw);
-    state.isEdit = false;
-    if (!state.deliveryDate && date) state.deliveryDate = date;
-    if (!state.day && day) state.day = day;
-    if (!state.baskets) state.baskets = { 1: [], 2: [] };
-    if (!state.dogNames) state.dogNames = { 1: "", 2: "" };
-    if (!state.notes) state.notes = [];
+    clearDraft();
   }
 
   function syncProfiles() {
@@ -293,7 +276,36 @@
     var dateIso = it ? isoFromAny(it.date) : "";
     var dom = dateIso ? Number(dateIso.slice(8, 10)) : "";
     var mon = dateIso ? MONTHS[Number(dateIso.slice(5, 7)) - 1] : "";
-    return { num: num, dom: dom, mon: mon, full: num != null && num >= FULL_FROM };
+    return { num: num, dom: dom, mon: mon, iso: dateIso, full: num != null && num >= FULL_FROM };
+  }
+
+  function ddmmOf(iso) {
+    var s = isoFromAny(iso) || "";
+    if (!/^\d{4}-\d{2}-\d{2}/.test(s)) return "";
+    return s.slice(8, 10) + "." + s.slice(5, 7);
+  }
+
+  function weekdayFull(iso) {
+    var s = isoFromAny(iso);
+    if (!s) return "";
+    var p = s.split("-");
+    var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+    return names[new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])).getDay()] || "";
+  }
+
+  function posWord(n) {
+    n = Math.abs(Number(n) || 0);
+    var m10 = n % 10;
+    var m100 = n % 100;
+    if (m100 >= 11 && m100 <= 14) return "позиций";
+    if (m10 === 1) return "позиция";
+    if (m10 >= 2 && m10 <= 4) return "позиции";
+    return "позиций";
+  }
+
+  function posLabel() {
+    var n = positions();
+    return "Итого " + n + " " + posWord(n);
   }
 
   function dayStrip() {
@@ -314,13 +326,17 @@
   }
 
   function dayBox() {
-    var label = state.day || "День";
-    var m = state.day ? dayMeta(state.day) : { num: null, dom: "", mon: "" };
+    var m = state.day ? dayMeta(state.day) : { num: null, iso: "" };
     if (state.day === "Будущая неделя") {
       var fut = weekItem("Будущая неделя");
       m.num = fut && isFinite(Number(fut.count)) ? Number(fut.count) : null;
     }
-    var dateBit = m.dom ? (m.dom + " " + (m.mon || "")) : (state.deliveryDate ? pretty(state.deliveryDate) : "");
+    var iso = (state.day && state.day !== "Будущая неделя" && m.iso) || isoFromAny(state.deliveryDate) || "";
+    var label = "День";
+    if (state.day === "Будущая неделя") label = "Будущая неделя";
+    else if (state.day) label = state.day;
+    else if (iso) label = weekdayFull(iso) || "День";
+    var dateBit = ddmmOf(iso);
     return '<p class="kicker">День</p><button type="button" class="daybox b-day b-day--on" data-act="open-days">' +
       "<span><span class=\"kicker b-day__w\">" + esc(label) + "</span>" +
       '<span class="num" style="font-size:28px">' + (m.num == null ? "" : esc(String(m.num))) + "</span></span>" +
@@ -336,18 +352,30 @@
     if (!list.length) return '<p class="b-note">Состав пуст. Добавьте позицию или вставьте чеклист.</p>';
     return list.map(function (it, i) {
       var unit = eng().unitForItem(it.cat, it.main);
-      var name = eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name);
+      var mix = root.BoinyaCrumbMix;
+      var crumb = mix && mix.isCrumb(it);
+      var srcs = crumb ? (it.sources || []).filter(function (s) { return s && (s.name || s.main); }) : [];
+      var name = crumb && srcs.length >= 2
+        ? ("Крошка микс, " + (it.value != null ? it.value : it.val) + " г")
+        : (crumb && srcs.length === 1
+          ? mix.singleLabel(srcs[0].name || srcs[0].main, it.value != null ? it.value : it.val)
+          : (eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name)));
       var sub = "";
-      if (eng().isCrumbBasketItemUi_(it)) sub = eng().crumbBasketSubLabel_(it);
-      else if (it.sub) sub = eng().humanFraction(it.main, it.sub);
+      if (crumb && srcs.length >= 2) {
+        sub = srcs.map(function (s, si) {
+          var q = mix.partQty(it, s, si, srcs.length);
+          var label = eng().prettyProductName(s.name || s.main);
+          return label + (q ? ", " + q.qty + " г" : "");
+        }).join("\n");
+      } else if (!crumb && it.sub) sub = eng().humanFraction(it.main, it.sub);
       var price = "";
       if (state.orderType === "retail") {
         var c = eng().retailLineCost(it.main, it.sub, it.value != null ? it.value : it.val, it.cat, it);
-        if (c && c.found) price = " · " + money(c.cost) + " BYN";
+        if (c && c.found) price = ", " + money(c.cost) + " BYN";
       }
       var val = (it.value != null ? it.value : it.val);
       return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
-        '<span class="b-sheet__sub">' + esc(sub) + esc(price) + "</span></div>" +
+        '<span class="b-sheet__sub">' + esc(sub).replace(/\n/g, "<br>") + esc(price) + "</span></div>" +
         '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
         '<span class="b-step__val">' + esc(val) + " " + esc(unit) + "</span>" +
         '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div></div>';
@@ -383,7 +411,7 @@
       html += '<div class="b-row" style="margin-top:8px"><button type="button" class="nx-link" data-act="price-auto">По прайсу</button></div>';
       html += '<p class="b-lbl">Платная доставка</p><div class="b-seg">' +
         segBtn("del0", "Нет", !state.retailPaidDelivery) +
-        segBtn("del1", "Да · +" + money(eng().PRICE_RETAIL_DELIVERY_BYN()).replace(",00", "") , !!state.retailPaidDelivery) +
+        segBtn("del1", "Да +" + money(eng().PRICE_RETAIL_DELIVERY_BYN()).replace(",00", "") , !!state.retailPaidDelivery) +
         "</div>";
     }
     if (state.orderType === "partner") {
@@ -411,8 +439,8 @@
       if (n.roles && n.roles.cour) who.push("курьеру");
       if (n.roles && n.roles.mgr) who.push("менеджеру");
       if (n.roles && n.roles.cut) who.push("нарезчику");
-      return (who.join(", ") || "без роли") + (n.permanent ? " · постоянное" : " · разовое");
-    }).join(" · ");
+      return (who.join(", ") || "без роли") + (n.permanent ? ", постоянное" : ", разовое");
+    }).join(", ");
   }
 
   function view() {
@@ -482,7 +510,7 @@
   function dock() {
     var total = shownMoney();
     var label = state.orderType === "bp" ? "0,00 BYN" : money(total) + " BYN";
-    return '<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">Итого · ' + positions() + " позиции</span>" +
+    return '<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">' + posLabel() + "</span>" +
       '<span class="b-sum__v" id="nxSum">' + esc(label) + "</span></div>" +
       '<div class="nx-actions"><button class="b-btn b-btn--sec" type="button" data-act="defer"' + (saving ? " disabled" : "") + ">На потом</button>" +
       '<button class="b-btn b-btn--main' + (saving ? " b-btn--loading" : "") + '" type="button" id="nxSave" data-act="save"' + (saving ? " disabled" : "") + ">" +
@@ -516,7 +544,7 @@
       sum.textContent = state.orderType === "bp" ? "0,00 BYN" : money(total) + " BYN";
     }
     var k = document.querySelector(".b-sum__k");
-    if (k) k.textContent = "Итого · " + positions() + " позиции";
+    if (k) k.textContent = posLabel();
   }
 
   function paintAddr() {
@@ -526,7 +554,7 @@
     box.innerHTML = '<div class="nx-suggest">' + addrSuggest.map(function (s, i) {
       var title = s.title || s.address || "";
       return '<button type="button" data-act="pick-addr" data-i="' + i + '">' + esc(title) +
-        (s.subtitle ? '<span class="b-note"> · ' + esc(s.subtitle) + "</span>" : "") + "</button>";
+        (s.subtitle ? '<span class="b-note">, ' + esc(s.subtitle) + "</span>" : "") + "</button>";
     }).join("") + "</div>";
   }
 
@@ -593,7 +621,7 @@
     if (!suggest.length) { box.innerHTML = ""; return; }
     box.innerHTML = '<div class="nx-suggest">' + suggest.map(function (s, i) {
       return '<button type="button" data-act="pick-client" data-i="' + i + '">' + esc(s.nick) +
-        (s.phone ? '<span class="b-note"> · ' + esc(s.phone) + "</span>" : "") + "</button>";
+        (s.phone ? '<span class="b-note">, ' + esc(s.phone) + "</span>" : "") + "</button>";
     }).join("") + "</div>";
   }
 
@@ -717,7 +745,7 @@
       if (sh().sheetOpen()) sh().closeTop("ok");
       persistDraft();
       paint();
-      sh().toast(dayName);
+      sh().toast(iso ? (dayName + " " + ddmmOf(iso)) : dayName);
       refreshPp();
     }
   }
@@ -731,6 +759,7 @@
     state.day = matched || "";
     persistDraft();
     paint();
+    sh().toast(ddmmOf(iso) || iso);
   }
 
   async function setType(next) {
@@ -807,12 +836,8 @@
     var y = calCursor.y;
     var m = calCursor.m;
     var key = y + "-" + String(m + 1).padStart(2, "0");
-    if (!monthMap[key]) {
-      try {
-        monthMap[key] = await api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 });
-      } catch (eOv) { monthMap[key] = { days: [] }; }
-    }
-    var by = monthDays(monthMap[key], y, m);
+    function draw() {
+    var by = monthDays(monthMap[key] || { days: [] }, y, m);
     function html() {
       var first = new Date(y, m, 1);
       var start = (first.getDay() + 6) % 7;
@@ -836,6 +861,13 @@
     }
     if (sh().sheetOpen()) sh().replaceTop({ title: "Другая дата", html: html() });
     else sh().openSheet({ title: "Другая дата", html: html(), id: "cal", onClose: function () { calCursor = null; } });
+    }
+    draw();
+    if (monthMap[key]) return;
+    api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 }).then(function (res) {
+      monthMap[key] = res || { days: [] };
+      if (calCursor && calCursor.y === y && calCursor.m === m && sh().sheetOpen()) draw();
+    }).catch(function () { monthMap[key] = { days: [] }; });
   }
 
   function openNotes() {
@@ -886,7 +918,7 @@
     var btn = "В состав";
     if (picker.cat !== "crumb" && picker.name && state.orderType === "retail") {
       var cost = e.retailLineCost(picker.name, picker.sub, picker.qty, picker.cat, { main: picker.name });
-      if (cost && cost.found) btn += " · " + money(cost.cost) + " BYN";
+      if (cost && cost.found) btn += ", " + money(cost.cost) + " BYN";
     }
     return '<button class="b-btn b-btn--main" type="button" data-act="padd">' + esc(btn) + "</button>";
   }
@@ -911,7 +943,7 @@
       if (picker.name) {
         var fr = fractionsWithoutCrumb_(e.catalogFractionsForUi_(picker.cat, picker.name));
         if (fr.length) {
-          body += '<p class="b-lbl">' + esc(e.prettyProductName(picker.name)) + " · фракция</p><div class=\"b-chips\">" +
+          body += '<p class="b-lbl">' + esc(e.prettyProductName(picker.name)) + " фракция</p><div class=\"b-chips\">" +
             fr.map(function (f) {
               return '<button type="button" class="b-chip' + (picker.sub === f ? " b-chip--on" : "") + '" data-act="pfrac" data-frac="' + esc(f) + '">' + esc(e.humanFraction(picker.name, f)) + "</button>";
             }).join("") + "</div>";
@@ -945,9 +977,20 @@
     });
     html += '<div class="nx-actions" style="margin-top:8px"><button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="csrc-add">+ ещё позицию</button>' +
       (picker.sources.length > 1 ? '<button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="csrc-del">Убрать</button>' : "") + "</div>";
-    html += '<p class="b-lbl">Граммы</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
-      '<span class="b-step__val">' + esc(picker.qty) + " г</span>" +
-      '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
+    if (!picker.grams) picker.grams = [];
+    var named = picker.sources.filter(Boolean);
+    if (named.length >= 2) {
+      html += '<p class="b-lbl">Граммы по источникам</p>';
+      picker.sources.forEach(function (src, i) {
+        if (!src) return;
+        html += '<label class="b-field" style="margin-top:8px"><span class="b-note">' + esc(e.prettyProductName(src)) + ", г</span>" +
+          '<input class="b-field__input" data-act="cgram" data-i="' + i + '" inputmode="numeric" value="' + esc(picker.grams[i] || "") + '"></label>';
+      });
+    } else {
+      html += '<p class="b-lbl">Граммы</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
+        '<span class="b-step__val">' + esc(picker.qty) + " г</span>" +
+        '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
+    }
     return html;
   }
 
@@ -962,14 +1005,25 @@
   function addFromPicker() {
     var e = eng();
     if (picker.cat === "crumb") {
-      var sources = picker.sources.filter(Boolean).map(function (name) {
+      var sources = [];
+      var ratio = [];
+      var sumG = 0;
+      var multi = picker.sources.filter(Boolean).length >= 2;
+      picker.sources.forEach(function (name, i) {
+        if (!name) return;
         var pool = e.crumbSourcePool_(picker.kind);
         var hit = null;
         pool.forEach(function (p) { if (p.name === name) hit = p; });
-        return { cat: hit ? hit.cat : "", name: name, main: name, sub: "" };
+        var g = multi
+          ? (Number(String((picker.grams && picker.grams[i]) || "").replace(",", ".")) || 0)
+          : (Number(picker.qty) || 100);
+        sources.push({ cat: hit ? hit.cat : "", name: name, main: name, sub: "", val: g, value: g });
+        ratio.push(g);
+        sumG += g;
       });
       if (!sources.length) { sh().toast("Выберите источник крошки"); return; }
-      pushItem({ cat: "crumb", main: "КРОШКА", crumbKind: picker.kind, sources: sources, value: picker.qty || 100, sub: "" });
+      if (multi && ratio.some(function (n) { return !(n > 0); })) { sh().toast("Укажите граммы каждого источника"); return; }
+      pushItem({ cat: "crumb", main: "КРОШКА", crumbKind: picker.kind, sources: sources, ratio: ratio, value: sumG || picker.qty || 100, sub: "" });
       sh().closeTop("ok");
       return;
     }
@@ -1014,12 +1068,14 @@
     if (res.deliverySlot >= 1) state.ppSlotManual = Number(res.deliverySlot);
     syncRetail();
     paint();
-    sh().toast(res.hint || ("Состав ПП · " + proposed.length + " поз."));
+    sh().toast(res.hint || ("Состав ПП, " + proposed.length + " поз."));
   }
 
   async function applyChecklist() {
-    var parsed = eng().parseIgLinesToItems(state.igPaste || "");
-    var items = (parsed && parsed.items) || [];
+    var mix = root.BoinyaCrumbMix;
+    var crumb = mix ? mix.parseText(state.igPaste || "") : { items: [], rest: state.igPaste || "" };
+    var parsed = eng().parseIgLinesToItems(crumb.rest || "");
+    var items = (crumb.items || []).concat((parsed && parsed.items) || []);
     if (!items.length) { sh().toast("В чеклисте нет позиций"); return; }
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
@@ -1049,7 +1105,7 @@
 
   function pushQuiet(it) {
     state.baskets[state.activeDog].push({
-      cat: it.cat, main: it.main, name: it.name || it.main, sub: it.sub || "", value: it.value, crumbKind: it.crumbKind, sources: it.sources
+      cat: it.cat, main: it.main, name: it.name || it.main, sub: it.sub || "", value: it.value, crumbKind: it.crumbKind, sources: it.sources, ratio: it.ratio
     });
   }
 
@@ -1292,7 +1348,7 @@
     return (list || []).map(function (d) {
       return '<p style="margin:6px 0' + (accent ? ";color:var(--b-bad)" : "") + '"><b>' + esc(d.name || "") + "</b> −" +
         esc(d.deficit) + " " + esc(d.unit || "кг") +
-        '<span class="b-note"> нужно ' + esc(d.needRaw) + " · есть " + esc(d.available) + "</span></p>";
+        '<span class="b-note"> нужно ' + esc(d.needRaw) + ", есть " + esc(d.available) + "</span></p>";
     }).join("");
   }
 
@@ -1332,7 +1388,7 @@
     if (when === "tomorrow") { whenDate = new Date(); whenDate.setDate(whenDate.getDate() + 1); whenDate.setHours(10, 0, 0, 0); }
     var snap = pay().buildDeferredSnapshot(state, eng());
     var typeLab = { pp: "ПП", bp: "БП", retail: "Р", partner: "Партнёр" }[state.orderType] || "Заказ";
-    var title = "Заказ · " + typeLab + (nick ? " · " + nick : "") + (state.deliveryDate ? " · " + state.deliveryDate : "");
+    var title = "Заказ, " + typeLab + (nick ? ", " + nick : "") + (state.deliveryDate ? ", " + ddmmOf(state.deliveryDate) : "");
     var id = state.deferredId || ("ord_" + Date.now().toString(36));
     var params = {
       action: "saveDeferred",
@@ -1394,6 +1450,11 @@
         var idx = Number(node.getAttribute("data-i"));
         var parts = String(node.value || "").split("|");
         picker.sources[idx] = parts[1] || "";
+      }
+      if (node && node.getAttribute && node.getAttribute("data-act") === "cgram") {
+        var gi = Number(node.getAttribute("data-i"));
+        if (!picker.grams) picker.grams = [];
+        picker.grams[gi] = node.value;
       }
       if (node && node.id && node.id.indexOf("noteItem") === 0) {
         var ni = Number(node.id.replace("noteItem", ""));
@@ -1470,9 +1531,9 @@
       rebuildAdd(null);
       return true;
     }
-    if (act === "ckind") { picker.kind = node.getAttribute("data-kind"); picker.sources = []; rebuildAdd(null); return true; }
-    if (act === "csrc-add") { picker.sources.push(""); rebuildAdd(null); return true; }
-    if (act === "csrc-del") { picker.sources.pop(); rebuildAdd(null); return true; }
+    if (act === "ckind") { picker.kind = node.getAttribute("data-kind"); picker.sources = []; picker.grams = []; rebuildAdd(null); return true; }
+    if (act === "csrc-add") { picker.sources.push(""); if (!picker.grams) picker.grams = []; picker.grams.push(""); rebuildAdd(null); return true; }
+    if (act === "csrc-del") { picker.sources.pop(); if (picker.grams) picker.grams.pop(); rebuildAdd(null); return true; }
     if (act === "padd") { addFromPicker(); return true; }
     if (act === "step") {
       var list = state.baskets[state.activeDog];
@@ -1542,7 +1603,7 @@
       state.dogCount = 2;
       state.activeDog = 1;
       paint();
-      sh().toast("Хозяин один · переключай Собака 1 / 2 и сохрани один раз");
+      sh().toast("Хозяин один, переключай Собака 1 / 2 и сохрани один раз");
       return true;
     }
     if (id === "ad1") { state.activeDog = 1; paint(); return true; }
