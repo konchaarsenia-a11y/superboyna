@@ -40,6 +40,118 @@
     return ownerKey(c) + "#" + String(dog) + "#" + String((c && c.name) || "").trim().toUpperCase();
   }
 
+  /* Явная отметка «2 собаки»: dogCount/twoDogs или позиция с dog:2.
+     Суффикс « · 2» в имени и dogPart сами по себе не отметка:
+     их ставит сборка (Worker splitBasketByDogWorker_ / Code.gs splitBasketByDog_). */
+  function rowMarked(c) {
+    if (!c) return false;
+    if (Number(c.dogCount) === 2 || Number(c.dogs) === 2 || c.twoDogs === true) return true;
+    var basket = c.basket || [];
+    var i;
+    for (i = 0; i < basket.length; i++) {
+      if (Number(basket[i] && basket[i].dog) === 2) return true;
+    }
+    return false;
+  }
+
+  function lineKey(it) {
+    it = it || {};
+    var val = it.val != null ? it.val : it.value;
+    return [it.name || it.main || "", it.sub || "", val, it.dog || ""].join("|");
+  }
+
+  function mergeBaskets(rows) {
+    var seen = {};
+    var out = [];
+    (rows || []).forEach(function (c) {
+      (c.basket || []).forEach(function (it) {
+        var k = lineKey(it);
+        if (seen[k]) return;
+        seen[k] = true;
+        out.push(it);
+      });
+    });
+    return out;
+  }
+
+  function dogSlot(c, index) {
+    var part = Number(c && c.dogPart) || 0;
+    if (part === 2) return 2;
+    if (part === 1) return 1;
+    var basket = (c && c.basket) || [];
+    var i;
+    for (i = 0; i < basket.length; i++) {
+      var d = Number(basket[i] && basket[i].dog) || 0;
+      if (d === 2) return 2;
+      if (d === 1) return 1;
+    }
+    return index > 0 ? 2 : 1;
+  }
+
+  function asOneDog(rows) {
+    var base = Object.assign({}, rows[0]);
+    var owner = String(base.ownerName || base.name || "")
+      .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+      .trim();
+    if (owner) {
+      base.ownerName = owner;
+      base.name = owner;
+      base.displayName = owner;
+    }
+    base.dogPart = 0;
+    base.dogName = "";
+    base.dogCount = 1;
+    base.twoDogs = false;
+    base.basket = mergeBaskets(rows);
+    base.assembled = rows.every(function (r) { return !!r.assembled; });
+    return base;
+  }
+
+  function collapse(clients, dateIso) {
+    var list = dedupe(clients, dateIso);
+    var groups = {};
+    var order = [];
+    list.forEach(function (c) {
+      var k = ownerKey(c);
+      if (!groups[k]) {
+        groups[k] = [];
+        order.push(k);
+      }
+      groups[k].push(c);
+    });
+    var out = [];
+    order.forEach(function (k) {
+      var rows = groups[k];
+      if (!rows.some(rowMarked)) {
+        out.push(asOneDog(rows));
+        return;
+      }
+      var bySlot = {};
+      var slots = [];
+      rows.forEach(function (c, index) {
+        var sk = String(dogSlot(c, index));
+        if (!bySlot[sk]) {
+          bySlot[sk] = [];
+          slots.push(sk);
+        }
+        bySlot[sk].push(c);
+      });
+      if (slots.length < 2) {
+        out.push(asOneDog(rows));
+        return;
+      }
+      slots.forEach(function (sk) {
+        var rs = bySlot[sk];
+        var base = rs.length === 1 ? Object.assign({}, rs[0]) : asOneDog(rs);
+        base.dogPart = Number(sk);
+        base.dogCount = 2;
+        base.twoDogs = true;
+        out.push(base);
+      });
+    });
+    return out;
+  }
+
   function dedupe(clients, dateIso) {
     var seen = {};
     var out = [];
@@ -63,7 +175,7 @@
   }
 
   function tally(clients, packFn, dateIso) {
-    var list = dedupe(clients, dateIso);
+    var list = collapse(clients, dateIso);
     var groups = {};
     var order = [];
     var totals = { "маленький": 0, "средний": 0, "большой": 0, "целое": 0, "крафт": 0 };
@@ -107,6 +219,8 @@
     dedupe: dedupe,
     ownerKey: ownerKey,
     craftCount: craftCount,
+    collapse: collapse,
+    rowMarked: rowMarked,
     tally: tally,
     normDate: normDate
   };

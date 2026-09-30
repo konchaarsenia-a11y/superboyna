@@ -8,15 +8,19 @@ function line(name, grams) {
 }
 
 function client(opts) {
+  const item = line(opts.sku || "ПОЧКИ", opts.grams);
+  if (opts.itemDog) item.dog = opts.itemDog;
   return {
     name: opts.name,
     matchKey: opts.matchKey,
     ownerName: opts.owner || opts.name,
     dogPart: opts.dog,
+    dogCount: opts.dogCount,
+    twoDogs: opts.twoDogs,
     address: opts.address,
     dateIso: opts.dateIso || "",
     assembled: false,
-    basket: [line(opts.sku || "ПОЧКИ", opts.grams)]
+    basket: [item]
   };
 }
 
@@ -28,14 +32,36 @@ function tally(list, dateIso) {
 
 test("two clients, one with two dogs: craft 2", () => {
   const res = tally([
-    client({ name: "Анна", matchKey: "ANNA", owner: "Анна", dog: 1, address: "ул Тестовая 1", grams: 100 }),
-    client({ name: "Анна 2", matchKey: "ANNA", owner: "Анна", dog: 2, address: "ул Тестовая 1", grams: 100 }),
+    client({ name: "Анна", matchKey: "ANNA", owner: "Анна", dog: 1, dogCount: 2, itemDog: 1, address: "ул Тестовая 1", grams: 100 }),
+    client({ name: "Анна · 2", matchKey: "ANNA", owner: "Анна", dog: 2, dogCount: 2, itemDog: 2, address: "ул Тестовая 1", grams: 100 }),
     client({ name: "Борис", matchKey: "BORIS", owner: "Борис", dog: 1, address: "ул Тестовая 2", grams: 100 })
   ]);
   assert.equal(res.totals["крафт"], 2);
   assert.notEqual(res.totals["крафт"], 3);
   assert.notEqual(res.totals["крафт"], 4);
   assert.equal(res.rows.length, 3);
+});
+
+test("client without the mark, two assembly rows: 1 dog, 1 craft", () => {
+  const res = tally([
+    client({ name: "Анна", matchKey: "ANNA", owner: "Анна", dog: 1, address: "ул Тестовая 1", grams: 100 }),
+    client({ name: "Анна · 2", matchKey: "ANNA", owner: "Анна", dog: 2, address: "ул Тестовая 1", grams: 100 })
+  ]);
+  assert.equal(res.rows.length, 1);
+  assert.equal(Number(res.rows[0].client.dogPart) || 0, 0);
+  assert.equal(res.rows[0].client.dogCount, 1);
+  assert.equal(res.totals["крафт"], 1);
+  assert.notEqual(res.totals["крафт"], 2);
+});
+
+test("marked 2 dogs: 2 dogs, 1 craft", () => {
+  const res = tally([
+    client({ name: "Анна", matchKey: "ANNA", owner: "Анна", dog: 1, dogCount: 2, itemDog: 1, address: "ул Тестовая 1", grams: 100 }),
+    client({ name: "Анна · 2", matchKey: "ANNA", owner: "Анна", dog: 2, dogCount: 2, itemDog: 2, address: "ул Тестовая 1", grams: 100 })
+  ]);
+  assert.equal(res.rows.length, 2);
+  assert.equal(res.totals["крафт"], 1);
+  assert.notEqual(res.totals["крафт"], 2);
 });
 
 test("1.2 kg is 5 large bags and craft 2", () => {

@@ -451,6 +451,7 @@ async function main() {
     if (phase === "after") {
       const m = text.match(/(\d+)\s*\n\s*крафт/) || text.match(/(\d+)[\s\S]{0,12}крафт/);
       check(m && Number(m[1]) === 2, "craft count " + (m && m[1]) + " in " + text.slice(0, 240));
+      check(!/Собака 2/.test(text), "unmarked rows counted as a second dog");
     }
     await b.context.close();
   }

@@ -593,7 +593,8 @@
     });
     var dateIso = res.dateIso || res.date || "";
     var packsApi = root.BoinyaAsmPacks;
-    if (packsApi) clients = packsApi.dedupe(clients, dateIso);
+    if (packsApi && packsApi.collapse) clients = packsApi.collapse(clients, dateIso);
+    else if (packsApi) clients = packsApi.dedupe(clients, dateIso);
     var pending = clients.filter(function (c) { return !c.assembled; });
     var order = ["маленький", "средний", "большой", "целое", "крафт"];
     var tallied = packsApi ? packsApi.tally(pending, function (c) { return localPacks(c.basket, c.printed); }, dateIso) : null;
@@ -746,10 +747,16 @@
     }
   }
 
+  function asmDogs(list, dateIso) {
+    var api = root.BoinyaAsmPacks;
+    if (api && api.collapse) return api.collapse(list || [], dateIso || "");
+    return list || [];
+  }
+
   function overlayCour(list, asmClients) {
     var lib = root.BoinyaCourierAsm;
     if (!lib || !list) return list;
-    lib.apply(list, asmClients || [], { localFlags: asmFlags });
+    lib.apply(list, asmDogs(asmClients), { localFlags: asmFlags });
     return list;
   }
 
@@ -789,7 +796,7 @@
       if (seg !== "route" || !res || res.status !== "success" || !Array.isArray(res.clients)) return;
       if (String(cour._day || "") !== String(day)) return;
       var before = lib.sig(cour);
-      overlayCour(cour, res.clients);
+      overlayCour(cour, asmDogs(res.clients, res.dateIso || res.date || ""));
       if (lib.sig(cour) === before) return;
       readDepot();
       paintRoute();
