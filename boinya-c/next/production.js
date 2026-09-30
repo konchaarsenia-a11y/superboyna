@@ -11,6 +11,7 @@
   var cutSession = { active: false, startedAt: 0, day: "", timer: null, poll: null };
   var cutFlags = Object.create(null);
   var asm = null;
+  var asmDaySeen = "";
   var asmDetail = false;
   var asmFlags = Object.create(null);
   var packOn = { "маленький": true, "средний": true, "большой": true, "целое": true, "крафт": true };
@@ -100,21 +101,10 @@
   }
 
   function basketLinesHtml(basket) {
+    var mix = root.BoinyaCrumbMix;
+    if (mix && mix.linesHtml) return mix.linesHtml(basket, prettyName);
     return (basket || []).map(function (g) {
       if (!g) return "";
-      if (isCrumbMix(g)) {
-        var total = Number(g.val != null ? g.val : g.value);
-        var totalBit = isFinite(total) && total > 0 ? (", " + total + " " + (g.unit || "г")) : "";
-        var src = crumbSourcesOf(g);
-        var parts = src.map(function (s, i) {
-          var q = mixPartQty(g, s, i, src.length);
-          var label = prettyName(s.name);
-          if (s.sub) label += ", " + prettyName(s.sub);
-          if (q) label += ", " + q.qty + " " + (q.unit || "г");
-          return '<div class="mix-part">' + esc(label) + "</div>";
-        }).join("");
-        return '<div class="mix"><div>Крошка микс' + esc(totalBit) + "</div>" + parts + "</div>";
-      }
       var nm = prettyName(g.name || g.main || "");
       var val = g.val != null ? g.val : g.value;
       var bit = val != null && val !== "" ? (" " + val + (g.unit ? " " + g.unit : "")) : "";
@@ -307,7 +297,7 @@
     } else if (cutItems.length) {
       html += '<button type="button" class="b-btn b-btn--main" data-act="pr-cut-start" style="margin-top:12px">Начать нарезку</button>';
     }
-    if (cutDone && cutDetail) html += '<p class="b-note">Просмотр</p>';
+    if (cutDone && cutDetail) html += '<button type="button" class="nx-link" data-act="pr-cut-back">← Итог</button><p class="b-note">Просмотр</p>';
     if (!cutItems.length && !cutDone) html += '<p class="b-note">На этот день резать нечего — или день ещё считается.</p>';
     cutItems.forEach(function (it) { html += paintCutRow(it, !!cutDone); });
     if (cutSession.active && !cutDone) {
@@ -523,6 +513,16 @@
 
   function sumOrgans(basket) {
     var out = { light: organEmpty(), heart: organEmpty(), kidney: organEmpty(), rumen: organEmpty() };
+    var mix = root.BoinyaCrumbMix;
+    if (mix && mix.organParts) {
+      mix.organParts(basket).forEach(function (p) {
+        if (!out[p.key]) return;
+        var sub = String(p.sub || "").trim() || "—";
+        out[p.key].total += Number(p.grams) || 0;
+        out[p.key].byFrac[sub] = (out[p.key].byFrac[sub] || 0) + (Number(p.grams) || 0);
+      });
+      return out;
+    }
     (basket || []).forEach(function (g) {
       var n = String(g.name || g.main || "");
       var v = Number(g.val != null ? g.val : g.value) || 0;
@@ -569,10 +569,10 @@
   function asmTitle(c) {
     if (c.dogPart && c.dogName) {
       var owner = c.ownerName || String(c.name || "").replace(/\s*[·•#]\s*2\s*$/i, "").trim();
-      return owner + " · " + c.dogName;
+      return owner + ", " + c.dogName;
     }
-    if (Number(c.dogPart) === 1) return (c.ownerName || c.name) + " · Собака 1";
-    if (Number(c.dogPart) === 2) return (c.ownerName || c.name) + " · Собака 2";
+    if (Number(c.dogPart) === 1) return (c.ownerName || c.name) + ", Собака 1";
+    if (Number(c.dogPart) === 2) return (c.ownerName || c.name) + ", Собака 2";
     return c.displayName || c.name || "";
   }
 
@@ -591,17 +591,31 @@
       if (d) return d;
       return String(a.name || "").localeCompare(String(b.name || ""), "ru");
     });
+    var dateIso = res.dateIso || res.date || "";
+    var packsApi = root.BoinyaAsmPacks;
+    if (packsApi) clients = packsApi.dedupe(clients, dateIso);
     var pending = clients.filter(function (c) { return !c.assembled; });
     var order = ["маленький", "средний", "большой", "целое", "крафт"];
+    var tallied = packsApi ? packsApi.tally(pending, function (c) { return localPacks(c.basket, c.printed); }, dateIso) : null;
     var totals = {};
-    order.forEach(function (k) { totals[k] = 0; });
+    order.forEach(function (k) { totals[k] = tallied ? (tallied.totals[k] || 0) : 0; });
+    if (!tallied) {
+      pending.forEach(function (c) {
+        localPacks(c.basket, c.printed).forEach(function (p) {
+          var k = p.counterKey;
+          if (!k || k === "крафт") return;
+          totals[k] = (totals[k] || 0) + (Number(p.bags) || 0);
+        });
+      });
+    }
+    var tallyRows = tallied ? tallied.rows : [];
+    function rowOf(c) {
+      var i;
+      for (i = 0; i < tallyRows.length; i++) if (tallyRows[i].client === c) return tallyRows[i];
+      return null;
+    }
     var organs = { light: organEmpty(), heart: organEmpty(), kidney: organEmpty(), rumen: organEmpty() };
     pending.forEach(function (c) {
-      localPacks(c.basket, c.printed).forEach(function (p) {
-        var k = p.counterKey;
-        if (!k) return;
-        totals[k] = (totals[k] || 0) + (Number(p.bags) || 0);
-      });
       var og = sumOrgans(c.basket);
       mergeOrg(organs.light, og.light);
       mergeOrg(organs.heart, og.heart);
@@ -611,9 +625,10 @@
     var enabledTotal = 0;
     order.forEach(function (k) { if (packOn[k] !== false) enabledTotal += totals[k] || 0; });
     var doneN = clients.filter(function (c) { return c.assembled; }).length;
+    if (asmDetail) html += '<button type="button" class="nx-link" data-act="pr-asm-back">← Итог</button>';
     if (doneN === clients.length && clients.length && !asmDetail) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">Сборка завершена</p>' +
-        '<p class="b-note">Клиентов: ' + clients.length + " · пакетов: " + enabledTotal + "</p>" +
+        '<p class="b-note">Клиентов: ' + clients.length + ", пакетов: " + enabledTotal + "</p>" +
         '<p class="b-note">Все собраны</p>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="pr-asm-more">Подробнее</button></article>';
       sh().main(html);
@@ -625,45 +640,55 @@
       html += '<button type="button" class="b-card' + (packOn[k] === false ? " nx-dim" : "") + '" data-act="pr-pack" data-k="' + esc(k) + '"><b>' + (totals[k] || 0) + "</b><span class=\"b-note\">" + esc(k) + "</span></button>";
     });
     html += "</div>";
-    html += '<p class="b-note">Итого пакетов: ' + enabledTotal + " · собрано " + doneN + " / " + clients.length + "</p>";
+    html += '<p class="b-note">Итого пакетов: ' + enabledTotal + ", собрано " + doneN + " / " + clients.length + "</p>";
     html += '<p class="b-lbl">Дрессура для нарезки</p><div class="nx-stats">' +
       ["light", "heart", "kidney", "rumen"].map(function (k, i) {
         var label = ["лёгкое г", "сердце г", "почки г", "рубец г"][i];
         return '<div class="b-card"><b>' + (organs[k].total || 0) + '</b><span class="b-note">' + label + "</span></div>";
       }).join("") + "</div></article>";
     clients.forEach(function (c) {
-      var packs = localPacks(c.basket, c.printed);
-      var bags = 0;
+      var row = rowOf(c);
       var by = {};
-      packs.forEach(function (p) {
-        if (packOn[p.counterKey] === false) return;
-        var n = Number(p.bags) || 0;
-        by[p.counterKey] = (by[p.counterKey] || 0) + n;
-        bags += n;
-      });
-      var summary = order.filter(function (k) { return by[k] > 0; }).map(function (k) { return by[k] + " " + k; }).join(" · ") || "—";
+      if (row) {
+        Object.keys(row.by || {}).forEach(function (k) {
+          if (packOn[k] === false) return;
+          by[k] = row.by[k];
+        });
+      } else {
+        localPacks(c.basket, c.printed).forEach(function (p) {
+          if (packOn[p.counterKey] === false || p.counterKey === "крафт") return;
+          by[p.counterKey] = (by[p.counterKey] || 0) + (Number(p.bags) || 0);
+        });
+      }
+      var bags = 0;
+      Object.keys(by).forEach(function (k) { bags += Number(by[k]) || 0; });
+      var summary = order.filter(function (k) { return by[k] > 0; }).map(function (k) { return by[k] + " " + k; }).join(", ") || "—";
       var lines = basketLinesHtml(c.basket);
       lines = lines ? '<div class="b-note mix-list">' + lines + "</div>" : '<p class="b-note">Пустой состав</p>';
       html += '<article class="b-card' + (c.assembled ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
-        esc(asmTitle(c)) + " · " + bags + " пак. " +
+        esc(asmTitle(c)) + ", " + bags + " пак. " +
         '<span class="plaque ' + (c.assembled ? "plaque--gold" : "plaque--bad") + '">' + (c.assembled ? "собран" : "не собран") + "</span>" +
-        (c.printed ? " · пропечатано" : "") + "</label>" +
+        (c.printed ? ", пропечатано" : "") + "</label>" +
         '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
         (c.address ? '<p class="b-note">' + esc(c.address) + "</p>" : "") +
         lines +
-        '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? " · без лакомств" : "") + "</p></article>";
+        '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? ", без лакомств" : "") + "</p></article>";
     });
     sh().main(html);
   }
 
   async function loadAsm(force) {
     var day = currentDay("nxAsmDay", "pack");
+    if (asmDaySeen && asmDaySeen !== day) asm = null;
+    asmDaySeen = day;
     if (force) asmDetail = false;
     if (!asm) sh().main(segBar() + dayField("nxAsmDay", day) + sh().skeleton(3));
     var res = null;
     try {
-      res = await api().apiGet({ action: "getAssembly", day: day }, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 });
+      var req = { action: "getAssembly", day: day };
+      if (force) req.force = "1";
+      res = await api().apiGet(req, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 });
     } catch (e) {
       sh().toast("Ошибка сети");
       paintAsm();
@@ -813,7 +838,7 @@
     var bits = [];
     if (p.floor) bits.push("этаж " + p.floor);
     if (p.flat) bits.push("кв. " + p.flat);
-    return bits.join(" · ");
+    return bits.join(", ");
   }
 
   function paintRoute() {
@@ -832,6 +857,7 @@
     html += '<div id="nxPlan">' + (planHtml || "") + "</div>";
     var list = cour || [];
     var allDone = list.length && list.every(function (c) { return c.delivered; });
+    if (courDetail) html += '<button type="button" class="nx-link" data-act="pr-cour-back">← Итог</button>';
     if (allDone && !courDetail) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">Доставки завершены</p>' +
         '<p class="b-note">Клиентов: ' + list.length + "</p><p class=\"b-note\">Все галочки проставлены</p>" +
@@ -1302,7 +1328,7 @@
     if (act === "change") {
       var id = node && node.id;
       if (id === "nxCutDay") { cutDone = null; cutDetail = false; loadCut(); return true; }
-      if (id === "nxAsmDay") { loadAsm(true); return true; }
+      if (id === "nxAsmDay") { asm = null; asmDaySeen = ""; loadAsm(true); return true; }
       if (id === "nxCourDay") { planHtml = ""; loadCour(true); return true; }
       if (id === "nxDepot" || id === "nxDepH" || id === "nxDepM") { readDepot(); return true; }
       if (node && node.getAttribute && node.getAttribute("data-act") === "pr-laid") {
@@ -1348,6 +1374,7 @@
     if (act === "pr-cut-start") { startCut(); return true; }
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
+    if (act === "pr-cut-back") { cutDetail = false; paintCut(); return true; }
     if (act === "pr-bang") {
       var it = findCut(node.getAttribute("data-k"));
       if (!it) return true;
@@ -1381,6 +1408,7 @@
     }
     if (act === "pr-asm-reload") { loadAsm(true); return true; }
     if (act === "pr-asm-more") { asmDetail = true; paintAsm(); return true; }
+    if (act === "pr-asm-back") { asmDetail = false; paintAsm(); return true; }
     if (act === "pr-pack") {
       var k = node.getAttribute("data-k");
       packOn[k] = packOn[k] === false;
@@ -1395,6 +1423,7 @@
     }
     if (act === "pr-cour-reload") { planHtml = ""; loadCour(true); return true; }
     if (act === "pr-cour-more") { courDetail = true; paintRoute(); return true; }
+    if (act === "pr-cour-back") { courDetail = false; paintRoute(); return true; }
     if (act === "pr-depot") {
       depotAddr = "Белецкого 10к2";
       var inp = document.getElementById("nxDepot");

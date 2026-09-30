@@ -124,8 +124,6 @@
         '<span class="b-li__sub">' + esc(RU[p.role] || p.role || "") + '</span></span><span class="b-li__chev">›</span></button>';
     });
     html += "</div>";
-    html += '<p class="b-lbl">Неделя</p><div class="b-card"><p class="b-note">Закрытие недели само подтягивает людей из месяца и не копирует понедельник на будущую неделю. Повтор, пока идёт запрос, не запускается. Подтянуть и синхронизация с листом — в меню ⋯.</p>' +
-      '<button type="button" class="b-btn b-btn--main" data-act="wfin">Завершить неделю</button></div>';
     sh().main(html);
   }
 
@@ -224,7 +222,8 @@
         return '<option value="' + esc(z) + '"' + (z === tz ? " selected" : "") + ">" + esc(z) + "</option>";
       }).join("");
       if (zones().indexOf(tz) < 0) tzOpts = '<option value="' + esc(tz) + '" selected>' + esc(tz) + "</option>" + tzOpts;
-      return '<p class="b-note" id="nxDirty" hidden style="color:var(--b-warn)">Есть несохранённые изменения. В таблицу попадёт только после «Сохранить».</p>' +
+      return '<button type="button" class="nx-link" data-act="sheet-close">← К списку</button>' +
+        '<p class="b-note" id="nxDirty" hidden style="color:var(--b-warn)">Есть несохранённые изменения. В таблицу попадёт только после «Сохранить».</p>' +
         '<label class="b-field"><span class="b-note">Роль</span><select class="b-field__input" id="nxRole" data-act="p-touch">' + opts + "</select></label>" +
         '<label class="b-field" style="margin-top:8px"><span class="b-note">Часовой пояс</span><select class="b-field__input" id="nxTz" data-act="p-touch">' + tzOpts + "</select></label>" +
         '<p class="b-lbl">Вкладки</p>' + tabTreeHtml(person) +

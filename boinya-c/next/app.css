@@ -5,15 +5,26 @@ html, body {
   height: 100%;
   background: var(--b-bg);
   color: var(--b-text);
+  overscroll-behavior: none;
 }
 
 .nx {
-  height: 100dvh;
-  max-height: 100dvh;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  max-height: var(--tg-viewport-stable-height, 100dvh);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--b-bg);
+}
+
+.nx-main,
+.nx-sheet__body {
+  overscroll-behavior: contain;
+}
+
+body.nx-kb #nxDock,
+body.nx-kb #nxNav {
+  display: none;
 }
 
 .nx-main {

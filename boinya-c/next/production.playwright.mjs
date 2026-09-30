@@ -110,12 +110,12 @@ async function main() {
   await a.page.getByRole("button", { name: "Подбор" }).waitFor();
   const segs = await a.page.locator(".b-seg").innerText();
   if (!/Опросник/.test(segs) || !/Расчёт/.test(segs) || !/Подбор/.test(segs)) throw new Error("segs " + segs);
-  const sub = await a.page.locator(".b-top__sub").innerText();
-  if (/старой версии/.test(sub)) throw new Error("stub sub " + sub);
+  if (await a.page.locator(".b-top__sub").count()) throw new Error("subtitle still present");
   await overflow(a.page, "clients-segs");
   await shot(a.page, "next-clients-segs.png");
   await a.page.getByRole("button", { name: "Подбор" }).click();
   await a.page.locator("#cxAnketa").fill("любит лёгкое\nБюджет до 40 руб");
+  await a.page.locator("#cxAnketa").blur();
   await a.page.getByRole("button", { name: "Подобрать" }).click();
   await a.page.getByText(/гр/).first().waitFor();
   const pick = await a.page.locator(".nx-main").innerText();

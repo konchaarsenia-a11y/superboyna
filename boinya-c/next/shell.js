@@ -42,6 +42,44 @@
       .replace(/"/g, "&quot;");
   }
 
+  function undot(text) {
+    var s = String(text == null ? "" : text);
+    if (s.indexOf("·") < 0) return s;
+    if (/^\s*·\s*$/.test(s)) return "";
+    return s
+      .replace(/\s*·\s*/g, ", ")
+      .replace(/^[,\s]+/, "")
+      .replace(/[,\s]+$/, "")
+      .replace(/\s{2,}/g, " ")
+      .replace(/,\s*,/g, ",");
+  }
+
+  function stripDots(node) {
+    if (!node || typeof document === "undefined") return;
+    if (node.nodeType === 3) {
+      if (node.nodeValue && node.nodeValue.indexOf("·") >= 0) node.nodeValue = undot(node.nodeValue);
+      return;
+    }
+    if (!node.querySelectorAll) return;
+    var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+    var list = [];
+    var n;
+    while ((n = walker.nextNode())) list.push(n);
+    list.forEach(function (t) {
+      if (t.nodeValue && t.nodeValue.indexOf("·") >= 0) t.nodeValue = undot(t.nodeValue);
+    });
+  }
+
+  var scrollPlan = null;
+  var paintedSheet = null;
+
+  function resetScroll() { scrollPlan = "top"; }
+  function restoreScrollTo(y) { scrollPlan = Number(y) || 0; }
+  function scrollTop() {
+    var box = el("nxMain");
+    return box ? box.scrollTop : 0;
+  }
+
   function money(n) {
     var x = Math.round(Number(n) * 100) / 100;
     if (!isFinite(x)) x = 0;
@@ -68,6 +106,7 @@
     document.addEventListener("click", onClick);
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
+    bindKeyboard();
     var scrim = el("nxScrim");
     scrim.addEventListener("click", function (e) {
       if (e.target === scrim) closeTop("scrim");
@@ -212,6 +251,48 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(run);
   }
 
+  function viewportSquashed() {
+    var vv = window.visualViewport;
+    if (!vv) return false;
+    var stable = window.innerHeight;
+    try {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (tg && tg.viewportStableHeight) stable = Number(tg.viewportStableHeight) || stable;
+    } catch (e) {}
+    return vv.height + 80 < stable;
+  }
+
+  function textField(el) {
+    if (!el || !el.matches) return false;
+    if (el.matches("textarea")) return true;
+    if (el.matches("select")) return true;
+    if (!el.matches("input")) return false;
+    var type = String(el.getAttribute("type") || "text").toLowerCase();
+    return type !== "checkbox" && type !== "radio" && type !== "button" && type !== "submit" && type !== "file" && type !== "hidden" && type !== "range" && type !== "color";
+  }
+
+  function fieldFocused() {
+    var a = document.activeElement;
+    if (!textField(a)) return false;
+    return !!(a.closest && a.closest("#nxMain, #nxScrim, .nx-sheet"));
+  }
+
+  function syncKeyboard() {
+    document.body.classList.toggle("nx-kb", fieldFocused() || viewportSquashed());
+  }
+
+  function bindKeyboard() {
+    document.addEventListener("focusin", function (e) {
+      var t = e.target;
+      if (!textField(t)) return;
+      if (t.closest && t.closest("#nxMain, #nxScrim, .nx-sheet")) document.body.classList.add("nx-kb");
+    });
+    document.addEventListener("focusout", function () {
+      setTimeout(syncKeyboard, 60);
+    });
+    if (window.visualViewport) window.visualViewport.addEventListener("resize", syncKeyboard);
+  }
+
   function chrome(opts) {
     opts = opts || {};
     var bell = "";
@@ -224,11 +305,11 @@
     el("nxTop").innerHTML =
       '<div class="b-top__ctx">' +
         '<h1 class="b-top__title">' + esc(opts.title || "") + "</h1>" +
-        '<p class="b-top__sub">' + esc(opts.sub || "") + "</p>" +
       "</div>" +
       '<button class="b-ib" type="button" data-act="help" aria-label="Справка">' + ico("info", "b-ico b-ico--20") + "</button>" +
       '<button class="b-ib" type="button" data-act="menu" aria-label="Меню">' + ico("dots", "b-ico b-ico--20") + "</button>" +
       bell;
+    stripDots(el("nxTop"));
     fitHeaderTitle();
     var nav = el("nxNav");
     var items = opts.nav || [];
@@ -250,8 +331,15 @@
   }
 
   function main(html) {
-    el("nxMain").innerHTML = html;
-    el("nxMain").scrollTop = 0;
+    var box = el("nxMain");
+    var prev = box ? box.scrollTop : 0;
+    if (box) box.innerHTML = html;
+    stripDots(box);
+    if (!box) return;
+    if (scrollPlan === "top") box.scrollTop = 0;
+    else if (typeof scrollPlan === "number") box.scrollTop = scrollPlan;
+    else box.scrollTop = Math.min(prev, Math.max(0, box.scrollHeight - box.clientHeight));
+    scrollPlan = null;
   }
 
   function dock(html) {
@@ -263,6 +351,7 @@
     }
     d.hidden = false;
     d.innerHTML = html;
+    stripDots(d);
   }
 
   function busy(on, sec) {
@@ -282,7 +371,7 @@
     var box = el("nxToast");
     box.hidden = false;
     box.innerHTML = '<div class="b-toast" role="status"><span class="b-toast__mark">' + ico("info", "b-ico b-ico--18") +
-      "</span><span class=\"b-grow\">" + esc(text) + "</span></div>";
+      "</span><span class=\"b-grow\">" + esc(undot(text)) + "</span></div>";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(hideToast, 3200);
   }
@@ -295,7 +384,11 @@
   function paintSheet() {
     var scrim = el("nxScrim");
     var top = sheetStack[sheetStack.length - 1];
+    var prevBody = scrim.querySelector(".nx-sheet__body");
+    var prevTop = prevBody ? prevBody.scrollTop : 0;
+    var same = !!(top && top === paintedSheet);
     if (!top) {
+      paintedSheet = null;
       scrim.hidden = true;
       scrim.innerHTML = "";
       return;
@@ -309,6 +402,10 @@
         '<div class="nx-sheet__body">' + (top.html || "") + "</div>" +
         (top.foot ? '<div class="nx-sheet__foot">' + top.foot + "</div>" : "") +
       "</section>";
+    stripDots(scrim);
+    var body = scrim.querySelector(".nx-sheet__body");
+    if (body && same) body.scrollTop = prevTop;
+    paintedSheet = top;
     var title = el("nxSheetTitle");
     var back = document.activeElement;
     if (!sheetReturn && back && back !== document.body && !scrim.contains(back)) sheetReturn = back;
@@ -487,6 +584,7 @@
         '<p class="b-note" id="nxLoaderHint" style="margin-top:12px">Можно свернуть — сохранение продолжится.</p>' +
         '<button class="b-btn b-btn--sec" type="button" id="nxLoaderHide" data-act="loader-hide" hidden style="margin-top:12px">Скрыть</button>'
     });
+    stripDots(el("nxScrim"));
     loaderTimer = setTimeout(function () {
       var b = el("nxLoaderHide");
       var h = el("nxLoaderHint");
@@ -512,6 +610,7 @@
       '<div class="gate"><h1 class="b-display">' + esc(opts.title || "") + "</h1>" +
       '<p style="color:var(--b-text-2);margin:12px 0 0;line-height:1.45">' + esc(opts.text || "") + "</p></div>" +
       (actions ? '<div class="dock" style="width:100%">' + actions + "</div>" : "");
+    stripDots(g);
   }
 
   function hideGate() {
@@ -551,7 +650,12 @@
     mount: mount,
     ico: ico,
     esc: esc,
+    undot: undot,
     money: money,
+    resetScroll: resetScroll,
+    restoreScrollTo: restoreScrollTo,
+    scrollTop: scrollTop,
+    syncKeyboard: syncKeyboard,
     setHandler: setHandler,
     chrome: chrome,
     main: main,

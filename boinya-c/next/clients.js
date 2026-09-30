@@ -7,6 +7,9 @@
   var seg = "pp";
   var view = "list";
   var subs = [];
+  var subsLoading = false;
+  var subsError = "";
+  var listScroll = 0;
   var surveys = [];
   var people = [];
   var search = "";
@@ -317,15 +320,23 @@
     return rows;
   }
 
-  async function loadSubs(force) {
+  async function loadSubs(force, attempt) {
+    subsLoading = true;
+    subsError = "";
     var params = { action: "listSubscriptions" };
     if (force) { params.force = "1"; params._ = String(Date.now()); }
-    var res = await api().apiGet(params, { timeoutMs: force ? 28000 : 12000, cacheTtlMs: force ? 0 : 30000 });
-    if (!res || res.status !== "success") {
-      sh().toast((res && (res.message || res.detail)) || "CRM не ответила");
-      return;
+    try {
+      var res = await api().apiGet(params, { timeoutMs: force ? 28000 : 22000, cacheTtlMs: force ? 0 : 30000 });
+      if (!res || res.status !== "success") throw new Error((res && (res.message || res.detail)) || "CRM не ответила");
+      subs = Array.isArray(res.subscriptions) ? res.subscriptions : [];
+      subsLoading = false;
+      subsError = "";
+    } catch (e) {
+      if (!force && !attempt) return loadSubs(false, 1);
+      subsLoading = false;
+      subsError = (e && e.message) || "Не удалось загрузить";
+      if (!subs.length && force) sh().toast(subsError);
     }
-    subs = Array.isArray(res.subscriptions) ? res.subscriptions : [];
   }
 
   async function loadSurveys() {
@@ -356,7 +367,9 @@
       }
       if (showBpForm) html += bpForm();
     }
-    if (!rows.length) html += '<p class="b-note">В этом списке пусто.</p>';
+    if (subsLoading && !subs.length) html += sh().skeleton(4);
+    else if (subsError && !subs.length) html += sh().errorBox({ title: "Не удалось загрузить", text: subsError, act: "cl-refresh" });
+    else if (!rows.length) html += '<p class="b-note">В этом списке пусто.</p>';
     html += '<div class="b-list">';
     rows.forEach(function (s, i) {
       var key = String(s.subId || s.nick || i);
@@ -619,6 +632,7 @@
 
   function paintPick() {
     var html = segBar();
+    if (root.__nxPickFromMore) html += '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>';
     html += '<p class="b-lbl">Тип</p><div class="b-row">';
     [["bp1", "БП1"], ["bp2", "БП2"], ["retail", "Розница"], ["pp", "Подписка"]].forEach(function (p) {
       html += '<button type="button" class="b-chip' + (pick.type === p[0] ? " b-chip--on" : "") + '" data-act="cl-pick-type" data-t="' + p[0] + '">' + p[1] + "</button>";
@@ -668,13 +682,13 @@
     if (!items.some(function (s) { return s.id === nextSeg; })) nextSeg = (items[0] && items[0].id) || "pp";
     if (nextSeg !== seg) { view = "list"; card = null; }
     seg = nextSeg;
-    if (seg === "calc" || seg === "pick" || seg === "survey" || unlocked() || !canSubs()) {
-      /* списки грузим ниже */
-    }
+    if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list" && !subs.length) subsLoading = true;
     paint();
     if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list") {
-      try { await Promise.all([loadPeople(), loadSubs(false)]); } catch (e) {}
-      if (view === "list" && seg !== "calc") paint();
+      loadPeople().catch(function () {});
+      loadSubs(false).then(function () {
+        if (view === "list" && (seg === "pp" || seg === "afk" || seg === "bp")) paint();
+      });
     }
     if (seg === "survey" && unlocked()) {
       try { await loadPeople(); await loadSurveys(); } catch (e) {}
@@ -896,9 +910,10 @@
     if (!card.packCounts) card.packCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
     view = "card";
     deep = false;
-    await loadPeople();
+    sh().resetScroll();
     sh().hideToast();
     paint();
+    loadPeople().then(function () { if (view === "card" && card) paint(); });
     } catch (eCard) {
       sh().toast((eCard && eCard.message) || "Не открылось");
     }
@@ -950,7 +965,18 @@
     var res = await api().apiPost(body);
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "ошибка записи"); return; }
     sh().toast("Сохранено");
-    subs = [];
+    subs.forEach(function (s) {
+      var same = (card.subId && String(s.subId) === String(card.subId)) || String(s.nick || "") === String(card.nick || "");
+      if (!same) return;
+      s.label = card.label || s.label;
+      s.nick = card.nick || s.nick;
+      s.phone = card.phone || s.phone;
+      s.address = card.address || s.address;
+      s.status = card.status || s.status;
+    });
+    loadSubs(true).then(function () {
+      if (view === "list") paint();
+    });
   }
 
   async function enrollGo() {
@@ -1107,10 +1133,22 @@
     if (act === "cl-del-picked") { delPicked(); return true; }
     if (act === "cl-open") {
       if (editMode) return true;
+      listScroll = sh().scrollTop();
       openCard(node.getAttribute("data-nick"), node.getAttribute("data-sub"), node.getAttribute("data-sheet"));
       return true;
     }
-    if (act === "cl-back") { view = "list"; card = null; deep = false; paint(); return true; }
+    if (act === "cl-back") {
+      view = "list";
+      card = null;
+      deep = false;
+      sh().restoreScrollTo(listScroll);
+      if (!subs.length) {
+        subsLoading = true;
+        paint();
+        loadSubs(false).then(function () { if (view === "list") { sh().restoreScrollTo(listScroll); paint(); } });
+      } else paint();
+      return true;
+    }
     if (act === "cl-slot") { if (card) card.slot = Number(node.getAttribute("data-n")) || 1; paint(); return true; }
     if (act === "cl-bptab") { if (card) card.bpTab = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; paint(); return true; }
     if (act === "cl-deep") { deep = !deep; paint(); return true; }

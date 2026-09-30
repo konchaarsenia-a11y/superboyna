@@ -70,6 +70,7 @@
     suggests.forEach(function (it) { if (it && String(it.status || "") === "новое") fresh++; });
     sh().dock("");
     sh().main(
+      '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
       '<article class="b-card">' +
         '<div class="nx-cut-head" style="justify-content:space-between">' +
           '<p class="b-lbl" style="margin:0">Партнёры</p>' +
