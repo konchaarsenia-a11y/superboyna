@@ -1,0 +1,217 @@
+/* Макеты карточки доставки. Токены — theme.css. Серые подписи под заголовком не используем. */
+
+.shot.nx {
+  width: 390px;
+  height: 844px;
+  max-height: 844px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0 auto 32px;
+  background: var(--b-bg);
+  color: var(--b-text);
+}
+
+.shot .nx-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.days {
+  display: flex;
+  gap: 4px;
+}
+
+.days .b-chip {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  padding: 0 2px;
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.mark-pp { color: var(--dot-pp); background: color-mix(in srgb, var(--dot-pp) 18%, transparent); }
+.mark-bp { color: var(--dot-bp); background: color-mix(in srgb, var(--dot-bp) 18%, transparent); }
+.mark-r { color: var(--dot-r); background: color-mix(in srgb, var(--dot-r) 18%, transparent); }
+.mark-p { color: var(--dot-p); background: color-mix(in srgb, var(--dot-p) 18%, transparent); }
+
+.card {
+  background: var(--b-surface);
+  border: 1px solid var(--b-line);
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nick {
+  margin: 0;
+  font-family: Unbounded, var(--b-display), sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.dog {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.price {
+  text-align: right;
+  flex: none;
+}
+
+.price .num { font-size: 28px; }
+.price small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--b-text-2);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.addr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.addr p {
+  margin: 0;
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.addr .b-btn,
+.phone {
+  flex: none;
+  width: auto;
+  min-height: 44px;
+  height: 44px;
+  padding: 0 12px;
+}
+
+.phone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+  width: 100%;
+  text-decoration: none;
+  color: var(--b-info);
+  font-weight: 700;
+}
+
+.lines { margin-top: 10px; }
+
+.line,
+.part {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 15px;
+}
+
+.line + .line { margin-top: 2px; }
+
+.qty {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--b-text-2);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.chip-g {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--b-surface-2);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.chip-g b { font-weight: 750; }
+
+.parts {
+  margin: 2px 0 6px 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--b-line);
+}
+
+.part { font-size: 14px; color: var(--b-text); }
+
+.list { display: flex; flex-direction: column; gap: 6px; }
+
+.shot .nx-main { padding: 8px 12px; gap: 6px; }
+.shot .b-seg { padding-bottom: 0; }
+.shot .b-seg__item { min-height: 36px; }
+
+.mini { padding: 8px 10px; }
+.mini .nick { font-size: 18px; display: inline; }
+.mini .dog { display: inline; margin: 0 0 0 6px; font-size: 15px; }
+.mini .price .num { font-size: 22px; }
+.mini .meta { margin-top: 4px; }
+.mini .addr { margin-top: 4px; }
+.mini .addr p { font-size: 14px; }
+.mini .row2 {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.mini .row2 .b-btn,
+.mini .phone {
+  min-height: 36px;
+  height: 36px;
+  margin-top: 0;
+  width: auto;
+}
+.mini .phone { flex: 1; }
+.mini .chips { margin: 6px 0 0; }
+
+.page-note {
+  max-width: 390px;
+  margin: 16px auto;
+  padding: 0 12px 24px;
+  color: var(--b-text);
+  font-family: Onest, var(--b-font), sans-serif;
+}
