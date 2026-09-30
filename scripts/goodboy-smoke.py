@@ -73,8 +73,8 @@ def check_subscription(page, base: str, errors: list[str], shot_dir: Path | None
     if h1.count():
         assert_true("подписк" in h1.inner_text().lower(), "subscription: h1 is Подписка", errors)
 
-    trial_btn = page.locator('a[href*="trial.html"]')
-    assert_true(trial_btn.count() > 0, "subscription: link to trial.html", errors)
+    trial_btn = page.locator('a[href*="week.html"]')
+    assert_true(trial_btn.count() > 0, "subscription: link to week.html", errors)
 
     steps = page.locator(".sub-steps li")
     assert_true(steps.count() == 3, f"subscription: expected 3 steps, got {steps.count()}", errors)
@@ -84,7 +84,7 @@ def check_subscription(page, base: str, errors: list[str], shot_dir: Path | None
 
 
 def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> None:
-    url = f"{base}/trial.html"
+    url = f"{base}/week.html"
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(800)
 
@@ -155,6 +155,23 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
         page.screenshot(path=str(shot_dir / "trial-390.png"), full_page=False)
 
 
+def check_trial_redirect(page, base: str, errors: list[str], shot_dir: Path | None) -> None:
+    stub = page.context.request.get(f"{base}/trial.html")
+    body = stub.text()
+    assert_true(stub.ok, f"trial stub http {stub.status}", errors)
+    assert_true('name="robots"' in body and "noindex" in body, "trial stub: noindex", errors)
+    assert_true('content="0; url=week.html"' in body, "trial stub: meta refresh to week.html", errors)
+    assert_true('location.replace("week.html"' in body, "trial stub: location.replace to week.html", errors)
+
+    page.goto(f"{base}/trial.html?coupon=zzz_test#steps", wait_until="domcontentloaded")
+    page.wait_for_timeout(400)
+    final = page.url
+    assert_true("week.html" in final, f"trial redirect lands on week.html ({final})", errors)
+    assert_true("coupon=zzz_test" in final, f"trial redirect keeps query ({final})", errors)
+    assert_true("#steps" in final, f"trial redirect keeps hash ({final})", errors)
+    assert_true(page.locator("#subIgBtn").count() > 0, "trial redirect: week CTA present", errors)
+
+
 def check_index(page, base: str, errors: list[str], shot_dir: Path | None) -> None:
     url = f"{base}/index.html" if base.endswith("/goodboy") else f"{base}/"
     page.goto(url, wait_until="domcontentloaded")
@@ -175,7 +192,8 @@ def check_index(page, base: str, errors: list[str], shot_dir: Path | None) -> No
 
 CHECKS: list[tuple[str, Callable]] = [
     ("subscription.html", check_subscription),
-    ("trial.html", check_trial),
+    ("week.html", check_trial),
+    ("trial.html → week.html", check_trial_redirect),
     ("index.html", check_index),
 ]
 
