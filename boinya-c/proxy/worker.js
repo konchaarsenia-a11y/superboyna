@@ -2052,6 +2052,25 @@ function catalogAliasNameD1_(name) {
   return n === raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim() ? raw : n;
 }
 
+function isChewProductNameD1_(name) {
+  var n = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  n = n.replace(/\s*ШТ\.?$/i, "").trim();
+  if (!n) return false;
+  if (/^(БЫЧИЙ КОРЕНЬ|ТРАХЕЯ|АОРТА|УХО Г|УХО К|НОСЫ|СТАНОВАЯ ЖИЛА|КОЛЕНИ|ПЕРЕПЕЛКИ|ЛОП ХРЯЩ|УТИНЫЕ ШЕИ|ГУБЫ|КОПЫТО)$/.test(n)) return true;
+  if (/УХО|УШК|КОРЕН|ХРЯЩ|ЛОПАТ|КОПЫТ|АОРТ|ТРАХЕ|ПЕРЕПЕЛ|СТАНОВ|КОЛЕН/.test(n)) return true;
+  if (/ГУБЫ|НОСЫ|ШЕИ|ШЕЯ/.test(n)) return true;
+  if (/(^|[^А-ЯA-Z0-9])НОС([^А-ЯA-Z0-9]|$)/.test(n)) return true;
+  return false;
+}
+
+function isChewCrumbSourceD1_(src) {
+  if (!src) return false;
+  if (typeof src === "string") return isChewProductNameD1_(src);
+  var cat = String(src.cat || "").toLowerCase();
+  if (cat === "chew" || cat === "chews") return true;
+  return isChewProductNameD1_(src.name || src.main || "");
+}
+
 function normalizeBasketItemAliasesD1_(it) {
   if (!it || typeof it !== "object") return it;
   var raw = String(it.name || it.main || "").trim();
@@ -2063,15 +2082,27 @@ function normalizeBasketItemAliasesD1_(it) {
     }
   }
   if (Array.isArray(it.sources)) {
-    it.sources = it.sources.map(function (s) {
-      if (!s || typeof s !== "object") return s;
+    var ratio = Array.isArray(it.ratio) ? it.ratio : null;
+    var next = [];
+    var nextRatio = ratio ? [] : null;
+    it.sources.forEach(function (s, i) {
+      if (!s || typeof s !== "object") {
+        if (isChewCrumbSourceD1_(s)) return;
+        next.push(s);
+        if (nextRatio) nextRatio.push(ratio[i]);
+        return;
+      }
       var sn = catalogAliasNameD1_(s.name || s.main || "");
       if (sn) {
         s.name = sn;
         if (s.main != null) s.main = sn;
       }
-      return s;
+      if (isChewCrumbSourceD1_(s)) return;
+      next.push(s);
+      if (nextRatio) nextRatio.push(ratio[i]);
     });
+    it.sources = next;
+    if (nextRatio) it.ratio = nextRatio;
   }
   return it;
 }
@@ -2129,11 +2160,12 @@ function expandCrumbsForCuttingD1_(basket) {
     var sumR = 0;
     for (var ri = 0; ri < n; ri++) sumR += Number(ratio[ri]) || 0;
     sources.forEach(function (s, i) {
+      if (isChewCrumbSourceD1_(s)) return;
       var part = sumR > 0 ? (Number(ratio[i]) || 0) / sumR : 1 / n;
       var g = Math.round(grams * part);
       if (g <= 0 && grams > 0) g = 1;
       var name = catalogAliasNameD1_(s.name || s.main || "") || String(s.name || s.main || "").trim();
-      if (!name || g <= 0) return;
+      if (!name || isChewProductNameD1_(name) || g <= 0) return;
       out.push({
         cat: s.cat || "dressura",
         name: name,

@@ -602,10 +602,38 @@ a.nx-tel {
 .mix-list .mix + .mix,
 .mix-list .mix + div,
 .mix-list div + .mix { margin-top: 6px; }
+.nx-grp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+  color: var(--b-text-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.nx-grp::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--b-line);
+  opacity: 0.45;
+}
+.mix-title { font-weight: 750; }
+.mix-parts {
+  margin: 1px 0 1px 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--b-line);
+}
 .mix-part {
-  margin-top: 2px;
-  padding-left: 12px;
+  margin-top: 0;
+  padding-left: 0;
   color: var(--b-text-2);
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.15;
 }
 
 .b-nav__lbl {

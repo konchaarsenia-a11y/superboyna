@@ -19,6 +19,8 @@
   var humanFraction = eng.humanFraction;
   var isCrumbBasketItemUi_ = eng.isCrumbBasketItemUi_;
   var crumbSourceNames_ = eng.crumbSourceNames_;
+  var isChewProductName_ = eng.isChewProductName_;
+  var isChewCrumbSource_ = eng.isChewCrumbSource_;
   var catalog = eng.catalog;
   var dressuraFractionSizeKey = eng.dressuraFractionSizeKey;
   var dressuraFractionPickRate = eng.dressuraFractionPickRate;
@@ -2009,34 +2011,78 @@ var ASM_CHEW_PER_BIG = 4;
       var raw = String(name || "").trim();
       if (!raw) return "";
       var folded = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
-      folded = folded.replace(/^КРОШКА\s+/, "");
+      folded = folded.replace(/^КРОШКА\s+/, "").replace(/\s*ШТ\.?$/, "").trim();
+      var table = {
+        "ЛЕГКОЕ": "лёгкого",
+        "БАРАНЬЕ ЛЕГКОЕ": "бараньего лёгкого",
+        "СЕРДЦЕ": "сердца",
+        "РУБЕЦ": "рубца",
+        "РУБЕЦ Т": "рубца",
+        "ПОЧКИ": "почек",
+        "ПЕЧЕНЬ": "печени",
+        "БАРАНЬЯ ПЕЧЕНЬ": "бараньей печени",
+        "ИНДЕЙКА": "индейки",
+        "МЯСНЫЕ ЛОМТИКИ": "мясных ломтиков",
+        "ВЫМЯ": "вымени",
+        "СЕМЕННИКИ": "семенников",
+        "БАНАНЫ": "бананов",
+        "БАНАН": "банана",
+        "ЯБЛОКИ": "яблок",
+        "ЯБЛОКО": "яблока",
+        "ГРУШИ": "груш",
+        "ГРУШЫ": "груш",
+        "ГРУША": "груши",
+        "МОРКОВЬ": "моркови",
+        "ТЫКВА": "тыквы",
+        "БАТАТ": "батата",
+        "КАБАЧОК": "кабачка",
+        "КАБАЧКИ": "кабачков"
+      };
       if (/БАРАН/.test(folded) && /ЛЕГК/.test(folded)) return "бараньего лёгкого";
+      if (/БАРАН/.test(folded) && /ПЕЧЕН/.test(folded)) return "бараньей печени";
+      if (table[folded]) return table[folded];
       if (/ЛЕГК/.test(folded)) return "лёгкого";
       if (/ПОЧК/.test(folded)) return "почек";
       if (/РУБ/.test(folded)) return "рубца";
       if (/СЕРДЦ/.test(folded)) return "сердца";
-      var pretty = "";
-      try { pretty = prettyProductName("КРОШКА " + folded); } catch (ePretty) { pretty = ""; }
-      if (pretty && /^крошка\s+/i.test(pretty)) {
-        var rest = pretty.replace(/^крошка\s+/i, "").trim();
-        if (rest) return rest.toLowerCase();
-      }
+      if (/ПЕЧЕН/.test(folded)) return "печени";
+      if (/ИНДЕЙ/.test(folded)) return "индейки";
+      if (/ВЫМ/.test(folded)) return "вымени";
+      if (/СЕМЕН/.test(folded)) return "семенников";
+      if (/МЯСН/.test(folded) && /ЛОМТ/.test(folded)) return "мясных ломтиков";
+      if (/БАНАН/.test(folded)) return "бананов";
+      if (/ЯБЛОК/.test(folded)) return "яблок";
+      if (/ГРУШ/.test(folded)) return "груш";
+      if (/МОРКОВ/.test(folded)) return "моркови";
+      if (/ТЫКВ/.test(folded)) return "тыквы";
+      if (/БАТАТ/.test(folded)) return "батата";
+      if (/КАБАЧ/.test(folded)) return "кабачка";
       var plain = raw;
       try { plain = prettyProductName(raw) || raw; } catch (ePlain) {}
       return String(plain).replace(/^крошка\s+/i, "").trim().toLowerCase();
     }
 
     function crumbClientMessageLine_(item) {
-      var names = crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
+      var raw = (item && Array.isArray(item.sources)) ? item.sources : [];
+      var kept = [];
+      raw.forEach(function (s, i) {
+        if (!s || isChewCrumbSource_(s)) return;
+        var nm = String((s.name || s.main) || "").trim();
+        if (!nm || isChewProductName_(nm)) return;
+        kept.push({ s: s, i: i, name: nm });
+      });
+      var names = kept.length
+        ? kept.map(function (k) { return k.name; })
+        : crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
       var qty = val + " г";
-      if (names.length >= 2) return "крошка микс - " + qty;
+      if (names.length >= 2) return "Крошка микс — " + qty;
       if (names.length === 1) {
         var g = String(crumbOfferGenitive_(names[0]) || names[0] || "")
           .replace(/^крошка\s+/i, "").trim().toLowerCase();
-        return "крошка " + g + " - " + qty;
+        return "Крошка " + g + " — " + qty;
       }
-      return "крошка - " + qty;
+      return "Крошка — " + qty;
     }
 
     function priceUnitLabel(cat, main) {

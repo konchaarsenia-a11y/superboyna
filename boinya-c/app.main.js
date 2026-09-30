@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116800";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71117000";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3101,16 +3101,21 @@
       if (x.cat === "crumb" || x.crumbKind || (Array.isArray(x.sources) && x.sources.length)) {
         row.cat = "crumb";
         row.crumbKind = x.crumbKind || "";
-        row.sources = Array.isArray(x.sources) ? x.sources.map(function (s) {
+        row.sources = [];
+        row.ratio = [];
+        var srcRatio = Array.isArray(x.ratio) ? x.ratio : null;
+        (Array.isArray(x.sources) ? x.sources : []).forEach(function (s, i) {
+          if (isChewCrumbSource_(s)) return;
           var sn = catalogAliasNameUi_(s && (s.name || s.main));
-          return {
+          if (!sn || isChewProductName_(sn)) return;
+          row.sources.push({
             cat: (s && s.cat) || "",
             name: sn,
             main: sn,
             sub: (s && s.sub) || ""
-          };
-        }) : [];
-        row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
+          });
+          if (srcRatio) row.ratio.push(srcRatio[i]);
+        });
         applyCrumbBasketNames_(row);
       }
       return row;
@@ -3147,16 +3152,37 @@
       return crumbKindCategoryLabel_(kind) || "крошка";
     }
 
+    /** Жевалка по имени каталога. В источник крошки не годится. */
+    function isChewProductName_(name) {
+      var n = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      n = n.replace(/\s*ШТ\.?$/i, "").trim();
+      if (!n) return false;
+      if (/^(БЫЧИЙ КОРЕНЬ|ТРАХЕЯ|АОРТА|УХО Г|УХО К|НОСЫ|СТАНОВАЯ ЖИЛА|КОЛЕНИ|ПЕРЕПЕЛКИ|ЛОП ХРЯЩ|УТИНЫЕ ШЕИ|ГУБЫ|КОПЫТО)$/.test(n)) return true;
+      if (/УХО|УШК|КОРЕН|ХРЯЩ|ЛОПАТ|КОПЫТ|АОРТ|ТРАХЕ|ПЕРЕПЕЛ|СТАНОВ|КОЛЕН/.test(n)) return true;
+      if (/ГУБЫ|НОСЫ|ШЕИ|ШЕЯ/.test(n)) return true;
+      if (/(^|[^А-ЯA-Z0-9])НОС([^А-ЯA-Z0-9]|$)/.test(n)) return true;
+      return false;
+    }
+
+    function isChewCrumbSource_(src) {
+      if (!src) return false;
+      if (typeof src === "string") return isChewProductName_(src);
+      var cat = String(src.cat || "").toLowerCase();
+      if (cat === "chew" || cat === "chews") return true;
+      return isChewProductName_(src.name || src.main || "");
+    }
+
     function crumbSourceNames_(item) {
       if (!item) return [];
       var fromSrc = [];
       if (Array.isArray(item.sources) && item.sources.length) {
         fromSrc = item.sources.map(function (s) {
+          if (isChewCrumbSource_(s)) return "";
           var raw = (s && (s.name || s.main)) || "";
           var named = "";
           try { named = catalogAliasNameUi_(raw); } catch (e0) {}
           return named || raw;
-        }).filter(Boolean);
+        }).filter(function (n) { return n && !isChewProductName_(n); });
       }
       if (fromSrc.length) return fromSrc;
       var sub = String(item.sub || "").trim();
@@ -3170,7 +3196,7 @@
         var named = "";
         try { named = catalogAliasNameUi_(p); } catch (e1) {}
         return named || p;
-      }).filter(Boolean);
+      }).filter(function (n) { return n && !isChewProductName_(n); });
     }
 
     function crumbSourcesLabel_(item, joiner) {
@@ -3185,40 +3211,84 @@
       return crumbKindCategoryLabel_(item && item.crumbKind) || "крошка";
     }
 
-    /** Родительный для оффера: лёгкое→лёгкого, почки→почек, рубец→рубца, сердце→сердца. */
+    /** Родительный для оффера: все разрешённые позиции, не только лёгкое/сердце/рубец/почки. */
     function crumbOfferGenitive_(name) {
       var raw = String(name || "").trim();
       if (!raw) return "";
       var folded = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
-      folded = folded.replace(/^КРОШКА\s+/, "");
+      folded = folded.replace(/^КРОШКА\s+/, "").replace(/\s*ШТ\.?$/, "").trim();
+      var table = {
+        "ЛЕГКОЕ": "лёгкого",
+        "БАРАНЬЕ ЛЕГКОЕ": "бараньего лёгкого",
+        "СЕРДЦЕ": "сердца",
+        "РУБЕЦ": "рубца",
+        "РУБЕЦ Т": "рубца",
+        "ПОЧКИ": "почек",
+        "ПЕЧЕНЬ": "печени",
+        "БАРАНЬЯ ПЕЧЕНЬ": "бараньей печени",
+        "ИНДЕЙКА": "индейки",
+        "МЯСНЫЕ ЛОМТИКИ": "мясных ломтиков",
+        "ВЫМЯ": "вымени",
+        "СЕМЕННИКИ": "семенников",
+        "БАНАНЫ": "бананов",
+        "БАНАН": "банана",
+        "ЯБЛОКИ": "яблок",
+        "ЯБЛОКО": "яблока",
+        "ГРУШИ": "груш",
+        "ГРУШЫ": "груш",
+        "ГРУША": "груши",
+        "МОРКОВЬ": "моркови",
+        "ТЫКВА": "тыквы",
+        "БАТАТ": "батата",
+        "КАБАЧОК": "кабачка",
+        "КАБАЧКИ": "кабачков"
+      };
       if (/БАРАН/.test(folded) && /ЛЕГК/.test(folded)) return "бараньего лёгкого";
+      if (/БАРАН/.test(folded) && /ПЕЧЕН/.test(folded)) return "бараньей печени";
+      if (table[folded]) return table[folded];
       if (/ЛЕГК/.test(folded)) return "лёгкого";
       if (/ПОЧК/.test(folded)) return "почек";
       if (/РУБ/.test(folded)) return "рубца";
       if (/СЕРДЦ/.test(folded)) return "сердца";
-      var pretty = "";
-      try { pretty = prettyProductName("КРОШКА " + folded); } catch (ePretty) { pretty = ""; }
-      if (pretty && /^крошка\s+/i.test(pretty)) {
-        var rest = pretty.replace(/^крошка\s+/i, "").trim();
-        if (rest) return rest.toLowerCase();
-      }
+      if (/ПЕЧЕН/.test(folded)) return "печени";
+      if (/ИНДЕЙ/.test(folded)) return "индейки";
+      if (/ВЫМ/.test(folded)) return "вымени";
+      if (/СЕМЕН/.test(folded)) return "семенников";
+      if (/МЯСН/.test(folded) && /ЛОМТ/.test(folded)) return "мясных ломтиков";
+      if (/БАНАН/.test(folded)) return "бананов";
+      if (/ЯБЛОК/.test(folded)) return "яблок";
+      if (/ГРУШ/.test(folded)) return "груш";
+      if (/МОРКОВ/.test(folded)) return "моркови";
+      if (/ТЫКВ/.test(folded)) return "тыквы";
+      if (/БАТАТ/.test(folded)) return "батата";
+      if (/КАБАЧ/.test(folded)) return "кабачка";
       var plain = raw;
       try { plain = prettyProductName(raw) || raw; } catch (ePlain) {}
       return String(plain).replace(/^крошка\s+/i, "").trim().toLowerCase();
     }
 
-    /** Сообщение клиенту: «крошка лёгкого - 10 г» / «крошка микс - 10 г». Источник только строчными. */
+    /** Сообщение клиенту: одна строка. Микс — «Крошка микс — N г» без состава. Состав микса остаётся в заказе, сборке и курьере. */
     function crumbClientMessageLine_(item) {
-      var names = crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
+      var raw = (item && Array.isArray(item.sources)) ? item.sources : [];
+      var kept = [];
+      raw.forEach(function (s, i) {
+        if (!s || isChewCrumbSource_(s)) return;
+        var nm = String((s.name || s.main) || "").trim();
+        if (!nm || isChewProductName_(nm)) return;
+        kept.push({ s: s, i: i, name: nm });
+      });
+      var names = kept.length
+        ? kept.map(function (k) { return k.name; })
+        : crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
       var qty = val + " г";
-      if (names.length >= 2) return "крошка микс - " + qty;
+      if (names.length >= 2) return "Крошка микс — " + qty;
       if (names.length === 1) {
         var g = String(crumbOfferGenitive_(names[0]) || names[0] || "")
           .replace(/^крошка\s+/i, "").trim().toLowerCase();
-        return "крошка " + g + " - " + qty;
+        return "Крошка " + g + " — " + qty;
       }
-      return "крошка - " + qty;
+      return "Крошка — " + qty;
     }
 
     function crumbBasketTitle_(item) {
@@ -3300,11 +3370,16 @@
         };
         if (cat === "crumb") {
           row.crumbKind = x.crumbKind || "";
-          row.sources = Array.isArray(x.sources) ? x.sources.map(function (s) {
+          row.sources = [];
+          row.ratio = [];
+          var srcRatio = Array.isArray(x.ratio) ? x.ratio : null;
+          (Array.isArray(x.sources) ? x.sources : []).forEach(function (s, i) {
+            if (isChewCrumbSource_(s)) return;
             var sn = catalogAliasNameUi_(s && (s.name || s.main));
-            return { cat: (s && s.cat) || "", name: sn, main: sn, sub: (s && s.sub) || "" };
-          }) : [];
-          row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
+            if (!sn || isChewProductName_(sn)) return;
+            row.sources.push({ cat: (s && s.cat) || "", name: sn, main: sn, sub: (s && s.sub) || "" });
+            if (srcRatio) row.ratio.push(srcRatio[i]);
+          });
           applyCrumbBasketNames_(row);
         }
         return row;
@@ -4521,7 +4596,7 @@
         var cat = catalog[k] || {};
         (cat.items || []).forEach(function (n) {
           var name = String(n || "").trim();
-          if (!name || seen[name]) return;
+          if (!name || seen[name] || k === "chew" || k === "chews" || isChewProductName_(name)) return;
           seen[name] = true;
           out.push({ cat: k, name: name });
         });
@@ -4691,13 +4766,20 @@
       if (!kind) { showToast("Выбери категорию крошки"); return; }
       var grams = Number(crumbBuilder.grams) || 0;
       if (grams <= 0) { showToast("Укажи граммы"); return; }
-      var sources = (crumbBuilder.sources || []).filter(function (s) { return s && s.name; });
-      if (!sources.length) { showToast("Выбери исходную позицию"); return; }
+      var rawSources = (crumbBuilder.sources || []).filter(function (s) { return s && s.name; });
+      var sources = [];
       var ratio = [];
-      sources.forEach(function (_, i) {
+      var droppedChew = false;
+      rawSources.forEach(function (s, i) {
+        if (isChewCrumbSource_(s)) { droppedChew = true; return; }
+        sources.push(s);
         var n = Number(crumbBuilder.ratio[i]);
         ratio.push(n > 0 ? n : 1);
       });
+      if (!sources.length) {
+        showToast(droppedChew ? "Жевалки в крошку не входят" : "Выбери исходную позицию");
+        return;
+      }
       var item = {
         id: Date.now() + Math.random(),
         cat: "crumb",

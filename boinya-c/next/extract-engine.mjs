@@ -35,6 +35,8 @@ const FUNCS = [
   "dressuraFractionRates",
   "crumbKindCategoryLabel_",
   "crumbKindTitle_",
+  "isChewProductName_",
+  "isChewCrumbSource_",
   "crumbSourceNames_",
   "crumbSourcesLabel_",
   "crumbBasketDisplayMain_",
@@ -271,11 +273,14 @@ ${body}
     dressuraFractionPickRate: dressuraFractionPickRate,
     dressuraFractionRates: dressuraFractionRates,
     crumbSourcePool_: crumbSourcePool_,
+    isChewProductName_: isChewProductName_,
+    isChewCrumbSource_: isChewCrumbSource_,
     scoreClientNick: scoreClientNick,
     isCrumbBasketItemUi_: isCrumbBasketItemUi_,
     crumbBasketDisplayMain_: crumbBasketDisplayMain_,
     crumbBasketSubLabel_: crumbBasketSubLabel_,
     PRICE_RETAIL_DELIVERY_BYN: function () { return PRICE_RETAIL_DELIVERY_BYN; },
+    PRICE_RETAIL_FREE_FROM: function () { return PRICE_RETAIL_FREE_FROM; },
     MINSK_CENTER: { lat: 53.9023, lon: 27.5619 },
     MINSK_RADIUS_KM: 20
   };

@@ -49,7 +49,7 @@ assert(!ui.includes("крошка · "), "no old «крошка · source» titl
 assert(/crumbs-display-ux-h1/.test(tz), "TZ marker");
 assert(/crumb-src-row-offer-h1/.test(tz), "offer TZ marker");
 assert(ui.includes('crumb: "Присыпки"'), "client block title Присыпки");
-assert(ui.includes("крошка микс - "), "mix line is крошка микс");
+assert(ui.includes("Крошка микс — "), "mix line is Крошка микс");
 assert(html.includes("crumb-src-del"), "compact delete button class");
 assert(ui.includes("Выбери позицию"), "source placeholder");
 
@@ -62,6 +62,8 @@ vm.runInContext(
     extractFn(ui, "isCrumbBasketItemUi_"),
     extractFn(ui, "crumbKindCategoryLabel_"),
     extractFn(ui, "crumbKindTitle_"),
+    extractFn(ui, "isChewProductName_"),
+    extractFn(ui, "isChewCrumbSource_"),
     extractFn(ui, "crumbSourceNames_"),
     extractFn(ui, "crumbSourcesLabel_"),
     extractFn(ui, "crumbBasketDisplayMain_"),
@@ -85,9 +87,9 @@ const one = {
 };
 assert(ctx.crumbBasketDisplayMain_(one) === "ЛЁГКОЕ", "basket main = SKU, got " + ctx.crumbBasketDisplayMain_(one));
 assert(ctx.crumbBasketSubLabel_(one) === "мясные", "basket sub = kind chip");
-assert(ctx.crumbClientMessageLine_(one) === "крошка лёгкого - 100 г", "client one source, got " + ctx.crumbClientMessageLine_(one));
-assert(ctx.formatPriceCompositionLine(one) === "крошка лёгкого - 100 г", "offer line one source");
-assert(!/[А-ЯЁ]/.test(ctx.crumbClientMessageLine_(one)), "one source is lowercase only");
+assert(ctx.crumbClientMessageLine_(one) === "Крошка лёгкого — 100 г", "client one source, got " + ctx.crumbClientMessageLine_(one));
+assert(ctx.formatPriceCompositionLine(one) === "Крошка лёгкого — 100 г", "offer line one source");
+assert(!/[А-ЯЁ]/.test(ctx.crumbClientMessageLine_(one).replace(/^Крошка /, "")), "source stays lowercase");
 
 const mix = {
   cat: "crumb",
@@ -99,25 +101,32 @@ const mix = {
 };
 assert(ctx.crumbBasketDisplayMain_(mix) === "ЛЁГКОЕ + РУБЕЦ Т", "mix main with spaces");
 assert(ctx.crumbBasketSubLabel_(mix) === "дрессура овощи/фрукты", "mix sub = veg chip");
-assert(ctx.crumbClientMessageLine_(mix) === "крошка микс - 100 г", "client mix is крошка микс, got " + ctx.crumbClientMessageLine_(mix));
+assert(ctx.crumbClientMessageLine_(mix) === "Крошка микс — 100 г", "client mix one line, got " + JSON.stringify(ctx.crumbClientMessageLine_(mix)));
+assert(!/\n/.test(ctx.crumbClientMessageLine_(mix)), "client mix has no part lines");
 
 const hypo = { cat: "crumb", crumbKind: "hypo", sources: [{ name: "СЕРДЦЕ" }], val: 50 };
 assert(ctx.crumbBasketSubLabel_(hypo) === "гипоаллергенные", "hypo chip");
-assert(ctx.crumbClientMessageLine_(hypo) === "крошка сердца - 50 г", "hypo client line, got " + ctx.crumbClientMessageLine_(hypo));
+assert(ctx.crumbClientMessageLine_(hypo) === "Крошка сердца — 50 г", "hypo client line, got " + ctx.crumbClientMessageLine_(hypo));
 
 const fromSub = { cat: "crumb", crumbKind: "meat", name: "крошка", sub: "ЛЁГКОЕ + РУБЕЦ Т", val: 80 };
 assert(ctx.crumbBasketDisplayMain_(fromSub) === "ЛЁГКОЕ + РУБЕЦ Т", "fallback parse sources from sub");
-assert(ctx.crumbClientMessageLine_(fromSub) === "крошка микс - 80 г", "fallback client from sub, got " + ctx.crumbClientMessageLine_(fromSub));
+assert(ctx.crumbClientMessageLine_(fromSub) === "Крошка микс — 80 г", "fallback client from sub one line, got " + JSON.stringify(ctx.crumbClientMessageLine_(fromSub)));
 assert(ctx.crumbOfferGenitive_("ПОЧКИ") === "почек", "genitive почки");
 assert(ctx.crumbOfferGenitive_("РУБЕЦ Т") === "рубца", "genitive рубец");
-assert(ctx.crumbOfferGenitive_("ЯБЛОКИ") === "яблоки", "veg lowercase");
+assert(ctx.crumbOfferGenitive_("ЯБЛОКИ") === "яблок", "genitive яблоки");
+assert(ctx.crumbOfferGenitive_("ПЕЧЕНЬ") === "печени", "genitive печень");
+assert(ctx.crumbOfferGenitive_("ИНДЕЙКА") === "индейки", "genitive индейка");
+assert(ctx.crumbOfferGenitive_("КАБАЧОК") === "кабачка", "genitive кабачок");
 ["ЛЁГКОЕ", "Лёгкое", "легкое"].forEach(function (nm) {
   var line = ctx.crumbClientMessageLine_({ cat: "crumb", val: 10, sources: [{ name: nm }] });
-  assert(line === "крошка лёгкого - 10 г", "lowercase genitive for " + nm + ", got " + line);
-  assert(!/[А-ЯЁ]/.test(line), "caps leaked for " + nm);
+  assert(line === "Крошка лёгкого — 10 г", "genitive for " + nm + ", got " + line);
 });
-assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10, sources: [{ name: "СЕРДЦЕ" }] }) === "крошка сердца - 10 г", "сердце lowercase");
-assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10 }) === "крошка - 10 г", "no sources");
+assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10, sources: [{ name: "СЕРДЦЕ" }] }) === "Крошка сердца — 10 г", "сердце");
+assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10 }) === "Крошка — 10 г", "no sources");
+assert(!/трахе/i.test(ctx.crumbClientMessageLine_({
+  cat: "crumb", val: 100, ratio: [50, 50],
+  sources: [{ name: "ЛЁГКОЕ", val: 50 }, { name: "ТРАХЕЯ", cat: "chew", val: 50 }]
+})), "chew stays out of the offer");
 
 const regular = { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 100 };
 assert(!ctx.isCrumbBasketItemUi_(regular), "regular dressura is not crumb");

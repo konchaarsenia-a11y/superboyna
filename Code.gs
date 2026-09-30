@@ -5944,8 +5944,53 @@ function isCatalogTypoName_(raw) {
   return false;
 }
 
+function isChewProductNameGs_(name) {
+  var n = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  n = n.replace(/\s*ШТ\.?$/i, "").trim();
+  if (!n) return false;
+  if (/^(БЫЧИЙ КОРЕНЬ|ТРАХЕЯ|АОРТА|УХО Г|УХО К|НОСЫ|СТАНОВАЯ ЖИЛА|КОЛЕНИ|ПЕРЕПЕЛКИ|ЛОП ХРЯЩ|УТИНЫЕ ШЕИ|ГУБЫ|КОПЫТО)$/.test(n)) return true;
+  if (/УХО|УШК|КОРЕН|ХРЯЩ|ЛОПАТ|КОПЫТ|АОРТ|ТРАХЕ|ПЕРЕПЕЛ|СТАНОВ|КОЛЕН/.test(n)) return true;
+  if (/ГУБЫ|НОСЫ|ШЕИ|ШЕЯ/.test(n)) return true;
+  if (/(^|[^А-ЯA-Z0-9])НОС([^А-ЯA-Z0-9]|$)/.test(n)) return true;
+  return false;
+}
+
+function isChewCrumbSourceGs_(src) {
+  if (!src) return false;
+  if (typeof src === "string") return isChewProductNameGs_(src);
+  var cat = String(src.cat || "").toLowerCase();
+  if (cat === "chew" || cat === "chews") return true;
+  return isChewProductNameGs_(src.name || src.main || "");
+}
+
 function normalizeBasketItemAliases_(it) {
   if (!it || typeof it !== "object") return it;
+  if (Object.prototype.toString.call(it.sources) === "[object Array]") {
+    var ratio = Object.prototype.toString.call(it.ratio) === "[object Array]" ? it.ratio : null;
+    var next = [];
+    var nextRatio = ratio ? [] : null;
+    for (var si = 0; si < it.sources.length; si++) {
+      var s = it.sources[si];
+      if (!s || typeof s !== "object") {
+        if (isChewCrumbSourceGs_(s)) continue;
+        next.push(s);
+        if (nextRatio) nextRatio.push(ratio[si]);
+        continue;
+      }
+      if (isChewCrumbSourceGs_(s)) continue;
+      var sn = "";
+      try { sn = catalogAliasName_(s.name || s.main || ""); } catch (eSn) { sn = ""; }
+      if (sn) {
+        s.name = sn;
+        if (s.main != null) s.main = sn;
+      }
+      if (isChewProductNameGs_(s.name || s.main)) continue;
+      next.push(s);
+      if (nextRatio) nextRatio.push(ratio[si]);
+    }
+    it.sources = next;
+    if (nextRatio) it.ratio = nextRatio;
+  }
   var raw = String(it.name || it.main || "").trim();
   if (!raw) return it;
   var canon = catalogAliasName_(raw);
@@ -20092,6 +20137,7 @@ function retailGoodsFromCrumbItemGs_(it, val) {
     var sum = 0;
     for (var si = 0; si < sources.length; si++) {
       var src = sources[si] || {};
+      if (isChewCrumbSourceGs_(src)) continue;
       var share = (Number(ratios[si]) || 1) / rsum;
       var rcS = retailLineCost_(
         src.name || src.main, src.sub, val * share, src.cat || "dressura"
