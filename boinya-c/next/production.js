@@ -610,9 +610,17 @@
       });
     }
     var tallyRows = tallied ? tallied.rows : [];
+    function rowKeyOf(c) {
+      if (!packsApi || !c) return "";
+      return packsApi.ownerKey(c) + "#" + String(Number(c.dogPart) || 0) + "#" + String(c.name || "").toUpperCase();
+    }
     function rowOf(c) {
       var i;
-      for (i = 0; i < tallyRows.length; i++) if (tallyRows[i].client === c) return tallyRows[i];
+      var want = rowKeyOf(c);
+      for (i = 0; i < tallyRows.length; i++) {
+        if (tallyRows[i].client === c) return tallyRows[i];
+        if (want && rowKeyOf(tallyRows[i].client) === want) return tallyRows[i];
+      }
       return null;
     }
     var organs = { light: organEmpty(), heart: organEmpty(), kidney: organEmpty(), rumen: organEmpty() };
