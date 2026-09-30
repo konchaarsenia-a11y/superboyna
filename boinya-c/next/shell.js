@@ -18,6 +18,7 @@
     doc: '<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v6h6"/>',
     pen: '<path d="M4 20h4l10-10-4-4L4 16v4z"/><path d="M12 6l4 4"/>',
     cal: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
+    calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11.5h2M12 11.5h2M16 11.5h.01M8 15.5h2M12 15.5h2M16 15.5h.01"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.2-5.5"/><path d="M20 4v5h-5"/>',
     phone: '<path d="M8 3h3l1 4-2 1a12 12 0 0 0 6 6l1-2 4 1v3a2 2 0 0 1-2 2A16 16 0 0 1 6 5a2 2 0 0 1 2-2z"/>'
   };
@@ -302,11 +303,15 @@
         : "";
       bell = '<button class="b-ib" type="button" data-act="tasks" aria-label="Задачи">' + ico("bell") + badge + "</button>";
     }
+    var calc = opts.calc
+      ? '<button class="b-ib" type="button" data-act="price-tools" aria-label="Расчёт и подбор">' + ico("calc", "b-ico b-ico--20") + "</button>"
+      : "";
     el("nxTop").innerHTML =
       '<div class="b-top__ctx">' +
         '<h1 class="b-top__title">' + esc(opts.title || "") + "</h1>" +
       "</div>" +
       '<button class="b-ib" type="button" data-act="help" aria-label="Справка">' + ico("info", "b-ico b-ico--20") + "</button>" +
+      calc +
       '<button class="b-ib" type="button" data-act="menu" aria-label="Меню">' + ico("dots", "b-ico b-ico--20") + "</button>" +
       bell;
     stripDots(el("nxTop"));
@@ -565,6 +570,138 @@
     });
   }
 
+  function isoDate(v) {
+    var s = String(v || "").trim();
+    var dmy = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    if (dmy) return dmy[3] + "-" + dmy[2] + "-" + dmy[1];
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    var now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  }
+
+  function shortDate(iso) {
+    var p = String(iso || "").split("-");
+    if (p.length < 3) return "";
+    return p[2] + "." + p[1];
+  }
+
+  function pickDate(opts) {
+    opts = opts || {};
+    var FULL = 12;
+    var MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+    var selected = isoDate(opts.value);
+    var cursor = { y: Number(selected.slice(0, 4)), m: Number(selected.slice(5, 7)) - 1 };
+    var cache = {};
+    var gen = 0;
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      }
+      function monthKey() {
+        return cursor.y + "-" + String(cursor.m + 1).padStart(2, "0");
+      }
+      function daysOf(res) {
+        var map = {};
+        ((res && res.days) || []).forEach(function (d) {
+          var iso = String(d.dateIso || d.date || "").slice(0, 10);
+          if (iso) map[iso] = d;
+        });
+        return map;
+      }
+      function html() {
+        var y = cursor.y;
+        var m = cursor.m;
+        var by = daysOf(cache[monthKey()] || { days: [] });
+        var first = new Date(y, m, 1);
+        var start = (first.getDay() + 6) % 7;
+        var days = new Date(y, m + 1, 0).getDate();
+        var cells = "";
+        var i;
+        for (i = 0; i < start; i++) cells += '<span class="cell cell--pad"></span>';
+        for (var d = 1; d <= days; d++) {
+          var iso = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+          var hit = by[iso];
+          var segs = (hit && hit.segments) || {};
+          var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
+          var dots = "";
+          if (segs["ПП"]) dots += '<i class="dot dot-pp"></i>';
+          if (segs["БП"]) dots += '<i class="dot dot-bp"></i>';
+          if (segs["Р"]) dots += '<i class="dot dot-r"></i>';
+          if (segs["ПАРТНЁР"] || segs["П"]) dots += '<i class="dot dot-p"></i>';
+          var cls = "cell";
+          if (n > 0) cls += " cell--busy";
+          if (n >= FULL) cls += " is-full";
+          if (iso === selected) cls += " is-on";
+          var label = d + " " + MONTHS[m] + (n ? ", " + n + " чел." : "");
+          cells += '<button type="button" class="' + cls + '" data-act="date-day" data-iso="' + iso + '" aria-label="' + esc(label) + '"' +
+            (iso === selected ? ' aria-pressed="true"' : "") + ">" +
+            '<span class="cell-date">' + d + "</span>" +
+            (n ? '<span class="cell-count">' + n + "</span>" : "") +
+            (dots ? '<span class="dots" aria-hidden="true">' + dots + "</span>" : "") + "</button>";
+        }
+        var verb = opts.verb || opts.ok || "Выбрать";
+        var lead = opts.lead ? '<p class="b-note" style="margin:0 0 8px">' + esc(opts.lead) + "</p>" : "";
+        return lead +
+          '<div class="b-row"><button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="date-shift" data-dir="-1" aria-label="Предыдущий месяц">‹</button>' +
+          '<span class="b-grow" style="text-align:center;font-weight:600">' + esc(MONTHS[m] + " " + y) + "</span>" +
+          '<button class="b-btn b-btn--sec b-btn--sm" type="button" data-act="date-shift" data-dir="1" aria-label="Следующий месяц">›</button></div>' +
+          '<div class="wd" aria-hidden="true"><span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span></div>' +
+          '<div class="nx-cal grid">' + cells + "</div>" +
+          '<button class="b-btn b-btn--main" type="button" data-act="date-ok" style="margin-top:12px">' + esc(verb + " на " + shortDate(selected)) + "</button>";
+      }
+      function draw() {
+        if (settled) return;
+        if (sheetOpen()) replaceTop({ title: opts.title || "Дата", html: html() });
+        else openSheet({ title: opts.title || "Дата", html: html(), id: "pick-date" });
+      }
+      function load() {
+        var key = monthKey();
+        var token = ++gen;
+        if (!opts.loadMonth || cache[key]) return;
+        Promise.resolve(opts.loadMonth(key)).then(function (res) {
+          if (token !== gen || settled) return;
+          cache[key] = res || { days: [] };
+          draw();
+        }).catch(function () {
+          if (token !== gen || settled) return;
+          cache[key] = { days: [] };
+        });
+      }
+      draw();
+      load();
+      var prev = actHandler;
+      actHandler = function (act, node, e) {
+        if (act === "date-day") {
+          selected = node.getAttribute("data-iso") || selected;
+          draw();
+          return;
+        }
+        if (act === "date-shift") {
+          var dir = Number(node.getAttribute("data-dir")) || 0;
+          var next = new Date(cursor.y, cursor.m + dir, 1);
+          cursor = { y: next.getFullYear(), m: next.getMonth() };
+          draw();
+          load();
+          return;
+        }
+        if (act === "date-ok") {
+          var iso = selected;
+          closeTop("ok");
+          done(iso);
+          return;
+        }
+        if (prev) prev(act, node, e);
+      };
+      sheetStack[sheetStack.length - 1].onClose = function (how) {
+        actHandler = prev;
+        if (how !== "ok") done(null);
+      };
+    });
+  }
+
   function alert(opts) {
     return confirm({ title: opts.title || "Бойня", text: opts.text || "", ok: "Понятно", cancel: "" }).then(function () {
       return true;
@@ -671,6 +808,7 @@
     confirm: confirm,
     choice: choice,
     prompt: prompt,
+    pickDate: pickDate,
     alert: alert,
     loader: loader,
     closeLoader: closeLoader,

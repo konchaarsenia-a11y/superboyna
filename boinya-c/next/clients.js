@@ -104,8 +104,6 @@
     if (canSubs()) {
       list.push({ id: "pp", label: "ПП" }, { id: "afk", label: "АФК" }, { id: "bp", label: "БП" }, { id: "survey", label: "Опросник" });
     }
-    if (canCalc()) list.push({ id: "calc", label: "Расчёт" });
-    if (canPick()) list.push({ id: "pick", label: "Подбор" });
     access = prev || access;
     if (acc) access = acc;
     return list;
@@ -486,48 +484,85 @@
     return packsHtml(prefix, fr, keys);
   }
 
+  function groupBox(title, inner) {
+    return '<section class="nx-group"><h2>' + esc(title) + "</h2>" + inner + "</section>";
+  }
+
+  function splitAddr(raw) {
+    var parsed = eng() && eng().parseDeliveryAddress ? eng().parseDeliveryAddress(raw || "") : null;
+    return {
+      street: (parsed && parsed.street) || raw || "",
+      entrance: (parsed && parsed.entrance) || "",
+      floor: (parsed && parsed.floor) || "",
+      flat: (parsed && parsed.flat) || ""
+    };
+  }
+
+  function joinAddr() {
+    if (!card) return;
+    if (eng() && eng().composeDeliveryAddress) {
+      card.address = eng().composeDeliveryAddress(card.addrStreet, card.addrEntrance, card.addrFloor, card.addrFlat);
+    } else {
+      card.address = [card.addrStreet, card.addrEntrance, card.addrFloor, card.addrFlat].filter(Boolean).join(", ");
+    }
+  }
+
   function paintCard() {
     var c = card;
     var html = segBar();
     html += '<button type="button" class="nx-link" data-act="cl-back">← К списку</button>';
-    html += '<p class="b-lbl">Имя</p>' + field("cxLabel", c.label, "Имя");
-    html += '<p class="b-lbl">Ник</p>' + field("cxNick", c.nick, "Ник");
-    html += '<p class="b-lbl">Кличка</p>' + field("cxDog", c.dogName, "Кличка");
-    html += '<p class="b-lbl">Порода</p>' + field("cxBreed", c.dogBreed, "Порода");
-    html += '<p class="b-lbl">Вес</p>' + field("cxWeight", c.dogWeight, "кг");
-    html += '<p class="b-lbl">ID подписки</p>' + field("cxSubId", c.subId, "ID");
-    html += '<p class="b-lbl">N доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"');
-    html += '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус");
-    html += '<p class="b-lbl">Пожелания</p>' + area("cxWishes", c.wishes, "Пожелания");
-    html += '<p class="b-lbl">Адрес</p>' + field("cxAddress", c.address, "Адрес");
-    html += '<p class="b-lbl">Телефон</p>' + field("cxPhone", c.phone, "Телефон");
+    var clientFields = '<p class="b-lbl">Имя</p>' + field("cxLabel", c.label, "Имя") +
+      '<p class="b-lbl">Ник</p>' + field("cxNick", c.nick, "Ник") +
+      '<p class="b-lbl">Телефон</p>' + field("cxPhone", c.phone, "Телефон") +
+      '<p class="b-lbl">Адрес</p>' + field("cxAddress", c.addrStreet, "Адрес") +
+      '<p class="b-lbl">Подъезд</p>' + field("cxEnt", c.addrEntrance, "Подъезд") +
+      '<p class="b-lbl">Этаж</p>' + field("cxFl", c.addrFloor, "Этаж") +
+      '<p class="b-lbl">Квартира</p>' + field("cxApt", c.addrFlat, "Квартира");
+    if (c.sheet === "БП") {
+      clientFields += '<p class="b-lbl">Менеджер</p><label class="b-field"><select class="b-field__input" id="cxOwner" data-k="cxOwner">' + ownerOptions(c.ownerTelegramId) + "</select></label>";
+    }
+    html += groupBox("Клиент", clientFields);
+    html += groupBox("Собака",
+      '<p class="b-lbl">Кличка</p>' + field("cxDog", c.dogName, "Кличка") +
+      '<p class="b-lbl">Порода</p>' + field("cxBreed", c.dogBreed, "Порода") +
+      '<p class="b-lbl">Вес, кг</p>' + field("cxWeight", c.dogWeight, "кг"));
+    var subFields = '<p class="b-lbl">Лист</p><p class="b-note">' + esc(c.sheet || "ПП") + "</p>" +
+      '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус") +
+      '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
+      '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
+    if (c.sheet === "БП") {
+      subFields += '<p class="b-lbl">Опросник БП2</p>' + field("cxSv2", c.surveyBp2Due, "", 'type="date"') +
+        '<p class="b-lbl">Финал</p>' + field("cxSvF", c.surveyFinalDue, "", 'type="date"');
+    }
+    subFields += '<p class="b-lbl">Пожелания</p>' + area("cxWishes", c.wishes, "Пожелания");
+    html += groupBox("Подписка", subFields);
+    var priceBits = "";
     if (c.sheet === "ПП" || c.sheet === "АФК") {
       if (Number(c.deliveries) >= 2) {
-        html += '<p class="b-lbl">Состав доставки</p><div class="b-seg">' +
+        priceBits += '<p class="b-lbl">Состав доставки</p><div class="b-seg">' +
           '<button type="button" class="b-seg__item' + (c.slot === 1 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="1">Доставка 1</button>' +
           '<button type="button" class="b-seg__item' + (c.slot === 2 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="2">Доставка 2</button></div>';
       }
     }
     if (c.sheet === "БП") {
-      html += '<p class="b-lbl">Состав БП</p><div class="b-seg">' +
+      priceBits += '<p class="b-lbl">Состав БП</p><div class="b-seg">' +
         '<button type="button" class="b-seg__item' + (c.bpTab === 1 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="1">Состав БП1</button>' +
         '<button type="button" class="b-seg__item' + (c.bpTab === 2 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="2">Состав БП2</button></div>';
-      html += '<p class="b-lbl">Даты опросников</p>' + field("cxSv2", c.surveyBp2Due, "", 'type="date"') + field("cxSvF", c.surveyFinalDue, "", 'type="date"');
-      html += '<p class="b-lbl">Ответственный</p><label class="b-field"><select class="b-field__input" id="cxOwner" data-k="cxOwner">' + ownerOptions(c.ownerTelegramId) + "</select></label>";
     }
-    html += basketBlock();
+    priceBits += basketBlock();
     if (c.sheet === "ПП") {
-      html += '<p class="b-lbl">Факт (расчёт)</p>' + field("cxFact", c.calcFactCost || c.factCost, "факт", "readonly");
-      html += '<p class="b-lbl">Указанная стоимость</p>' + field("cxStated", c.statedCost, "указанная");
-      html += '<p class="b-note">' + esc(c.scheme === "RAW26" ? "схема сырьё×2.6" : "старая схема ×2.3+11+6N") + "</p>";
+      priceBits += '<p class="b-lbl">Факт (расчёт)</p>' + field("cxFact", c.calcFactCost || c.factCost, "факт", "readonly");
+      priceBits += '<p class="b-lbl">Указанная стоимость</p>' + field("cxStated", c.statedCost, "указанная");
+      priceBits += '<p class="b-note">' + esc(c.scheme === "RAW26" ? "схема сырьё×2.6" : "старая схема ×2.3+11+6N") + "</p>";
       if (access && access.role === "owner") {
-        html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-econ" style="margin-top:8px">Экономика</button>';
+        priceBits += '<button type="button" class="b-btn b-btn--sec" data-act="cl-econ" style="margin-top:8px">Экономика</button>';
       }
       if (c.scheme !== "RAW26") {
-        html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-migrate" style="margin-top:8px">Перевести на новую схему (сырьё×2.6)</button>';
+        priceBits += '<button type="button" class="b-btn b-btn--sec" data-act="cl-migrate" style="margin-top:8px">Перевести на новую схему (сырьё×2.6)</button>';
       }
     }
-    html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-deep" style="margin-top:8px">' + (deep ? "Свернуть" : "Глубокий редактор") + "</button>";
+    priceBits += '<button type="button" class="b-btn b-btn--sec" data-act="cl-deep" style="margin-top:8px">' + (deep ? "Свернуть" : "Глубокий редактор") + "</button>";
+    html += groupBox("Состав и цена", priceBits);
     if (deep) html += deepHtml();
     var move = "";
     if (c.sheet === "ПП") move = '<button type="button" class="b-btn b-btn--sec" data-act="cl-move" data-to="АФК">Перенести в АФК</button>';
@@ -569,7 +604,7 @@
   }
 
   function paintCalc() {
-    var html = segBar();
+    var html = '<button type="button" class="nx-link" data-act="price-back">← Назад</button>';
     if (enroll) {
       html += '<article class="b-card" id="enrollCard"><p class="b-lbl">Внести в ПП</p>' +
         field("cxEnName", enroll.displayName, "Имя") +
@@ -631,8 +666,7 @@
   }
 
   function paintPick() {
-    var html = segBar();
-    if (root.__nxPickFromMore) html += '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>';
+    var html = '<button type="button" class="nx-link" data-act="price-back">← Назад</button>';
     html += '<p class="b-lbl">Тип</p><div class="b-row">';
     [["bp1", "БП1"], ["bp2", "БП2"], ["retail", "Розница"], ["pp", "Подписка"]].forEach(function (p) {
       html += '<button type="button" class="b-chip' + (pick.type === p[0] ? " b-chip--on" : "") + '" data-act="cl-pick-type" data-t="' + p[0] + '">' + p[1] + "</button>";
@@ -678,8 +712,9 @@
   }
 
   async function show(nextSeg) {
+    var tool = nextSeg === "calc" || nextSeg === "pick";
     var items = segs(access);
-    if (!items.some(function (s) { return s.id === nextSeg; })) nextSeg = (items[0] && items[0].id) || "pp";
+    if (!tool && !items.some(function (s) { return s.id === nextSeg; })) nextSeg = (items[0] && items[0].id) || "pp";
     if (nextSeg !== seg) { view = "list"; card = null; }
     seg = nextSeg;
     if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list" && !subs.length) subsLoading = true;
@@ -713,7 +748,10 @@
     if (k === "cxN" && card) card.deliveries = v;
     if (k === "cxStatus" && card) card.status = v;
     if (k === "cxWishes" && card) card.wishes = v;
-    if (k === "cxAddress" && card) card.address = v;
+    if (k === "cxAddress" && card) { card.addrStreet = v; joinAddr(); }
+    if (k === "cxEnt" && card) { card.addrEntrance = v; joinAddr(); }
+    if (k === "cxFl" && card) { card.addrFloor = v; joinAddr(); }
+    if (k === "cxApt" && card) { card.addrFlat = v; joinAddr(); }
     if (k === "cxPhone" && card) card.phone = v;
     if (k === "cxStated" && card) { card.statedCost = v; card.statedTouched = true; }
     if (k === "cxSv2" && card) card.surveyBp2Due = v;
@@ -904,6 +942,11 @@
     var coef = P().parsePpCoefFromWishes_(res.wishes || "");
     if (coef) card.coef = String(coef);
     card.wishes = P().stripPpMetaFromWishes_(res.wishes || "");
+    var addr = splitAddr(card.address || "");
+    card.addrStreet = addr.street;
+    card.addrEntrance = addr.entrance;
+    card.addrFloor = addr.floor;
+    card.addrFlat = addr.flat;
     card.statedCost = res.statedCost != null ? res.statedCost : (res.factCost || "");
     card.calcFactCost = res.calcFactCost || res.factCost || "";
     card.fracs = Object.assign({}, price.fracs);
@@ -1441,7 +1484,8 @@
     view = "list";
     card = null;
     seg = "calc";
-    if (root.__nxSetSeg) root.__nxSetSeg("clients", "calc");
+    if (root.__nxPriceView) root.__nxPriceView("calc");
+    else if (root.__nxSetSeg) root.__nxSetSeg("clients", "calc");
     paint();
   }
 
@@ -1621,7 +1665,8 @@
     price.note = "";
     price.message = pick.text || "";
     seg = "calc";
-    if (root.__nxSetSeg) root.__nxSetSeg("clients", "calc");
+    if (root.__nxPriceView) root.__nxPriceView("calc");
+    else if (root.__nxSetSeg) root.__nxSetSeg("clients", "calc");
     paint();
   }
 

@@ -61,6 +61,12 @@
     }).join("") + "</div>";
   }
 
+  function shortDm(iso) {
+    var p = String(iso || "").slice(0, 10).split("-");
+    if (p.length < 3 || !p[2]) return "";
+    return p[2] + "." + p[1];
+  }
+
   function miniHref() {
     return (hub && hub.miniAppUrl) || VARKa;
   }
@@ -128,7 +134,8 @@
     if (!items.length) return '<p class="b-note">Заявок пока нет</p>';
     return items.map(function (it) {
       var pl = it.payload || {};
-      var need = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+      var dateIso = String(pl.deliverDateIso || "").trim();
+      var need = !dateIso;
       var lines = (pl.basket || []).map(function (b) {
         return esc(b.name || b.id) + " × " + esc(String(b.qty)) + (b.unit && b.unit !== "г" ? (" " + esc(b.unit)) : "");
       }).join("<br>");
@@ -140,13 +147,13 @@
         (lines ? ('<p class="b-note">' + lines + "</p>") : "") +
         (String(pl.note || pl.partnerNote || "").trim() ? ('<p>' + esc(String(pl.note || pl.partnerNote)) + "</p>") : "");
       if (need && st !== "delivered") {
-        html += '<label class="b-field" style="margin-top:8px"><span class="b-note">Дата</span>' +
-          '<input class="b-field__input" type="date" id="phSlot_' + esc(it.id) + '" value="' + esc(pl.deliverDateIso || "") + '"></label>' +
-          '<div class="nx-actions" style="margin-top:8px">' +
-          '<button type="button" class="b-btn b-btn--main" data-act="ph-slot" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '">Назначить дату</button>' +
+        html += '<div class="nx-actions" style="margin-top:8px">' +
+          '<button type="button" class="b-btn b-btn--main" data-act="ph-slot" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '" data-title="' + esc(it.title || pl.locationName || "Заявка партнёра") + '">Назначить дату</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="ph-del" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '">Удалить</button></div>';
       } else if (st !== "delivered") {
+        html += '<p class="b-note">Дата ' + esc(shortDm(pl.deliverDateIso)) + "</p>";
         html += '<div class="nx-actions" style="margin-top:8px">';
+        html += '<button type="button" class="b-btn b-btn--sec" data-act="ph-move" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '" data-date="' + esc(pl.deliverDateIso || "") + '" data-title="' + esc(it.title || pl.locationName || "Заявка партнёра") + '">Перенести</button>';
         if (st !== "in_transit") html += '<button type="button" class="b-btn b-btn--sec" data-act="ph-transit" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '">В пути</button>';
         html += '<button type="button" class="b-btn b-btn--sec" data-act="ph-done" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '">Доставлено</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="ph-del" data-id="' + esc(it.id) + '" data-po="' + esc(pl.partnerOrderId || "") + '">Удалить</button></div>';
@@ -416,10 +423,18 @@
     }
   }
 
-  async function assignSlot(id, po) {
-    var inp = document.getElementById("phSlot_" + id);
-    var dateIso = inp ? String(inp.value || "").trim() : "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) { sh().toast("Выберите дату"); return; }
+  async function assignSlot(id, po, opts) {
+    opts = opts || {};
+    var dateIso = await sh().pickDate({
+      title: "Дата",
+      lead: opts.lead || "Заявка партнёра",
+      value: opts.value || "",
+      verb: opts.verb || "Назначить",
+      loadMonth: function (key) {
+        return api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+      }
+    });
+    if (!dateIso || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return;
     if (!tid()) { sh().toast("Нужен Telegram"); return; }
     var res = await api().apiGet({
       action: "partnerSetOrderSlot",
@@ -653,7 +668,14 @@
     if (act === "ph-reload") { loadHub({ force: 1 }); if (tab === "orders") loadOrders({ force: 1 }); if (tab === "bp") loadBp({ force: 1 }); return true; }
     if (act === "ph-sug") { loadSuggest({ force: 1 }); return true; }
     if (act === "ph-st") { setSuggest(node.getAttribute("data-id"), node.getAttribute("data-st")); return true; }
-    if (act === "ph-slot") { assignSlot(node.getAttribute("data-id"), node.getAttribute("data-po")); return true; }
+    if (act === "ph-slot" || act === "ph-move") {
+      assignSlot(node.getAttribute("data-id"), node.getAttribute("data-po"), {
+        lead: node.getAttribute("data-title") || "Заявка партнёра",
+        value: node.getAttribute("data-date") || "",
+        verb: act === "ph-move" ? "Перенести" : "Назначить"
+      });
+      return true;
+    }
     if (act === "ph-del") { orderStatus(node.getAttribute("data-id"), node.getAttribute("data-po"), "cancelled"); return true; }
     if (act === "ph-transit") { orderStatus(node.getAttribute("data-id"), node.getAttribute("data-po"), "in_transit"); return true; }
     if (act === "ph-done") { orderStatus(node.getAttribute("data-id"), node.getAttribute("data-po"), "delivered"); return true; }

@@ -436,7 +436,15 @@
 
   async function moveOne(c) {
     if (!c) return;
-    var picked = await sh().prompt({ title: "Перенести", text: "Дата ГГГГ-ММ-ДД", value: view.date || "", ok: "Дальше" });
+    var picked = await sh().pickDate({
+      title: "Перенести",
+      lead: c.name || "",
+      value: view.date || "",
+      verb: "Перенести",
+      loadMonth: function (key) {
+        return api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+      }
+    });
     if (!picked) return;
     var target = await api().apiGet({ action: "resolveDayForDate", date: picked }, { timeoutMs: 15000, cacheTtlMs: 0 });
     if (!target || !target.newDate && !picked) { sh().toast("Не удалось определить дату"); return; }
