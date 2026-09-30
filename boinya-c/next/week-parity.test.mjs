@@ -35,8 +35,14 @@ test("баннер закрытия не верит локальной поме�
   assert.equal(L.finishPendingActive(Date.now() - 1000, Date.now()), false);
 });
 
-test("полный день с 6, неделя как в старом списке", () => {
-  assert.equal(L.FULL_FROM, 6);
+test("полный день с 8, неделя как в старом списке", () => {
+  assert.equal(L.FULL_FROM, 8);
+  assert.equal(L.fullDayPrompt(7), "");
+  assert.equal(L.fullDayPrompt(8), "На этот день уже 8 записей Добавить ещё?");
+  assert.equal(L.fullDayPrompt(21), "На этот день уже 21 запись Добавить ещё?");
+  assert.equal(L.fullDayPrompt(22), "На этот день уже 22 записи Добавить ещё?");
+  assert.equal(L.countFromMonth({ days: [{ dateIso: "2026-09-30", count: 9 }] }, "2026-09-30"), 9);
+  assert.equal(L.countFromMonth({ days: [] }, "2026-09-30"), 0);
   assert.deepEqual(L.WEEK.slice(0, 3), ["Понедельник", "Вторник", "Среда"]);
   assert.equal(L.WEEK[L.WEEK.length - 1], "Будущая неделя");
 });

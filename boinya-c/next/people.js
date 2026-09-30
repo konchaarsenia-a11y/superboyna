@@ -46,7 +46,7 @@
   var CHILD_RU = {
     month: "Месяц", week: "Неделя", calc: "Расчёт", pick: "Подбор",
     xfer: "Переносы", buy: "Дозакуп", orders: "Заказы / «На потом»", pp: "ПП/БП (отложенные расчёты)", remind: "Напоминалки",
-    texts: "Тексты / опросники", ai: "Подбор ИИ", route: "Маршрут / доставлено", assembly: "Сборка / печать",
+    texts: "Тексты / опросники", ai: "Подбор ИИ", route: "Курьер / доставлено", assembly: "Сборка / печать",
     people: "Люди", points: "Точки", nets: "Сети", notify: "Пуши"
   };
   var NOTIFY_RU = {
@@ -64,15 +64,73 @@
     gb_lead: "Заявка GOOD BOY с сайта"
   };
   var sheetFlags = { tabs: false, tabsReset: false, notify: false, notifyReset: false };
+  var showGen = 0;
+  var CACHE_KEY = "nx-access-screen-v1";
 
-  async function load() {
-    var res = await api().apiGet({ action: "listAccess", telegramId: tid(), force: "1", _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+  function readScreenCache() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (!raw || !Array.isArray(raw.people) || !raw.people.length) return null;
+      return raw;
+    } catch (e) { return null; }
+  }
+
+  function writeScreenCache() {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        people: people,
+        timezones: timezones,
+        warehouses: warehouses,
+        departure: whDeparture,
+        at: Date.now()
+      }));
+    } catch (e) {}
+  }
+
+  function applyPeople(res) {
+    if (!res || res.status !== "success" || !Array.isArray(res.people)) return false;
+    people = res.people;
+    if (Array.isArray(res.timezones) && res.timezones.length) timezones = res.timezones;
+    return true;
+  }
+
+  async function fetchAccess(force) {
+    if (force) {
+      return api().apiGet(
+        { action: "listAccess", telegramId: tid(), force: "1", _: String(Date.now()) },
+        { timeoutMs: 20000, cacheTtlMs: 0 }
+      );
+    }
+    var fast = null;
+    try {
+      fast = await api().apiGet(
+        { action: "listAccessFast", telegramId: tid() },
+        { timeoutMs: 2500, cacheTtlMs: 45000 }
+      );
+    } catch (e) { fast = null; }
+    if (fast && fast.status === "success" && fast.fast === true && Array.isArray(fast.people)) {
+      return { res: fast, background: true };
+    }
+    var full = null;
+    try {
+      full = await api().apiGet(
+        { action: "listAccess", telegramId: tid() },
+        { timeoutMs: 20000, cacheTtlMs: 45000 }
+      );
+    } catch (e2) { full = null; }
+    return { res: full, background: false };
+  }
+
+  async function load(opts) {
+    opts = opts || {};
+    var packed = opts.force ? { res: await fetchAccess(true), background: false } : await fetchAccess(false);
+    var res = packed && packed.res ? packed.res : packed;
+    if (packed && packed.res) res = packed.res;
     if (!res || res.status !== "success") {
-      people = [];
+      if (!opts.keep) people = [];
       return res;
     }
-    people = res.people || [];
-    if (Array.isArray(res.timezones) && res.timezones.length) timezones = res.timezones;
+    applyPeople(res);
     return res;
   }
 
@@ -154,12 +212,15 @@
     return html;
   }
 
-  async function loadWarehouses() {
+  async function loadWarehouses(force) {
     try {
-      var res = await api().apiGet({ action: "listWarehouses", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+      var params = { action: "listWarehouses" };
+      if (force) params._ = String(Date.now());
+      var res = await api().apiGet(params, { timeoutMs: 12000, cacheTtlMs: force ? 0 : 45000 });
       warehouses = (res && res.warehouses) || [];
       whDeparture = (res && res.departure) || null;
     } catch (e) {
+      if (warehouses.length) return;
       warehouses = [];
       whDeparture = { id: "beletskogo", name: "Склад", address: "Белецкого 10к2", departure: true, fallback: true };
     }
@@ -252,16 +313,49 @@
     paint();
   }
 
-  async function show() {
+  async function show(opts) {
+    opts = opts || {};
+    var force = !!opts.force;
+    var gen = ++showGen;
     sh().dock("");
-    sh().main(sh().skeleton(4));
-    var res = await load();
-    await loadWarehouses();
-    if (!res || res.status !== "success") {
-      sh().main(sh().errorBox({ title: "Доступы", text: "Только владелец. Если это вы — нажмите «Повторить».", act: "p-reload" }));
+    var painted = false;
+    if (!force) {
+      var cached = readScreenCache();
+      if (cached) {
+        people = cached.people;
+        if (cached.timezones && cached.timezones.length) timezones = cached.timezones;
+        warehouses = cached.warehouses || [];
+        whDeparture = cached.departure || whDeparture;
+        paint();
+        painted = true;
+      }
+    }
+    if (!painted) sh().main(sh().skeleton(6));
+    var packed = null;
+    try {
+      packed = await Promise.all([fetchAccess(force), loadWarehouses(force)]);
+    } catch (e) {
+      packed = [null, null];
+    }
+    if (gen !== showGen) return;
+    var got = packed[0];
+    var res = got && got.res ? got.res : got;
+    var background = !!(got && got.background);
+    if (force) background = false;
+    if (!applyPeople(res)) {
+      if (!painted) {
+        sh().main(sh().errorBox({ title: "Доступы", text: "Только владелец. Если это вы — нажмите «Повторить».", act: "p-reload" }));
+      } else sh().toast("Список не обновился");
       return;
     }
+    writeScreenCache();
     paint();
+    if (!background) return;
+    api().apiGet({ action: "listAccess", telegramId: tid() }, { timeoutMs: 20000, cacheTtlMs: 60000 }).then(function (full) {
+      if (gen !== showGen || !applyPeople(full)) return;
+      writeScreenCache();
+      paint();
+    }).catch(function () {});
   }
 
   function personById(id) {
@@ -394,7 +488,7 @@
       timezone: timezone || ""
     });
     sh().toast(res && res.status === "success" ? "Роль сохранена" : ((res && res.message) || "Не сохранилось"));
-    await load();
+    await load({ force: true });
     paint();
   }
 
@@ -403,7 +497,7 @@
       if (node && node.id === "whAddr") { scheduleWhAddr(node.value); return true; }
       return false;
     }
-    if (act === "p-reload") { show(); return true; }
+    if (act === "p-reload") { show({ force: true }); return true; }
     if (act === "wh-add") { openNewWarehouse(); return true; }
     if (act === "wh-save") { saveWarehouse(); return true; }
     if (act === "wh-del") { openDeleteWarehouse(node.getAttribute("data-id")); return true; }
@@ -515,7 +609,7 @@
     }
     sh().toast(errs.length ? ("Не всё сохранилось: " + errs.join(", ")) : "Сохранено");
     sh().closeTop("ok");
-    await load();
+    await load({ force: true });
     paint();
   }
 

@@ -180,10 +180,11 @@ test("за Минском: тег Европочты и отделение в п
   assert.match(packed.note, /хрупкое/);
 });
 
-test("полный день — от 6 заказов, не от 12", () => {
+test("полный день — от 8 заказов", () => {
   const src = fs.readFileSync(path.join(dir, "orders.js"), "utf8");
-  assert.match(src, /var FULL_FROM = 6/);
+  assert.match(src, /var FULL_FROM = 8/);
   assert.doesNotMatch(src, /num >= 12/);
+  assert.match(src, /fullDayPrompt/);
 });
 
 test("панель: владелец 6, менеджер с разделами 5, курьер без панели", () => {

@@ -2,7 +2,7 @@
 (function (root) {
   "use strict";
 
-  var FULL_FROM = 12;
+  var FULL_FROM = 8;
   var monthMap = {};
   var MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   var MONTHS_FULL = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
@@ -326,21 +326,18 @@
   }
 
   function dayBox() {
-    var m = state.day ? dayMeta(state.day) : { num: null, iso: "" };
     if (state.day === "Будущая неделя") {
-      var fut = weekItem("Будущая неделя");
-      m.num = fut && isFinite(Number(fut.count)) ? Number(fut.count) : null;
+      return '<p class="kicker">День</p><button type="button" class="daybox b-day b-day--on" data-act="open-days">' +
+        '<span class="b-day__w">Будущая неделя</span></button>';
     }
-    var iso = (state.day && state.day !== "Будущая неделя" && m.iso) || isoFromAny(state.deliveryDate) || "";
-    var label = "День";
-    if (state.day === "Будущая неделя") label = "Будущая неделя";
-    else if (state.day) label = state.day;
-    else if (iso) label = weekdayFull(iso) || "День";
+    var m = state.day ? dayMeta(state.day) : { iso: "" };
+    var iso = (state.day && m.iso) || isoFromAny(state.deliveryDate) || "";
+    var label = state.day || weekdayFull(iso) || "";
     var dateBit = ddmmOf(iso);
+    var left = dateBit ? '<span class="num">' + esc(dateBit) + "</span>" : '<span class="b-day__w">Выберите день</span>';
+    var right = dateBit && label ? '<span class="b-day__w">' + esc(label) + "</span>" : "";
     return '<p class="kicker">День</p><button type="button" class="daybox b-day b-day--on" data-act="open-days">' +
-      "<span><span class=\"kicker b-day__w\">" + esc(label) + "</span>" +
-      '<span class="num" style="font-size:28px">' + (m.num == null ? "" : esc(String(m.num))) + "</span></span>" +
-      '<span class="b-note">' + esc(dateBit) + "</span></button>";
+      left + right + "</button>";
   }
 
   function numFullHint() {
@@ -789,6 +786,31 @@
     paint();
     if (next === "pp") refreshPp();
     if (next === "bp") loadPartners();
+  }
+
+  async function countForSave() {
+    var day = state.day || "";
+    var iso = isoFromAny(state.deliveryDate);
+    if (day) {
+      var it = weekItem(day);
+      if (it) {
+        var itIso = isoFromAny(it.date);
+        if (day === "Будущая неделя" || !iso || !itIso || itIso === iso) {
+          if (isFinite(Number(it.count))) return Number(it.count);
+        }
+      }
+    }
+    if (!iso) return 0;
+    var key = iso.slice(0, 7);
+    var res = monthMap[key];
+    if (!res) {
+      try {
+        res = await api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 12000, cacheTtlMs: 20000 });
+      } catch (e) { res = { days: [] }; }
+      monthMap[key] = res || { days: [] };
+    }
+    var L = root.BoinyaWeekLogic;
+    return L && L.countFromMonth ? L.countFromMonth(res, iso) : 0;
   }
 
   async function loadPartners() {
@@ -1261,6 +1283,21 @@
       paint();
       await sh().alert({ text: "Укажите адрес отделения почты — куда повезут заказ." });
       return;
+    }
+    var sameSlot = false;
+    if (state.isEdit) {
+      var origIso = isoFromAny(state.editOriginalDate);
+      var nextIso = isoFromAny(state.deliveryDate);
+      if (origIso && nextIso) sameSlot = origIso === nextIso;
+      else sameSlot = !!state.editOriginalDay && state.editOriginalDay === (state.day || "");
+    }
+    if (!sameSlot) {
+      var fullN = await countForSave();
+      var fullText = root.BoinyaWeekLogic && root.BoinyaWeekLogic.fullDayPrompt(fullN);
+      if (fullText) {
+        var addMore = await sh().confirm({ title: "Полный день", text: fullText, ok: "Добавить", cancel: "Отмена" });
+        if (!addMore) return;
+      }
     }
     var priceShow = pay().orderPriceOf(state, eng());
     var msg = (state.isEdit ? "Обновить заказ " : "Сохранить заказ ") + clientName + "?";

@@ -60,7 +60,7 @@
     var list = [];
     if (ax().tabHas(access, "cuttingScreen")) list.push({ id: "cut", label: "Нарезка" });
     if (ax().tabHas(access, "courierScreen.assembly")) list.push({ id: "pack", label: "Сборка" });
-    if (ax().tabHas(access, "courierScreen.route")) list.push({ id: "route", label: "Маршрут" });
+    if (ax().tabHas(access, "courierScreen.route")) list.push({ id: "route", label: "Курьер" });
     return list;
   }
 
@@ -148,7 +148,7 @@
       return wh() ? wh().contextLine() : "Склад";
     }
     if (route.tab === "production" || (ax().isSimple(access) && (access.role === "cutter" || access.role === "courier"))) {
-      var pr = { cut: "Нарезка", pack: "Сборка", route: "Маршрут" };
+      var pr = { cut: "Нарезка", pack: "Сборка", route: "Курьер" };
       return pr[route.seg] || (access.role === "cutter" ? "Нарезка" : "Цех");
     }
     if (route.tab === "more" && moreView === "templates") return "Шаблоны";
@@ -276,7 +276,7 @@
     });
     bindPress(prodBtn, function () {
       var items = [];
-      if (ax().tabHas(access, "courierScreen.route")) items.push({ label: "Маршрут", seg: "route" });
+      if (ax().tabHas(access, "courierScreen.route")) items.push({ label: "Курьер", seg: "route" });
       if (ax().tabHas(access, "courierScreen.assembly")) items.push({ label: "Сборка", seg: "pack" });
       if (!items.length) { suppressNav = false; return; }
       sh().openSheet({
@@ -443,7 +443,7 @@
   function helpText() {
     if (q().get("shot") === "states") return "Так выглядят пустой экран, загрузка, ошибка и долгий запрос. Кнопка «Повторить» зовёт тот же запрос ещё раз.";
     if (route.tab === "orders" && route.seg === "new") {
-      return "Новый заказ. Тип, ник, адрес, день и состав. Оранжевая кнопка сохраняет в ту же таблицу. «На потом» кладёт заказ в задачи. Полный день — от 12 человек, черта сверху. Тост появляется под шапкой и не закрывает «Итого».";
+      return "Новый заказ. Тип, ник, адрес, день и состав. Оранжевая кнопка сохраняет в ту же таблицу. «На потом» кладёт заказ в задачи. Полный день — от 8 человек, черта сверху. Тост появляется под шапкой и не закрывает «Итого».";
     }
     if (route.tab === "orders" && route.seg === "week") {
       return "Неделя: дни Пн–Вс и «Будущая неделя». Карточка — править, перенести, удалить, слот ПП. «Выбрать» — несколько человек сразу. Баннер закрытия недели только у владельца, повторное нажатие не запускает второе закрытие.";
@@ -486,7 +486,7 @@
       return "Сборка: пакеты по составу, форматы можно выключить. «Собрано» пишет в таблицу. «Пропечатка пакетов» — ручная отметка «пропечатано без лакомств», тот же запрос, что раньше. Отдельного сервера печати нет.";
     }
     if (route.tab === "production" && route.seg === "route") {
-      return "Маршрут: день, выезд с выбранного склада, один или два курьера. Точку выезда задаёт владелец в Доступах. «Собрать маршруты» считает порядок как раньше. Галочка «доставлено», карта, телефон, «Не получил» создаёт перенос. Курьер и нарезчик заходят без нижней панели.";
+      return "Курьер: день, выезд с выбранного склада, один или два курьера. Точку выезда задаёт владелец в Доступах. «Собрать маршруты» считает порядок как раньше. Галочка «доставлено», карта, телефон, «Не получил» создаёт перенос. Курьер и нарезчик заходят без нижней панели.";
     }
     return "Этот экран ещё не перенесён. Кнопка «Открыть в старой версии» ведёт в привычное приложение. Данные те же.";
   }
@@ -536,7 +536,7 @@
     try { await tasksMod().refresh(); } catch (e) { tasksN = 0; }
   }
 
-  function onAct(act, node) {
+  function onAct(act, node, ev) {
     if (act === "nav") {
       if (suppressNav) { suppressNav = false; return; }
       priceView = "";
@@ -619,7 +619,7 @@
     if (people() && people().onAct(act, node)) return;
     if (clients() && clients().onAct(act, node)) return;
     if (tpl() && tpl().onAct(act, node)) return;
-    if (prod() && prod().onAct(act, node)) return;
+    if (prod() && prod().onAct(act, node, ev)) return;
     if (wh() && wh().onAct(act, node)) return;
     if (retail() && retail().onAct(act, node)) return;
     if (stats() && stats().onAct(act, node)) return;

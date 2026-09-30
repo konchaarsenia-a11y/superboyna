@@ -216,7 +216,7 @@
       (aside ? '<span class="sum-aside">' + esc(aside) + "</span>" : "") + "</div>" +
       '<div class="sum-foot">' + busy + ' дн. с записями, всего <span class="num" style="font-size:15px">' + people + "</span> чел.</div>" +
       '<div class="legend"><span><i class="dot dot-pp"></i>ПП</span><span><i class="dot dot-bp"></i>БП</span><span><i class="dot dot-r"></i>розница</span><span><i class="dot dot-p"></i>партнёр</span>' +
-      '<span class="b-note">черта сверху — полный день, от 12 человек</span></div></div>';
+      '<span class="b-note">черта сверху — полный день, от ' + logic().FULL_FROM + ' человек</span></div></div>';
     return html;
   }
 
@@ -450,6 +450,8 @@
     if (!target || !target.newDate && !picked) { sh().toast("Не удалось определить дату"); return; }
     var newDate = (target && (target.newDate || target.date)) || picked;
     var newDay = (target && (target.dayName || target.day)) || "";
+    var sameDate = String(view.date || "").slice(0, 10) === String(newDate || "").slice(0, 10);
+    if (!sameDate && !(await confirmFullDay(newDate))) return;
     var onWeek = target && (target.onWeek || target.dayName);
     var calendarOnly = !!(view.calendarOnly || !onWeek);
     var cut = "yes";
@@ -528,6 +530,16 @@
     view.drafts.forEach(function (c) {
       if (logic().resolveOrderType(c) === "bp" && !String(c.ppPartner || "").trim()) c.ppPartner = "Другое";
     });
+    var nHere = 0;
+    (view.counts || []).forEach(function (it) {
+      if (it && view.day && it.day === view.day) nHere = Number(it.count) || 0;
+    });
+    if (!nHere && view.date) nHere = await countOnIso(view.date);
+    var fullDraft = logic().fullDayPrompt(nHere);
+    if (fullDraft) {
+      var addDraft = await sh().confirm({ title: "Полный день", text: fullDraft, ok: "Добавить", cancel: "Отмена" });
+      if (!addDraft) return;
+    }
     var ok = await sh().confirm({
       title: "Записать",
       text: "Записать в таблицу " + view.drafts.length + " чел. на «" + (view.day || view.date) + "»?",
@@ -546,6 +558,22 @@
     var added = res.result && res.result.added;
     sh().toast("Добавлено: " + (added || 0));
     load({ force: true });
+  }
+
+  async function countOnIso(iso) {
+    var key = String(iso || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(key)) return 0;
+    var res = null;
+    try {
+      res = await api().apiGet({ action: "getMonthOverview", month: key }, { timeoutMs: 12000, cacheTtlMs: 20000 });
+    } catch (e) { res = null; }
+    return logic().countFromMonth(res, iso);
+  }
+
+  async function confirmFullDay(iso) {
+    var text = logic().fullDayPrompt(await countOnIso(iso));
+    if (!text) return true;
+    return !!(await sh().confirm({ title: "Полный день", text: text, ok: "Добавить", cancel: "Отмена" }));
   }
 
   function sleep(ms) {
@@ -902,6 +930,7 @@
     paint: paint,
     onAct: onAct,
     confirmWrite: confirmWrite,
+    confirmFullDay: confirmFullDay,
     setRole: function (role) { view.role = role || ""; },
     setDay: function (day) {
       if (!day) return;

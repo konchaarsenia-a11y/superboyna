@@ -681,7 +681,7 @@ async function resolveActor_(params, env) {
 
 const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry)$/i;
 const AUTH_OWNER_RE = new RegExp(
-  "^(setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
+  "^(setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
@@ -1227,6 +1227,7 @@ async function handleAction_(action, params, env, url, ctx) {
     params.actorId = actor.tid;
   }
   if (a === "listAccess") return listAccessMerged_(params, env, ctx);
+  if (a === "listAccessFast") return listAccessFast_(params, env, ctx);
   if (a === "setAccessTabs") return setAccessTabs_(params, env, ctx);
   if (a === "setAccessNotify") return setAccessNotify_(params, env, ctx);
   if (a === "listScheduledNotifications") {
@@ -1423,6 +1424,60 @@ async function listAccessMerged_(params, env, ctx) {
     tabPresets: AUTH_ROLE_PRESETS,
     sheetOk: !!(live && live.status === "success"),
     mergedFromSheet: changed,
+    metaCanon: metaCanonLabel_(env),
+    cutover: true
+  };
+}
+
+/** Список доступов из D1 без ожидания GAS. Старый listAccess не меняется. Фон догоняет лист. */
+async function listAccessFast_(params, env, ctx) {
+  let d1 = null;
+  try {
+    d1 = await getSnapRaw_(env, "listAccess");
+  } catch (e0) {
+    d1 = null;
+  }
+  d1 = d1 && typeof d1 === "object" ? d1 : { status: "success", people: [] };
+  const people = (d1.people || []).map(function (p) { return Object.assign({}, p); });
+  const owners = authOwnerIds_(env);
+  const hubIds = await notifyHubIdsWorker_(env);
+  const rank = { pending: 0, owner: 1, manager: 2, all: 3, cutter: 4, courier: 5, logistics: 6, denied: 9 };
+  const out = people.map(function (p) {
+    const role = authNormRole_(p.role);
+    const st = String(p.status || "").toLowerCase();
+    const effRole = role !== "owner" && (st === "pending" || st === "denied") ? st : role;
+    return Object.assign({}, p, notifyFieldsForPerson_(p, owners, hubIds), {
+      role: role,
+      status: st || accessStatusFromRole_(role, "active"),
+      customTabs: authParseTabs_(p.customTabs),
+      presetTabs: role === "owner" ? AUTH_ALL_TABS.slice() : (AUTH_ROLE_PRESETS[role] || []).slice(),
+      tabs: authEffectiveTabs_(effRole, p.customTabs),
+      isConfigOwner: owners.indexOf(String(p.telegramId)) >= 0,
+      pending: effRole === "pending"
+    });
+  });
+  out.sort(function (x, y) {
+    const rx = rank[x.pending ? "pending" : x.role] != null ? rank[x.pending ? "pending" : x.role] : 8;
+    const ry = rank[y.pending ? "pending" : y.role] != null ? rank[y.pending ? "pending" : y.role] : 8;
+    if (rx !== ry) return rx - ry;
+    return String(x.name || "").localeCompare(String(y.name || ""), "ru");
+  });
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil((async function () {
+      try { await listAccessMerged_(params, env, ctx); } catch (eM) {}
+    })());
+  }
+  return {
+    status: "success",
+    people: out,
+    pendingCount: out.filter(function (p) { return p.pending; }).length,
+    timezones: d1.timezones || [],
+    allTabs: AUTH_ALL_TABS.filter(function (t) { return AUTH_OWNER_ONLY_TABS.indexOf(t) < 0; }),
+    tabTree: AUTH_TAB_TREE,
+    tabPresets: AUTH_ROLE_PRESETS,
+    sheetOk: false,
+    fast: true,
+    fromD1: true,
     metaCanon: metaCanonLabel_(env),
     cutover: true
   };

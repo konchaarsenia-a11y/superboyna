@@ -147,7 +147,7 @@
     if (!access) return list;
     if (ax().tabHas(access, "cuttingScreen")) list.push({ id: "cut", label: "Нарезка" });
     if (ax().tabHas(access, "courierScreen.assembly")) list.push({ id: "pack", label: "Сборка" });
-    if (ax().tabHas(access, "courierScreen.route")) list.push({ id: "route", label: "Маршрут" });
+    if (ax().tabHas(access, "courierScreen.route")) list.push({ id: "route", label: "Курьер" });
     return list;
   }
 
@@ -324,7 +324,7 @@
     if (r.pieces != null) {
       html += '<div class="nx-thin"><span>штуки ' + r.pieces + '%</span><div class="nx-bar nx-bar--thin" aria-label="штуки ' + r.pieces + ' процентов"><span style="width:' + r.pieces + '%"></span></div></div>';
     }
-    html += '<p class="b-note">выложено даёт половину веса, нарезано весь вес</p></div>';
+    html += "</div>";
     return html;
   }
 
@@ -832,6 +832,60 @@
     finally { courAsmBusy = false; }
   }
 
+  function telHref(phone) {
+    var d = String(phone || "").replace(/[^\d+]/g, "");
+    if (!d) return "";
+    if (d.charAt(0) !== "+") {
+      if (d.indexOf("375") === 0) d = "+" + d;
+      else if (d.length === 9) d = "+375" + d;
+      else d = "+" + d;
+    }
+    return "tel:" + d;
+  }
+
+  function inTelegram() {
+    var tg = root.Telegram && root.Telegram.WebApp;
+    if (!tg) return false;
+    if (String(tg.initData || "")) return true;
+    var platform = String(tg.platform || "");
+    return !!platform && platform !== "unknown";
+  }
+
+  function copyPhone(text) {
+    var s = String(text || "");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(s).catch(function () { fallbackCopy(s); });
+    }
+    fallbackCopy(s);
+    return Promise.resolve();
+  }
+
+  function fallbackCopy(s) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = s;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    } catch (e) {}
+  }
+
+  function dialPhone(raw, ev) {
+    var href = telHref(raw);
+    if (!href) return;
+    if (!inTelegram()) return;
+    if (ev && ev.preventDefault) ev.preventDefault();
+    var opened = null;
+    try { opened = window.open(href, "_blank"); } catch (e) { opened = null; }
+    if (opened) return;
+    copyPhone(String(raw || "").trim());
+    sh().toast("Номер скопирован");
+  }
+
   function phoneOf(c) {
     var s = String((c && c.phone) || "");
     if (s) return s;
@@ -925,7 +979,7 @@
         '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> доставлен</label>" +
         '<p class="b-note">' + (addr ? esc(addr) : "Адрес не указан") + "</p>" +
         (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '">Карта</button>' : "") +
-        (tel ? '<p class="b-note"><a href="tel:' + esc(tel) + '">' + esc(tel) + "</a></p>" : '<p class="b-note">нет телефона</p>') +
+        (tel ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>" : '<p class="b-note">нет телефона</p>') +
         '<button type="button" class="nx-link" data-act="pr-open" data-i="' + idx + '">' + (open ? "Свернуть" : "Этаж / кв / подробности") + "</button>";
       if (open) {
         var priv = privateAddr(c.address || "");
@@ -1379,7 +1433,7 @@
     else await loadCour(false);
   }
 
-  function onAct(act, node) {
+  function onAct(act, node, ev) {
     if (act === "change") {
       var id = node && node.id;
       if (id === "nxCutDay") { cutDone = null; cutDetail = false; loadCut(); return true; }
@@ -1483,6 +1537,7 @@
     if (act === "pr-build") { buildPlan(); return true; }
     if (act === "pr-allmap") { allMap(); return true; }
     if (act === "pr-open") { var i = Number(node.getAttribute("data-i")); courOpen[i] = !courOpen[i]; paintRoute(); return true; }
+    if (act === "pr-tel") { dialPhone(node.getAttribute("data-phone") || "", ev); return true; }
     if (act === "pr-map") { openMap(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-miss") { missed(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-ymap") {

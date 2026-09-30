@@ -367,6 +367,19 @@ textarea.b-field__input { min-height: 96px; }
   color: var(--b-text);
 }
 
+.daybox .b-day__w {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.daybox .num { font-size: 22px; }
+a.nx-tel {
+  color: var(--b-info);
+  font-weight: 650;
+  text-decoration: none;
+}
+
 .daybox, .box {
   width: 100%;
   background: var(--b-surface);

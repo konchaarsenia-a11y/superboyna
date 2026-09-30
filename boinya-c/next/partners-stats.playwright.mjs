@@ -146,7 +146,7 @@ async function main() {
 
   await longPress(prod.page, prod.page.locator("#nxNav [data-tab='production']"));
   const prodSheet = prod.page.locator(".b-sheet");
-  await prodSheet.getByRole("button", { name: "Маршрут" }).waitFor();
+  await prodSheet.getByRole("button", { name: "Курьер", exact: true }).waitFor();
   await prodSheet.getByRole("button", { name: "Сборка" }).waitFor();
   if ((await prod.page.locator("h1.b-top__title").innerText()).trim() !== "Цех") throw new Error("prod press navigated");
   await overflow(prod.page, "prod-flyout");
