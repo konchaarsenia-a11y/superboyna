@@ -19,7 +19,8 @@
 | `/superboyna/goodboy/` | `https://goodboy.by/` |
 | `/superboyna/goodboy/about.html` | `https://goodboy.by/about.html` |
 | `/superboyna/goodboy/subscription.html` | `https://goodboy.by/subscription.html` |
-| `/superboyna/goodboy/trial.html` | `https://goodboy.by/trial.html` |
+| `/superboyna/goodboy/trial.html` | `https://goodboy.by/week.html` |
+| `/superboyna/goodboy/week.html` | `https://goodboy.by/week.html` |
 | `/superboyna/goodboy/try.html` | `https://goodboy.by/try.html` |
 | `/superboyna/goodboy/contact.html` | `https://goodboy.by/contact.html` |
 | `/superboyna/goodboy/app.html` | `https://goodboy.by/app.html` |

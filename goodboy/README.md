@@ -13,7 +13,7 @@
 |-----|-----|
 | **Сайт** | https://goodboy.by/ |
 | **Подписка** | https://goodboy.by/subscription.html |
-| **Пробный период** | https://goodboy.by/trial.html |
+| **Пробный период** | https://goodboy.by/week.html |
 | **Хочу попробовать** | https://goodboy.by/try.html |
 | **О проекте** | https://goodboy.by/about.html |
 | **Связь** | https://goodboy.by/contact.html |
