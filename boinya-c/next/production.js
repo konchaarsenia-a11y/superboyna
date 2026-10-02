@@ -657,17 +657,17 @@
       sh().main(html);
       return;
     }
-    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Форматы пакетов</p><div class="nx-stats">';
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Форматы пакетов</p><div class="nx-counters">';
     order.forEach(function (k) {
       if (!(totals[k] > 0) && packOn[k] !== false) return;
-      html += '<button type="button" class="b-card' + (packOn[k] === false ? " nx-dim" : "") + '" data-act="pr-pack" data-k="' + esc(k) + '"><b>' + (totals[k] || 0) + "</b><span class=\"b-note\">" + esc(k) + "</span></button>";
+      html += '<button type="button" class="nx-count' + (packOn[k] === false ? " nx-dim" : "") + '" data-act="pr-pack" data-k="' + esc(k) + '"><b>' + (totals[k] || 0) + "</b><span>" + esc(k) + "</span></button>";
     });
     html += "</div>";
     html += '<p class="b-note">Итого пакетов: ' + enabledTotal + ", собрано " + doneN + " / " + clients.length + "</p>";
-    html += '<p class="b-lbl">Дрессура для нарезки</p><div class="nx-stats">' +
+    html += '<p class="b-lbl">Дрессура</p><div class="nx-counters">' +
       ["light", "heart", "kidney", "rumen"].map(function (k, i) {
-        var label = ["лёгкое г", "сердце г", "почки г", "рубец г"][i];
-        return '<div class="b-card"><b>' + (organs[k].total || 0) + '</b><span class="b-note">' + label + "</span></div>";
+        var label = ["лёгкое", "сердце", "почки", "рубец"][i];
+        return '<div class="nx-count"><b>' + (organs[k].total || 0) + "</b><span>" + label + "</span></div>";
       }).join("") + "</div></article>";
     clients.forEach(function (c) {
       var row = rowOf(c);

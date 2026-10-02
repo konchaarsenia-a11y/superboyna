@@ -254,7 +254,7 @@
     return order.map(function (title) {
       var rows = buckets[title].map(function (g) { return lineHtml(g, pretty); }).filter(Boolean);
       if (!rows.length) return "";
-      return '<div class="nx-grp">' + esc(title) + "</div>" + rows.join("");
+      return '<section class="nx-pack-grp"><div class="nx-grp">' + esc(title) + "</div>" + rows.join("") + "</section>";
     }).filter(Boolean).join("");
   }
 
