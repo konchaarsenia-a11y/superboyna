@@ -105,6 +105,7 @@
       '<div class="nx-toast-wrap" id="nxToast" hidden></div>' +
       '<div class="nx-gate" id="nxGate" hidden></div>';
     document.addEventListener("click", onClick);
+    bindToastSwipe();
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
     bindKeyboard();
@@ -372,6 +373,81 @@
       esc(String(sec || 8)) + " с</span><span>можно работать дальше</span>";
   }
 
+  function toastDismissGesture(dx, dy) {
+    dx = Number(dx) || 0;
+    dy = Number(dy) || 0;
+    if (dy <= -36 && Math.abs(dy) > Math.abs(dx)) return "up";
+    if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) return "side";
+    return "";
+  }
+
+  function bindToastSwipe() {
+    var box = el("nxToast");
+    if (!box || box.getAttribute("data-swipe") === "1") return;
+    box.setAttribute("data-swipe", "1");
+    var sx = 0;
+    var sy = 0;
+    var dx = 0;
+    var dy = 0;
+    var tracking = false;
+    function point(e) {
+      if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (e.changedTouches && e.changedTouches[0]) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+      return { x: e.clientX, y: e.clientY };
+    }
+    function card() { return box.querySelector(".b-toast"); }
+    function down(e) {
+      if (box.hidden) return;
+      var p = point(e);
+      tracking = true;
+      sx = p.x;
+      sy = p.y;
+      dx = 0;
+      dy = 0;
+      var t = card();
+      if (t) t.style.transition = "none";
+    }
+    function move(e) {
+      if (!tracking) return;
+      var p = point(e);
+      dx = p.x - sx;
+      dy = p.y - sy;
+      var t = card();
+      if (!t) return;
+      if (Math.abs(dx) >= Math.abs(dy)) t.style.transform = "translate3d(" + dx + "px,0,0)";
+      else if (dy < 0) t.style.transform = "translate3d(0," + dy + "px,0)";
+      if (e.cancelable && Math.abs(dx) + Math.abs(dy) > 8) e.preventDefault();
+    }
+    function up() {
+      if (!tracking) return;
+      tracking = false;
+      var t = card();
+      if (toastDismissGesture(dx, dy)) {
+        hideToast();
+        if (t) {
+          t.style.transform = "";
+          t.style.transition = "";
+        }
+        return;
+      }
+      if (t) {
+        t.style.transition = "transform .18s ease";
+        t.style.transform = "";
+      }
+    }
+    if (typeof PointerEvent !== "undefined") {
+      box.addEventListener("pointerdown", down);
+      box.addEventListener("pointermove", move);
+      box.addEventListener("pointerup", up);
+      box.addEventListener("pointercancel", up);
+    } else {
+      box.addEventListener("touchstart", down, { passive: true });
+      box.addEventListener("touchmove", move, { passive: false });
+      box.addEventListener("touchend", up);
+      box.addEventListener("touchcancel", up);
+    }
+  }
+
   function toast(text) {
     var box = el("nxToast");
     box.hidden = false;
@@ -379,10 +455,12 @@
       "</span><span class=\"b-grow\">" + esc(undot(text)) + "</span></div>";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(hideToast, 3200);
+    bindToastSwipe();
   }
 
   function hideToast() {
     var box = el("nxToast");
+    clearTimeout(toastTimer);
     if (box) box.hidden = true;
   }
 
@@ -801,6 +879,7 @@
     busy: busy,
     toast: toast,
     hideToast: hideToast,
+    toastDismissGesture: toastDismissGesture,
     openSheet: openSheet,
     replaceTop: replaceTop,
     closeTop: closeTop,
@@ -820,4 +899,4 @@
     skeleton: skeleton,
     blurActive: blurActive
   };
-})(window);
+})(typeof window !== "undefined" ? window : globalThis);
