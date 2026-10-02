@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Locked PP N=2 accounting:
- * paid=yes / pays-now on slot 1 → full month revenue (max once) + full factCost (N=2, full basket)
- * immediately, do not wait for slot 2.
- * Slot 2 → delivery count only, no second revenue/cost.
+ * PP N=2: цена подписки один раз.
+ * Оплата на ПП1 или на ПП2 — выручка на той доставке, где paid=yes.
+ * Если отметки нет, но цена уже на слоте — считаем один раз (ожидаем оплату там).
+ * Слот 2 без цены и без paid не выдумывает деньги. Вторая доставка не прибавляет выручку.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -18,9 +18,11 @@ function assert(cond, msg) {
 }
 
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
+  const price = Number(monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0;
   const st = String(paid || "").toLowerCase();
-  if (st === "no") return false;
+  if (st === "no" && !(price > 0)) return false;
   if (st === "yes") return true;
+  if (price > 0) return true;
   const minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
   if (minSlot >= 2) return false;
   return true;
@@ -158,9 +160,16 @@ assert(cost1.recover === 23.45, "full-composition recover, not slot-1 half");
 const halfWrong = factCostRaw26_(rawFull / 2, slot1Half, 1, packs);
 assert(halfWrong.factCost < cost1.factCost, "waiting for slot 2 / half basket would undercount");
 
-assert(ppClientPaysNowForStats_("A", "", slot2Only) === false, "slot 2 without paid=yes → no money");
+assert(ppClientPaysNowForStats_("A", "", slot2Only) === true, "slot 2 with a price and no mark yet → count once");
 const revSlot2 = collectPpActualOut_({ byKey: { A: { fact: 120 } } }, slot2Only, { A: "" });
-assert(revSlot2.actual === 0, "slot 2 only: revenue 0 (counter-only)");
+assert(revSlot2.actual === 120, "slot 2 only: the subscription price once, not zero and not twice");
+const slot2NoPrice = {
+  ppDeliveredKeys: { A: true },
+  ppSlotByKey: { A: 2 },
+  ppPriceByKey: {},
+  bySource: { pp: 1 }
+};
+assert(ppClientPaysNowForStats_("A", "", slot2NoPrice) === false, "slot 2 without price and without paid → no invented money");
 assert(slot2Only.bySource.pp === 1, "slot 2 still counts as a delivery");
 assert(bothSlots.bySource.pp === 2, "two slots → deliveries 2");
 
@@ -190,6 +199,8 @@ assert(mixCost.skipped === 1, "slot 2 unpaid skipped");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
+assert(gs.indexOf("function foldPpRevenueOnce_") >= 0, "Code.gs keeps one PP price");
+assert(gs.indexOf("function readPpPaidByDate_") >= 0, "courier paid-by-date is the source");
 assert(gs.indexOf("function ppClientPaysNowForStats_") >= 0, "Code.gs pays-now helper");
 assert(gs.indexOf("function listPpMoneyClientKeys_") >= 0, "shared money-key list");
 assert(gs.indexOf("function ppFactDeliveriesNForStats_") >= 0, "Code.gs N-from-sheet helper");
