@@ -220,7 +220,7 @@ async function main() {
   await manager.goto("http://127.0.0.1:8765/next.html?as=manager", { waitUntil: "domcontentloaded" });
   await manager.getByRole("button", { name: "Сохранить заказ" }).waitFor({ timeout: 10000 });
   const navM = await manager.locator("#nxNav").getAttribute("data-nav-count");
-  if (navM !== "5") throw new Error("manager nav " + navM);
+  if (navM !== "6") throw new Error("manager nav " + navM);
   await shot(manager, "next-nav-manager.png");
 
   const states = await context.newPage();

@@ -133,7 +133,7 @@ async function main() {
   const guide = await page.locator("#nxScrim").innerText();
   if (!guide.includes("Как пользоваться") || !guide.includes("Раздел")) throw new Error("guide " + guide);
   await page.getByRole("button", { name: "Как пользоваться" }).click();
-  await page.getByText("Раздел только у владельца").waitFor();
+  await page.getByText("блок Общие").waitFor();
   await page.locator("[data-act='sheet-close']").click();
   await page.getByRole("heading", { name: "Справка" }).waitFor();
   await page.locator("[data-act='sheet-close']").click();
@@ -157,7 +157,7 @@ async function main() {
   await page.getByText("Свести октябрь").waitFor();
   await shot(page, "goals-month.png");
   await page.getByRole("button", { name: "Полгода", exact: true }).click();
-  await page.getByText("На этот горизонт задач нет").waitFor();
+  await page.getByText("Задач нет").first().waitFor();
   await shot(page, "goals-half.png");
   await page.getByRole("button", { name: "Год", exact: true }).click();
   await page.getByText("Удержать оборот").waitFor();
