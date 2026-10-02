@@ -164,6 +164,7 @@
     if (priceView === "pick") return "Подбор";
     if (q().get("shot") === "states") return "Состояния";
     if (route.tab === "goals") return "Цели";
+    if (route.tab === "more") return ax().NAV_LABELS.more || "Ещё";
     if (ax().isSimple(access)) return ax().SIMPLE[access.role] || "Бойня";
     var map = ax().NAV_LABELS;
     if (route.tab === "orders" && route.seg === "new" && ord().getState().isEdit) return "Правка заказа";
@@ -347,7 +348,7 @@
     if (route.tab !== "goals" && goalsMod() && goalsMod().leave) goalsMod().leave();
     if (!access) return;
     if (q().get("shot") === "states") { paintStates(); return; }
-    if (ax().isSimple(access) && route.tab !== "goals") { paintSimple(); return; }
+    if (ax().isSimple(access) && route.tab !== "goals" && route.tab !== "more") { paintSimple(); return; }
     ensureSeg();
     if (route.tab === "orders" && route.seg === "new" && ax().tabHas(access, "orderScreen")) {
       paintChrome();

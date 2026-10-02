@@ -369,6 +369,65 @@
     return Math.round(sum * 100) / 100;
   }
 
+  function fracPaySlot_(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    var m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (!m) return 0;
+    var n = Number(m[1]);
+    return n >= 1 ? n : 0;
+  }
+
+  function loosePaySlot_(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (s === "1" || s === "2") return Number(s);
+    var hint = s.match(/пп\s*([12])/i);
+    return hint ? Number(hint[1]) : 0;
+  }
+
+  /* Слот этой доставки: дробь важнее, подпись «ПП 2» перекрывает залипшую «1». */
+  function courierPaySlot_(c) {
+    c = c || {};
+    var fromFrac = fracPaySlot_(c.ppSlot) || fracPaySlot_(c.deliverySlot);
+    if (fromFrac) return fromFrac;
+    var hint = loosePaySlot_(c.ppHint) || loosePaySlot_(c.segment);
+    var bare = loosePaySlot_(c.ppSlot) || loosePaySlot_(c.deliverySlot);
+    if (hint === 2 && bare === 1) return 2;
+    if (bare) return bare;
+    if (hint) return hint;
+    if (Number(c.deliveriesN) === 1) return 1;
+    return 0;
+  }
+
+  /* Курьер сегодня: та же оплата, что в статистике (цена один раз, на слоте оплаты).
+     Слот 2+ входит только если оплата отмечена на этой доставке.
+     Пустой слот 2 — оплата на другом слоте, сумму не показываем.
+     paid=no в сумму не входит. БП и партнёр курьеру не платят. Розница платит здесь. */
+  function courierStopMoney(c) {
+    if (!c) return null;
+    var ot = "";
+    try { ot = resolveOrderType(c); } catch (eOt) { ot = ""; }
+    if (!ot && isPpRow_(c)) ot = "pp";
+    if (ot === "bp" || ot === "partner") return null;
+    var money = orderMoney_(c);
+    if (money == null || !(money > 0)) return null;
+    if (ot !== "pp") return money;
+    var paid = paidFlag_(c);
+    if (paid === "no") return null;
+    var slot = courierPaySlot_(c);
+    if (slot >= 2) return paid === "yes" ? money : null;
+    return money;
+  }
+
+  function courierCollectSum(list) {
+    var sum = 0;
+    (list || []).forEach(function (c) {
+      var m = courierStopMoney(c);
+      if (m == null) return;
+      sum += m;
+    });
+    return Math.round(sum * 100) / 100;
+  }
+
   function deferredMode(it) {
     var m = String((it && it.mode) || "").trim().toLowerCase();
     if (m) return m;
@@ -662,6 +721,8 @@
     countPpSlots: countPpSlots,
     attributePpRevenue: attributePpRevenue,
     revenueSum: revenueSum,
+    courierStopMoney: courierStopMoney,
+    courierCollectSum: courierCollectSum,
     deferredMode: deferredMode,
     tasksSub: tasksSub,
     finishPlain: finishPlain,
