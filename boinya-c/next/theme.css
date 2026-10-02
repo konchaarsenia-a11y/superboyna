@@ -299,6 +299,16 @@ textarea.b-field__input { min-height: 96px; }
 
 .nx-check { min-height: 44px; align-items: center; }
 .nx-check input, input[type="checkbox"] { width: 22px; height: 22px; }
+.nx-check--lg {
+  min-height: 56px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  font-size: 18px;
+  font-weight: 700;
+  border: 1px solid var(--b-line);
+  border-radius: 16px;
+}
+.nx-check--lg input[type="checkbox"] { width: 28px; height: 28px; flex: 0 0 28px; }
 
 .nx-link { min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; }
 
