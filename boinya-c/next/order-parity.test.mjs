@@ -187,26 +187,27 @@ test("полный день — от 8 заказов", () => {
   assert.match(src, /fullDayPrompt/);
 });
 
-test("панель: владелец 6, у команды есть Цели, партнёр без Целей", () => {
+test("панель: у владельца 5 вкладок, Цели только в Ещё, партнёр без Целей", () => {
   const box = loadBrowser("access.js");
   const A = box.BoinyaAccess;
   const owner = A.normalize({ status: "success", role: "owner" });
-  assert.equal(A.navItems(owner).length, 6);
-  assert.equal(JSON.stringify(A.navItems(owner).map((x) => x.id)), JSON.stringify(["orders", "clients", "production", "warehouse", "goals", "more"]));
+  assert.equal(A.navItems(owner).length, 5);
+  assert.equal(JSON.stringify(A.navItems(owner).map((x) => x.id)), JSON.stringify(["orders", "clients", "production", "warehouse", "more"]));
+  assert.equal(A.navItems(owner).some((x) => x.id === "goals"), false);
   const managerFull = A.normalize({
     status: "success",
     role: "manager",
     tabs: ["orderScreen", "subsScreen", "cuttingScreen", "warehouseScreen", "templatesScreen", "clientsScreen", "deferredScreen"]
   });
-  assert.equal(A.navItems(managerFull).length, 6);
-  assert.equal(JSON.stringify(A.navItems(managerFull).map((x) => x.id)), JSON.stringify(["orders", "clients", "production", "warehouse", "goals", "more"]));
+  assert.equal(A.navItems(managerFull).length, 5);
+  assert.equal(JSON.stringify(A.navItems(managerFull).map((x) => x.id)), JSON.stringify(["orders", "clients", "production", "warehouse", "more"]));
   const managerPreset = A.normalize({ status: "success", role: "manager" });
   const ids = JSON.stringify(A.navItems(managerPreset).map((x) => x.id));
-  assert.equal(ids, JSON.stringify(["orders", "clients", "goals", "more"]));
+  assert.equal(ids, JSON.stringify(["orders", "clients", "more"]));
   assert.equal(A.canUseTasks(managerPreset), true);
   const cutter = A.normalize({ status: "success", role: "cutter" });
   assert.equal(A.isSimple(cutter), true);
-  assert.equal(JSON.stringify(A.navItems(cutter).map((x) => x.id)), JSON.stringify(["production", "goals"]));
+  assert.equal(JSON.stringify(A.navItems(cutter).map((x) => x.id)), JSON.stringify(["production", "more"]));
   const noTasks = A.normalize({
     status: "success",
     role: "manager",
@@ -217,8 +218,8 @@ test("панель: владелец 6, у команды есть Цели, п�
   const logistics = A.normalize({ status: "success", role: "logistics" });
   assert.equal(A.isSimple(courier), true);
   assert.equal(A.isSimple(logistics), true);
-  assert.equal(JSON.stringify(A.navItems(courier).map((x) => x.id)), JSON.stringify(["production", "goals"]));
-  assert.equal(JSON.stringify(A.navItems(logistics).map((x) => x.id)), JSON.stringify(["warehouse", "goals"]));
+  assert.equal(JSON.stringify(A.navItems(courier).map((x) => x.id)), JSON.stringify(["production", "more"]));
+  assert.equal(JSON.stringify(A.navItems(logistics).map((x) => x.id)), JSON.stringify(["warehouse", "more"]));
   const partner = A.normalize({ status: "success", role: "partner" });
   assert.equal(A.navItems(partner).some((x) => x.id === "goals"), false);
   assert.equal(A.tabHas(managerPreset, "cuttingScreen"), false);

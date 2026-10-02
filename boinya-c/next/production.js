@@ -336,7 +336,6 @@
     var html = '<div class="nx-prog">';
     html += '<div class="nx-bar" role="img" aria-label="' + r.total + ' процентов"><span style="width:' + r.total + '%"></span></div>';
     html += '<p class="nx-prog__pct">' + r.total + "%</p>";
-    html += '<p class="nx-prog__line">' + esc(r.line) + "</p>";
     html += "</div>";
     return html;
   }
@@ -944,6 +943,38 @@
     return "";
   }
 
+  function moneyText(n) {
+    var x = Math.round(Number(n) * 100) / 100;
+    if (!isFinite(x)) return "0 BYN";
+    var neg = x < 0;
+    var cents = Math.round(Math.abs(x) * 100);
+    var whole = Math.floor(cents / 100);
+    var frac = cents % 100;
+    var s = String(whole);
+    if (frac) {
+      s += "," + (frac < 10 ? "0" + frac : String(frac));
+      if (s.charAt(s.length - 1) === "0") s = s.slice(0, -1);
+    }
+    return (neg ? "-" : "") + s + " BYN";
+  }
+
+  function stopMoney(c) {
+    var lib = root.BoinyaWeekLogic;
+    if (!lib || !lib.courierStopMoney) return null;
+    return lib.courierStopMoney(c);
+  }
+
+  function collectSum(list) {
+    var lib = root.BoinyaWeekLogic;
+    if (lib && lib.courierCollectSum) return lib.courierCollectSum(list);
+    var sum = 0;
+    (list || []).forEach(function (c) {
+      var m = stopMoney(c);
+      if (m != null) sum += m;
+    });
+    return Math.round(sum * 100) / 100;
+  }
+
   function counterRow(pairs) {
     return '<div class="nx-counters">' + pairs.map(function (p) {
       return '<div class="nx-count"><b>' + esc(p.value) + "</b><span>" + esc(p.label) + "</span></div>";
@@ -960,6 +991,7 @@
       '<button type="button" class="b-btn ' + (couriersN === 1 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="1">Курьеров 1</button>' +
       '<button type="button" class="b-btn ' + (couriersN === 2 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="2">Курьеров 2</button></div>';
     html += '<div class="nx-actions"><button type="button" class="b-btn b-btn--main" data-act="pr-build">Собрать маршруты</button></div>';
+    html += '<p class="nx-collect" id="nxCollect">' + esc("К сбору сегодня " + moneyText(collectSum(cour))) + "</p>";
     html += '<div id="nxPlan">' + (planHtml || "") + "</div>";
     var list = cour || [];
     var doneCount = list.filter(function (c) { return c.delivered; }).length;
@@ -989,22 +1021,26 @@
       var nick = who[1] || who[0] || c.name || "Клиент";
       var slot = slotLabel(c);
       var when = windowLabel(c);
-      var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
+      var due = stopMoney(c);
+      var price = due != null ? moneyText(due) : "";
       var accent = [slot, price].filter(Boolean).join(", ");
       var basket = basketLinesHtml(c.basket);
+      var telHtml = tel
+        ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>"
+        : '<p class="b-note">нет телефона</p>';
       html += '<article class="b-card' + (c.delivered ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<div class="nx-nickbox">' + esc(nick) + "</div>" +
         (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
         '<p class="nx-addr">' + esc(addr || "Адрес не указан") + "</p>" +
         '<p class="b-note">' + esc(priv || "Этаж и квартира не указаны") + "</p>" +
         (note ? '<p class="b-note">' + esc(note) + "</p>" : "") +
+        telHtml +
         (when ? '<p class="nx-accent">' + esc(when) + "</p>" : "") +
         (accent ? '<p class="nx-accent">' + esc(accent) + "</p>" : "") +
         '<section class="nx-pack-grp"><div class="nx-grp">Состав набора</div>' +
         (basket || '<p class="b-note">Состав не указан</p>') + "</section>" +
-        '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> доставлен</label>" +
+        '<label class="nx-check nx-check--lg"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> Доставлен</label>" +
         (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '" style="margin-top:8px">Карта</button>' : "") +
-        (tel ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>" : '<p class="b-note">нет телефона</p>') +
         (!c.delivered ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-miss" data-i="' + idx + '" style="margin-top:8px">Не получил</button>' : "") +
         "</article>";
     });

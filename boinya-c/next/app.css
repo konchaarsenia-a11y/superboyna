@@ -304,11 +304,10 @@ body.nx-kb #nxNav {
   line-height: 1;
 }
 
-.nx-prog__line {
-  margin: 4px 0 0;
-  color: var(--b-text-2);
-  font-size: 13px;
-  font-weight: 600;
+.nx-collect {
+  margin: 8px 0 0;
+  font-size: var(--b-f20);
+  font-weight: 700;
 }
 
 .nx-thin {
