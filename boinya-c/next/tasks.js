@@ -61,7 +61,7 @@
     var when = it.remindAt || (it.payload && it.payload.remindAt) || "";
     return '<button type="button" class="b-li" data-act="task-open" data-id="' + esc(it.id) + '">' +
       '<span class="b-li__body"><span class="b-li__title">' + esc(title) + "</span>" +
-      '<span class="b-li__sub">' + esc(subRu + (when ? " · " + when : "")) + "</span></span>" +
+      '<span class="b-li__sub">' + esc(subRu + (when ? ", " + when : "")) + "</span></span>" +
       '<span class="b-li__chev">Открыть</span></button>';
   }
 
@@ -69,7 +69,9 @@
     var chips = filters().map(function (f) {
       var n = f.id === "all" ? visible().length : bucket(f.id).length;
       var on = filter === f.id ? " b-chip--on" : "";
-      return '<button type="button" class="b-chip' + on + '" data-act="task-filter" data-f="' + f.id + '">' + esc(f.label) + " " + n + "</button>";
+      var hot = n > 0 ? " b-chip--hot" : "";
+      var badge = n > 0 ? '<span class="nx-hot">' + n + "</span>" : "";
+      return '<button type="button" class="b-chip' + on + hot + '" data-act="task-filter" data-f="' + f.id + '">' + esc(f.label) + badge + "</button>";
     }).join("");
     var list = visible();
     var body = list.length
