@@ -538,48 +538,16 @@
     paintCut();
   }
 
-  function organEmpty() { return { total: 0, byFrac: {} }; }
-
-  function nameHas(name, needle) {
-    return String(name || "").toLowerCase().indexOf(String(needle || "").toLowerCase()) >= 0;
-  }
-
-  function sumOrgans(basket) {
-    var out = { light: organEmpty(), heart: organEmpty(), kidney: organEmpty(), rumen: organEmpty() };
+  function dressuraBlock(clients) {
     var mix = root.BoinyaCrumbMix;
-    if (mix && mix.organParts) {
-      mix.organParts(basket).forEach(function (p) {
-        if (!out[p.key]) return;
-        var sub = String(p.sub || "").trim() || "—";
-        out[p.key].total += Number(p.grams) || 0;
-        out[p.key].byFrac[sub] = (out[p.key].byFrac[sub] || 0) + (Number(p.grams) || 0);
-      });
-      return out;
-    }
-    (basket || []).forEach(function (g) {
-      var n = String(g.name || g.main || "");
-      var v = Number(g.val != null ? g.val : g.value) || 0;
-      if (v <= 0) return;
-      if (nameHas(n, "крошка") && (nameHas(n, "лёгк") || nameHas(n, "легк"))) return;
-      if (nameHas(n, "баран")) return;
-      var key = "";
-      if (nameHas(n, "лёгк") || nameHas(n, "легк")) key = "light";
-      else if (nameHas(n, "сердц")) key = "heart";
-      else if (nameHas(n, "почк")) key = "kidney";
-      else if (nameHas(n, "рубец")) key = "rumen";
-      if (!key) return;
-      var sub = String(g.sub || "").trim() || "—";
-      out[key].total += v;
-      out[key].byFrac[sub] = (out[key].byFrac[sub] || 0) + v;
+    if (!mix || !mix.dressuraSummary || !mix.dressuraSummaryHtml) return "";
+    var basket = [];
+    (clients || []).forEach(function (c) {
+      (c && c.basket || []).forEach(function (it) { basket.push(it); });
     });
-    return out;
-  }
-
-  function mergeOrg(dst, src) {
-    dst.total += Number(src.total) || 0;
-    Object.keys(src.byFrac || {}).forEach(function (sub) {
-      dst.byFrac[sub] = (dst.byFrac[sub] || 0) + (Number(src.byFrac[sub]) || 0);
-    });
+    var html = mix.dressuraSummaryHtml(mix.dressuraSummary(basket, prettyName));
+    if (!html) return "";
+    return '<p class="b-lbl">Дрессура</p>' + html;
   }
 
   function basketForPacks(basket, printed) {
@@ -656,14 +624,6 @@
       }
       return null;
     }
-    var organs = { light: organEmpty(), heart: organEmpty(), kidney: organEmpty(), rumen: organEmpty() };
-    pending.forEach(function (c) {
-      var og = sumOrgans(c.basket);
-      mergeOrg(organs.light, og.light);
-      mergeOrg(organs.heart, og.heart);
-      mergeOrg(organs.kidney, og.kidney);
-      mergeOrg(organs.rumen, og.rumen);
-    });
     var enabledTotal = 0;
     order.forEach(function (k) { if (packOn[k] !== false) enabledTotal += totals[k] || 0; });
     var doneN = clients.filter(function (c) { return c.assembled; }).length;
@@ -683,11 +643,8 @@
     });
     html += "</div>";
     html += '<p class="b-note">Итого пакетов: ' + enabledTotal + ", собрано " + doneN + " / " + clients.length + "</p>";
-    html += '<p class="b-lbl">Дрессура</p><div class="nx-counters">' +
-      ["light", "heart", "kidney", "rumen"].map(function (k, i) {
-        var label = ["лёгкое", "сердце", "почки", "рубец"][i];
-        return '<div class="nx-count"><b>' + (organs[k].total || 0) + "</b><span>" + label + "</span></div>";
-      }).join("") + "</div></article>";
+    html += dressuraBlock(pending);
+    html += "</article>";
     clients.forEach(function (c) {
       var row = rowOf(c);
       var by = {};

@@ -554,6 +554,28 @@ button.nx-count {
   white-space: normal;
 }
 
+.nx-orgs {
+  margin-top: 4px;
+}
+
+.nx-org {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--b-line);
+}
+
+.nx-org span {
+  min-width: 0;
+}
+
+.nx-org b {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .nx-cut-btn {
   height: 60px;
   margin-top: 8px;

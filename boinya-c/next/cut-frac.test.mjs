@@ -244,3 +244,49 @@ test("cutting note uses live chew sub only", () => {
     { text: "средние", dry: 3 }
   ]);
 });
+
+test("assembly dressura total splits live sub, chew has no such total", () => {
+  const items = liveItems();
+  assert.equal(items.some((it) => it.frac), false);
+  const pretty = function (name) { return eng.prettyProductName(name); };
+  function sum(name, sub) {
+    return items.filter(function (it) {
+      return it.cat === "dressura" && it.name === name && String(it.sub || "") === sub;
+    }).reduce(function (n, it) { return n + Number(it.val || 0); }, 0);
+  }
+  const lungFine = sum("ЛЁГКОЕ", "Мелкое");
+  const lungMid = sum("ЛЁГКОЕ", "Среднее");
+  const lungBig = sum("ЛЁГКОЕ", "Большое");
+  const heartFine = sum("СЕРДЦЕ", "Мелкое");
+  const sheep = sum("БАРАНЬЕ ЛЁГКОЕ", "Мелкое");
+  assert.ok(lungFine > 0 && lungMid > 0 && lungBig > 0 && heartFine > 0 && sheep > 0);
+  const html = mix.dressuraSummaryHtml(mix.dressuraSummary(items, pretty));
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(text, new RegExp("Лёгкое мелкий кубик " + lungFine + " г"));
+  assert.match(text, new RegExp("Лёгкое среднее " + lungMid + " г"));
+  assert.match(text, new RegExp("Лёгкое крупное " + lungBig + " г"));
+  assert.match(text, new RegExp("Сердце мелкое " + heartFine + " г"));
+  assert.match(text, new RegExp("Баранье лёгкое мелкий кубик " + sheep + " г"));
+  const lung = text.slice(text.indexOf("Лёгкое"), text.indexOf("Сердце"));
+  assert.ok(lung.indexOf("мелкий кубик") < lung.indexOf("среднее"));
+  assert.ok(lung.indexOf("среднее") < lung.indexOf("крупное"));
+  assert.doesNotMatch(text, /Трахея|Печень|Яблоки|·/);
+  const plain = { cat: "dressura", name: "ПОЧКИ", sub: "Обычное", val: 40, unit: "гр", value: 40 };
+  const one = mix.dressuraSummaryHtml(mix.dressuraSummary([plain], pretty));
+  assert.match(one, /<span>Почки<\/span><b>40 г<\/b>/);
+  assert.doesNotMatch(one, /обычн/i);
+  const chew = pick(items, "chew", "ТРАХЕЯ", "СРЕД");
+  const meat = pick(items, "other", "ПЕЧЕНЬ", "");
+  const mixed = mix.dressuraSummaryHtml(mix.dressuraSummary([chew, meat, plain], pretty));
+  assert.doesNotMatch(mixed, /Трахея|Печень/);
+  const a = { cat: "dressura", name: "ЛЁГКОЕ", sub: "Среднее", val: 100, unit: "гр", value: 100 };
+  const b = { cat: "dressura", name: "ЛЁГКОЕ", sub: "Среднее", val: 50, unit: "гр", value: 50 };
+  const c = { cat: "dressura", name: "ЛЁГКОЕ", sub: "", val: 20, unit: "гр", value: 20 };
+  const summed = mix.dressuraSummaryHtml(mix.dressuraSummary([a, b, c], pretty)).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(summed, /Лёгкое среднее 150 г/);
+  assert.match(summed, /Лёгкое 20 г/);
+  const prod = readFileSync(new URL("./production.js", import.meta.url), "utf8");
+  assert.match(prod, /dressuraSummaryHtml/);
+  assert.doesNotMatch(prod, /organs\[k\]\.total/);
+  assert.doesNotMatch(prod, /Жевалки<\/p><div class="nx-counters"/);
+});
