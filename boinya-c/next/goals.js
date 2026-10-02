@@ -95,10 +95,19 @@
     });
   }
 
+  function visibleToMe(list) {
+    return list.filter(function (t) {
+      if (!isPersonal(t)) return true;
+      if (isOwner()) return true;
+      return String(t.ownerTgId) === myId();
+    });
+  }
+
   function shownTasks(list) {
-    if (!isOwner() || filter === "all") return list;
-    if (filter === "shared") return byScope(list, "shared");
-    return byScope(list, "person", filter);
+    var base = visibleToMe(list);
+    if (!isOwner() || filter === "all") return base;
+    if (filter === "shared") return byScope(base, "shared");
+    return byScope(base, "person", filter);
   }
 
   function personLabel(tid) {
