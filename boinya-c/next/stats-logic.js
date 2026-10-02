@@ -6,10 +6,32 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  function currentStatsMonthKey_(now) {
+  function statsMinskYmd_(now) {
     var d = now || new Date();
-    var m = d.getMonth() + 1;
-    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m;
+    try {
+      var parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Minsk",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(d);
+      var y = "";
+      var m = "";
+      var day = "";
+      var i;
+      for (i = 0; i < parts.length; i++) {
+        if (parts[i].type === "year") y = parts[i].value;
+        if (parts[i].type === "month") m = parts[i].value;
+        if (parts[i].type === "day") day = parts[i].value;
+      }
+      if (y && m && day) return { y: Number(y), m: Number(m), d: Number(day) };
+    } catch (eM) {}
+    return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+  }
+
+  function currentStatsMonthKey_(now) {
+    var p = statsMinskYmd_(now);
+    return p.y + "-" + (p.m < 10 ? "0" : "") + p.m;
   }
 
   function statsMonthLabelRu_(monthKey) {
@@ -311,13 +333,29 @@
     var y = Number(parts[0]);
     var mo = Number(parts[1]);
     if (!y || mo < 1 || mo > 12) return null;
-    var last = new Date(y, mo, 0).getDate();
+    var last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
     var from = statsIso_(y, mo, 1);
     var to = statsIso_(y, mo, last);
-    var today = now || new Date();
-    var tIso = statsIso_(today.getFullYear(), today.getMonth() + 1, today.getDate());
+    var today = statsMinskYmd_(now || new Date());
+    var tIso = statsIso_(today.y, today.m, today.d);
     if (tIso.slice(0, 7) === String(monthKey) && tIso < to) to = tIso;
     return { from: from, to: to };
+  }
+
+  function statsPrevCalendarMonth_(monthKey, now) {
+    var parts = String(monthKey || "").split("-");
+    if (parts.length < 2) return null;
+    var y = Number(parts[0]);
+    var mo = Number(parts[1]);
+    if (!y || mo < 1 || mo > 12) return null;
+    var py = mo === 1 ? y - 1 : y;
+    var pm = mo === 1 ? 12 : mo - 1;
+    var lastPrev = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+    var toDay = lastPrev;
+    var today = statsMinskYmd_(now || new Date());
+    var cur = today.y + "-" + statsPad_(today.m);
+    if (String(monthKey) === cur) toDay = Math.min(today.d, lastPrev);
+    return { from: statsIso_(py, pm, 1), to: statsIso_(py, pm, toDay), days: toDay };
   }
 
   function statsIsoAddDays_(iso, days) {
@@ -474,6 +512,7 @@
     shiftStatsMonthKey_: shiftStatsMonthKey_,
     statsMonthBounds_: statsMonthBounds_,
     statsMonthSpan_: statsMonthSpan_,
+    statsPrevCalendarMonth_: statsPrevCalendarMonth_,
     statsPrevEqualPeriod_: statsPrevEqualPeriod_,
     statsFmtDay_: statsFmtDay_,
     statsPctDelta_: statsPctDelta_,

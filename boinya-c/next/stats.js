@@ -147,6 +147,7 @@
     }
     html += '<article class="b-card"><p class="b-lbl" style="margin-top:0">Главное</p>';
     if (meta.compare) html += '<p class="b-note">' + esc(meta.compare) + "</p>";
+    html += '<p class="b-note">Проценты справа показывают, насколько сумма отличается от этого отрезка</p>';
     html += '<p class="b-note">В оборот входят только доставки с отметкой «отвёз»</p>';
     if (!now) {
       html += line("Оборот", "нет данных") + line("Прибыль", "нет данных") + line("Себестоимость", "нет данных") + line("Доставки", "нет данных");
@@ -155,6 +156,12 @@
       html += shelfMoney("Прибыль", closed ? closed.afterTax : now.profit, beforeClose ? beforeClose.afterTax : (before ? before.profit : null));
       html += shelfMoney("Себестоимость", now.cost, before ? before.cost : null);
       html += shelfCount("Доставки", now.N, before ? before.N : null);
+      if (roll && Number(roll.missingBasket) > 0) {
+        html += line("Без состава", String(roll.missingBasket) + " не в обороте");
+      }
+      if (roll && Number(roll.missingPrice) > 0) {
+        html += line("Без цены", String(roll.missingPrice) + " не в обороте");
+      }
       if (roll.pending && (Number(roll.pending.revenue) > 0 || Number(roll.pending.N) > 0)) {
         html += shelfMoney("Ожидается", roll.pending.revenue, null, true);
         html += shelfCount("Ожидается доставок", roll.pending.N, null, true);
@@ -339,7 +346,7 @@
     var a = L().statsFmtDay_(win.from);
     var b = L().statsFmtDay_(win.to);
     if (!a || !b) return "";
-    return "к " + a + "–" + b;
+    return "Сравнение с " + a + "–" + b;
   }
 
   function paint(periodRes, prev, meta) {
@@ -463,8 +470,7 @@
       if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Нет данных</p>';
       return;
     }
-    var span = L().statsMonthSpan_(mk, new Date());
-    var prevWin = span ? L().statsPrevEqualPeriod_(span.from, span.to) : null;
+    var prevWin = L().statsPrevCalendarMonth_(mk, new Date());
     var prevRes = prevWin ? await pullExpected(prevWin.from, prevWin.to) : null;
     var setup = await pullSetup(mk);
     var prevSetup = prevWin ? await pullSetup(String(prevWin.to || "").slice(0, 7)) : null;
@@ -552,6 +558,7 @@
   root.BoinyaStats = {
     bind: function (a) { access = a; },
     show: show,
-    onAct: onAct
+    onAct: onAct,
+    preview: renderScreen
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -139,6 +139,17 @@ test("экран статистики: полки по формулам, без 
   assert.equal(ui.includes("function headTile"), false);
 });
 
+test("месяц сравнивается с календарным прошлым, не со сдвигом на день", () => {
+  const sept = stats.statsPrevCalendarMonth_("2026-09", new Date(Date.UTC(2026, 9, 2, 6, 0, 0)));
+  assert.deepEqual({ from: sept.from, to: sept.to }, { from: "2026-08-01", to: "2026-08-31" });
+  const oct = stats.statsPrevCalendarMonth_("2026-10", new Date(Date.UTC(2026, 9, 2, 6, 0, 0)));
+  assert.deepEqual({ from: oct.from, to: oct.to }, { from: "2026-09-01", to: "2026-09-02" });
+  const span = stats.statsMonthSpan_("2026-09", new Date(Date.UTC(2026, 9, 2, 6, 0, 0)));
+  assert.equal(span.from, "2026-09-01");
+  assert.equal(span.to, "2026-09-30");
+  assert.equal(stats.statsFmtDay_(sept.from), "01.08");
+});
+
 test("сравнение равного периода и экран из четырёх блоков", () => {
   const prev = stats.statsPrevEqualPeriod_("2026-10-01", "2026-10-02");
   assert.deepEqual({ from: prev.from, to: prev.to, days: prev.days }, { from: "2026-09-29", to: "2026-09-30", days: 2 });

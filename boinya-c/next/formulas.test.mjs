@@ -270,9 +270,46 @@ test("личное не входит в проект, налог 20% тольк�
   eq(loss.afterTax, loss.profit, "минус остаётся");
 });
 
+test("сентябрь: граница месяца, отвёз, пустой слот, слот 2, без состава", () => {
+  const rows = [
+    { ck: "M", iso: "2026-08-25", src: "pp", slot: 0, paid: "", price: 195, delivered: true, S: 10, G: 360, P: 2, sig: "marg" },
+    { ck: "M", iso: "2026-09-08", src: "pp", slot: 0, paid: "", price: 195, delivered: true, S: 10, G: 360, P: 2, sig: "marg" },
+    { ck: "A", iso: "2026-08-20", src: "pp", slot: 1, paid: "yes", price: 88, delivered: true, S: 8, G: 400, P: 6, sig: "maria" },
+    { ck: "A", iso: "2026-09-03", src: "pp", slot: 2, paid: "no", price: 88, delivered: true, S: 8, G: 400, P: 6, sig: "maria" },
+    { ck: "A", iso: "2026-09-17", src: "pp", slot: 1, paid: "yes", price: 90, delivered: true, S: 9, G: 200, P: 1, sig: "maria2" },
+    { ck: "N", iso: "2026-09-28", src: "retail", price: 0, delivered: true, S: 2, G: 120, P: 0 },
+    { ck: "OLD", iso: "2026-09-10", src: "retail", delivered: true, price: 40, missingBasket: true, S: 0, G: 0, P: 0 },
+    { ck: "WAIT", iso: "2026-09-30", src: "retail", delivered: false, price: 13, S: 1, G: 50, P: 0 },
+    { ck: "OCT", iso: "2026-10-01", src: "pp", slot: 1, paid: "yes", price: 140, delivered: true, S: 7, G: 100, P: 1, sig: "oct" },
+    { ck: "P", iso: "2026-09-05", src: "partner", delivered: true, price: 0, S: 1, G: 0, P: 0 }
+  ];
+  const s = F.formulaRollup_(rows, { monthKey: "2026-09" });
+  eq(s.ppRevenue, 90, "пп один раз на новом слоте 1");
+  eq(s.retailRevenue, 0, "розница без цены");
+  eq(s.revenue, 90, "оборот");
+  eq(s.N, 4, "четыре отвезено");
+  eq(s.S, 11, "состав цикла не удвоен");
+  eq(s.pp.N, 3, "пп доставки");
+  eq(s.pp.S, 9, "сырьё пп");
+  eq(s.missingBasket, 1, "без состава");
+  eq(s.missingPrice, 1, "без цены");
+  eq(s.pending.N, 1, "без отвёз");
+  eq(s.pending.revenue, 13, "ожидается");
+  eq(s.skippedPartner, 1, "партнёр");
+  assert.equal(s.from, "2026-09-01");
+  assert.equal(s.to, "2026-09-30");
+  const aug = F.formulaRollup_(rows, { monthKey: "2026-08" });
+  eq(aug.ppRevenue, 195 + 88, "август забирает первую оплату");
+  eq(aug.N, 2, "две августовские");
+});
+
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {
   const gs = fs.readFileSync(path.resolve(here, "../../Code.gs"), "utf8");
   assert.match(gs, /function collectFormulaRollup_/);
+  assert.match(gs, /function formulaRollupRows_/);
+  assert.match(gs, /gap >= 18/);
+  assert.match(gs, /missingBasket/);
+  assert.match(gs, /function handleAddPricePosition/);
   assert.match(gs, /function collectFormulaEconomy_/);
   assert.match(gs, /function readDeliveredByDate_/);
   assert.match(gs, /function foldPpRevenueOnce_/);
