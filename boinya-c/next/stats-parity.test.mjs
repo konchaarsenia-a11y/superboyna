@@ -120,22 +120,23 @@ test("диапазон показывает топливо только если
   assert.equal(fuel.lines.filter((row) => row.label === "Топливо доставок (4×N)")[0].value, "8 BYN");
 });
 
-test("экран статистики: четыре блока, без старого мусора", () => {
+test("экран статистики: полки по формулам, без старого мусора", () => {
   const ui = fs.readFileSync(path.resolve(here, "stats.js"), "utf8");
-  ["Откуда деньги", "Расходы", ">БП</p>", "Количество доставок", "нет данных", "разовые заказы", "Расчёт по датам", "За всё время", "Чистые"].forEach((phrase) => {
+  ["Главное", "Откуда деньги", "Себестоимость", "Расходы месяца", "Зарплата", ">БП</p>", "Свет по формуле", "не введено", "Ожидается", "разовые заказы", "Расчёт по датам", "За всё время", "Чистые", "отвёз"].forEach((phrase) => {
     assert.ok(ui.includes(phrase), phrase);
   });
-  ["Воронка БП", "Нарезчик", "Лист ПП", "ЗП / мес", "пробник бесплатный", "тумблер не врёт", "·"].forEach((phrase) => {
+  ["Воронка БП", "Лист ПП", "ЗП / мес", "пробник бесплатный", "тумблер не врёт", "nx-tiles", "·"].forEach((phrase) => {
     assert.equal(ui.includes(phrase), false, phrase);
   });
-  const order = ["Оборот", "Откуда деньги", "Расходы", ">БП</p>"];
+  const order = ["Оборот", "Откуда деньги", "Себестоимость", "Расходы месяца", "Зарплата", ">БП</p>"];
   let at = -1;
   order.forEach((mark) => {
     const next = ui.indexOf(mark, at + 1);
     assert.ok(next > at, mark);
     at = next;
   });
-  assert.match(ui, /white-space:\s*nowrap|nx-stat__num/);
+  assert.match(ui, /nx-stat__num/);
+  assert.equal(ui.includes("function headTile"), false);
 });
 
 test("сравнение равного периода и экран из четырёх блоков", () => {

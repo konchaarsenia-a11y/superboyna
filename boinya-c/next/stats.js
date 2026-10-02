@@ -33,25 +33,28 @@
   }
 
   function line(label, value) {
-    return '<div class="nx-line"><span class="b-note">' + esc(label) + '</span><b class="nx-stat__num">' + esc(String(value)) + "</b></div>";
+    return '<div class="nx-line"><span>' + esc(label) + '</span><b class="nx-stat__num">' + esc(String(value)) + "</b></div>";
   }
 
-  function headTile(cell, asMoney) {
-    var val = cell.missing ? "нет данных" : (asMoney ? moneyText(cell.value) : countText(cell.value));
-    var delta = "";
-    if (cell.delta && cell.delta.text) {
-      delta = '<div class="nx-stat__delta nx-stat__delta--' + esc(cell.delta.dir || "flat") + '">' + esc(cell.delta.text) + "</div>";
-    }
-    return '<div class="b-card"><span class="b-note">' + esc(cell.label) + '</span><b class="nx-stat__num">' + esc(val) + "</b>" + delta + "</div>";
+  function shelfMoney(label, amount, prevAmount, wait) {
+    var known = amount != null && amount !== "" && isFinite(Number(amount));
+    var val = known ? moneyText(amount) : "нет данных";
+    var d = known && prevAmount != null && isFinite(Number(prevAmount)) ? L().statsPctDelta_(amount, prevAmount) : null;
+    var delta = d && d.text ? ' <span class="nx-stat__delta nx-stat__delta--' + esc(d.dir || "flat") + '">' + esc(d.text) + "</span>" : "";
+    return '<div class="nx-line' + (wait ? " nx-line--wait" : "") + '"><span>' + esc(label) + '</span><b class="nx-stat__num">' + esc(val) + delta + "</b></div>";
   }
 
-  function trio(title, note, block) {
-    block = block || {};
-    return '<p class="b-lbl">' + esc(title) + "</p>" +
-      (note ? '<p class="b-note">' + esc(note) + "</p>" : "") +
-      line("Оборот", moneyText(block.turnover)) +
-      line("Прибыль", moneyText(block.profit)) +
-      line("Чистые", moneyText(block.clean));
+  function shelfCount(label, amount, prevAmount, wait) {
+    var known = amount != null && amount !== "" && isFinite(Number(amount));
+    var val = known ? String(amount) : "нет данных";
+    var d = known && prevAmount != null && isFinite(Number(prevAmount)) ? L().statsPctDelta_(amount, prevAmount) : null;
+    var delta = d && d.text ? ' <span class="nx-stat__delta nx-stat__delta--' + esc(d.dir || "flat") + '">' + esc(d.text) + "</span>" : "";
+    return '<div class="nx-line' + (wait ? " nx-line--wait" : "") + '"><span>' + esc(label) + '</span><b class="nx-stat__num">' + esc(val) + delta + "</b></div>";
+  }
+
+  function billInput(label, key, value) {
+    var shown = value == null || value === "" ? "" : String(value);
+    return '<label class="nx-line nx-bill"><span>' + esc(label) + '</span><input class="b-field__input" data-k="' + esc(key) + '" inputmode="decimal" placeholder="не введено" value="' + esc(shown) + '"></label>';
   }
 
   function convText(conv) {
@@ -69,43 +72,125 @@
       line("Окупаемость", moneyText(block.payback));
   }
 
-  function renderScreen(screen, meta) {
-    screen = screen || {};
+  function formulas() { return root.BoinyaFormulas; }
+
+  function monthOf(roll, setup) {
+    roll = roll || {};
+    setup = setup || {};
+    if (!formulas() || roll.ok === false || roll.revenue == null) return null;
+    return formulas().formulaMonth_({
+      revenue: roll.revenue,
+      S: roll.S, G: roll.G, P: roll.P, N: roll.N,
+      rent: setup.rentEntered ? setup.rent : "",
+      lightBill: setup.lightBill,
+      packBill: setup.packBill,
+      amort: setup.amort,
+      smm: setup.smm,
+      other: setup.other
+    });
+  }
+
+  function renderScreen(periodRes, prevRes, meta) {
+    periodRes = periodRes || {};
     meta = meta || {};
-    var head = screen.head || [];
-    var html = '<div class="nx-stats">';
+    var roll = periodRes.formula || null;
+    var prevRoll = prevRes && prevRes.formula ? prevRes.formula : null;
+    var now = monthOf(roll, meta.setup);
+    var before = monthOf(prevRoll, meta.prevSetup);
+    var legacy = L().statsScreen_(periodRes, null);
+    if (meta.bpSource && meta.bpSource !== periodRes) {
+      var bpScreen = L().statsScreen_(meta.bpSource, null);
+      legacy.bpMonth = bpScreen.bpMonth;
+      legacy.bpLife = bpScreen.bpLife;
+    }
+    var html = '<div class="nx-statpage">';
     if (meta.stale) {
       html += '<article class="b-card" style="margin-bottom:12px"><p class="b-note">Бэкенд без среза факта, цифры могут быть старыми.</p></article>';
     }
-    html += '<article class="b-card"><p class="b-lbl" style="margin-top:0">' + esc(meta.title || "Период") + "</p>";
+    html += '<article class="b-card"><p class="b-lbl" style="margin-top:0">Главное</p>';
     if (meta.compare) html += '<p class="b-note">' + esc(meta.compare) + "</p>";
-    html += '<div class="nx-tiles">' +
-      headTile(head[0] || { label: "Оборот", missing: true }, true) +
-      headTile(head[1] || { label: "Прибыль", missing: true }, true) +
-      headTile(head[2] || { label: "Себестоимость", missing: true }, true) +
-      headTile(head[3] || { label: "Количество доставок", missing: true }, false) +
-      "</div>";
-    if (screen.partnerTurnover > 0) {
-      html += '<p class="b-note">Партнёрские заказы в обороте, ' + esc(sh().money(screen.partnerTurnover)) + " BYN</p>";
+    html += '<p class="b-note">В оборот входят только доставки с отметкой «отвёз»</p>';
+    if (!now) {
+      html += line("Оборот", "нет данных") + line("Прибыль", "нет данных") + line("Себестоимость", "нет данных") + line("Доставки", "нет данных");
+    } else {
+      html += shelfMoney("Оборот", now.revenue, before ? before.revenue : null);
+      html += shelfMoney("Прибыль", now.profit, before ? before.profit : null);
+      html += shelfMoney("Себестоимость", now.cost, before ? before.cost : null);
+      html += shelfCount("Доставки", now.N, before ? before.N : null);
+      if (roll.pending && (Number(roll.pending.revenue) > 0 || Number(roll.pending.N) > 0)) {
+        html += shelfMoney("Ожидается", roll.pending.revenue, null, true);
+        html += shelfCount("Ожидается доставок", roll.pending.N, null, true);
+      }
     }
     html += "</article>";
 
-    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Откуда деньги</p>' +
-      trio("ПП", "цена один раз, на слоте с оплатой", screen.pp) +
-      trio("Розница", "разовые заказы", screen.retail) +
-      "</article>";
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Откуда деньги</p>';
+    if (!roll || roll.ok === false) {
+      html += line("ПП", "нет данных") + line("Розница", "нет данных");
+    } else {
+      html += '<p class="b-note">ПП, цена один раз на слоте с оплатой, и только если эта доставка отвезена</p>';
+      html += shelfMoney("ПП", roll.ppRevenue, prevRoll ? prevRoll.ppRevenue : null);
+      html += '<p class="b-note">Розница, разовые заказы</p>';
+      html += shelfMoney("Розница", roll.retailRevenue, prevRoll ? prevRoll.retailRevenue : null);
+      var bigger = "нет данных";
+      var ppR = Number(roll.ppRevenue) || 0;
+      var rtR = Number(roll.retailRevenue) || 0;
+      if (ppR > rtR) bigger = "ПП";
+      else if (rtR > ppR) bigger = "Розница";
+      else if (ppR > 0 || rtR > 0) bigger = "Поровну";
+      html += line("Больше принесло", bigger);
+    }
+    html += "</article>";
 
-    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Расходы</p>' +
-      (screen.expenses || []).map(function (row) {
-        return line(row.label, row.missing ? "нет данных" : moneyText(row.value));
-      }).join("") +
-      "</article>";
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Себестоимость</p>';
+    if (!now) html += line("Сырьё", "нет данных");
+    else {
+      html += line("Сырьё", moneyText(now.raw));
+      html += line("ЗП нарезка", moneyText(now.cut));
+      html += line("ЗП сборка", moneyText(now.assembly));
+      html += line("Свет по формуле", moneyText(now.light));
+      html += line("Упаковка", moneyText(now.pack));
+      html += line("Дорога", moneyText(now.road));
+      html += line("Валовая маржа", moneyText(now.gross));
+    }
+    html += "</article>";
+
+    var setup = meta.setup || {};
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Расходы месяца</p>';
+    html += '<p class="b-note">Аренда по умолчанию 900 и действует с месяца, где её записали. Остальное пустое значит не введено и в прибыль идёт как 0.</p>';
+    if (meta.rangeBills) html += '<p class="b-note">Суммы за месяц целиком, диапазон дат их не делит.</p>';
+    html += billInput("Аренда", "rent", setup.rentEntered ? setup.rent : 900);
+    if (setup.rentFrom && setup.rentFrom !== meta.billMonth) {
+      html += '<p class="b-note">Аренда с месяца ' + esc(setup.rentFrom) + "</p>";
+    }
+    html += billInput("Счёт за свет", "light", setup.lightBill);
+    if (now && now.lightBill && now.lightBill.entered) html += line("Разница, свет", moneyText(now.lightGap));
+    else html += line("Разница, свет", "не введено");
+    html += billInput("Закупка пакетов", "pack", setup.packBill);
+    if (now && now.packBill && now.packBill.entered) html += line("Разница, пакеты", moneyText(now.packGap));
+    else html += line("Разница, пакеты", "не введено");
+    html += billInput("Амортизация", "amort", setup.amort);
+    html += billInput("SMM", "smm", setup.smm);
+    html += billInput("Прочее", "other", setup.other);
+    html += '<button type="button" class="b-btn b-btn--sec" data-act="st-save-money" style="margin-top:8px">Сохранить расходы месяца</button>';
+    html += "</article>";
+
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Зарплата</p>';
+    var cutterName = setup.cutter && setup.cutter.name ? setup.cutter.name : "не выбран";
+    var courierName = setup.courier && setup.courier.name ? setup.courier.name : "не выбран";
+    html += line("Нарезчик-сборщик", cutterName);
+    html += line("ЗП за период", now ? moneyText(now.wage) : "нет данных");
+    html += '<p class="b-note">ЗП уже внутри себестоимости. В прибыль второй раз не входит.</p>';
+    html += '<p class="b-note">' + esc((roll && roll.wageNote) || "В памяти доставок нет, кто нарезал каждую строку. Вся сумма за период у выбранного нарезчика-сборщика.") + "</p>";
+    html += line("Курьер", courierName);
+    html += '<p class="b-note">Отдельной ЗП курьера в формуле нет. Дорога 4 BYN на доставку уже в себестоимости.</p>';
+    html += "</article>";
 
     var monthTitle = meta.bpTitle || "Этот месяц";
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">БП</p>' +
       '<p class="b-note">бесплатная проба</p>' +
-      bpBlock(monthTitle, screen.bpMonth) +
-      bpBlock("За всё время", screen.bpLife) +
+      bpBlock(monthTitle, legacy.bpMonth) +
+      bpBlock("За всё время", legacy.bpLife) +
       "</article></div>";
     return html;
   }
@@ -123,7 +208,7 @@
       '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
       '<article class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Статистика</p>' +
-        '<p class="b-note">Четыре блока за выбранный период</p>' +
+        '<p class="b-note">Деньги только после отметки «отвёз»</p>' +
         '<div class="nx-cut-head" style="justify-content:space-between">' +
           '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="st-prev" aria-label="Предыдущий месяц">‹</button>' +
           '<b id="statsMonthLabel">' + esc(periodTitle()) + "</b>" +
@@ -176,17 +261,22 @@
   function paint(periodRes, prev, meta) {
     var box = document.getElementById("statsContainer");
     if (!box) return;
-    var screen = L().statsScreen_(periodRes, prev);
-    if (meta.bpSource && meta.bpSource !== periodRes) {
-      var bpScreen = L().statsScreen_(meta.bpSource, null);
-      screen.bpMonth = bpScreen.bpMonth;
-      screen.bpLife = bpScreen.bpLife;
-    }
-    var html = renderScreen(screen, meta);
+    var html = renderScreen(periodRes, prev, meta);
     cache[cacheKey()] = html;
     var lab = document.getElementById("statsMonthLabel");
     if (lab) lab.textContent = meta.title || periodTitle();
     box.innerHTML = html;
+  }
+
+  async function pullSetup(month) {
+    if (!/^\d{4}-\d{2}$/.test(String(month || ""))) return null;
+    try {
+      return await api().apiGet({
+        action: "getStatsMonthSetup",
+        month: month,
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    } catch (eS) { return null; }
   }
 
   async function pullExpected(from, to) {
@@ -244,11 +334,19 @@
       var rangePrevRes = rangePrev ? await pullExpected(rangePrev.from, rangePrev.to) : null;
       var monthNow = await pullMonth(L().currentStatsMonthKey_(), !!opts.force);
       if (!document.getElementById("statsContainer")) return;
-      paint(ranged, prevPack(rangePrevRes), {
+      var rangeBill = String(view.to || "").slice(0, 7);
+      var rangeSetup = await pullSetup(rangeBill);
+      var rangePrevSetup = rangePrev ? await pullSetup(String(rangePrev.to || "").slice(0, 7)) : null;
+      if (!document.getElementById("statsContainer")) return;
+      paint(ranged, rangePrevRes, {
         title: L().statsFmtDay_(view.from) + "–" + L().statsFmtDay_(view.to),
         compare: rangePrevRes ? compareCaption(rangePrev) : "",
         bpSource: (monthNow && monthNow.status === "success") ? monthNow : null,
-        bpTitle: "Этот месяц"
+        bpTitle: "Этот месяц",
+        setup: rangeSetup,
+        prevSetup: rangePrevSetup,
+        billMonth: rangeBill,
+        rangeBills: true
       });
       return;
     }
@@ -268,14 +366,48 @@
     var span = L().statsMonthSpan_(mk, new Date());
     var prevWin = span ? L().statsPrevEqualPeriod_(span.from, span.to) : null;
     var prevRes = prevWin ? await pullExpected(prevWin.from, prevWin.to) : null;
+    var setup = await pullSetup(mk);
+    var prevSetup = prevWin ? await pullSetup(String(prevWin.to || "").slice(0, 7)) : null;
     if (!document.getElementById("statsContainer")) return;
     if (view.mode !== "month" || ensureMonth() !== mk) return;
-    paint(res, prevPack(prevRes), {
+    paint(res, prevRes, {
       title: res.monthLabel || L().statsMonthLabelRu_(mk),
       compare: prevRes ? compareCaption(prevWin) : "",
       bpTitle: mk === L().currentStatsMonthKey_() ? "Этот месяц" : (res.monthLabel || L().statsMonthLabelRu_(mk)),
-      stale: !res.factCutoff
+      stale: !res.factCutoff,
+      setup: setup,
+      prevSetup: prevSetup,
+      billMonth: mk
     });
+  }
+
+  function billValue(key) {
+    var el = document.querySelector('#statsContainer [data-k="' + key + '"]');
+    return el ? String(el.value || "").trim() : "";
+  }
+
+  async function saveMoney() {
+    var mk = view.mode === "range" && view.to ? String(view.to).slice(0, 7) : ensureMonth();
+    sh().toast("Сохраняю…");
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "saveStatsMonthMoney",
+        month: mk,
+        rent: billValue("rent"),
+        lightBill: billValue("light"),
+        packBill: billValue("pack"),
+        amort: billValue("amort"),
+        smm: billValue("smm"),
+        other: billValue("other"),
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    } catch (eSave) { res = null; }
+    if (res && res.status === "success") {
+      sh().toast("Расходы месяца записаны");
+      cache = Object.create(null);
+      load({ force: true });
+    } else sh().toast("Не записалось");
   }
 
   function shift(delta) {
@@ -338,6 +470,7 @@
     if (act === "st-export") { exportTsv(); return true; }
     if (act === "st-range-open") { openRange(); return true; }
     if (act === "st-range") { range(); return true; }
+    if (act === "st-save-money") { saveMoney(); return true; }
     return false;
   }
 

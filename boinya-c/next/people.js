@@ -8,6 +8,7 @@
   var timezones = ["Europe/Minsk"];
   var openId = "";
   var warehouses = [];
+  var roleSetup = null;
   var whDeparture = null;
   var whSuggest = [];
   var whAddrTimer = 0;
@@ -188,6 +189,7 @@
     });
     html += "</div>";
     html += warehousesHtml();
+    html += rolesHtml();
     sh().main(html);
   }
 
@@ -210,6 +212,76 @@
     html += '<button type="button" class="b-btn b-btn--sec" data-act="wh-add">+ Склад</button>';
     html += '<p class="b-note">точка выезда курьера: название и адрес, остатки склада не делятся</p>';
     return html;
+  }
+
+  function currentMonthKey() {
+    var d = new Date();
+    var m = d.getMonth() + 1;
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m;
+  }
+
+  function rolesHtml() {
+    var s = roleSetup || {};
+    var month = s.month || currentMonthKey();
+    function opts(selected) {
+      var html = '<option value="">не выбран</option>';
+      people.forEach(function (p) {
+        if (!p || !p.telegramId) return;
+        var role = String(p.role || "");
+        if (role === "denied" || role === "pending" || role === "none") return;
+        var id = String(p.telegramId);
+        html += '<option value="' + esc(id) + '"' + (id === String(selected || "") ? " selected" : "") + ">" + esc(p.name || id) + "</option>";
+      });
+      return html;
+    }
+    var cutter = s.cutter && s.cutter.tgId ? s.cutter.tgId : "";
+    var courier = s.courier && s.courier.tgId ? s.courier.tgId : "";
+    return '<p class="b-lbl">Зарплата на производстве</p><article class="b-card">' +
+      '<p class="b-note">Кто режет и собирает, и кто курьер. Действует с выбранного месяца. Сумму считает статистика.</p>' +
+      '<p class="b-lbl">С месяца</p><label class="b-field"><input class="b-field__input" id="nxRoleMonth" type="month" value="' + esc(month) + '"></label>' +
+      '<p class="b-lbl">Нарезчик-сборщик</p><label class="b-field"><select class="b-field__input" id="nxRoleCutter">' + opts(cutter) + "</select></label>" +
+      '<p class="b-lbl">Курьер</p><label class="b-field"><select class="b-field__input" id="nxRoleCourier">' + opts(courier) + "</select></label>" +
+      '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--sec" data-act="p-roles-load">Показать месяц</button>' +
+      '<button type="button" class="b-btn b-btn--main" data-act="p-roles">Сохранить</button></div></article>';
+  }
+
+  async function loadRoles(month) {
+    month = month || currentMonthKey();
+    try {
+      roleSetup = await api().apiGet({ action: "getStatsMonthSetup", month: month, _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+    } catch (eRole) { roleSetup = null; }
+    if (!roleSetup || roleSetup.status !== "success") roleSetup = { month: month, cutter: {}, courier: {} };
+    roleSetup.month = month;
+  }
+
+  async function saveRoles() {
+    var monthEl = document.getElementById("nxRoleMonth");
+    var month = monthEl && monthEl.value ? monthEl.value : currentMonthKey();
+    var cutter = document.getElementById("nxRoleCutter");
+    var courier = document.getElementById("nxRoleCourier");
+    function nameOf(sel) {
+      if (!sel || !sel.value) return "";
+      var opt = sel.options[sel.selectedIndex];
+      return opt ? String(opt.text || "") : "";
+    }
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "saveStatsRoles",
+        month: month,
+        cutterTgId: cutter ? cutter.value : "",
+        cutterName: nameOf(cutter),
+        courierTgId: courier ? courier.value : "",
+        courierName: nameOf(courier),
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    } catch (eSave) { res = null; }
+    if (res && res.status === "success") {
+      roleSetup = res;
+      roleSetup.month = month;
+      sh().toast("Роли записаны");
+      paint();
+    } else sh().toast("Не записалось");
   }
 
   async function loadWarehouses(force) {
@@ -349,6 +421,8 @@
       return;
     }
     writeScreenCache();
+    try { await loadRoles(currentMonthKey()); } catch (eRoles) {}
+    if (gen !== showGen) return;
     paint();
     if (!background) return;
     api().apiGet({ action: "listAccess", telegramId: tid() }, { timeoutMs: 20000, cacheTtlMs: 60000 }).then(function (full) {
@@ -498,6 +572,12 @@
       return false;
     }
     if (act === "p-reload") { show({ force: true }); return true; }
+    if (act === "p-roles-load") {
+      var monthEl = document.getElementById("nxRoleMonth");
+      loadRoles(monthEl && monthEl.value ? monthEl.value : currentMonthKey()).then(paint);
+      return true;
+    }
+    if (act === "p-roles") { saveRoles(); return true; }
     if (act === "wh-add") { openNewWarehouse(); return true; }
     if (act === "wh-save") { saveWarehouse(); return true; }
     if (act === "wh-del") { openDeleteWarehouse(node.getAttribute("data-id")); return true; }
