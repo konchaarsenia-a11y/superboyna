@@ -686,8 +686,7 @@ const AUTH_OWNER_RE = new RegExp(
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
-    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|" +
-    "listGoals|saveGoal|deleteGoal)$"
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse)$"
 );
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
@@ -1246,9 +1245,9 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
   if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
   if (a === "setDepartureWarehouse") return setDepartureWarehouse_(params, env);
-  if (a === "listGoals") return listGoals_(env);
-  if (a === "saveGoal") return saveGoal_(params, env);
-  if (a === "deleteGoal") return deleteGoal_(params, env);
+  if (a === "listGoals") return listGoals_(env, actor);
+  if (a === "saveGoal") return saveGoal_(params, env, actor);
+  if (a === "deleteGoal") return deleteGoal_(params, env, actor);
 
   let res = await handleActionInner_(a, params, env, url, ctx);
   if (/^(setAccessRole|setAccessTimezone)$/i.test(a)) authInvalidateRole_(params.targetId);
@@ -2743,8 +2742,9 @@ async function setDepartureWarehouse_(params, env) {
 }
 
 /**
- * Цели владельца (Бойня C). Отдельная таблица D1, лист «Прием заказов» и Code.gs не меняются.
- * Синхронизация между устройствами — listGoals / saveGoal / deleteGoal, только owner.
+ * Цели (Бойня C). Отдельная таблица D1, лист «Прием заказов» и Code.gs не меняются.
+ * Задачи: личные (owner_tg_id) и общие (пустой scope). Показатели с деньгами — только владелец.
+ * Синхронизация — listGoals / saveGoal / deleteGoal. Колонки scope и owner_tg_id добавляются ALTER, без пересоздания таблицы.
  *
  * Telegram при закрытии показателя выключен.
  * Включить позже: секрет Worker GOALS_TG_NOTIFY со значением ровно 1.
@@ -2792,17 +2792,88 @@ async function ensureGoals_(env) {
       "period TEXT NOT NULL DEFAULT '', " +
       "date_from TEXT NOT NULL DEFAULT '', " +
       "date_to TEXT NOT NULL DEFAULT '', " +
+      "scope TEXT NOT NULL DEFAULT '', " +
+      "owner_tg_id TEXT NOT NULL DEFAULT '', " +
       "created_at TEXT NOT NULL, " +
       "updated_at TEXT NOT NULL" +
     ")"
   ).run();
+  try {
+    await env.DB.prepare("ALTER TABLE goals ADD COLUMN scope TEXT NOT NULL DEFAULT ''").run();
+  } catch (eScope) {
+    /* column exists */
+  }
+  try {
+    await env.DB.prepare("ALTER TABLE goals ADD COLUMN owner_tg_id TEXT NOT NULL DEFAULT ''").run();
+  } catch (eOwner) {
+    /* column exists */
+  }
   env.__goalsReady = true;
   return true;
+}
+
+function goalScopeOf_(row) {
+  const scope = String((row && row.scope) || "").trim();
+  const owner = String((row && (row.owner_tg_id != null ? row.owner_tg_id : row.ownerTgId)) || "").trim();
+  if (scope === "person" && owner) return { scope: "person", ownerTgId: owner };
+  return { scope: "shared", ownerTgId: "" };
+}
+
+function goalActorOwner_(actor) {
+  return !!(actor && (actor.isOwner || actor.role === "owner"));
+}
+
+function goalActorTid_(actor) {
+  return String((actor && (actor.tid || actor.telegramId)) || "").trim();
+}
+
+function goalRowVisible_(row, actor) {
+  if (!row) return false;
+  const kind = String(row.kind || "");
+  const isOwner = goalActorOwner_(actor);
+  if (kind === "metric") return isOwner;
+  const sc = goalScopeOf_(row);
+  if (sc.scope !== "person") return true;
+  if (isOwner) return true;
+  const tid = goalActorTid_(actor);
+  return !!tid && tid === sc.ownerTgId;
+}
+
+function goalAssign_(params, prev, actor, kind) {
+  const isOwner = goalActorOwner_(actor);
+  const tid = goalActorTid_(actor);
+  if (kind === "metric") {
+    if (!isOwner) return { ok: false, message: "Показатели только у владельца" };
+    return { ok: true, scope: "", ownerTgId: "" };
+  }
+  if (prev && !goalRowVisible_(prev, actor)) return { ok: false, message: "Чужая задача" };
+  const scopeKey = !!(params && Object.prototype.hasOwnProperty.call(params, "scope"));
+  const ownerKey = !!(params && Object.prototype.hasOwnProperty.call(params, "ownerTgId"));
+  if (!scopeKey && !ownerKey && prev) {
+    const kept = goalScopeOf_(prev);
+    return { ok: true, scope: kept.scope === "person" ? "person" : "", ownerTgId: kept.ownerTgId };
+  }
+  let scope = scopeKey ? String(params.scope || "").trim() : "";
+  let ownerTgId = ownerKey ? String(params.ownerTgId || "").trim() : "";
+  if (scope === "me" || scope === "self") {
+    scope = "person";
+    ownerTgId = tid;
+  }
+  if (!scope && ownerTgId) scope = "person";
+  if (scope === "person") {
+    if (!ownerTgId) ownerTgId = tid;
+    if (!isOwner && ownerTgId !== tid) return { ok: false, message: "Чужая задача" };
+    if (!ownerTgId) return { ok: false, message: "Не выбран сотрудник" };
+    return { ok: true, scope: "person", ownerTgId: ownerTgId };
+  }
+  if (scope && scope !== "shared") return { ok: false, message: "Некорректная область" };
+  return { ok: true, scope: "", ownerTgId: "" };
 }
 
 function shapeGoal_(row) {
   if (!row) return null;
   const target = row.target == null || row.target === "" ? null : Number(row.target);
+  const sc = goalScopeOf_(row);
   return {
     id: String(row.id || ""),
     kind: String(row.kind || ""),
@@ -2815,18 +2886,20 @@ function shapeGoal_(row) {
     period: String(row.period || ""),
     dateFrom: String(row.date_from || ""),
     dateTo: String(row.date_to || ""),
+    scope: sc.scope,
+    ownerTgId: sc.ownerTgId,
     createdAt: String(row.created_at || ""),
     updatedAt: String(row.updated_at || "")
   };
 }
 
-async function listGoals_(env) {
+async function listGoals_(env, actor) {
   if (!(await ensureGoals_(env))) return { status: "error", message: "Нет базы", action: "listGoals" };
   const q = await env.DB.prepare("SELECT * FROM goals ORDER BY created_at ASC").all();
   const rows = (q && q.results) || [];
   return {
     status: "success",
-    goals: rows.map(shapeGoal_),
+    goals: rows.map(shapeGoal_).filter(function (g) { return goalRowVisible_(g, actor); }),
     notify: goalsNotifyEnabled_(env) ? "on" : "off"
   };
 }
@@ -2834,7 +2907,7 @@ async function listGoals_(env) {
 const GOALS_HORIZONS_ = { day: 1, week: 1, month: 1, half: 1, year: 1 };
 const GOALS_PERIODS_ = { day: 1, week: 1, month: 1, half: 1, year: 1, custom: 1 };
 
-async function saveGoal_(params, env) {
+async function saveGoal_(params, env, actor) {
   if (!(await ensureGoals_(env))) return { status: "error", message: "Нет базы", action: "saveGoal" };
   params = params || {};
   const id = String(params.id || "").trim().slice(0, 64);
@@ -2869,16 +2942,21 @@ async function saveGoal_(params, env) {
       return { status: "error", message: "Укажите даты" };
     }
   }
+  const assigned = goalAssign_(params, prev, actor, kind);
+  if (!assigned.ok) return { status: "error", message: assigned.message || "Нет доступа" };
+  const scope = assigned.scope;
+  const ownerTgId = assigned.ownerTgId;
   const created = prev ? String(prev.created_at || now) : now;
   const wasDone = !!(prev && Number(prev.done) === 1);
   await env.DB.prepare(
-    "INSERT INTO goals (id, kind, horizon, title, done, done_at, metric_id, target, period, date_from, date_to, created_at, updated_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+    "INSERT INTO goals (id, kind, horizon, title, done, done_at, metric_id, target, period, date_from, date_to, scope, owner_tg_id, created_at, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
       "ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, horizon = excluded.horizon, title = excluded.title, " +
       "done = excluded.done, done_at = excluded.done_at, metric_id = excluded.metric_id, target = excluded.target, " +
-      "period = excluded.period, date_from = excluded.date_from, date_to = excluded.date_to, updated_at = excluded.updated_at"
+      "period = excluded.period, date_from = excluded.date_from, date_to = excluded.date_to, " +
+      "scope = excluded.scope, owner_tg_id = excluded.owner_tg_id, updated_at = excluded.updated_at"
   )
-    .bind(id, kind, horizon, title, done ? 1 : 0, doneAt, metricId, target, period, dateFrom, dateTo, created, now)
+    .bind(id, kind, horizon, title, done ? 1 : 0, doneAt, metricId, target, period, dateFrom, dateTo, scope, ownerTgId, created, now)
     .run();
   const goal = shapeGoal_({
     id: id,
@@ -2892,6 +2970,8 @@ async function saveGoal_(params, env) {
     period: period,
     date_from: dateFrom,
     date_to: dateTo,
+    scope: scope,
+    owner_tg_id: ownerTgId,
     created_at: created,
     updated_at: now
   });
@@ -2900,10 +2980,12 @@ async function saveGoal_(params, env) {
   return { status: "success", goal: goal, notify: notify };
 }
 
-async function deleteGoal_(params, env) {
+async function deleteGoal_(params, env, actor) {
   if (!(await ensureGoals_(env))) return { status: "error", message: "Нет базы", action: "deleteGoal" };
   const id = String((params && params.id) || "").trim();
   if (!id) return { status: "error", message: "Некорректный id" };
+  const prev = await env.DB.prepare("SELECT * FROM goals WHERE id = ?").bind(id).first();
+  if (prev && !goalRowVisible_(prev, actor)) return { status: "error", message: "Чужая задача" };
   await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
   return { status: "success", id: id };
 }
@@ -5852,6 +5934,33 @@ async function persistOrderMetaJson_(env, id, metaRaw) {
     .bind(String(metaRaw || "{}"), new Date().toISOString(), id)
     .run();
   return true;
+}
+
+/** Ответ курьера «оплачено» пишется в meta заказа этой даты. Цены других слотов не трогаем. */
+async function stampOrderPaidOnDateD1_(env, iso, aliases, paid) {
+  if (!env || !env.DB || !iso) return;
+  if (paid !== "yes" && paid !== "no") return;
+  const keys = aliases || [];
+  for (let i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue;
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(
+        "SELECT id, meta_json FROM orders WHERE status = 'active' AND date_iso = ? AND match_key = ? LIMIT 4"
+      )
+        .bind(iso, keys[i])
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {
+      rows = [];
+    }
+    for (let r = 0; r < rows.length; r++) {
+      const meta = parseMeta_(rows[r].meta_json);
+      if (String(meta.paid || "") === paid) continue;
+      meta.paid = paid;
+      try { await persistOrderMetaJson_(env, rows[r].id, JSON.stringify(meta)); } catch (eW) {}
+    }
+  }
 }
 
 /**
@@ -11213,6 +11322,10 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
             .bind(info.iso, aliases[di], delivered ? 1 : 0, now)
             .run();
         } catch (eDw) {}
+      }
+      const paidStamp = String(params.paid || "").toLowerCase();
+      if (paidStamp === "yes" || paidStamp === "no") {
+        try { await stampOrderPaidOnDateD1_(env, info.iso, aliases, paidStamp); } catch (ePaid) {}
       }
     }
     return;
@@ -20837,20 +20950,17 @@ async function getPpFactCostD1_(params, env, ctx) {
             "",
           deliveries
         );
-        if (forced >= 1) {
-          deliverySlot = forced;
-          suggestedSlot = forced;
-          needManualSlot = false;
-        } else if (stored >= 1) {
-          deliverySlot = stored;
-          suggestedSlot = stored;
-        } else {
-          suggestedSlot = Math.min(deliveries, (Number(prior.count) || 0) + 1);
-          if (prior.lastSlot >= 1 && prior.count <= 0) {
-            suggestedSlot = prior.lastSlot >= 2 ? 1 : 2;
-          }
-          deliverySlot = suggestedSlot;
-        }
+        const picked = suggestPpDeliverySlotD1_({
+          deliveriesN: deliveries,
+          forced: forced,
+          stored: stored,
+          lastSlot: prior.lastSlot,
+          priorCount: prior.count,
+          needManualSlot: needManualSlot
+        });
+        deliverySlot = picked.slot;
+        suggestedSlot = picked.slot;
+        if (forced >= 1 || stored >= 1) needManualSlot = false;
         ppSlotLbl = formatPpSlotLabelD1_(deliverySlot, deliveries);
       } catch (eSlotFact) {
         needManualSlot = true;
@@ -21081,6 +21191,27 @@ function resolveAsOfIsoD1_(params) {
   }
 }
 
+/** Слот ПП: сохранённый на дату побеждает, иначе 1↔2 по последнему слоту.
+ *  Ветка «lastSlot && count<=0» мертва: lastSlot ставится только вместе со счётом. */
+function suggestPpDeliverySlotD1_(opts) {
+  opts = opts || {};
+  const deliveries = Math.max(0, Number(opts.deliveriesN) || 0);
+  const cap = deliveries >= 2 ? deliveries : 2;
+  const forced = Number(opts.forced) || 0;
+  const stored = Number(opts.stored) || 0;
+  const last = Number(opts.lastSlot) || 0;
+  const count = Number(opts.priorCount) || 0;
+  if (deliveries === 1) return { slot: 1, needManualSlot: false };
+  if (forced >= 1) return { slot: Math.min(forced, cap), needManualSlot: false };
+  if (stored >= 1) return { slot: Math.min(stored, cap), needManualSlot: false };
+  let suggested;
+  if (last >= 2) suggested = 1;
+  else if (last === 1) suggested = Math.min(cap, 2);
+  else suggested = Math.min(cap, Math.max(1, count + 1));
+  if (!(suggested >= 1)) suggested = 1;
+  return { slot: suggested, needManualSlot: !!opts.needManualSlot };
+}
+
 async function hasPpSlotAnchorD1_(env, matchKey) {
   if (!env || !matchKey) return false;
   try {
@@ -21289,18 +21420,17 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
         "",
       deliveriesN
     );
-    if (forced >= 1) {
-      slot = forced;
-      suggestedSlot = forced;
-      needManualSlot = false;
-    } else if (stored >= 1) {
-      slot = stored;
-      suggestedSlot = stored;
-    } else {
-      suggestedSlot = Math.min(deliveriesN, (Number(prior.count) || 0) + 1);
-      if (prior.lastSlot >= 1 && prior.count <= 0) suggestedSlot = prior.lastSlot >= 2 ? 1 : 2;
-      slot = needManualSlot ? suggestedSlot : suggestedSlot;
-    }
+    const picked = suggestPpDeliverySlotD1_({
+      deliveriesN: deliveriesN,
+      forced: forced,
+      stored: stored,
+      lastSlot: prior.lastSlot,
+      priorCount: prior.count,
+      needManualSlot: needManualSlot
+    });
+    slot = picked.slot;
+    suggestedSlot = picked.slot;
+    if (forced >= 1 || stored >= 1) needManualSlot = false;
   }
 
   const proposed = proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket);

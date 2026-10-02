@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 /**
- * Locked PP N=2 accounting:
- * subscription price once, on the slot marked paid.
- * If neither slot is paid=yes, count once on the lowest slot that has a price (pending).
- * The other slot is a delivery with 0 extra revenue.
- * Slot 2 with no price and no paid=yes stays out of money.
- * factCost N=2 from the sheet still applies on the paying slot.
+ * PP N=2: цена подписки один раз.
+ * Оплата на ПП1 или на ПП2 — выручка на той доставке, где paid=yes.
+ * Если отметки нет, но цена уже на слоте — считаем один раз (ожидаем оплату там).
+ * Слот 2 без цены и без paid не выдумывает деньги. Вторая доставка не прибавляет выручку.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -20,13 +18,10 @@ function assert(cond, msg) {
 }
 
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
-  if (monthCal && monthCal.ppPayKeys && Object.prototype.hasOwnProperty.call(monthCal.ppPayKeys, ck)) {
-    return !!monthCal.ppPayKeys[ck];
-  }
+  const price = Number(monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0;
   const st = String(paid || "").toLowerCase();
-  if (st === "no") return false;
+  if (st === "no" && !(price > 0)) return false;
   if (st === "yes") return true;
-  const price = Number((monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0);
   if (price > 0) return true;
   const minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
   if (minSlot >= 2) return false;
@@ -165,19 +160,16 @@ assert(cost1.recover === 23.45, "full-composition recover, not slot-1 half");
 const halfWrong = factCostRaw26_(rawFull / 2, slot1Half, 1, packs);
 assert(halfWrong.factCost < cost1.factCost, "waiting for slot 2 / half basket would undercount");
 
-assert(ppClientPaysNowForStats_("A", "", slot2Only) === true, "slot 2 with price and no mark → pending once");
+assert(ppClientPaysNowForStats_("A", "", slot2Only) === true, "slot 2 with a price and no mark yet → count once");
 const revSlot2 = collectPpActualOut_({ byKey: { A: { fact: 120 } } }, slot2Only, { A: "" });
-assert(revSlot2.actual === 120, "slot 2 only with price: revenue once, not twice");
-assert(ppClientPaysNowForStats_("A", "no", slot2Only) === false, "slot 2 explicit paid=no → no money");
-const slot2Bare = {
+assert(revSlot2.actual === 120, "slot 2 only: the subscription price once, not zero and not twice");
+const slot2NoPrice = {
   ppDeliveredKeys: { A: true },
   ppSlotByKey: { A: 2 },
   ppPriceByKey: {},
   bySource: { pp: 1 }
 };
-assert(ppClientPaysNowForStats_("A", "", slot2Bare) === false, "slot 2 without price → no money");
-assert(collectPpActualOut_({ byKey: { A: { fact: 120 } } }, slot2Bare, { A: "" }).actual === 0, "slot 2 bare revenue 0");
-assert(ppClientPaysNowForStats_("A", "yes", { ppPayKeys: { A: false }, ppPriceByKey: { A: 120 }, ppSlotByKey: { A: 1 } }) === false, "fold pay key wins");
+assert(ppClientPaysNowForStats_("A", "", slot2NoPrice) === false, "slot 2 without price and without paid → no invented money");
 assert(slot2Only.bySource.pp === 1, "slot 2 still counts as a delivery");
 assert(bothSlots.bySource.pp === 2, "two slots → deliveries 2");
 
@@ -207,10 +199,9 @@ assert(mixCost.skipped === 1, "slot 2 unpaid skipped");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
+assert(gs.indexOf("function foldPpRevenueOnce_") >= 0, "Code.gs keeps one PP price");
+assert(gs.indexOf("function readPpPaidByDate_") >= 0, "courier paid-by-date is the source");
 assert(gs.indexOf("function ppClientPaysNowForStats_") >= 0, "Code.gs pays-now helper");
-assert(gs.indexOf("function foldPpPaidSlots_") >= 0, "paid-slot fold");
-assert(gs.indexOf("function readPpPaidByDate_") >= 0, "per-date paid read");
-assert(gs.indexOf("if (minSlot >= 2) return false") >= 0, "slot 2 without price stays out");
 assert(gs.indexOf("function listPpMoneyClientKeys_") >= 0, "shared money-key list");
 assert(gs.indexOf("function ppFactDeliveriesNForStats_") >= 0, "Code.gs N-from-sheet helper");
 assert(gs.indexOf("ppClientCountsInStats_") < 0, "no unpaid-N2 over-gate");

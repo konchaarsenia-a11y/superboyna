@@ -21828,130 +21828,110 @@ function ppCyclePaidStatus_(cycleStore, ck) {
 }
 
 /**
- * Выручка ПП один раз на подписку за месяц.
- * Если foldPpPaidSlots_ уже выбрал слот (ppPayKeys) — берём его.
- * Иначе: paid=no → нет; paid=yes → да; есть цена → да, даже на слоте 2 (ожидание оплаты);
- * слот ≥2 без цены и без paid=yes → нет. Доставки (bySource.pp) не фильтруем.
+ * Выручка и factCost: цена подписки один раз.
+ * ppPriceByKey уже указывает доставку с paid=yes или слот, где оплату ждут.
+ * Слот 2 без цены не добавляет денег. Доставки (bySource.pp) не фильтруем.
  */
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
-  if (monthCal && monthCal.ppPayKeys && Object.prototype.hasOwnProperty.call(monthCal.ppPayKeys, ck)) {
-    return !!monthCal.ppPayKeys[ck];
-  }
+  var price = Number(monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0;
   var st = String(paid || "").toLowerCase();
-  if (st === "no") return false;
+  if (st === "no" && !(price > 0)) return false;
   if (st === "yes") return true;
-  var price = Number((monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0);
   if (price > 0) return true;
   var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
   if (minSlot >= 2) return false;
   return true;
 }
 
-function ppPaidFlag_(ent) {
-  if (!ent || typeof ent !== "object") return "";
-  var p = String(ent.paid || "").toLowerCase();
-  if (p === "yes" || p === "true" || p === "1") return "yes";
-  if (p === "no" || p === "false" || p === "0") return "no";
-  return "";
-}
-
-/** Оплата курьера по дате из «Память_Доставок». yes побеждает no. */
-function readPpPaidByDate_(ss, isos, tz) {
-  var map = {};
+/** Память_Доставок: ответ курьера об оплате на конкретную дату. */
+function readPpPaidByDate_(ss, monthKeys, tz) {
+  var out = {};
   var memory = null;
-  try { memory = getMemoryCourierSheet_(); } catch (eMem) { memory = null; }
-  if (!memory) return map;
-  var seen = {};
-  isos = isos || [];
-  for (var i = 0; i < isos.length; i++) {
-    var iso = String(isos[i] || "").slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || seen[iso]) continue;
-    seen[iso] = true;
-    var d = null;
-    try { d = parseFlexibleDate_(iso, tz); } catch (eD) { d = null; }
-    if (!d) continue;
-    var dateText = formatSheetDate(d, tz);
+  try { memory = getMemoryCourierSheet_(); } catch (eM) { memory = null; }
+  if (!memory || memory.getLastRow() < 1) return out;
+  var data = memory.getDataRange().getValues();
+  var allow = {};
+  var mi;
+  for (mi = 0; mi < (monthKeys || []).length; mi++) {
+    var mk = String(monthKeys[mi] || "").slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(mk)) allow[mk] = true;
+  }
+  var any = false;
+  for (var ak in allow) if (allow.hasOwnProperty(ak)) any = true;
+  tz = tz || (ss && ss.getSpreadsheetTimeZone()) || "Europe/Minsk";
+  for (var r = 0; r < data.length; r++) {
+    var rawKey = String(data[r][0] || "");
+    if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(rawKey)) continue;
+    var parsed = parseMemoryDateLoose_(rawKey, tz);
+    if (!parsed) continue;
+    var iso = "";
+    try { iso = Utilities.formatDate(parsed, tz, "yyyy-MM-dd"); } catch (eIso) { iso = ""; }
+    if (!iso) continue;
+    if (any && !allow[iso.slice(0, 7)]) continue;
     var mem = null;
-    try { mem = getMemoryJson_(memory, dateText, tz); } catch (eJ) { mem = null; }
+    try { mem = JSON.parse(String(data[r][1] || "")); } catch (eJ) { mem = null; }
     if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") continue;
     for (var k in mem) {
       if (!Object.prototype.hasOwnProperty.call(mem, k)) continue;
-      if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(k)) continue;
-      var paid = ppPaidFlag_(mem[k]);
-      if (!paid) continue;
-      var ids = [];
+      var ent = mem[k];
+      var paid = "";
+      if (ent && typeof ent === "object") paid = String(ent.paid || "").toLowerCase();
+      else if (typeof ent === "string") paid = String(ent).toLowerCase();
+      if (paid !== "yes" && paid !== "no") continue;
       var ck = clientMatchKey_(k) || String(k).toUpperCase();
-      if (ck) ids.push(ck);
-      var label = mem[k] && mem[k].client ? (clientMatchKey_(mem[k].client) || "") : "";
-      if (label && ids.indexOf(label) < 0) ids.push(label);
-      for (var n = 0; n < ids.length; n++) {
-        var id = iso + "|" + ids[n];
-        if (map[id] === "yes") continue;
-        map[id] = paid;
-      }
+      if (!ck) continue;
+      var id = iso + "|" + ck;
+      if (out[id] !== "yes") out[id] = paid;
     }
   }
-  return map;
+  return out;
 }
 
-/**
- * Цена ПП один раз: слот с paid=yes, иначе младший слот с ценой и без paid=no.
- * Второй слот в выручку не плюсуется. Доставки остаются в bySource.
- */
-function foldPpPaidSlots_(ss, out, tz) {
+/** В ppPriceByKey остаётся цена одной доставки подписки. */
+function foldPpRevenueOnce_(out) {
   var rows = (out && out.ppSlotRows) || [];
-  if (!rows.length) return;
-  var isos = [];
-  for (var i = 0; i < rows.length; i++) isos.push(rows[i].iso);
-  var paidMap = {};
-  try { paidMap = readPpPaidByDate_(ss, isos, tz); } catch (ePaid) { paidMap = {}; }
-  var groups = {};
-  for (var r = 0; r < rows.length; r++) {
-    var row = rows[r];
-    var ck = String(row.ck || "");
-    var iso = String(row.iso || "").slice(0, 10);
-    if (!ck || !iso) continue;
-    var gk = ck + "|" + iso.slice(0, 7);
-    if (!groups[gk]) groups[gk] = [];
-    groups[gk].push({
-      slot: Number(row.slot) || 0,
-      price: Number(row.price) || 0,
-      paid: paidMap[iso + "|" + ck] || ""
+  var paidMap = (out && out._ppPaidByDate) || {};
+  var grouped = {};
+  var i;
+  for (i = 0; i < rows.length; i++) {
+    var rr = rows[i];
+    if (!rr || !rr.ck) continue;
+    if (!grouped[rr.ck]) grouped[rr.ck] = [];
+    grouped[rr.ck].push(rr);
+  }
+  var next = {};
+  var doubled = [];
+  for (var ck in grouped) {
+    if (!grouped.hasOwnProperty(ck)) continue;
+    var g = grouped[ck];
+    var priced = 0;
+    for (var a = 0; a < g.length; a++) if (Number(g[a].price) > 0) priced++;
+    if (priced >= 2) {
+      doubled.push({
+        key: ck,
+        name: g[0].name || ck,
+        slots: g.map(function (x) { return x.slot; }),
+        prices: g.map(function (x) { return x.price; })
+      });
+    }
+    var yes = [];
+    var open = [];
+    for (var b = 0; b < g.length; b++) {
+      var flag = paidMap[g[b].iso + "|" + ck] || "";
+      if (flag === "yes") yes.push(g[b]);
+      else if (flag !== "no") open.push(g[b]);
+    }
+    var pool = (yes.length ? yes : open).slice().sort(function (x, y) {
+      var xs = x.slot >= 1 ? x.slot : 9;
+      var ys = y.slot >= 1 ? y.slot : 9;
+      if (xs !== ys) return xs - ys;
+      return String(x.iso || "") < String(y.iso || "") ? -1 : 1;
     });
+    if (!pool.length) continue;
+    if (Number(pool[0].price) > 0) next[ck] = Number(pool[0].price);
   }
-  if (!out.ppPayKeys) out.ppPayKeys = {};
-  if (!out.ppPriceByKey) out.ppPriceByKey = {};
-  for (var gk in groups) {
-    if (!Object.prototype.hasOwnProperty.call(groups, gk)) continue;
-    var list = groups[gk];
-    var ck2 = gk.split("|")[0];
-    var chosen = null;
-    var sawNo = false;
-    var sawYes = false;
-    var i2;
-    for (i2 = 0; i2 < list.length; i2++) {
-      if (list[i2].paid === "yes") sawYes = true;
-      if (list[i2].paid === "no") sawNo = true;
-      if (list[i2].paid !== "yes" || !(list[i2].price > 0)) continue;
-      if (!chosen || list[i2].slot < chosen.slot) chosen = list[i2];
-    }
-    if (!chosen) {
-      for (i2 = 0; i2 < list.length; i2++) {
-        if (list[i2].paid === "no" || !(list[i2].price > 0)) continue;
-        if (!chosen || list[i2].slot < chosen.slot) chosen = list[i2];
-      }
-    }
-    var prevAmt = Number(out._ppFoldSum && out._ppFoldSum[ck2]) || 0;
-    if (!out._ppFoldSum) out._ppFoldSum = {};
-    if (chosen) out._ppFoldSum[ck2] = prevAmt + chosen.price;
-    else if (sawNo && !sawYes && out._ppFoldSum[ck2] == null) out._ppFoldSum[ck2] = 0;
-  }
-  for (var c in out._ppFoldSum) {
-    if (!Object.prototype.hasOwnProperty.call(out._ppFoldSum, c)) continue;
-    var amt = Math.round((Number(out._ppFoldSum[c]) || 0) * 100) / 100;
-    out.ppPayKeys[c] = amt > 0;
-    out.ppPriceByKey[c] = amt;
-  }
+  out.ppPriceByKey = next;
+  out.ppDoubleKeys = doubled;
 }
 
 /** Ключи ПП, которые идут в выручку и в factCost. bySource.pp не фильтруем. */
@@ -22063,6 +22043,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   }
 
   var seenKeys = {};
+  try {
+    var paidMonths = [];
+    if (want && /^\d{4}-\d{2}$/.test(want)) paidMonths = [want];
+    else if (fromIso || toIso) paidMonths = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
+    out._ppPaidByDate = readPpPaidByDate_(ss, paidMonths, tz);
+  } catch (ePaidMap) {
+    out._ppPaidByDate = {};
+  }
   // партнёры, которые платят себестоимость БП — наша затрата = 0
   var partnerPaysCost_ = {};
   try {
@@ -22115,14 +22103,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
     // ПП: в календарный оборот не кладём по каждому слоту — раз через collectPpActualOut_
-    // (цена один раз на слоте с paid=yes, иначе на младшем слоте с ценой).
+    // (N≥2 только paid=yes; N=1 — пока не paid=no).
     var revenueAdd = 0;
     var slotForced = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2);
     if (src === "pp" && ck) {
-      if (!out.ppSlotRows) out.ppSlotRows = [];
-      out.ppSlotRows.push({ ck: ck, iso: iso, slot: slotForced >= 1 ? slotForced : 0, price: price });
       var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
       if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
+      if (!out.ppSlotRows) out.ppSlotRows = [];
+      out.ppSlotRows.push({ ck: ck, iso: iso, slot: slotForced, price: price, name: String(row.client || "") });
       // слот доставки для фильтра «кто платит»
       if (!out.ppSlotByKey) out.ppSlotByKey = {};
       if (!out.ppMaxSlotByKey) out.ppMaxSlotByKey = {};
@@ -22241,6 +22229,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
+  try { foldPpRevenueOnce_(out); } catch (eFoldPp) {}
   // ПП затраты: один раз на клиента, когда pays-now (слот 1 / paid=yes).
   // N=2: сразу полный месяц (состав листа + 9×N), слот 2 не добавляет денег — только bySource.pp.
   try {
@@ -22250,7 +22239,6 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     var costMonthKeys = [];
     if (fromIso || toIso) costMonthKeys = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
     if (!costMonthKeys.length && /^\d{4}-\d{2}$/.test(want)) costMonthKeys = [want];
-    try { foldPpPaidSlots_(ss, out, tz); } catch (eFold) {}
     var ppCycleForCost = {};
     try { ppCycleForCost = readPpCycleStoreMerged_(ss, costMonthKeys, tz); } catch (eCy) { ppCycleForCost = {}; }
     var ppCostSum = 0;
@@ -22378,7 +22366,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Выручка ПП: цена слота с оплатой, иначе одна цена младшего открытого слота. Второй слот не суммируется. */
+/** Выручка ПП за месяц: цена подписки один раз, на доставке с paid=yes
+ *  или на слоте, где оплату ещё ждут. Вторая доставка не плюсуется. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   opts = opts || {};
   var out = {
