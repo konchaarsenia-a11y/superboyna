@@ -686,7 +686,8 @@ const AUTH_OWNER_RE = new RegExp(
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
-    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse)$"
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|" +
+    "listGoals|saveGoal|deleteGoal)$"
 );
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
@@ -1245,6 +1246,9 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
   if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
   if (a === "setDepartureWarehouse") return setDepartureWarehouse_(params, env);
+  if (a === "listGoals") return listGoals_(env);
+  if (a === "saveGoal") return saveGoal_(params, env);
+  if (a === "deleteGoal") return deleteGoal_(params, env);
 
   let res = await handleActionInner_(a, params, env, url, ctx);
   if (/^(setAccessRole|setAccessTimezone)$/i.test(a)) authInvalidateRole_(params.targetId);
@@ -2736,6 +2740,172 @@ async function setDepartureWarehouse_(params, env) {
   await env.DB.prepare("UPDATE warehouses SET is_departure = 0 WHERE active = 1").run();
   await env.DB.prepare("UPDATE warehouses SET is_departure = 1 WHERE id = ?").bind(id).run();
   return listWarehouses_(env);
+}
+
+/**
+ * Цели владельца (Бойня C). Отдельная таблица D1, лист «Прием заказов» и Code.gs не меняются.
+ * Синхронизация между устройствами — listGoals / saveGoal / deleteGoal, только owner.
+ *
+ * Telegram при закрытии показателя выключен.
+ * Включить позже: секрет Worker GOALS_TG_NOTIFY со значением ровно 1.
+ * Пусто, 0, off и любое другое значение — sendMessage не вызывается.
+ * PRIMA_ZAGAR_BOT_TOKEN этот хук не читает. При включённом флаге текст уходит
+ * через уже существующий TELEGRAM_BOT_TOKEN на id из OWNER_TELEGRAM_IDS.
+ */
+function goalsNotifyEnabled_(env) {
+  return String((env && env.GOALS_TG_NOTIFY) || "").trim() === "1";
+}
+
+function goalsShouldNotify_(env, kind, done, wasDone) {
+  if (!goalsNotifyEnabled_(env)) return false;
+  if (kind !== "metric") return false;
+  if (!done || wasDone) return false;
+  return true;
+}
+
+async function maybeNotifyGoalDone_(env, goal) {
+  if (!goalsNotifyEnabled_(env)) return { sent: false, reason: "disabled" };
+  const ids = authOwnerIds_(env);
+  const title = String((goal && (goal.title || goal.metricId || goal.id)) || "цель");
+  const text = "Цель закрыта: " + title;
+  let sent = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const r = await telegramSendTextWorker_(env, ids[i], text, null);
+    if (r && r.ok) sent++;
+  }
+  return { sent: sent > 0, reason: sent ? "sent" : "no_delivery" };
+}
+
+async function ensureGoals_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__goalsReady) return true;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS goals (" +
+      "id TEXT PRIMARY KEY, " +
+      "kind TEXT NOT NULL, " +
+      "horizon TEXT NOT NULL DEFAULT '', " +
+      "title TEXT NOT NULL DEFAULT '', " +
+      "done INTEGER NOT NULL DEFAULT 0, " +
+      "done_at TEXT NOT NULL DEFAULT '', " +
+      "metric_id TEXT NOT NULL DEFAULT '', " +
+      "target REAL, " +
+      "period TEXT NOT NULL DEFAULT '', " +
+      "date_from TEXT NOT NULL DEFAULT '', " +
+      "date_to TEXT NOT NULL DEFAULT '', " +
+      "created_at TEXT NOT NULL, " +
+      "updated_at TEXT NOT NULL" +
+    ")"
+  ).run();
+  env.__goalsReady = true;
+  return true;
+}
+
+function shapeGoal_(row) {
+  if (!row) return null;
+  const target = row.target == null || row.target === "" ? null : Number(row.target);
+  return {
+    id: String(row.id || ""),
+    kind: String(row.kind || ""),
+    horizon: String(row.horizon || ""),
+    title: String(row.title || ""),
+    done: Number(row.done) === 1,
+    doneAt: String(row.done_at || ""),
+    metricId: String(row.metric_id || ""),
+    target: target != null && isFinite(target) ? target : null,
+    period: String(row.period || ""),
+    dateFrom: String(row.date_from || ""),
+    dateTo: String(row.date_to || ""),
+    createdAt: String(row.created_at || ""),
+    updatedAt: String(row.updated_at || "")
+  };
+}
+
+async function listGoals_(env) {
+  if (!(await ensureGoals_(env))) return { status: "error", message: "Нет базы", action: "listGoals" };
+  const q = await env.DB.prepare("SELECT * FROM goals ORDER BY created_at ASC").all();
+  const rows = (q && q.results) || [];
+  return {
+    status: "success",
+    goals: rows.map(shapeGoal_),
+    notify: goalsNotifyEnabled_(env) ? "on" : "off"
+  };
+}
+
+const GOALS_HORIZONS_ = { day: 1, week: 1, month: 1, half: 1, year: 1 };
+const GOALS_PERIODS_ = { day: 1, week: 1, month: 1, half: 1, year: 1, custom: 1 };
+
+async function saveGoal_(params, env) {
+  if (!(await ensureGoals_(env))) return { status: "error", message: "Нет базы", action: "saveGoal" };
+  params = params || {};
+  const id = String(params.id || "").trim().slice(0, 64);
+  if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) return { status: "error", message: "Некорректный id" };
+  const kind = String(params.kind || "").trim();
+  if (kind !== "task" && kind !== "metric") return { status: "error", message: "Некорректный тип" };
+  const now = new Date().toISOString();
+  const prev = await env.DB.prepare("SELECT * FROM goals WHERE id = ?").bind(id).first();
+  const title = String(params.title != null ? params.title : (prev && prev.title) || "").trim().slice(0, 240);
+  const horizon = String(params.horizon != null ? params.horizon : (prev && prev.horizon) || "");
+  const metricId = String(params.metricId != null ? params.metricId : (prev && prev.metric_id) || "").slice(0, 40);
+  const period = String(params.period != null ? params.period : (prev && prev.period) || "");
+  const dateFrom = String(params.dateFrom != null ? params.dateFrom : (prev && prev.date_from) || "").slice(0, 10);
+  const dateTo = String(params.dateTo != null ? params.dateTo : (prev && prev.date_to) || "").slice(0, 10);
+  let target = params.target != null && params.target !== "" ? Number(params.target) : (prev ? prev.target : null);
+  if (target != null && !isFinite(target)) target = null;
+  let done;
+  if (params.done == null || params.done === "") done = !!(prev && Number(prev.done) === 1);
+  else done = params.done === true || params.done === 1 || params.done === "1" || params.done === "true";
+  let doneAt = String(params.doneAt != null ? params.doneAt : "").slice(0, 10);
+  if (!doneAt && done && prev && prev.done_at) doneAt = String(prev.done_at).slice(0, 10);
+  if (done && !doneAt) doneAt = now.slice(0, 10);
+  if (!done) doneAt = "";
+  if (kind === "task") {
+    if (!title) return { status: "error", message: "Пустой текст" };
+    if (!GOALS_HORIZONS_[horizon]) return { status: "error", message: "Некорректный горизонт" };
+  } else {
+    if (!metricId) return { status: "error", message: "Некорректный показатель" };
+    if (!(target > 0)) return { status: "error", message: "Укажите цель больше нуля" };
+    if (!GOALS_PERIODS_[period]) return { status: "error", message: "Некорректный период" };
+    if (period === "custom" && (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo))) {
+      return { status: "error", message: "Укажите даты" };
+    }
+  }
+  const created = prev ? String(prev.created_at || now) : now;
+  const wasDone = !!(prev && Number(prev.done) === 1);
+  await env.DB.prepare(
+    "INSERT INTO goals (id, kind, horizon, title, done, done_at, metric_id, target, period, date_from, date_to, created_at, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, horizon = excluded.horizon, title = excluded.title, " +
+      "done = excluded.done, done_at = excluded.done_at, metric_id = excluded.metric_id, target = excluded.target, " +
+      "period = excluded.period, date_from = excluded.date_from, date_to = excluded.date_to, updated_at = excluded.updated_at"
+  )
+    .bind(id, kind, horizon, title, done ? 1 : 0, doneAt, metricId, target, period, dateFrom, dateTo, created, now)
+    .run();
+  const goal = shapeGoal_({
+    id: id,
+    kind: kind,
+    horizon: horizon,
+    title: title,
+    done: done ? 1 : 0,
+    done_at: doneAt,
+    metric_id: metricId,
+    target: target,
+    period: period,
+    date_from: dateFrom,
+    date_to: dateTo,
+    created_at: created,
+    updated_at: now
+  });
+  let notify = { sent: false, reason: "skipped" };
+  if (goalsShouldNotify_(env, kind, done, wasDone)) notify = await maybeNotifyGoalDone_(env, goal);
+  return { status: "success", goal: goal, notify: notify };
+}
+
+async function deleteGoal_(params, env) {
+  if (!(await ensureGoals_(env))) return { status: "error", message: "Нет базы", action: "deleteGoal" };
+  const id = String((params && params.id) || "").trim();
+  if (!id) return { status: "error", message: "Некорректный id" };
+  await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
+  return { status: "success", id: id };
 }
 
 async function ensureMetaColumn_(env) {

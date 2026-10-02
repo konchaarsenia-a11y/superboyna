@@ -154,7 +154,7 @@ async function main() {
   await page.waitForSelector(".b-day", { timeout: 8000 });
   await page.locator(".b-badge").waitFor({ timeout: 8000 });
   const navOwner = await page.locator("#nxNav").getAttribute("data-nav-count");
-  if (navOwner !== "5") throw new Error("owner nav " + navOwner);
+  if (navOwner !== "6") throw new Error("owner nav " + navOwner);
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = 0; });
   await page.getByRole("heading", { name: "Заказы" }).waitFor();
   await shot(page, "next-orders-new-top.png");
