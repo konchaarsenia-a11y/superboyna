@@ -276,6 +276,107 @@
     return "";
   }
 
+  var WORD_RANK = {
+    "очень мелкое": 1,
+    "мелкое": 2,
+    "мелкий кубик": 3,
+    "среднее": 4,
+    "крупное": 5,
+    "целое": 6,
+    "ломтики": 7,
+    "полоски": 8,
+    "кусочки": 9,
+    "крошка": 10
+  };
+
+  function posRank(title) {
+    var n = String(title || "").toUpperCase().replace(/Ё/g, "Е");
+    if (/БАРАН/.test(n)) return 50;
+    if (/ЛЕГК/.test(n)) return 10;
+    if (/СЕРДЦ/.test(n)) return 20;
+    if (/ПОЧ/.test(n)) return 30;
+    if (/РУБ/.test(n)) return 40;
+    return 60;
+  }
+
+  function wordRank(word) {
+    if (!word) return 1000;
+    if (WORD_RANK[word] != null) return WORD_RANK[word];
+    return 500;
+  }
+
+  function gramsText(n) {
+    var x = Math.round(Number(n) * 10) / 10;
+    if (!(x > 0)) return "0";
+    if (Math.abs(x - Math.round(x)) < 0.05) return String(Math.round(x));
+    return String(x);
+  }
+
+  /* Итог сборки: каждая позиция дрессуры отдельно по sub (то же слово, что в строке заказа). */
+  function dressuraSummary(basket, pretty) {
+    var cut = typeof globalThis !== "undefined" ? globalThis.BoinyaCutFrac : null;
+    var groups = [];
+    var index = Object.create(null);
+    function add(name, grams, word) {
+      var title = "";
+      if (pretty) {
+        try { title = pretty(name) || ""; } catch (e) { title = ""; }
+      }
+      if (!title) title = titleOf(name, null);
+      var key = String(title || "").toLowerCase();
+      if (!key) return;
+      if (!index[key]) {
+        index[key] = { title: title, parts: [] };
+        groups.push(index[key]);
+      }
+      var row = null;
+      var i;
+      for (i = 0; i < index[key].parts.length; i++) {
+        if (index[key].parts[i].word === word) row = index[key].parts[i];
+      }
+      if (!row) {
+        row = { word: word, grams: 0 };
+        index[key].parts.push(row);
+      }
+      row.grams += grams;
+    }
+    (basket || []).forEach(function (it) {
+      if (!it || isCrumb(it)) return;
+      var cat = String(it.cat || "").toLowerCase();
+      if (cat === "chew" || cat === "chews" || cat === "other" || cat === "veg" || cat === "crumb") return;
+      var name = it.name || it.main || "";
+      if (cat !== "dressura" && !organKey(name)) return;
+      var grams = Number(it.val != null ? it.val : it.value) || 0;
+      if (!(grams > 0)) return;
+      var word = "";
+      if (cut && cut.phrase && cut.applies(it)) word = cut.phrase(it);
+      add(name, grams, word || "");
+    });
+    groups.sort(function (a, b) {
+      var d = posRank(a.title) - posRank(b.title);
+      if (d) return d;
+      return String(a.title).localeCompare(String(b.title), "ru");
+    });
+    groups.forEach(function (g) {
+      g.parts.sort(function (a, b) {
+        var d = wordRank(a.word) - wordRank(b.word);
+        if (d) return d;
+        return String(a.word).localeCompare(String(b.word), "ru");
+      });
+    });
+    return groups;
+  }
+
+  function dressuraSummaryHtml(groups) {
+    if (!groups || !groups.length) return "";
+    return '<div class="nx-orgs">' + groups.map(function (g) {
+      return (g.parts || []).map(function (p) {
+        var label = p.word ? (g.title + " " + p.word) : g.title;
+        return '<div class="nx-org"><span>' + esc(label) + "</span><b>" + esc(gramsText(p.grams)) + " г</b></div>";
+      }).join("");
+    }).join("") + "</div>";
+  }
+
   function organParts(basket) {
     var out = [];
     (basket || []).forEach(function (g) {
@@ -307,6 +408,8 @@
     singleLabel: singleLabel,
     genitive: genitive,
     organParts: organParts,
+    dressuraSummary: dressuraSummary,
+    dressuraSummaryHtml: dressuraSummaryHtml,
     isCrumb: isCrumb
   };
 });
