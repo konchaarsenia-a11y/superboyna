@@ -412,11 +412,9 @@
     var html = "";
     if (state.orderType === "pp") {
       html += '<button type="button" class="nx-link" data-act="from-pp">Из подписки ПП</button>';
-      if (Number(state.deliveriesN) >= 2) {
-        html += '<p class="b-lbl">Слот доставки</p><div class="b-seg">' +
-          segBtn("pp1", "ПП 1", state.ppSlotManual === 1) +
-          segBtn("pp2", "ПП 2", state.ppSlotManual === 2) + "</div>";
-      }
+      html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="b-seg">' +
+        segBtn("pp1", "ПП1", state.ppSlotManual === 1) +
+        segBtn("pp2", "ПП2", state.ppSlotManual === 2) + "</div>";
       html += '<p class="b-lbl">Цена ПП, BYN</p>' + field("priceInput", state.priceInput, "из листа ПП", 'inputmode="decimal"');
       if (ppFact && (ppFact.factCost != null || ppFact.statedCost != null)) {
         var fact = ppFact.factCost != null ? ppFact.factCost : ppFact.statedCost;
