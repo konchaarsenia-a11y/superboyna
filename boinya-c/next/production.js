@@ -899,15 +899,49 @@
     return bits.join(", ");
   }
 
+  function fracSlot(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    var frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (frac && (frac[1] === "1" || frac[1] === "2")) return frac[1];
+    return "";
+  }
+
+  function looseSlot(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (s === "1" || s === "2") return s;
+    var hint = s.match(/пп\s*([12])/i);
+    return hint ? hint[1] : "";
+  }
+
   function slotLabel(c) {
-    var raw = c && (c.ppSlot || c.deliverySlot || "");
-    var m = String(raw).match(/(\d+)/);
-    if (m && (m[1] === "1" || m[1] === "2")) return "ПП" + m[1];
+    var frac = fracSlot(c && c.ppSlot) || fracSlot(c && c.deliverySlot);
+    if (frac) return "ПП" + frac;
+    var hint = looseSlot(c && c.ppHint) || looseSlot(c && c.segment);
+    var bare = looseSlot(c && c.ppSlot) || looseSlot(c && c.deliverySlot);
+    if (hint === "2" && bare === "1") return "ПП2";
+    var n = bare || hint;
+    if (n === "1" || n === "2") return "ПП" + n;
     var seg = String((c && c.segment) || "");
-    if (/пп\s*1/i.test(seg)) return "ПП1";
-    if (/пп\s*2/i.test(seg)) return "ПП2";
     if (/пп/i.test(seg)) return "ПП";
     return seg;
+  }
+
+  function hm(raw) {
+    var s = String(raw || "").trim();
+    var m = s.match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return "";
+    var h = m[1];
+    if (h.length === 1) h = "0" + h;
+    return h + ":" + m[2];
+  }
+
+  function windowLabel(c) {
+    var a = hm(c && c.deliveryAfter);
+    var b = hm(c && c.deliveryBefore);
+    if (a && b) return "от " + a + " до " + b;
+    if (a) return "от " + a;
+    if (b) return "до " + b;
+    return "";
   }
 
   function counterRow(pairs) {
@@ -954,6 +988,7 @@
       var dog = who[0] || "";
       var nick = who[1] || who[0] || c.name || "Клиент";
       var slot = slotLabel(c);
+      var when = windowLabel(c);
       var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
       var accent = [slot, price].filter(Boolean).join(", ");
       var basket = basketLinesHtml(c.basket);
@@ -963,6 +998,7 @@
         '<p class="nx-addr">' + esc(addr || "Адрес не указан") + "</p>" +
         '<p class="b-note">' + esc(priv || "Этаж и квартира не указаны") + "</p>" +
         (note ? '<p class="b-note">' + esc(note) + "</p>" : "") +
+        (when ? '<p class="nx-accent">' + esc(when) + "</p>" : "") +
         (accent ? '<p class="nx-accent">' + esc(accent) + "</p>" : "") +
         '<section class="nx-pack-grp"><div class="nx-grp">Состав набора</div>' +
         (basket || '<p class="b-note">Состав не указан</p>') + "</section>" +
@@ -1611,6 +1647,8 @@
     bind: function (a) { access = a; },
     show: show,
     onAct: onAct,
-    seg: function () { return seg; }
+    seg: function () { return seg; },
+    slotLabel: slotLabel,
+    windowLabel: windowLabel
   };
 })(typeof window !== "undefined" ? window : globalThis);

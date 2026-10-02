@@ -240,17 +240,24 @@
     return y + "-" + (m < 10 ? "0" : "") + m;
   }
 
-  async function remindLight() {
-    if (!access || access.role !== "owner") return;
-    try { if (sessionStorage.getItem("nx_light_asked_v1") === "1") return; } catch (eS) {}
-    var month = prevMonthKey(new Date());
-    var res = await pull(month);
-    var rows = (res && res.expenses) || [];
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      if (rows[i].category === "light" && !rows[i].personal) return;
+  var lightMonth = null;
+  var lightAt = 0;
+
+  function paintLightCard() {
+    var box = document.getElementById("nxLightCard");
+    if (!box) return;
+    if (!lightMonth) {
+      box.innerHTML = "";
+      return;
     }
-    try { sessionStorage.setItem("nx_light_asked_v1", "1"); } catch (e2) {}
+    var label = statsLogic().statsMonthLabelRu_(lightMonth);
+    box.innerHTML = '<button type="button" class="b-card" data-act="ex-light-open" data-month="' + esc(lightMonth) + '" style="width:100%;text-align:left;margin:0 0 12px">' +
+      "<b>Внести свет за " + esc(label) + "</b>" +
+      '<p class="b-note" style="margin:6px 0 0">Нажмите, когда будет сумма</p></button>';
+  }
+
+  function openLight(month) {
+    if (!month) return;
     var label = statsLogic().statsMonthLabelRu_(month);
     sh().openSheet({
       title: "Свет",
@@ -259,6 +266,27 @@
         '<label class="b-field"><input class="b-field__input" id="exLightAmount" inputmode="decimal" placeholder="Сумма"></label>' +
         '<button type="button" class="b-btn b-btn--main" style="margin-top:12px" data-act="ex-light" data-month="' + esc(month) + '">Записать в расходы</button>'
     });
+  }
+
+  async function refreshLightCard() {
+    if (!access || access.role !== "owner") return;
+    paintLightCard();
+    if (lightMonth !== null && Date.now() - lightAt < 60000) return;
+    var month = prevMonthKey(new Date());
+    var res = await pull(month);
+    var rows = (res && res.expenses) || [];
+    var has = false;
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].category === "light" && !rows[i].personal) has = true;
+    }
+    lightMonth = has ? "" : month;
+    lightAt = Date.now();
+    paintLightCard();
+  }
+
+  async function remindLight() {
+    return refreshLightCard();
   }
 
   async function saveLight(month) {
@@ -283,6 +311,11 @@
       });
     } catch (e) { res = null; }
     if (!res || res.status !== "success") { sh().toast("Не записалось"); return; }
+    if (lightMonth === month) {
+      lightMonth = "";
+      lightAt = Date.now();
+      paintLightCard();
+    }
     sh().closeAll();
     sh().toast("Свет записан");
     if (monthKey === month && document.getElementById("expRoot")) {
@@ -304,6 +337,7 @@
     }
     if (act === "ex-save") { save(node.getAttribute("data-personal") === "1"); return true; }
     if (act === "ex-del") { remove(node.getAttribute("data-id")); return true; }
+    if (act === "ex-light-open") { openLight(node.getAttribute("data-month") || lightMonth || ""); return true; }
     if (act === "ex-light") { saveLight(node.getAttribute("data-month") || ""); return true; }
     return false;
   }
@@ -312,6 +346,7 @@
     bind: bind,
     showInto: showInto,
     onAct: onAct,
-    remindLight: remindLight
+    remindLight: remindLight,
+    refreshLightCard: refreshLightCard
   };
 })(typeof window !== "undefined" ? window : globalThis);

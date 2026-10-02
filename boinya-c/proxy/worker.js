@@ -9049,14 +9049,21 @@ async function enrichCourierClientPp_(c, env, dateIso) {
       if (sub && sub.found) deliveriesN = Math.max(1, Number(sub.deliveries) || 1);
     } catch (eSub) {}
   }
+  const hintSlot = c.ppHint ? parseForcedPpSlotD1_(c.ppHint, deliveriesN || 2) : 0;
   if (!deliverySlot && ppSlot) deliverySlot = parseForcedPpSlotD1_(ppSlot, deliveriesN || 2);
+  // залипшая «1» без дроби не перекрывает явную подпись «ПП 2»
+  if (hintSlot === 2 && deliverySlot <= 1 && !/^\d+\s*\/\s*\d+$/.test(String(c.ppSlot || ""))) {
+    deliverySlot = 2;
+  }
+  if (!deliverySlot && hintSlot) deliverySlot = hintSlot;
   if (!deliverySlot && dateIso && c.matchKey) {
     try {
       const stored = await lookupStoredPpSlotDateD1_(env, c.name, c.matchKey, dateIso);
       if (stored >= 1) deliverySlot = stored;
     } catch (eSt) {}
   }
-  if (!deliverySlot) deliverySlot = 1;
+  // Неизвестный слот при N≥2 не подменяем на 1: иначе ПП2 рисуется как ПП1.
+  if (!deliverySlot && deliveriesN === 1) deliverySlot = 1;
   // всегда пересобрать бейдж по реальному N с листа (не оставлять залипший «1/2» при N=1)
   if (deliveriesN >= 1) {
     ppSlot = formatPpSlotLabelD1_(deliverySlot, deliveriesN);

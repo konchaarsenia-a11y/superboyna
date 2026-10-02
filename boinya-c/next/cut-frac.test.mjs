@@ -114,9 +114,10 @@ test("live getClients rows have sub and no frac", () => {
   items.forEach(function (it) {
     assert.equal(cut.catalogWord(it.name, it.sub), eng.humanFraction(it.name, it.sub));
     if (it.cat === "other" || it.cat === "veg") assert.equal(cut.phrase(it), "");
-    if (it.cat === "chew" || it.cat === "dressura") {
+    if ((it.cat === "chew" || it.cat === "dressura") && !/^крошк/i.test(String(it.sub || ""))) {
       assert.equal(cut.phrase(it), eng.humanFraction(it.name, it.sub));
     }
+    if (/^крошк/i.test(String(it.sub || ""))) assert.equal(cut.phrase(it), "");
   });
 });
 
@@ -137,7 +138,8 @@ test("assembly shows live sub for dressura and chew", () => {
   assert.match(html, new RegExp("Лёгкое " + lungFine.val + " г мелкий кубик"));
   assert.match(html, new RegExp("Рубец Т " + rumen.val + " г среднее"));
   assert.match(html, new RegExp("Сердце " + heart.val + " г мелкое"));
-  assert.match(html, new RegExp("Почки " + kidney.val + " г крошка"));
+  assert.match(html, new RegExp("Крошка почек — " + kidney.val + " г"));
+  assert.doesNotMatch(line(kidney), /Почки .*крошка/i);
   assert.match(html, new RegExp("Трахея " + trach.val + " шт средние"));
   assert.match(html, new RegExp("Бычий корень " + rootChew.val + " шт большие"));
   assert.match(html, new RegExp("Ухо Г " + ear.val + " шт"));

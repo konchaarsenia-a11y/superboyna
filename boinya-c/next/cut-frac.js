@@ -32,6 +32,7 @@
     if (!it) return false;
     if (String(it.cat || "").toLowerCase() === "crumb" || it.crumbKind) return true;
     if (Array.isArray(it.sources) && it.sources.length) return true;
+    if (/^крошк/i.test(String(it.sub || "").trim())) return true;
     return /^крошка(?:\s|$)/i.test(String(it.name || it.main || "").trim());
   }
 
