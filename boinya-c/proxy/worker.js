@@ -691,7 +691,7 @@ const AUTH_OWNER_RE = new RegExp(
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
 const AUTH_TAB_RULES = [
-  { re: /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i, tabs: ["statsScreen"] },
+  { re: /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|getStatsMonthSetup|saveStatsMonthMoney|saveStatsRoles)$/i, tabs: ["statsScreen"] },
   { re: /^saveRetailPrices$/i, tabs: ["retailPriceScreen"] },
   {
     re: /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|pullClientsFromMonth|materializeWeek|setWeekBannerState|ensureBpFromOrder|markBpTouch|recordBpToPpConversion|enrollDeferredToPp|saveClientProfile|deleteClientBatch|moveClientBatch)$/i,
@@ -1241,6 +1241,9 @@ async function handleAction_(action, params, env, url, ctx) {
     return liveSch && typeof liveSch === "object" ? liveSch : { status: "error", message: "gas_proxy_failed", action: a };
   }
   if (a === "unlockSubs") return unlockSubs_(params, actor, env);
+  if (a === "getStatsMonthSetup") return getStatsMonthSetup_(params, env);
+  if (a === "saveStatsMonthMoney") return saveStatsMonthMoney_(params, env);
+  if (a === "saveStatsRoles") return saveStatsRoles_(params, env);
   if (a === "listWarehouses") return listWarehouses_(env);
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
   if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
@@ -2676,6 +2679,119 @@ async function ensureWarehouses_(env) {
   }
   env.__whReady = true;
   return true;
+}
+
+function statsMoneyOrNull_(v) {
+  if (v == null || v === "") return null;
+  const n = Number(String(v).replace(",", "."));
+  return isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+async function ensureStatsMoney_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__statsMoneyReady) return true;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS stats_month_money (" +
+      "month TEXT PRIMARY KEY, rent REAL, light_bill REAL, pack_bill REAL, amort REAL, smm REAL, other REAL, updated_at TEXT)"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS stats_role_assign (" +
+      "role TEXT NOT NULL, tg_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', from_month TEXT NOT NULL, updated_at TEXT, PRIMARY KEY (role, from_month))"
+  ).run();
+  env.__statsMoneyReady = true;
+  return true;
+}
+
+async function getStatsMonthSetup_(params, env) {
+  const month = String((params && (params.month || params.monthKey)) || "").slice(0, 7);
+  const blankPerson = { tgId: "", name: "", fromMonth: "" };
+  const empty = {
+    status: "success",
+    month: month,
+    rent: 900,
+    rentEntered: false,
+    rentFrom: "",
+    lightBill: null,
+    packBill: null,
+    amort: null,
+    smm: null,
+    other: null,
+    cutter: blankPerson,
+    courier: blankPerson
+  };
+  if (!/^\d{4}-\d{2}$/.test(month)) return Object.assign({}, empty, { status: "error", message: "month" });
+  if (!env || !env.DB) return empty;
+  try {
+    await ensureStatsMoney_(env);
+    const row = await env.DB.prepare("SELECT * FROM stats_month_money WHERE month = ?").bind(month).first();
+    const rentRow = await env.DB.prepare(
+      "SELECT month, rent FROM stats_month_money WHERE month <= ? AND rent IS NOT NULL ORDER BY month DESC LIMIT 1"
+    ).bind(month).first();
+    const cutter = await env.DB.prepare(
+      "SELECT tg_id, name, from_month FROM stats_role_assign WHERE role = 'cutter' AND from_month <= ? ORDER BY from_month DESC LIMIT 1"
+    ).bind(month).first();
+    const courier = await env.DB.prepare(
+      "SELECT tg_id, name, from_month FROM stats_role_assign WHERE role = 'courier' AND from_month <= ? ORDER BY from_month DESC LIMIT 1"
+    ).bind(month).first();
+    function person(rowP) {
+      if (!rowP) return blankPerson;
+      return { tgId: String(rowP.tg_id || ""), name: String(rowP.name || ""), fromMonth: String(rowP.from_month || "") };
+    }
+    return {
+      status: "success",
+      month: month,
+      rent: rentRow && rentRow.rent != null ? Number(rentRow.rent) : 900,
+      rentEntered: !!(rentRow && rentRow.rent != null),
+      rentFrom: rentRow ? String(rentRow.month || "") : "",
+      lightBill: row && row.light_bill != null ? Number(row.light_bill) : null,
+      packBill: row && row.pack_bill != null ? Number(row.pack_bill) : null,
+      amort: row && row.amort != null ? Number(row.amort) : null,
+      smm: row && row.smm != null ? Number(row.smm) : null,
+      other: row && row.other != null ? Number(row.other) : null,
+      cutter: person(cutter),
+      courier: person(courier)
+    };
+  } catch (eSetup) {
+    return empty;
+  }
+}
+
+async function saveStatsMonthMoney_(params, env) {
+  const month = String((params && (params.month || params.monthKey)) || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return { status: "error", message: "month" };
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureStatsMoney_(env);
+  await env.DB.prepare(
+    "INSERT INTO stats_month_money (month, rent, light_bill, pack_bill, amort, smm, other, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(month) DO UPDATE SET rent = excluded.rent, light_bill = excluded.light_bill, pack_bill = excluded.pack_bill, amort = excluded.amort, smm = excluded.smm, other = excluded.other, updated_at = excluded.updated_at"
+  ).bind(
+    month,
+    statsMoneyOrNull_(params && params.rent),
+    statsMoneyOrNull_(params && params.lightBill),
+    statsMoneyOrNull_(params && params.packBill),
+    statsMoneyOrNull_(params && params.amort),
+    statsMoneyOrNull_(params && params.smm),
+    statsMoneyOrNull_(params && params.other),
+    new Date().toISOString()
+  ).run();
+  return getStatsMonthSetup_({ month: month }, env);
+}
+
+async function saveStatsRoles_(params, env) {
+  const month = String((params && (params.month || params.fromMonth)) || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return { status: "error", message: "month" };
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureStatsMoney_(env);
+  const now = new Date().toISOString();
+  async function put(role, tg, name) {
+    await env.DB.prepare(
+      "INSERT INTO stats_role_assign (role, tg_id, name, from_month, updated_at) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(role, from_month) DO UPDATE SET tg_id = excluded.tg_id, name = excluded.name, updated_at = excluded.updated_at"
+    ).bind(role, String(tg || ""), String(name || ""), month, now).run();
+  }
+  await put("cutter", params && params.cutterTgId, params && params.cutterName);
+  await put("courier", params && params.courierTgId, params && params.courierName);
+  return getStatsMonthSetup_({ month: month }, env);
 }
 
 async function listWarehouses_(env) {

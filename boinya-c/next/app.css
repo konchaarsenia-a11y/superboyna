@@ -209,9 +209,38 @@ body.nx-kb #nxNav {
   justify-content: space-between;
 }
 
-.nx-stats .nx-stat__num {
+.nx-statpage,
+.nx-statpage .b-card,
+.nx-statpage .nx-line {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.nx-statpage .nx-line {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.nx-statpage .nx-line > span {
+  min-width: 0;
+}
+
+.nx-statpage .nx-stat__num {
   white-space: nowrap;
   flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+}
+
+.nx-statpage .nx-line--wait {
+  color: var(--b-text-3);
+}
+
+.nx-statpage .nx-bill .b-field__input {
+  width: 7.5rem;
+  max-width: 46%;
+  flex: 0 0 auto;
+  text-align: right;
 }
 
 .nx-stats .nx-tiles .nx-stat__num {
