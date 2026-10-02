@@ -743,6 +743,12 @@
         });
         applyCrumbBasketNames_(row);
       }
+      if (row.cat !== "crumb") {
+        var fracCode = String(x.frac || "").trim().toLowerCase();
+        var fracCat = String(row.cat || "").toLowerCase();
+        if ((fracCode === "s" || fracCode === "m" || fracCode === "l") &&
+            (fracCat === "chew" || fracCat === "chews" || fracCat === "dressura")) row.frac = fracCode;
+      }
       return row;
     }
 
@@ -1221,6 +1227,11 @@
             if (srcRatio) row.ratio.push(srcRatio[i]);
           });
           applyCrumbBasketNames_(row);
+        } else {
+          var fracCodeIn = String(x.frac || "").trim().toLowerCase();
+          var fracCatIn = String(cat || "").toLowerCase();
+          if ((fracCodeIn === "s" || fracCodeIn === "m" || fracCodeIn === "l") &&
+              (fracCatIn === "chew" || fracCatIn === "chews" || fracCatIn === "dressura")) row.frac = fracCodeIn;
         }
         return row;
       }).filter(function (x) { return x.main && Number(x.value) > 0; });

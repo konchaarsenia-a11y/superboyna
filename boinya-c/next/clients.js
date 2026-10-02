@@ -270,7 +270,10 @@
         return (eng() && eng().prettyProductName) ? eng().prettyProductName(name) : name;
       }) + "</div>";
     } else {
-      body = '<span class="b-grow">' + esc(lineTitle(it) + " · " + (val || 0) + " " + lineUnit(it)) + "</span>";
+      var fracHtml = "";
+      var cut = root.BoinyaCutFrac;
+      if (cut && cut.applies(it)) fracHtml = cut.chipsHtml(it.frac, 'data-act="cl-frac" data-i="' + i + '"');
+      body = '<div class="b-grow"><span>' + esc(lineTitle(it) + " · " + (val || 0) + " " + lineUnit(it)) + "</span>" + fracHtml + "</div>";
     }
     return '<div class="b-row" style="margin-top:6px">' + body +
       '<button type="button" class="b-chip" data-act="cl-del-line" data-i="' + i + '">Удалить</button></div>';
@@ -1267,6 +1270,19 @@
     if (act === "cl-add" || act === "cl-manual") { openAdd(); return true; }
     if (act === "cl-cat") { pickerCat(node.getAttribute("data-cat")); return true; }
     if (act === "cl-sku") { askQty(node.getAttribute("data-cat"), node.getAttribute("data-name")); return true; }
+    if (act === "cl-frac") {
+      var lines = activeBasket().slice();
+      var fi = Number(node.getAttribute("data-i"));
+      var line = lines[fi];
+      var cut = root.BoinyaCutFrac;
+      if (!line || !cut || !cut.applies(line)) return true;
+      var nextFrac = node.getAttribute("data-frac") || "";
+      line.frac = line.frac === nextFrac ? "" : nextFrac;
+      cut.keep(line);
+      setActiveBasket(lines);
+      paint();
+      return true;
+    }
     if (act === "cl-del-line") {
       var list = activeBasket().slice();
       list.splice(Number(node.getAttribute("data-i")), 1);
@@ -1418,7 +1434,9 @@
     var qty = await sh().prompt({ title: eng().prettyProductName(name), text: "Объём", value: cat === "chew" ? "1" : "100", ok: "В состав" });
     if (qty == null || !String(qty).trim()) return;
     var list = activeBasket().slice();
-    list.push({ cat: cat, main: name, name: name, sub: sub || "", val: Number(String(qty).replace(",", ".")) || 0, value: Number(String(qty).replace(",", ".")) || 0 });
+    var added = { cat: cat, main: name, name: name, sub: sub || "", val: Number(String(qty).replace(",", ".")) || 0, value: Number(String(qty).replace(",", ".")) || 0 };
+    if (root.BoinyaCutFrac) root.BoinyaCutFrac.stampNew(added);
+    list.push(added);
     setActiveBasket(list);
     sh().closeTop("ok");
     paint();

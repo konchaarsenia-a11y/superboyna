@@ -110,7 +110,15 @@
       if (!g) return "";
       var nm = prettyName(g.name || g.main || "");
       var val = g.val != null ? g.val : g.value;
-      var bit = val != null && val !== "" ? (" " + val + (g.unit ? " " + g.unit : "")) : "";
+      var unit = g.unit || "";
+      var word = "";
+      var cut = root.BoinyaCutFrac;
+      if (cut && cut.applies(g)) {
+        word = cut.label(g.frac);
+        if (word && !unit) unit = cut.defaultUnit(g);
+      }
+      var bit = val != null && val !== "" ? (" " + val + (unit ? " " + unit : "")) : "";
+      if (word) bit += " " + word;
       return "<div>" + esc(nm + bit) + "</div>";
     }).filter(Boolean).join("");
   }
@@ -252,6 +260,14 @@
     return html + "</p>";
   }
 
+  function cutSizesNote(item) {
+    var cut = root.BoinyaCutFrac;
+    if (!cut || !item || !item.sizes) return "";
+    var text = cut.sizesText(item.sizes, item.unit);
+    if (!text) return "";
+    return '<p class="b-note">' + esc(text) + "</p>";
+  }
+
   function paintCutRow(it, readonly) {
     var key = cutKey(it);
     var dry = it.unit === "шт" ? (it.dry + " шт") : (it.dry + " гр сухого");
@@ -263,6 +279,7 @@
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
     html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? ", излишек " + esc(String(it.surplus)) : "") + "</p>";
     html += cutNote(it);
+    html += cutSizesNote(it);
     if (!readonly) {
       html += '<button type="button" class="b-btn nx-cut-btn ' + (it.laid ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-laid" data-key="' + esc(key) + '">Выложено</button>';
       html += '<button type="button" class="b-btn nx-cut-btn ' + (it.done ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-done" data-key="' + esc(key) + '">Нарезано</button>';

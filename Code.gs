@@ -6016,7 +6016,9 @@ function normalizeBasketAliases_(basket) {
     var sub = String(it.sub || "").trim();
     var val = Number(it.val != null ? it.val : it.value) || 0;
     if (!name || val <= 0) continue;
-    var key = name.toUpperCase() + "|" + sub.toUpperCase() + "|" + String(it.dog || "");
+    var fracKey = String(it.frac || "").trim().toLowerCase();
+    if (fracKey !== "s" && fracKey !== "m" && fracKey !== "l") fracKey = "";
+    var key = name.toUpperCase() + "|" + sub.toUpperCase() + "|" + String(it.dog || "") + "|" + fracKey;
     if (!map[key]) {
       map[key] = it;
       map[key].val = val;

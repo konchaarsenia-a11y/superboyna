@@ -240,7 +240,15 @@
     }
     var nm = titleOf(g.name || g.main || "", pretty);
     var v = g.val != null ? g.val : g.value;
-    var tail = v != null && v !== "" ? (" " + v + (g.unit ? " " + g.unit : "")) : "";
+    var unit = g.unit || "";
+    var word = "";
+    var cut = typeof globalThis !== "undefined" ? globalThis.BoinyaCutFrac : null;
+    if (cut && cut.applies(g)) {
+      word = cut.label(g.frac);
+      if (word && !unit) unit = cut.defaultUnit(g);
+    }
+    var tail = v != null && v !== "" ? (" " + v + (unit ? " " + unit : "")) : "";
+    if (word) tail += " " + word;
     return "<div>" + esc(nm + tail) + "</div>";
   }
 
