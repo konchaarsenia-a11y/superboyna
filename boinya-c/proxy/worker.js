@@ -7763,6 +7763,18 @@ function crumbParentFromBasketName_(name) {
 }
 
 function cuttingItemsFromPeople_(people, warehouseItems) {
+  function chewCutFrac_(it) {
+    if (!it || isCrumbBasketItemD1_(it)) return "";
+    const cat = String(it.cat || "").toLowerCase();
+    let chew = false;
+    if (cat === "chew" || cat === "chews") chew = true;
+    else if (cat === "dressura" || cat === "other" || cat === "veg" || cat === "crumb") chew = false;
+    else chew = isChewProductNameD1_(it.main || it.name || "");
+    if (!chew) return "";
+    const f = String(it.frac || "").trim().toLowerCase();
+    if (f === "s" || f === "m" || f === "l") return f;
+    return "";
+  }
   const coefByName = Object.create(null);
   (warehouseItems || []).forEach(function (w) {
     const nm = String((w && w.name) || "").trim().toUpperCase();
@@ -7786,10 +7798,16 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
           name: key === "ЛОП ХРЯЩ" ? "ЛОП ХРЯЩ шт." : name,
           dry: 0,
           cat: it.cat || "",
-          unitHint: it.unit || ""
+          unitHint: it.unit || "",
+          sizeMap: null
         };
       }
       acc[key].dry += val;
+      const cutFrac = chewCutFrac_(it);
+      if (cutFrac) {
+        if (!acc[key].sizeMap) acc[key].sizeMap = { s: 0, m: 0, l: 0 };
+        acc[key].sizeMap[cutFrac] += val;
+      }
     });
   });
   const items = [];
@@ -7800,7 +7818,7 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       const piece = isPieceSku_(it.name, it.cat, it.unitHint);
       const coef = coefByName[k] || 0.2;
       const raw = piece ? it.dry : it.dry / 1000 / (coef || 0.2);
-      items.push({
+      const row = {
         row: 0,
         name: it.name,
         dry: Math.round(it.dry * 100) / 100,
@@ -7811,7 +7829,15 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
         laid: false,
         outNext: false,
         fromCalendar: true
-      });
+      };
+      if (it.sizeMap) {
+        const sizes = [];
+        ["s", "m", "l"].forEach(function (code) {
+          if (it.sizeMap[code] > 0) sizes.push({ frac: code, dry: Math.round(it.sizeMap[code] * 100) / 100 });
+        });
+        if (sizes.length) row.sizes = sizes;
+      }
+      items.push(row);
     });
   return items;
 }
@@ -7895,12 +7921,27 @@ function collapseCuttingAliasDups_(items) {
     if (allSame) return first;
     let dry = 0;
     let raw = 0;
+    const sizeMap = { s: 0, m: 0, l: 0 };
+    let anySize = false;
     list.forEach(function (it) {
       dry += Number(it.dry) || 0;
       raw += Number(it.raw) || 0;
+      (it.sizes || []).forEach(function (s) {
+        const c = String((s && s.frac) || "");
+        if (c !== "s" && c !== "m" && c !== "l") return;
+        sizeMap[c] += Number(s.dry) || 0;
+        anySize = true;
+      });
     });
     first.dry = Math.round(dry * 100) / 100;
     first.raw = Math.round(raw * 100) / 100;
+    if (anySize) {
+      const sizes = [];
+      ["s", "m", "l"].forEach(function (c) {
+        if (sizeMap[c] > 0) sizes.push({ frac: c, dry: Math.round(sizeMap[c] * 100) / 100 });
+      });
+      if (sizes.length) first.sizes = sizes;
+    }
     return first;
   });
 }
