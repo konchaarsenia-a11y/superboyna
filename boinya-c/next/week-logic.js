@@ -373,6 +373,96 @@
     return 0;
   }
 
+  function peopleCount(byDate) {
+    var n = 0;
+    if (!byDate || typeof byDate !== "object") return 0;
+    Object.keys(byDate).forEach(function (k) {
+      var list = byDate[k];
+      if (Array.isArray(list)) n += list.length;
+    });
+    return n;
+  }
+
+  /* Пустой ответ месяца доверяем только если обзор месяца тоже пустой.
+     Иначе D1 ещё не догнал бейджи и день нельзя показывать пустым. */
+  function monthPeopleReady(pack, overview) {
+    if (!pack || !pack.byDate || typeof pack.byDate !== "object") return false;
+    if (pack.source === "d1-error" || pack.source === "nodb") return false;
+    if (peopleCount(pack.byDate) > 0) return true;
+    if (!overview || !Array.isArray(overview.days)) return false;
+    var expect = 0;
+    overview.days.forEach(function (d) { expect += Number(d && d.count) || 0; });
+    return expect === 0;
+  }
+
+  function peopleForDate(pack, iso) {
+    if (!pack || !pack.byDate) return [];
+    var list = pack.byDate[String(iso || "").slice(0, 10)];
+    return Array.isArray(list) ? list : [];
+  }
+
+  function resFromPeople(iso, list) {
+    var people = Array.isArray(list) ? list : [];
+    var dayName = "";
+    for (var i = 0; i < people.length; i++) {
+      if (people[i] && people[i].day) { dayName = String(people[i].day); break; }
+    }
+    var onWeek = !!dayName;
+    return {
+      status: "success",
+      day: onWeek ? dayName : "",
+      dateIso: String(iso || "").slice(0, 10),
+      dateNotInWeek: !onWeek,
+      week: onWeek ? people.slice() : [],
+      month: onWeek ? [] : people.slice(),
+      source: "month-people"
+    };
+  }
+
+  /* Клик по дню: сразу список из уже загруженного месяца или кэша,
+     иначе скелетон и один дозапрос. Не ждём сеть, чтобы перерисовать сетку. */
+  function dayOpenPlan(opts) {
+    opts = opts || {};
+    var now = Number(opts.now) || 0;
+    var ttl = Number(opts.ttl) > 0 ? Number(opts.ttl) : 30000;
+    var staleTtl = Number(opts.staleTtl) > 0 ? Number(opts.staleTtl) : 300000;
+    var date = String(opts.date || "").slice(0, 10);
+    if (Array.isArray(opts.people)) {
+      return {
+        paint: "clients",
+        source: "month",
+        listLoading: false,
+        fetch: "none",
+        skeletonRows: 0,
+        res: resFromPeople(date, opts.people)
+      };
+    }
+    var hit = opts.cached;
+    if (hit && hit.res && hit.res.status === "success") {
+      var age = now - (Number(hit.at) || 0);
+      if (age >= 0 && age < staleTtl) {
+        return {
+          paint: "clients",
+          source: age < ttl ? "cache" : "stale",
+          listLoading: false,
+          fetch: age < ttl ? "none" : "background",
+          skeletonRows: 0,
+          res: hit.res
+        };
+      }
+    }
+    var n = Number(opts.overviewCount);
+    if (!isFinite(n) || n < 0) n = 0;
+    return {
+      paint: "skeleton",
+      source: "overview",
+      listLoading: true,
+      fetch: "now",
+      skeletonRows: n > 0 ? Math.min(n, 8) : 3,
+      res: null
+    };
+  }
+
   function basketLine(c) {
     var list = (c && c.basket) || [];
     if (!list.length) {
@@ -391,6 +481,10 @@
     FULL_FROM: FULL_FROM,
     fullDayPrompt: fullDayPrompt,
     countFromMonth: countFromMonth,
+    monthPeopleReady: monthPeopleReady,
+    peopleForDate: peopleForDate,
+    resFromPeople: resFromPeople,
+    dayOpenPlan: dayOpenPlan,
     segmentToOrderType: segmentToOrderType,
     orderTypeToSegment: orderTypeToSegment,
     resolveOrderType: resolveOrderType,

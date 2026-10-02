@@ -1742,6 +1742,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
   if (a === "getViewCompare") return getViewCompare_(params, env);
   if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
   if (a === "getMonthOverview") return getMonthOverview_(params, env);
+  if (a === "getCalendarMonthPeople") return getCalendarMonthPeople_(params, env);
   if (a === "getWeekBannerState") return getSnap_(env, "weekBanner", defaultBanner_(params));
   if (a === "getCutting") return getCutting_(params, env);
   if (a === "getCourier") return getCourier_(params, env);
@@ -8715,6 +8716,55 @@ async function getMonthOverview_(params, env) {
     return overlayWeekSheetCountsOnMonth_(env, hit);
   }
   return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
+}
+
+function monthEndExclusive_(month) {
+  const p = String(month || "").split("-");
+  let y = Number(p[0]);
+  let m = Number(p[1]) + 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  return y + "-" + (m < 10 ? "0" : "") + m + "-01";
+}
+
+/** Лёгкий список людей месяца одним SELECT. Старые getViewCompare / getMonthOverview не меняет. */
+async function getCalendarMonthPeople_(params, env) {
+  const month = monthKeyFromParam_(params && params.month);
+  if (!month) {
+    return { status: "success", month: "", byDate: {}, total: 0, source: "empty" };
+  }
+  if (!env || !env.DB) {
+    return { status: "success", month: month, byDate: {}, total: 0, source: "nodb" };
+  }
+  const start = month + "-01";
+  const end = monthEndExclusive_(month);
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT client, match_key, address, phone, note, basket_json, date_iso, day_name, segment, source, meta_json, updated_at FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso < ? LIMIT 800"
+    )
+      .bind(start, end)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (ePeople) {
+    return { status: "success", month: month, byDate: {}, total: 0, source: "d1-error" };
+  }
+  const byDate = Object.create(null);
+  rows.forEach(function (r) {
+    const iso = String((r && r.date_iso) || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+    if (!byDate[iso]) byDate[iso] = [];
+    byDate[iso].push(clientFromRow_(r));
+  });
+  return {
+    status: "success",
+    month: month,
+    byDate: byDate,
+    total: rows.length,
+    source: "d1"
+  };
 }
 
 function defaultBanner_(params) {
@@ -16258,6 +16308,7 @@ async function nominatimSuggestWorker_(text) {
 
 const _revalCooldown = new Map();
 function cutoverNeedsRevalidate_(a, params, fast, env) {
+  if (a === "getCalendarMonthPeople") return false;
   if (isD1PrimaryCanon_(env) && a === "getClients") {
     const empty = !fast || !Array.isArray(fast.clients) || !fast.clients.length;
     if (!empty) return false;
@@ -16388,6 +16439,7 @@ async function cutoverFastRead_(a, params, env) {
     if (a === "getViewCompare") return getViewCompare_(params, env);
     if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
     if (a === "getMonthOverview") return getMonthOverview_(params, env);
+    if (a === "getCalendarMonthPeople") return getCalendarMonthPeople_(params, env);
     if (a === "getWeekBannerState") return getSnap_(env, "weekBanner", null);
     if (a === "getCutting") return getCutting_(params, env);
     if (a === "getCourier") return getCourier_(params, env);
