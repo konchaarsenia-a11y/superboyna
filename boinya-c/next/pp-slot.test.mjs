@@ -53,6 +53,37 @@ test("N=2 по-прежнему пишет 1/2", function () {
   assert.equal(slot.ppSlot, "1/2");
 });
 
+test("Вихрова: оплата на ПП1, цена ПП2 в сумму не входит", function () {
+  var rows = [
+    { name: "Вихрова", matchKey: "ВИХРОВА", segment: "ПП", ppSlot: "1/2", orderPrice: 70, paid: "yes", dateIso: "2026-10-02" },
+    { name: "Вихрова", matchKey: "ВИХРОВА", segment: "ПП", ppSlot: "2/2", orderPrice: 70, paid: "", dateIso: "2026-10-16" }
+  ];
+  var got = L.attributePpRevenue(rows);
+  assert.equal(got.doubled.length, 1);
+  assert.equal(L.revenueSum(rows), 70);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-16" }), null);
+});
+
+test("оплата на ПП2: в сумму входит только эта доставка", function () {
+  var rows = [
+    { name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", _sumDate: "2026-10-03" },
+    { name: "Рекс", segment: "ПП", ppSlot: "2/2", orderPrice: 80, paid: "yes", _sumDate: "2026-10-17" }
+  ];
+  assert.equal(L.revenueSum(rows), 80);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-03" }), null);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-17" }), 80);
+});
+
+test("без отметки оплаты цена подписки один раз, на меньшем слоте", function () {
+  var rows = [
+    { name: "Нора", segment: "ПП", ppSlot: "1/2", orderPrice: 50, dateIso: "2026-10-04" },
+    { name: "Нора", segment: "ПП", ppSlot: "2/2", orderPrice: 50, dateIso: "2026-10-18" },
+    { name: "Розница", segment: "Р", orderPrice: 9, dateIso: "2026-10-04" }
+  ];
+  assert.equal(L.revenueSum(rows), 59);
+  assert.equal(L.attributePpRevenue(rows).doubled.length, 1);
+});
+
 test("воркер чередует слот и не держит мёртвую ветку count<=0", function () {
   var src = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
   assert.match(src, /function suggestPpDeliverySlotD1_/);

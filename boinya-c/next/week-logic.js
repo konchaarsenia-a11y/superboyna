@@ -271,6 +271,104 @@
     return { pp1: pp1, pp2: pp2 };
   }
 
+  function orderMoney_(c) {
+    if (!c || c.orderPrice == null || c.orderPrice === "") return null;
+    var v = Number(String(c.orderPrice).replace(/\s/g, "").replace(",", "."));
+    if (!isFinite(v)) return null;
+    return v;
+  }
+
+  function paidFlag_(c) {
+    if (c && c.ppPaid === true) return "yes";
+    var p = String(c && c.paid != null ? c.paid : "").toLowerCase();
+    if (p === "yes" || p === "true" || p === "1") return "yes";
+    if (p === "no" || p === "false" || p === "0") return "no";
+    return "";
+  }
+
+  function isPpRow_(c) {
+    var ot = "";
+    try { ot = resolveOrderType(c); } catch (e) {}
+    var seg = String((c && c.segment) || "");
+    return ot === "pp" || seg === "ПП" || seg === "АФК";
+  }
+
+  function subKey_(c) {
+    var who = (c && (c.matchKey || viewClientKey(c.name) || c.name)) || "";
+    var iso = String((c && (c._sumDate || c.dateIso || c.date)) || "").slice(0, 10);
+    var month = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.slice(0, 7) : "";
+    return String(who).toUpperCase() + "|" + month;
+  }
+
+  /* Цена подписки один раз: на доставке, где курьер отметил paid=yes.
+     Если оплаты ещё нет — на слоте, где её ждут (меньший номер), остальные 0.
+     Явный paid=no в сумму не входит. */
+  function attributePpRevenue(list) {
+    var amount = {};
+    var doubled = [];
+    var groups = {};
+    (list || []).forEach(function (c, i) {
+      if (!c || !isPpRow_(c)) {
+        var plain = orderMoney_(c);
+        if (plain != null && plain > 0) amount[i] = plain;
+        return;
+      }
+      var k = subKey_(c);
+      if (!groups[k]) groups[k] = [];
+      groups[k].push(i);
+    });
+    Object.keys(groups).forEach(function (k) {
+      var idxs = groups[k];
+      var priced = idxs.filter(function (i) {
+        var m = orderMoney_(list[i]);
+        return m != null && m > 0;
+      });
+      if (priced.length >= 2) {
+        doubled.push({
+          key: k,
+          name: (list[idxs[0]] && list[idxs[0]].name) || "",
+          slots: priced.map(function (i) { return ppSlotNumber(list[i].deliverySlot || list[i].ppSlot); }),
+          prices: priced.map(function (i) { return orderMoney_(list[i]); })
+        });
+      }
+      var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
+      var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
+      function bySlot(a, b) {
+        var as = ppSlotNumber(list[a].deliverySlot || list[a].ppSlot) || 9;
+        var bs = ppSlotNumber(list[b].deliverySlot || list[b].ppSlot) || 9;
+        if (as !== bs) return as - bs;
+        var ai = String(list[a]._sumDate || list[a].dateIso || list[a].date || "");
+        var bi = String(list[b]._sumDate || list[b].dateIso || list[b].date || "");
+        return ai < bi ? -1 : ai > bi ? 1 : 0;
+      }
+      var pool = yes.length ? yes.slice().sort(bySlot) : open.slice().sort(bySlot);
+      var chosen = pool.length ? pool[0] : -1;
+      if (chosen < 0) return;
+      var money = orderMoney_(list[chosen]);
+      if (money != null && money > 0) amount[chosen] = money;
+    });
+    return { amount: amount, doubled: doubled };
+  }
+
+  function revenueSum(list, opts) {
+    opts = opts || {};
+    var only = String(opts.onlyDate || "").slice(0, 10);
+    var attr = attributePpRevenue(list);
+    var sum = 0;
+    var seen = false;
+    (list || []).forEach(function (c, i) {
+      if (attr.amount[i] == null) return;
+      if (only) {
+        var iso = String((c && (c._sumDate || c.dateIso || c.date)) || "").slice(0, 10);
+        if (iso && iso !== only) return;
+      }
+      sum += attr.amount[i];
+      seen = true;
+    });
+    if (!seen) return null;
+    return Math.round(sum * 100) / 100;
+  }
+
   function deferredMode(it) {
     var m = String((it && it.mode) || "").trim().toLowerCase();
     if (m) return m;
@@ -562,6 +660,8 @@
     ppSlotNumber: ppSlotNumber,
     suggestPpSlot: suggestPpSlot,
     countPpSlots: countPpSlots,
+    attributePpRevenue: attributePpRevenue,
+    revenueSum: revenueSum,
     deferredMode: deferredMode,
     tasksSub: tasksSub,
     finishPlain: finishPlain,

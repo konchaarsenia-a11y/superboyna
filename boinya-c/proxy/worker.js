@@ -5854,6 +5854,33 @@ async function persistOrderMetaJson_(env, id, metaRaw) {
   return true;
 }
 
+/** Ответ курьера «оплачено» пишется в meta заказа этой даты. Цены других слотов не трогаем. */
+async function stampOrderPaidOnDateD1_(env, iso, aliases, paid) {
+  if (!env || !env.DB || !iso) return;
+  if (paid !== "yes" && paid !== "no") return;
+  const keys = aliases || [];
+  for (let i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue;
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(
+        "SELECT id, meta_json FROM orders WHERE status = 'active' AND date_iso = ? AND match_key = ? LIMIT 4"
+      )
+        .bind(iso, keys[i])
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {
+      rows = [];
+    }
+    for (let r = 0; r < rows.length; r++) {
+      const meta = parseMeta_(rows[r].meta_json);
+      if (String(meta.paid || "") === paid) continue;
+      meta.paid = paid;
+      try { await persistOrderMetaJson_(env, rows[r].id, JSON.stringify(meta)); } catch (eW) {}
+    }
+  }
+}
+
 /**
  * One-shot: вернуть orderPrice / stated / fact в meta_json, не трогая address/basket.
  * Donors: sibling D1 (в т.ч. deleted) → snap → GAS getClients / getViewCompare.
@@ -11213,6 +11240,10 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
             .bind(info.iso, aliases[di], delivered ? 1 : 0, now)
             .run();
         } catch (eDw) {}
+      }
+      const paidStamp = String(params.paid || "").toLowerCase();
+      if (paidStamp === "yes" || paidStamp === "no") {
+        try { await stampOrderPaidOnDateD1_(env, info.iso, aliases, paidStamp); } catch (ePaid) {}
       }
     }
     return;

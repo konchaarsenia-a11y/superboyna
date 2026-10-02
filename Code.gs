@@ -21828,19 +21828,110 @@ function ppCyclePaidStatus_(cycleStore, ck) {
 }
 
 /**
- * Тот же фильтр, что collectPpActualOut_ (выручка) и финальный factCost:
- * paid=no → нет;
- * paid=yes → да;
- * слот ≥2 без paid=yes → нет (слот 2 только счётчик bySource.pp);
- * слот 1 / N=1 / слот 0 → да.
+ * Выручка и factCost: цена подписки один раз.
+ * ppPriceByKey уже указывает доставку с paid=yes или слот, где оплату ждут.
+ * Слот 2 без цены не добавляет денег. Доставки (bySource.pp) не фильтруем.
  */
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
+  var price = Number(monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0;
   var st = String(paid || "").toLowerCase();
-  if (st === "no") return false;
+  if (st === "no" && !(price > 0)) return false;
   if (st === "yes") return true;
+  if (price > 0) return true;
   var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
   if (minSlot >= 2) return false;
   return true;
+}
+
+/** Память_Доставок: ответ курьера об оплате на конкретную дату. */
+function readPpPaidByDate_(ss, monthKeys, tz) {
+  var out = {};
+  var memory = null;
+  try { memory = getMemoryCourierSheet_(); } catch (eM) { memory = null; }
+  if (!memory || memory.getLastRow() < 1) return out;
+  var data = memory.getDataRange().getValues();
+  var allow = {};
+  var mi;
+  for (mi = 0; mi < (monthKeys || []).length; mi++) {
+    var mk = String(monthKeys[mi] || "").slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(mk)) allow[mk] = true;
+  }
+  var any = false;
+  for (var ak in allow) if (allow.hasOwnProperty(ak)) any = true;
+  tz = tz || (ss && ss.getSpreadsheetTimeZone()) || "Europe/Minsk";
+  for (var r = 0; r < data.length; r++) {
+    var rawKey = String(data[r][0] || "");
+    if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(rawKey)) continue;
+    var parsed = parseMemoryDateLoose_(rawKey, tz);
+    if (!parsed) continue;
+    var iso = "";
+    try { iso = Utilities.formatDate(parsed, tz, "yyyy-MM-dd"); } catch (eIso) { iso = ""; }
+    if (!iso) continue;
+    if (any && !allow[iso.slice(0, 7)]) continue;
+    var mem = null;
+    try { mem = JSON.parse(String(data[r][1] || "")); } catch (eJ) { mem = null; }
+    if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") continue;
+    for (var k in mem) {
+      if (!Object.prototype.hasOwnProperty.call(mem, k)) continue;
+      var ent = mem[k];
+      var paid = "";
+      if (ent && typeof ent === "object") paid = String(ent.paid || "").toLowerCase();
+      else if (typeof ent === "string") paid = String(ent).toLowerCase();
+      if (paid !== "yes" && paid !== "no") continue;
+      var ck = clientMatchKey_(k) || String(k).toUpperCase();
+      if (!ck) continue;
+      var id = iso + "|" + ck;
+      if (out[id] !== "yes") out[id] = paid;
+    }
+  }
+  return out;
+}
+
+/** В ppPriceByKey остаётся цена одной доставки подписки. */
+function foldPpRevenueOnce_(out) {
+  var rows = (out && out.ppSlotRows) || [];
+  var paidMap = (out && out._ppPaidByDate) || {};
+  var grouped = {};
+  var i;
+  for (i = 0; i < rows.length; i++) {
+    var rr = rows[i];
+    if (!rr || !rr.ck) continue;
+    if (!grouped[rr.ck]) grouped[rr.ck] = [];
+    grouped[rr.ck].push(rr);
+  }
+  var next = {};
+  var doubled = [];
+  for (var ck in grouped) {
+    if (!grouped.hasOwnProperty(ck)) continue;
+    var g = grouped[ck];
+    var priced = 0;
+    for (var a = 0; a < g.length; a++) if (Number(g[a].price) > 0) priced++;
+    if (priced >= 2) {
+      doubled.push({
+        key: ck,
+        name: g[0].name || ck,
+        slots: g.map(function (x) { return x.slot; }),
+        prices: g.map(function (x) { return x.price; })
+      });
+    }
+    var yes = [];
+    var open = [];
+    for (var b = 0; b < g.length; b++) {
+      var flag = paidMap[g[b].iso + "|" + ck] || "";
+      if (flag === "yes") yes.push(g[b]);
+      else if (flag !== "no") open.push(g[b]);
+    }
+    var pool = (yes.length ? yes : open).slice().sort(function (x, y) {
+      var xs = x.slot >= 1 ? x.slot : 9;
+      var ys = y.slot >= 1 ? y.slot : 9;
+      if (xs !== ys) return xs - ys;
+      return String(x.iso || "") < String(y.iso || "") ? -1 : 1;
+    });
+    if (!pool.length) continue;
+    if (Number(pool[0].price) > 0) next[ck] = Number(pool[0].price);
+  }
+  out.ppPriceByKey = next;
+  out.ppDoubleKeys = doubled;
 }
 
 /** Ключи ПП, которые идут в выручку и в factCost. bySource.pp не фильтруем. */
@@ -21952,6 +22043,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   }
 
   var seenKeys = {};
+  try {
+    var paidMonths = [];
+    if (want && /^\d{4}-\d{2}$/.test(want)) paidMonths = [want];
+    else if (fromIso || toIso) paidMonths = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
+    out._ppPaidByDate = readPpPaidByDate_(ss, paidMonths, tz);
+  } catch (ePaidMap) {
+    out._ppPaidByDate = {};
+  }
   // партнёры, которые платят себестоимость БП — наша затрата = 0
   var partnerPaysCost_ = {};
   try {
@@ -22010,6 +22109,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === "pp" && ck) {
       var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
       if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
+      if (!out.ppSlotRows) out.ppSlotRows = [];
+      out.ppSlotRows.push({ ck: ck, iso: iso, slot: slotForced, price: price, name: String(row.client || "") });
       // слот доставки для фильтра «кто платит»
       if (!out.ppSlotByKey) out.ppSlotByKey = {};
       if (!out.ppMaxSlotByKey) out.ppMaxSlotByKey = {};
@@ -22124,6 +22225,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
+  try { foldPpRevenueOnce_(out); } catch (eFoldPp) {}
   // ПП затраты: один раз на клиента, когда pays-now (слот 1 / paid=yes).
   // N=2: сразу полный месяц (состав листа + 9×N), слот 2 не добавляет денег — только bySource.pp.
   try {
@@ -22259,8 +22361,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Выручка ПП за месяц: max [ЦЕНА] на клиента один раз (не сумма слотов).
- *  N=2: paid=yes / pays-now на 1-й → вся цена сразу. Слот 2 без paid=yes — не плюсуем. */
+/** Выручка ПП за месяц: цена подписки один раз, на доставке с paid=yes
+ *  или на слоте, где оплату ещё ждут. Вторая доставка не плюсуется. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   opts = opts || {};
   var out = {

@@ -244,20 +244,6 @@
     return (names[Number(p[1]) - 1] || "Месяц") + " " + p[0];
   }
 
-  function moneyOf(list) {
-    var sum = 0;
-    var seen = false;
-    (list || []).forEach(function (c) {
-      if (!c || c.orderPrice == null || c.orderPrice === "") return;
-      var v = Number(String(c.orderPrice).replace(/\s/g, "").replace(",", "."));
-      if (!isFinite(v)) return;
-      sum += v;
-      seen = true;
-    });
-    if (!seen) return null;
-    return Math.round(sum * 100) / 100;
-  }
-
   function moneyText(n) {
     if (n == null) return "—";
     var s = String(Math.round(Number(n) * 100) / 100);
@@ -309,6 +295,13 @@
     return [];
   }
 
+  function summaryMoney(dayOn) {
+    var month = displayedMonth();
+    var pack = monthPeopleCache[month];
+    var all = logic().monthPeopleReady(pack, view.overview) ? flattenMonth(pack) : summaryPeople();
+    return logic().revenueSum(all, { onlyDate: dayOn ? view.date : "" });
+  }
+
   function summaryHtml() {
     var dayOn = selectedInView();
     var people = summaryPeople();
@@ -319,7 +312,7 @@
       '<p class="b-lbl" style="margin-top:0">' + esc(title || "Месяц") + "</p>" +
       '<div class="nx-counters">' +
         '<div class="nx-count"><b>' + esc(String(count || 0)) + "</b><span>Люди</span></div>" +
-        '<div class="nx-count"><b>' + esc(moneyText(people.length ? moneyOf(people) : null)) + "</b><span>Сумма, BYN</span></div>" +
+        '<div class="nx-count"><b>' + esc(moneyText(summaryMoney(dayOn))) + "</b><span>Сумма, BYN</span></div>" +
       "</div>" +
       (function () {
         var slots = logic().countPpSlots(people);
