@@ -523,6 +523,9 @@
         html += '<button type="button" class="nx-link" data-act="clear-basket">Очистить состав</button>';
       }
     }
+    if (state.isEdit && !state.deferredId) {
+      html += '<button type="button" class="b-btn b-btn--sec" data-act="cancel-order" style="margin-top:16px">Отмена</button>';
+    }
     return html;
   }
 
@@ -1246,6 +1249,45 @@
     return { ok: false, exact: false, text: "Не сохранилось: " + why };
   }
 
+  async function cancelDelivery() {
+    if (!state.isEdit || state.deferredId) return;
+    var name = String(state.editOriginalClient || state.client || "").trim();
+    var when = state.editOriginalDate || state.deliveryDate || "";
+    if (!name) { sh().toast("Нет клиента"); return; }
+    var ok = await sh().confirm({
+      title: "Отмена",
+      text: "Отменить доставку «" + name + "»" + (when ? (" на " + when) : "") + "?",
+      ok: "Отменить",
+      cancel: "Назад",
+      danger: true
+    });
+    if (!ok) return;
+    var logic = root.BoinyaWeekLogic;
+    if (!logic || !logic.deleteParams) { sh().toast("Нечем отменить"); return; }
+    var params = logic.deleteParams({
+      client: name,
+      matchKey: state.editOriginalMatchKey || "",
+      day: state.editOriginalDay || state.day || "",
+      date: when,
+      calendarOnly: !state.editOriginalDay && !!when
+    });
+    var res = null;
+    try {
+      res = await api().apiGet(params, { timeoutMs: 30000, cacheTtlMs: 0 });
+    } catch (e) {
+      sh().toast("Не отменилось");
+      return;
+    }
+    if (!logic.writeAccepted(res)) {
+      sh().toast((res && (res.message || res.status)) || "Не отменилось");
+      return;
+    }
+    clearDraft();
+    state = blank();
+    sh().toast(res && res.sheetsVerified ? "Точно отменено" : "Отменяю…");
+    if (root.__nxOpenWeek) root.__nxOpenWeek();
+  }
+
   async function save() {
     if (saving) return;
     var clientName = String(state.client || "").trim();
@@ -1666,6 +1708,7 @@
       return true;
     }
     if (act === "retry-days") { loadDays(); return true; }
+    if (act === "cancel-order") { cancelDelivery(); return true; }
     if (act === "save") { save(); return true; }
     if (act === "defer") { defer(); return true; }
     if (act === "loader-hide") { sh().closeLoader(); return true; }
