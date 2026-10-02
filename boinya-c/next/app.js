@@ -438,7 +438,7 @@
       more += '<button type="button" class="b-li" data-act="more-price"><span class="b-li__body"><span class="b-li__title">Прайс</span><span class="b-li__sub">Цены розницы и порог доставки</span></span><span class="b-li__chev">›</span></button>';
     }
     if (ax().tabHas(access, "statsScreen")) {
-      more += '<button type="button" class="b-li" data-act="more-stats"><span class="b-li__body"><span class="b-li__title">Статистика</span><span class="b-li__sub">Месяц, затраты, воронка БП</span></span><span class="b-li__chev">›</span></button>';
+      more += '<button type="button" class="b-li" data-act="more-stats"><span class="b-li__body"><span class="b-li__title">Статистика</span><span class="b-li__sub">Оборот, расходы, проба</span></span><span class="b-li__chev">›</span></button>';
     }
     if (ax().tabHas(access, "partnerHubScreen")) {
       more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заявки, точки, сети, пуши</span></span><span class="b-li__chev">›</span></button>';
@@ -484,7 +484,7 @@
       return "Прайс розницы: доставка, порог «бесплатно от» и цены позиций. Сохранение пишет в ту же таблицу. Уже сохранённые заказы не пересчитываются.";
     }
     if (route.tab === "more" && moreView === "stats") {
-      return "Статистика месяца: прибыль, чистое, затраты, доставки. Стрелки листают месяц, не дальше текущего и не глубже двух лет. «Экспорт TSV» копирует выгрузку бухгалтера. Кнопка «Расчёт по датам» внизу открывает лист с датами и итогом, включая будущие записи. Нарезчик включает recover в затратах.";
+      return "Статистика: оборот, прибыль, себестоимость и количество доставок за период. Под цифрой короткое сравнение с прошлым таким же отрезком. Дальше откуда деньги (ПП и розница), расходы по категориям и карточка БП. Стрелки листают месяц. «Расчёт по датам» внизу задаёт свой период. «Экспорт TSV» копирует выгрузку бухгалтера.";
     }
     if (route.tab === "more" && moreView === "partners") {
       return "Партнёры: заявки с датой 19:00–22:00, люди, точки, сети и пуши. «Мини-апп» открывает партнёрку. Сид сетей здесь нет. Вкладка «БП» — только у владельца: кто привёл клиента.";

@@ -297,11 +297,187 @@
     };
   }
 
+  function statsPad_(n) {
+    return (n < 10 ? "0" : "") + n;
+  }
+
+  function statsIso_(y, m, d) {
+    return y + "-" + statsPad_(m) + "-" + statsPad_(d);
+  }
+
+  function statsMonthSpan_(monthKey, now) {
+    var parts = String(monthKey || "").split("-");
+    if (parts.length < 2) return null;
+    var y = Number(parts[0]);
+    var mo = Number(parts[1]);
+    if (!y || mo < 1 || mo > 12) return null;
+    var last = new Date(y, mo, 0).getDate();
+    var from = statsIso_(y, mo, 1);
+    var to = statsIso_(y, mo, last);
+    var today = now || new Date();
+    var tIso = statsIso_(today.getFullYear(), today.getMonth() + 1, today.getDate());
+    if (tIso.slice(0, 7) === String(monthKey) && tIso < to) to = tIso;
+    return { from: from, to: to };
+  }
+
+  function statsIsoAddDays_(iso, days) {
+    var p = String(iso || "").split("-");
+    if (p.length < 3) return "";
+    var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+    if (!isFinite(d.getTime())) return "";
+    d.setUTCDate(d.getUTCDate() + (Number(days) || 0));
+    return statsIso_(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  }
+
+  function statsInclusiveDays_(from, to) {
+    var a = Date.parse(String(from) + "T00:00:00Z");
+    var b = Date.parse(String(to) + "T00:00:00Z");
+    if (!isFinite(a) || !isFinite(b) || b < a) return 0;
+    return Math.round((b - a) / 86400000) + 1;
+  }
+
+  function statsPrevEqualPeriod_(from, to) {
+    var days = statsInclusiveDays_(from, to);
+    if (!(days > 0)) return null;
+    var prevTo = statsIsoAddDays_(from, -1);
+    var prevFrom = statsIsoAddDays_(prevTo, 1 - days);
+    if (!prevFrom || !prevTo) return null;
+    return { from: prevFrom, to: prevTo, days: days };
+  }
+
+  function statsFmtDay_(iso) {
+    var p = String(iso || "").slice(0, 10).split("-");
+    if (p.length < 3 || p[2].length < 1) return "";
+    return p[2] + "." + p[1];
+  }
+
+  function statsPctDelta_(current, previous) {
+    if (previous == null || previous === "" || !isFinite(Number(previous))) return null;
+    var c = Number(current);
+    var p = Number(previous);
+    if (!isFinite(c) || p === 0) return null;
+    var pct = Math.round(((c - p) / Math.abs(p)) * 100);
+    var sign = pct > 0 ? "+" : (pct < 0 ? "−" : "");
+    return { text: sign + String(Math.abs(pct)) + "%", dir: pct > 0 ? "up" : (pct < 0 ? "down" : "flat") };
+  }
+
+  function statsNum_(v) {
+    if (v == null || v === "" || !isFinite(Number(v))) return null;
+    return Number(v);
+  }
+
+  function statsHas_(obj, key) {
+    return !!(obj && Object.prototype.hasOwnProperty.call(obj, key) && statsNum_(obj[key]) != null);
+  }
+
+  function statsSourceTrio_(revenue, cost) {
+    var rev = statsNum_(revenue);
+    var c = statsNum_(cost);
+    if (rev == null) return { turnover: null, profit: null, clean: null };
+    if (c == null) return { turnover: rev, profit: null, clean: null };
+    var net = statsClean_(rev, c);
+    return { turnover: rev, profit: net, clean: net };
+  }
+
+  function statsConvLine_(trials, converted) {
+    if (trials == null || converted == null) return { text: "", pct: "", missing: true };
+    var pct = Number(trials) > 0 ? Math.round((Number(converted) / Number(trials)) * 100) : null;
+    return {
+      text: "из " + trials + " перешли " + converted,
+      pct: pct == null ? "" : (pct + "%"),
+      missing: false
+    };
+  }
+
+  function statsScreen_(res, prev) {
+    res = res || {};
+    var fact = res.fact || {};
+    var flat = res.fact ? fact : res;
+    var bp = res.bp || {};
+    var life = bp.life || {};
+    var costBy = flat.costBySource || {};
+    var turnover = statsNum_(flat.revenue != null ? flat.revenue : res.revenue);
+    var cost = statsNum_(flat.cost != null ? flat.cost : res.cost);
+    var profit = (turnover != null && cost != null)
+      ? statsClean_(turnover, cost)
+      : statsNum_(flat.clean != null ? flat.clean : res.clean);
+    var deliveries = statsNum_(flat.deliveries != null ? flat.deliveries : res.deliveries);
+    var prevRev = prev ? statsNum_(prev.revenue) : null;
+    var prevCost = prev ? statsNum_(prev.cost) : null;
+    var prevProfit = (prevRev != null && prevCost != null) ? statsClean_(prevRev, prevCost) : (prev ? statsNum_(prev.clean) : null);
+    var prevDel = prev ? statsNum_(prev.deliveries) : null;
+    var ppCost = statsHas_(costBy, "pp") ? Number(costBy.pp) : null;
+    var ppRev = statsNum_(flat.ppRevenue != null ? flat.ppRevenue : res.ppRevenue);
+    var retailRev = statsNum_(flat.retail != null ? flat.retail : res.retail);
+    var retailCost = statsHas_(costBy, "retail") ? Number(costBy.retail) : null;
+    var fuelHas = statsHas_(flat, "ppDeliveryFuelCost") || statsHas_(flat, "ppDeliveryCost");
+    var fuelVal = flat.ppDeliveryFuelCost != null ? flat.ppDeliveryFuelCost : flat.ppDeliveryCost;
+    var rawHas = statsHas_(flat, "ppBasketCost") || statsHas_(costBy, "retail");
+    var rawVal = 0;
+    if (statsHas_(flat, "ppBasketCost")) rawVal += Number(flat.ppBasketCost) || 0;
+    if (statsHas_(costBy, "retail")) rawVal += Number(costBy.retail) || 0;
+    var bpHas = statsHas_(flat, "bpCost") || statsHas_(bp, "spend");
+    var bpVal = flat.bpCost != null ? flat.bpCost : bp.spend;
+    var recoverHas = statsHas_(flat, "ppRecoverCost");
+    var otherHas = statsHas_(flat, "couponsCost") || statsHas_(flat, "ppPackagesCost") || statsHas_(flat, "staffCost");
+    var otherSum = 0;
+    if (statsHas_(flat, "couponsCost")) otherSum += Number(flat.couponsCost) || 0;
+    if (statsHas_(flat, "ppPackagesCost")) otherSum += Number(flat.ppPackagesCost) || 0;
+    if (statsHas_(flat, "staffCost")) otherSum += Number(flat.staffCost) || 0;
+    var trialsMonth = statsNum_(flat.bpClients != null ? flat.bpClients : res.bpClients);
+    var convMonth = statsNum_(bp.convertedToPp);
+    var trialsLife = statsHas_(life, "trials") ? Number(life.trials) : null;
+    var convLife = statsHas_(life, "converted") ? Number(life.converted) : null;
+    function cell(label, value, delta) {
+      return { label: label, value: value, missing: value == null, delta: delta || null };
+    }
+    function exp(label, has, value) {
+      return { label: label, missing: !has, value: has ? Number(value) || 0 : null };
+    }
+    return {
+      head: [
+        cell("Оборот", turnover, statsPctDelta_(turnover, prevRev)),
+        cell("Прибыль", profit, statsPctDelta_(profit, prevProfit)),
+        cell("Себестоимость", cost, statsPctDelta_(cost, prevCost)),
+        cell("Количество доставок", deliveries, statsPctDelta_(deliveries, prevDel))
+      ],
+      pp: statsSourceTrio_(ppRev, ppCost),
+      retail: statsSourceTrio_(retailRev, retailCost),
+      partnerTurnover: statsNum_(flat.partner != null ? flat.partner : res.partner),
+      expenses: [
+        exp("Топливо", fuelHas, fuelVal),
+        exp("Сырьё", rawHas, rawVal),
+        exp("БП", bpHas, bpVal),
+        exp("Партнёры", statsHas_(costBy, "partner"), costBy.partner),
+        exp("Рековер", recoverHas, flat.ppRecoverCost),
+        exp("Свет", false, null),
+        exp("Прочее", otherHas, otherSum)
+      ],
+      bpMonth: {
+        conv: statsConvLine_(trialsMonth, convMonth),
+        spent: bpHas ? Number(bpVal) || 0 : null,
+        net: null,
+        payback: null
+      },
+      bpLife: {
+        conv: statsConvLine_(trialsLife, convLife),
+        spent: statsHas_(life, "bpCostAll") ? Number(life.bpCostAll) : null,
+        net: null,
+        payback: null
+      }
+    };
+  }
+
   return {
     currentStatsMonthKey_: currentStatsMonthKey_,
     statsMonthLabelRu_: statsMonthLabelRu_,
     shiftStatsMonthKey_: shiftStatsMonthKey_,
     statsMonthBounds_: statsMonthBounds_,
+    statsMonthSpan_: statsMonthSpan_,
+    statsPrevEqualPeriod_: statsPrevEqualPeriod_,
+    statsFmtDay_: statsFmtDay_,
+    statsPctDelta_: statsPctDelta_,
+    statsScreen_: statsScreen_,
     statsPpSchemeOf_: statsPpSchemeOf_,
     statsPpDeliveryLabel_: statsPpDeliveryLabel_,
     statsPpCostFootnote_: statsPpCostFootnote_,

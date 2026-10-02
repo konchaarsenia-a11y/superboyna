@@ -205,6 +205,29 @@ body.nx-kb #nxNav {
   gap: 8px;
 }
 
+.nx-stats .nx-line {
+  justify-content: space-between;
+}
+
+.nx-stats .nx-stat__num {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.nx-stats .nx-tiles .nx-stat__num {
+  display: block;
+  font-size: var(--b-f18);
+}
+
+.nx-stat__delta {
+  font-size: var(--b-f12);
+  margin-top: 2px;
+}
+
+.nx-stat__delta--up { color: var(--b-ok); }
+.nx-stat__delta--down { color: var(--b-bad); }
+.nx-stat__delta--flat { color: var(--b-text-3); }
+
 .nx-bar {
   height: 10px;
   background: var(--b-surface-2);
