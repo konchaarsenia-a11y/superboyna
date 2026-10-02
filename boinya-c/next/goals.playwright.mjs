@@ -107,7 +107,9 @@ async function shot(page, name) {
 
 async function main() {
   await ready();
-  const browser = await chromium.launch({ headless: true });
+  const launchOpts = { headless: true };
+  if (process.env.CHROME_PATH) launchOpts.executablePath = process.env.CHROME_PATH;
+  const browser = await chromium.launch(launchOpts);
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2,
@@ -121,7 +123,10 @@ async function main() {
   await page.getByText("Закрыта", { exact: false }).first().waitFor({ timeout: 10000 });
   const nav = await page.locator("#nxNav").getAttribute("data-nav-count");
   if (nav !== "6") throw new Error("owner nav " + nav);
-  if ((await page.locator("#nxMain").innerText()).includes("·")) throw new Error("middle dot in goals");
+  const dayText = await page.locator("#nxMain").innerText();
+  if (dayText.includes("·")) throw new Error("middle dot in goals");
+  if (!dayText.includes("50%")) throw new Error("day percent " + dayText);
+  if (!dayText.includes("1 из 2")) throw new Error("day fraction " + dayText);
 
   await shot(page, "goals-day.png");
   await page.getByRole("button", { name: "Неделя", exact: true }).click();
@@ -143,10 +148,18 @@ async function main() {
   await sheet.getByRole("button", { name: "Приход", exact: true }).click();
   await page.locator("#glTarget").fill("100");
   await sheet.getByRole("button", { name: "Неделя", exact: true }).click();
+  const targetVal = await page.locator("#glTarget").inputValue();
+  if (targetVal !== "100") throw new Error("target input " + targetVal);
   await shot(page, "goals-metric-create.png");
   await page.getByRole("button", { name: "Создать" }).click();
   await page.getByText("Закрыта", { exact: false }).first().waitFor({ timeout: 10000 });
-  await page.locator("[data-goal]").filter({ hasText: "Приход" }).getByText("Закрыта").waitFor({ timeout: 10000 });
+  const income = page.locator("[data-goal]").filter({ hasText: "Приход" });
+  await income.getByText("Закрыта").waitFor({ timeout: 10000 });
+  const incomeText = await income.innerText();
+  if (!incomeText.includes("130,00")) throw new Error("income text " + incomeText);
+  if (!incomeText.includes("Закрыта")) throw new Error("income not closed " + incomeText);
+  const mainText = await page.locator("#nxMain").innerText();
+  if (mainText.includes("Считаю")) throw new Error("still loading " + mainText);
   await page.locator("#nxMain").evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await shot(page, "goals-metric-done.png");
 
