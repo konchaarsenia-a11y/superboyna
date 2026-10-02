@@ -1,0 +1,54 @@
+/* Макеты состава дня. Токены next, без своих цветов. */
+html, body { margin: 0; height: 100%; }
+body.b-app { min-height: 100%; }
+.nx { min-height: 100dvh; display: flex; flex-direction: column; background: var(--b-bg); }
+.day-kicker {
+  margin: 8px 0 0;
+  color: var(--b-text-3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.acc { border-bottom: 1px solid var(--b-line); }
+.acc > .row { border-bottom: 0; width: 100%; }
+.acc-body, .full { display: none; padding: 0 0 12px 46px; }
+.is-open > .acc-body, .is-open > .full { display: block; }
+.dog { margin: 8px 0 0; font-weight: 750; font-size: 14px; }
+.line { margin-top: 3px; font-size: 15px; line-height: 1.3; }
+.compact {
+  margin: -4px 0 10px 46px;
+  color: var(--b-text-2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.dogs { height: 22px; margin-left: 6px; }
+.grab {
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--b-line);
+  margin: 8px auto 0;
+}
+.sheet-who { margin: 8px 0 0; font-family: Unbounded, sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.04em; }
+.sheet-sub { margin: 2px 0 8px; color: var(--b-text-2); font-size: 14px; }
+.nx-sheet { background: var(--b-surface); }
+.nx-sheet__body { padding: 0 16px 8px; }
+.nx-sheet__foot { display: flex; flex-direction: column; gap: 8px; }
+.theme-btn {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 30;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--b-line);
+  background: var(--b-surface);
+  color: var(--b-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+body.shot .theme-btn { display: none; }
+.row[aria-expanded="true"] { background: transparent; }

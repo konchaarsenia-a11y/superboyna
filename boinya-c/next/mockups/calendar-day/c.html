@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru" data-scheme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Макет C — состав в строке</title>
+  <link rel="stylesheet" href="../../theme.css">
+  <link rel="stylesheet" href="../../app.css">
+  <link rel="stylesheet" href="mock.css">
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var scheme = q.get("scheme");
+      if (scheme === "light" || scheme === "dark") document.documentElement.setAttribute("data-scheme", scheme);
+      document.addEventListener("DOMContentLoaded", function () {
+        if (q.get("shot") === "1") document.body.classList.add("shot");
+      });
+    })();
+  </script>
+</head>
+<body class="b-app">
+  <button type="button" class="theme-btn" id="theme">Светлая</button>
+  <div class="nx">
+    <header class="b-top">
+      <div class="b-top__ctx"><h1 class="b-top__title">15 октября</h1></div>
+    </header>
+    <main class="nx-main" id="list">
+      <p class="day-kicker">Записи дня</p>
+    </main>
+  </div>
+  <script>
+    function crumb() {
+      return '<div class="mix"><div class="mix-title">Крошка лёгкого — 100 г</div></div>' +
+        '<div class="mix"><div class="mix-title">Крошка микс — 100 г</div>' +
+        '<div class="mix-parts"><div class="mix-part">лёгкое — 40 г</div><div class="mix-part">рубец — 60 г</div></div></div>';
+    }
+    var ORDERS = [
+      {
+        letter: "Р", name: "Рекс", sub: "mira_test", seg: "ПП", pill: "pill pill--ok", dogs: true,
+        compact: ["Лёгкое 200 г, почки 100 г", "Крошка микс — 100 г", "Трахея 2 шт"],
+        full: '<div class="dog">Рекс</div><div class="nx-grp">Дрессура</div><div class="line">Лёгкое — 200 г</div><div class="line">Почки, крупное — 100 г</div>' +
+          '<div class="nx-grp">Овощи</div><div class="line">Яблоки — 50 г</div><div class="nx-grp">Присыпки</div>' + crumb() +
+          '<div class="nx-grp">Жевалки</div><div class="line">Трахея, мал — 2 шт</div><div class="dog">Нора</div>' +
+          '<div class="nx-grp">Дрессура</div><div class="line">Лёгкое — 80 г</div>'
+      },
+      {
+        letter: "Л", name: "Луна", sub: "dnevnik", seg: "БП", pill: "pill pill--info", dogs: false,
+        compact: ["Сердце 150 г", "Крошка лёгкого — 100 г"],
+        full: '<div class="nx-grp">Дрессура</div><div class="line">Сердце — 150 г</div><div class="nx-grp">Присыпки</div><div class="line">Крошка лёгкого — 100 г</div>'
+      },
+      {
+        letter: "Б", name: "Боря", sub: "boris", seg: "Р", pill: "pill pill--warn", dogs: false,
+        compact: ["Ухо говяжье 1 шт", "Трахея, сред 1 шт"],
+        full: '<div class="nx-grp">Жевалки</div><div class="line">Ухо говяжье — 1 шт</div><div class="line">Трахея, сред — 1 шт</div>'
+      }
+    ];
+    document.getElementById("list").insertAdjacentHTML("beforeend", ORDERS.map(function (o) {
+      return '<section class="acc">' +
+        '<button type="button" class="row" aria-expanded="false">' +
+        '<span class="avatar" aria-hidden="true">' + o.letter + "</span>" +
+        '<span class="who"><span class="name">' + o.name +
+        (o.dogs ? ' <span class="pill dogs">2 собаки</span>' : "") +
+        '</span><span class="sub">' + o.sub + "</span></span>" +
+        '<span class="' + o.pill + '">' + o.seg + "</span></button>" +
+        '<div class="compact">' + o.compact.map(function (line) { return "<div>" + line + "</div>"; }).join("") + "</div>" +
+        '<div class="full">' + o.full + "</div></section>";
+    }).join(""));
+    document.getElementById("list").addEventListener("click", function (e) {
+      var btn = e.target.closest(".row");
+      if (!btn) return;
+      var sec = btn.parentNode;
+      var on = !sec.classList.contains("is-open");
+      sec.classList.toggle("is-open", on);
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+    document.getElementById("theme").addEventListener("click", function () {
+      var light = document.documentElement.getAttribute("data-scheme") !== "light";
+      document.documentElement.setAttribute("data-scheme", light ? "light" : "dark");
+      this.textContent = light ? "Тёмная" : "Светлая";
+    });
+  </script>
+</body>
+</html>

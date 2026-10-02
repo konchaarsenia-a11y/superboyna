@@ -35,6 +35,49 @@ test("баннер закрытия не верит локальной поме�
   assert.equal(L.finishPendingActive(Date.now() - 1000, Date.now()), false);
 });
 
+test("день календаря открывается из кэша или ростера месяца, иначе скелетон", () => {
+  var cache = { "2026-10-15|": { at: 1000, res: { status: "success", month: [{ name: "Мира" }], week: [] } } };
+  var cached = L.planCalendarDayOpen({
+    key: "2026-10-15|",
+    iso: "2026-10-15",
+    compareCache: cache,
+    now: 2000,
+    ttl: 30000
+  });
+  assert.equal(cached.mode, "cache");
+  assert.equal(cached.fetchCompare, false);
+  var roster = L.planCalendarDayOpen({
+    key: "2026-10-16|",
+    iso: "2026-10-16",
+    compareCache: cache,
+    rosterByDate: { "2026-10-16": [{ name: "Рекс" }, { name: "Луна" }] },
+    now: 2000
+  });
+  assert.equal(roster.mode, "roster");
+  assert.equal(roster.fetchCompare, true);
+  assert.equal(roster.soft, true);
+  assert.equal(roster.clients.length, 2);
+  var cold = L.planCalendarDayOpen({
+    key: "2026-10-17|",
+    iso: "2026-10-17",
+    compareCache: {},
+    rosterByDate: {},
+    overviewByDate: { "2026-10-17": { count: 8 } },
+    now: 2000
+  });
+  assert.equal(cold.mode, "skeleton");
+  assert.equal(cold.fetchCompare, true);
+  assert.equal(cold.skeleton, 8);
+  var stale = L.planCalendarDayOpen({
+    key: "2026-10-15|",
+    iso: "2026-10-15",
+    compareCache: cache,
+    rosterByDate: { "2026-10-15": [{ name: "Рекс" }] },
+    now: 1000 + 30001
+  });
+  assert.equal(stale.mode, "roster");
+});
+
 test("полный день с 8, неделя как в старом списке", () => {
   assert.equal(L.FULL_FROM, 8);
   assert.equal(L.fullDayPrompt(7), "");
