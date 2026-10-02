@@ -484,6 +484,15 @@ button.nx-count {
   letter-spacing: -0.03em;
 }
 
+.nx-pp-totals .nx-count {
+  min-width: max-content;
+}
+
+.nx-pp-totals .nx-count b {
+  white-space: nowrap;
+  font-size: 15px;
+}
+
 .nx-count span {
   margin-top: 4px;
   font-size: 11px;
