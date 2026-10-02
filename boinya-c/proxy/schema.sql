@@ -77,3 +77,20 @@ CREATE TABLE IF NOT EXISTS warehouses (
   created_at TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL DEFAULT ''
 );
+
+-- Цели владельца (задачи и показатели). Не зеркалится в Sheets.
+CREATE TABLE IF NOT EXISTS goals (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  horizon TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  done INTEGER NOT NULL DEFAULT 0,
+  done_at TEXT NOT NULL DEFAULT '',
+  metric_id TEXT NOT NULL DEFAULT '',
+  target REAL,
+  period TEXT NOT NULL DEFAULT '',
+  date_from TEXT NOT NULL DEFAULT '',
+  date_to TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
