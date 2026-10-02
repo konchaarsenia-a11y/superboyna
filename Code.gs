@@ -22191,6 +22191,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       out.ppDeliveryCountByKey[ck] = (Number(out.ppDeliveryCountByKey[ck]) || 0) + 1;
     }
     if (src === 'bp') {
+      if (ck) {
+        if (!out.bpClientKeys) out.bpClientKeys = {};
+        out.bpClientKeys[ck] = true;
+      }
       out.bpDeliveries++;
       var bpCostAdd = Math.round((productForCost + deliveryForCost) * 100) / 100;
       var bpCostRaw = Math.round((product + deliveryTariff) * 100) / 100;
@@ -22347,6 +22351,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.ppFractionCost = Math.round((out.ppFractionCost || 0) * 100) / 100;
   out.ppFractionInClean = Math.round((out.ppFractionInClean != null ? out.ppFractionInClean : out.ppFractionCost) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
+  out.bpClients = Object.keys(out.bpClientKeys || {}).length;
   out.ppCostSkipped = Number(out.ppCostSkipped) || 0;
   if (!out.ppSchemeCounts) out.ppSchemeCounts = { RAW26: 0, LEGACY: 0 };
   if (!out.ppScheme) {
@@ -25973,6 +25978,8 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   var tz = ss.getSpreadsheetTimeZone();
   var fee = STATS_DELIVERY_FUEL_PER_;
   var feeInClean = statsBpDeliveryInCleanByn_(1);
+  var allBp = {};
+  var bpCostAll = 0;
 
   // выручка ПП: max цена на клиента×месяц (не сумма слотов 1+2)
   var ppRevByMonthClient = {};
@@ -25992,10 +25999,13 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (e1) { bask = []; }
     }
     if (src === "bp") {
+      if (ck) allBp[ck] = true;
+      var rawAll = estimateBasketRawCost_(bask, "bp");
+      bpCostAll += Math.round((rawAll + fee) * 100) / 100;
       // Выхлоп «после перехода» — только БП тех, кто стал ПП.
       // Иначе все пробники мира минус выручка 5 человек → вечный минус.
       if (!ck || !convertKeys[ck]) return;
-      var raw = estimateBasketRawCost_(bask, "bp");
+      var raw = rawAll;
       var withFee = Math.round((raw + fee) * 100) / 100;
       out.bpDeliveries++;
       out.bpBasketCost += raw;
@@ -26041,6 +26051,8 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
     if (!ppRevByMonthClient.hasOwnProperty(prk)) continue;
     ppRevSum += Number(ppRevByMonthClient[prk]) || 0;
   }
+  out.trials = Object.keys(allBp).length;
+  out.bpCostAll = Math.round(bpCostAll * 100) / 100;
   out.ppRevenue = Math.round(ppRevSum * 100) / 100;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round(out.bpBasketCost * 100) / 100;
@@ -26751,6 +26763,7 @@ function handleGetStats(json, callback, fromPost) {
       bpDeliveryTariffEach: BP_DELIVERY_COST_BYN_,
       bpDeliveryInClean: Number(month.bpDeliveryInClean) || 0,
       bpDeliveries: month.bpDeliveries,
+      bpClients: Number(month.bpClients) || 0,
       missingPrice: month.missingPrice || 0,
       missingBasketCost: month.missingBasketCost || 0,
       byPartner: byPartner,
@@ -26835,6 +26848,8 @@ function handleGetStats(json, callback, fromPost) {
       // lifetime: все когда-либо перешедшие БП→ПП
       life: {
         converted: bpLife.converted,
+        trials: Number(bpLife.trials) || 0,
+        bpCostAll: Number(bpLife.bpCostAll) || 0,
         bpDeliveries: bpLife.bpDeliveries,
         bpCost: bpLife.bpCost,
         bpBasketCost: bpLife.bpBasketCost,
@@ -26982,6 +26997,7 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     onlyPast: false,
     deliveries: stats.deliveriesTotal || 0,
     bySource: stats.bySource || {},
+    costBySource: stats.costBySource || { pp: 0, retail: 0, bp: 0, partner: 0, other: 0 },
     revenue: revenue,
     cost: cost,
     profit: profit,
@@ -27019,6 +27035,7 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     bpDeliveryInClean: Number(stats.bpDeliveryInClean) || 0,
     bpDeliveryFeeEach: STATS_DELIVERY_FUEL_PER_,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
+    bpClients: Number(stats.bpClients) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
     actualDetail: {
