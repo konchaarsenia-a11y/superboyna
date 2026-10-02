@@ -179,8 +179,54 @@
     return payload;
   }
 
+  function ppSlotNumber(raw) {
+    var m = String(raw == null ? "" : raw).match(/(\d+)/);
+    var n = m ? Number(m[1]) : 0;
+    return n >= 1 ? n : 0;
+  }
+
+  /* Следующий слот: явный и сохранённый на дату побеждают.
+     Иначе чередование 1↔2 по последнему слоту, а не «число доставок + 1»
+     (после ПП2 счётчик уже 1 и снова предлагал 2). */
+  function suggestPpSlot(opts) {
+    opts = opts || {};
+    var deliveries = Number(opts.deliveriesN);
+    if (!(deliveries >= 1)) deliveries = 0;
+    var cap = deliveries >= 2 ? deliveries : 2;
+    var forced = Number(opts.forced) || ppSlotNumber(opts.forcedLabel);
+    var stored = Number(opts.stored) || 0;
+    var last = Number(opts.lastSlot) || 0;
+    var count = Number(opts.priorCount) || 0;
+    if (deliveries === 1) return { slot: 1, ppSlot: "1", needManual: false };
+    if (forced >= 1) {
+      var fs = Math.min(forced, cap);
+      return { slot: fs, ppSlot: fs + "/" + (deliveries >= 2 ? deliveries : cap), needManual: false };
+    }
+    if (stored >= 1) {
+      var ss = Math.min(stored, cap);
+      return { slot: ss, ppSlot: ss + "/" + (deliveries >= 2 ? deliveries : cap), needManual: false };
+    }
+    var suggested;
+    if (last >= 2) suggested = 1;
+    else if (last === 1) suggested = Math.min(cap, 2);
+    else suggested = Math.min(cap, Math.max(1, count + 1));
+    if (!(suggested >= 1)) suggested = 1;
+    var denom = deliveries >= 2 ? deliveries : cap;
+    return { slot: suggested, ppSlot: suggested + "/" + denom, needManual: !!opts.needManual };
+  }
+
   function slotSaveParams(client, slot, date, day, calendarOnly) {
-    var n = Math.max(2, Number(client.deliveriesN) || 2);
+    client = client || {};
+    var known = Number(client.deliveriesN);
+    var n = known >= 1 ? known : 2;
+    var useSlot = Number(slot) || 1;
+    var label;
+    if (known === 1) {
+      useSlot = 1;
+      label = "1";
+    } else {
+      label = useSlot + "/" + n;
+    }
     var weekDay = calendarOnly ? "" : (day || "");
     return {
       action: "saveBooking",
@@ -199,14 +245,30 @@
       orderType: "pp",
       segment: "ПП",
       orderPrice: client.orderPrice != null ? String(client.orderPrice) : "",
-      deliverySlot: String(slot),
-      ppSlot: slot + "/" + n,
+      deliverySlot: String(useSlot),
+      ppSlot: label,
       deliveriesN: String(n),
       deliveryAfter: client.deliveryAfter || "",
       deliveryBefore: client.deliveryBefore || "",
       source: "pp",
       basket: JSON.stringify(client.basket || [])
     };
+  }
+
+  function countPpSlots(list) {
+    var pp1 = 0;
+    var pp2 = 0;
+    (list || []).forEach(function (c) {
+      if (!c) return;
+      var ot = "";
+      try { ot = resolveOrderType(c); } catch (e) {}
+      var seg = String(c.segment || "");
+      if (ot !== "pp" && seg !== "ПП" && seg !== "АФК") return;
+      var n = ppSlotNumber(c.deliverySlot || c.ppSlot);
+      if (n === 1) pp1++;
+      else if (n === 2) pp2++;
+    });
+    return { pp1: pp1, pp2: pp2 };
   }
 
   function deferredMode(it) {
@@ -497,6 +559,9 @@
     deleteParams: deleteParams,
     pullPayload: pullPayload,
     slotSaveParams: slotSaveParams,
+    ppSlotNumber: ppSlotNumber,
+    suggestPpSlot: suggestPpSlot,
+    countPpSlots: countPpSlots,
     deferredMode: deferredMode,
     tasksSub: tasksSub,
     finishPlain: finishPlain,

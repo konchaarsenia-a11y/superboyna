@@ -20837,20 +20837,17 @@ async function getPpFactCostD1_(params, env, ctx) {
             "",
           deliveries
         );
-        if (forced >= 1) {
-          deliverySlot = forced;
-          suggestedSlot = forced;
-          needManualSlot = false;
-        } else if (stored >= 1) {
-          deliverySlot = stored;
-          suggestedSlot = stored;
-        } else {
-          suggestedSlot = Math.min(deliveries, (Number(prior.count) || 0) + 1);
-          if (prior.lastSlot >= 1 && prior.count <= 0) {
-            suggestedSlot = prior.lastSlot >= 2 ? 1 : 2;
-          }
-          deliverySlot = suggestedSlot;
-        }
+        const picked = suggestPpDeliverySlotD1_({
+          deliveriesN: deliveries,
+          forced: forced,
+          stored: stored,
+          lastSlot: prior.lastSlot,
+          priorCount: prior.count,
+          needManualSlot: needManualSlot
+        });
+        deliverySlot = picked.slot;
+        suggestedSlot = picked.slot;
+        if (forced >= 1 || stored >= 1) needManualSlot = false;
         ppSlotLbl = formatPpSlotLabelD1_(deliverySlot, deliveries);
       } catch (eSlotFact) {
         needManualSlot = true;
@@ -21081,6 +21078,27 @@ function resolveAsOfIsoD1_(params) {
   }
 }
 
+/** Слот ПП: сохранённый на дату побеждает, иначе 1↔2 по последнему слоту.
+ *  Ветка «lastSlot && count<=0» мертва: lastSlot ставится только вместе со счётом. */
+function suggestPpDeliverySlotD1_(opts) {
+  opts = opts || {};
+  const deliveries = Math.max(0, Number(opts.deliveriesN) || 0);
+  const cap = deliveries >= 2 ? deliveries : 2;
+  const forced = Number(opts.forced) || 0;
+  const stored = Number(opts.stored) || 0;
+  const last = Number(opts.lastSlot) || 0;
+  const count = Number(opts.priorCount) || 0;
+  if (deliveries === 1) return { slot: 1, needManualSlot: false };
+  if (forced >= 1) return { slot: Math.min(forced, cap), needManualSlot: false };
+  if (stored >= 1) return { slot: Math.min(stored, cap), needManualSlot: false };
+  let suggested;
+  if (last >= 2) suggested = 1;
+  else if (last === 1) suggested = Math.min(cap, 2);
+  else suggested = Math.min(cap, Math.max(1, count + 1));
+  if (!(suggested >= 1)) suggested = 1;
+  return { slot: suggested, needManualSlot: !!opts.needManualSlot };
+}
+
 async function hasPpSlotAnchorD1_(env, matchKey) {
   if (!env || !matchKey) return false;
   try {
@@ -21289,18 +21307,17 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
         "",
       deliveriesN
     );
-    if (forced >= 1) {
-      slot = forced;
-      suggestedSlot = forced;
-      needManualSlot = false;
-    } else if (stored >= 1) {
-      slot = stored;
-      suggestedSlot = stored;
-    } else {
-      suggestedSlot = Math.min(deliveriesN, (Number(prior.count) || 0) + 1);
-      if (prior.lastSlot >= 1 && prior.count <= 0) suggestedSlot = prior.lastSlot >= 2 ? 1 : 2;
-      slot = needManualSlot ? suggestedSlot : suggestedSlot;
-    }
+    const picked = suggestPpDeliverySlotD1_({
+      deliveriesN: deliveriesN,
+      forced: forced,
+      stored: stored,
+      lastSlot: prior.lastSlot,
+      priorCount: prior.count,
+      needManualSlot: needManualSlot
+    });
+    slot = picked.slot;
+    suggestedSlot = picked.slot;
+    if (forced >= 1 || stored >= 1) needManualSlot = false;
   }
 
   const proposed = proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket);

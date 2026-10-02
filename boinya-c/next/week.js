@@ -104,19 +104,22 @@
     return { dog: dog, nick: nick, letter: dog.slice(0, 1).toUpperCase() };
   }
 
-  function pillOf(seg) {
-    var s = String(seg || "");
+  function pillOf(c) {
+    var s = typeof c === "string" ? c : String((c && (c.segment || logic().orderTypeToSegment(logic().resolveOrderType(c)))) || "");
     var cls = "pill pill--p";
-    if (s === "ПП") cls = "pill pill--ok";
+    if (s === "ПП" || s === "АФК") cls = "pill pill--ok";
     else if (s === "БП") cls = "pill pill--info";
     else if (s === "Р") cls = "pill pill--warn";
-    return s ? '<span class="' + cls + '">' + esc(s === "ПАРТНЁР" ? "Партнёр" : s) + "</span>" : "";
+    var label = s === "ПАРТНЁР" ? "Партнёр" : s;
+    if ((s === "ПП" || s === "АФК") && c && typeof c === "object") {
+      var n = logic().ppSlotNumber(c.deliverySlot || c.ppSlot);
+      if (n === 1 || n === 2) label = "ПП" + n;
+    }
+    return label ? '<span class="' + cls + '">' + esc(label) + "</span>" : "";
   }
 
   function rowBtn(c, index, source) {
     var who = splitWho(c);
-    var ot = logic().resolveOrderType(c);
-    var seg = c.segment || logic().orderTypeToSegment(ot);
     var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice).replace(".", ",") + " BYN") : "";
     var addr = [c.address, price].filter(Boolean).join(", ");
     return '<button type="button" class="row" data-act="wrow" data-i="' + index + '" data-src="' + source + '">' +
@@ -125,7 +128,7 @@
       (who.nick ? '<span class="sub">' + esc(who.nick) + "</span>" : "") +
       (source === "sum" && c && c._sumDate ? '<span class="sub">' + esc(dayCaption(c._sumDate)) + "</span>" : "") +
       (addr ? '<span class="sub">' + esc(addr) + "</span>" : "") +
-      "</span>" + pillOf(seg) + "</button>";
+      "</span>" + pillOf(c) + "</button>";
   }
 
   function openRow(c, index, source) {
@@ -133,8 +136,22 @@
     var who = splitWho(c);
     var mix = root.BoinyaCrumbMix;
     var lines = mix && mix.linesHtml ? mix.linesHtml(c.basket || c.items || []) : "";
+    var otRow = logic().resolveOrderType(c);
+    var slotNow = logic().ppSlotNumber(c.deliverySlot || c.ppSlot);
+    var slotNote = "";
+    var slotBtns = "";
+    if (otRow === "pp" || String(c.segment || "") === "ПП") {
+      slotNote = '<p class="b-note">' + (slotNow === 1 || slotNow === 2 ? ("Сейчас ПП" + slotNow) : "Слот ПП не отмечен") + "</p>";
+      slotBtns =
+        '<div class="nx-actions" style="margin-top:8px">' +
+        '<button type="button" class="b-btn' + (slotNow === 1 ? " b-btn--main" : " b-btn--sec") + '" data-act="wslot" data-slot="1" data-i="' + index + '" data-src="' + source + '">ПП1</button>' +
+        '<button type="button" class="b-btn' + (slotNow === 2 ? " b-btn--main" : " b-btn--sec") + '" data-act="wslot" data-slot="2" data-i="' + index + '" data-src="' + source + '">ПП2</button>' +
+        "</div>";
+    }
     var html = (who.nick ? '<p class="sheet-lead">' + esc(who.nick) + "</p>" : "") +
+      slotNote +
       (lines ? '<div class="mix-list">' + lines + "</div>" : '<p class="b-note">Состав не указан</p>') +
+      slotBtns +
       '<button type="button" class="b-btn b-btn--main" data-act="wedit" data-i="' + index + '" data-src="' + source + '" style="margin-top:12px">Править</button>' +
       '<button type="button" class="b-btn b-btn--sec" data-act="wmove" data-i="' + index + '" data-src="' + source + '" style="margin-top:8px">Перенести</button>';
     if (source === "month") {
@@ -303,7 +320,16 @@
       '<div class="nx-counters">' +
         '<div class="nx-count"><b>' + esc(String(count || 0)) + "</b><span>Люди</span></div>" +
         '<div class="nx-count"><b>' + esc(moneyText(people.length ? moneyOf(people) : null)) + "</b><span>Сумма, BYN</span></div>" +
-      "</div></article>";
+      "</div>" +
+      (function () {
+        var slots = logic().countPpSlots(people);
+        if (!people.length) return "";
+        return '<div class="nx-counters" style="margin-top:8px">' +
+          '<div class="nx-count"><b>' + esc(String(slots.pp1)) + "</b><span>ПП1</span></div>" +
+          '<div class="nx-count"><b>' + esc(String(slots.pp2)) + "</b><span>ПП2</span></div>" +
+          "</div>";
+      })() +
+      "</article>";
   }
 
   function weekOnScreen() {
@@ -748,15 +774,20 @@
 
   async function setSlot(c, slot) {
     if (!c || !view.date) { sh().toast("Нет даты"); return; }
-    var n = Math.max(2, Number(c.deliveriesN) || 2);
-    var ok = await sh().confirm({ title: "Слот ПП", text: c.name + "\nПоставить ПП " + slot + "/" + n + "?", ok: "Поставить", cancel: "Отмена" });
-    if (!ok) return;
     var params = logic().slotSaveParams(c, slot, view.date, view.resolvedDay || view.day, view.calendarOnly);
+    var ok = await sh().confirm({
+      title: "Слот ПП",
+      text: c.name + "\nПоставить ПП " + params.ppSlot + "?",
+      ok: "Поставить",
+      cancel: "Отмена"
+    });
+    if (!ok) return;
     var res = await api().apiPost(params);
     confirmWrite(res, "внесено");
     if (logic().writeAccepted(res)) {
-      c.deliverySlot = slot;
-      c.ppSlot = slot + "/" + n;
+      c.deliverySlot = Number(params.deliverySlot) || slot;
+      c.ppSlot = params.ppSlot;
+      c.deliveriesN = Number(params.deliveriesN) || c.deliveriesN;
       paint();
     }
   }
