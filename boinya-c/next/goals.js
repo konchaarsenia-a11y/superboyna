@@ -174,9 +174,12 @@
 
   function segBar() {
     var L = logic();
+    var extra = isOwner()
+      ? '<button type="button" class="b-seg__item' + (horizon === "spend" ? " b-seg__item--on" : "") + '" data-act="gl-horizon" data-h="spend">Расходы</button>'
+      : "";
     return '<div class="b-seg" style="margin-bottom:16px">' + L.HORIZONS.map(function (h) {
       return '<button type="button" class="b-seg__item' + (h.id === horizon ? " b-seg__item--on" : "") + '" data-act="gl-horizon" data-h="' + h.id + '">' + esc(h.label) + "</button>";
-    }).join("") + "</div>";
+    }).join("") + extra + "</div>";
   }
 
   function taskRow(t) {
@@ -322,6 +325,14 @@
   function paint() {
     ensureCss();
     sh().dock("");
+    if (horizon === "spend" && isOwner()) {
+      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + '<div id="expRoot"></div></div>');
+      if (root.BoinyaExpenses) {
+        root.BoinyaExpenses.bind(access);
+        root.BoinyaExpenses.showInto();
+      }
+      return;
+    }
     if (!loaded && !loadError) {
       sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + sh().skeleton(4) + "</div>");
       return;

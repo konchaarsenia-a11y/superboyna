@@ -189,6 +189,87 @@ test("чистые перешедших и партнёры: себес §3, ц�
   assert.match(eco.attribution, /кто привёл/);
 });
 
+test("сверка: меньше попадает в чистое, больше вычитается, коридор 5% и минимум 5", () => {
+  const under = F.reconcile_(100, 80, true, "свет");
+  eq(under.gap, 20, "меньше");
+  assert.equal(under.state, "under");
+  assert.match(under.text, /меньше заложенного/);
+  assert.match(under.text, /\+20\.00 BYN в чистое/);
+  const over = F.reconcile_(100, 130, true, "свет");
+  eq(over.gap, -30, "больше");
+  assert.equal(over.state, "over");
+  assert.match(over.text, /перерасход 30\.00 BYN/);
+  const near = F.reconcile_(100, 96, true, "свет");
+  eq(near.gap, 0, "в пределах 5");
+  assert.equal(near.state, "close");
+  assert.equal(near.text, "");
+  const wide = F.reconcile_(1000, 960, true, "свет");
+  eq(wide.gap, 0, "5% от 1000");
+  assert.equal(wide.state, "close");
+  const empty = F.reconcile_(100, 0, false, "свет");
+  eq(empty.gap, 0, "не введено не ноль");
+  assert.equal(empty.state, "empty");
+});
+
+test("амортизация: доля дней, 12 месяцев если ремонта раньше не было", () => {
+  const first = F.amortMonth_([{ date: "2026-01-01", amount: 365, object: "авто" }], "2026-10");
+  eq(first.amount, 31, "октябрь доля");
+  assert.equal(first.forward, true);
+  assert.match(first.note, /12 месяцев/);
+  const chain = F.amortMonth_([
+    { date: "2026-01-01", amount: 50, object: "авто" },
+    { date: "2026-04-11", amount: 100, object: "авто" }
+  ], "2026-03");
+  eq(chain.amount, 31, "март между ремонтами");
+  assert.equal(chain.forward, false);
+  const personal = F.amortMonth_([{ date: "2026-01-01", amount: 365, object: "авто", personal: true }], "2026-10");
+  eq(personal.amount, 0, "личное не в проекте");
+});
+
+test("личное не входит в проект, налог 20% только с плюса, остаток доставки не задваивается", () => {
+  const bucket = F.expenseBucket_([
+    { date: "2026-10-02", amount: 10, category: "smm", personal: false },
+    { date: "2026-10-03", amount: 99, category: "smm", personal: true },
+    { date: "2026-10-04", amount: 40, category: "light", personal: false },
+    { date: "2026-09-01", amount: 7, category: "tool", personal: false }
+  ], "2026-10");
+  eq(bucket.project.smm, 10, "только проект");
+  eq(bucket.paid.light, 40, "свет");
+  eq(bucket.project.tool, 0, "другой месяц");
+  const close = F.formulaClose_({
+    monthKey: "2026-10",
+    revenue: 200,
+    S: 10, G: 0, P: 0, N: 2,
+    rows: [
+      { date: "2026-10-02", amount: 10, category: "smm" },
+      { date: "2026-10-02", amount: 50, category: "other", personal: true }
+    ],
+    repairs: []
+  });
+  eq(close.deliveryRest, 1.2, "0,60 на доставку");
+  eq(close.rent, 900, "аренда по умолчанию");
+  assert.equal(close.rentDefault, true);
+  const again = F.formulaClose_({
+    monthKey: "2026-10",
+    revenue: 200,
+    S: 10, G: 0, P: 0, N: 10,
+    rows: [{ date: "2026-10-02", amount: 10, category: "smm" }]
+  });
+  eq(again.profit, F.kopeck_(close.profit - 8.4 * 8), "остаток доставки не прибавлен к прибыли");
+  const rich = F.formulaClose_({
+    monthKey: "2026-10",
+    revenue: 2000,
+    S: 10, G: 0, P: 0, N: 1,
+    rows: [{ date: "2026-10-01", amount: 100, category: "rent" }]
+  });
+  assert.ok(rich.profit > 0);
+  eq(rich.tax, F.kopeck_(rich.profit * 0.2), "налог");
+  eq(rich.afterTax, F.kopeck_(rich.profit - rich.tax), "после налога");
+  const loss = F.formulaClose_({ monthKey: "2026-10", revenue: 10, S: 10, G: 0, P: 0, N: 1, rows: [] });
+  eq(loss.tax, 0, "с минуса налог 0");
+  eq(loss.afterTax, loss.profit, "минус остаётся");
+});
+
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {
   const gs = fs.readFileSync(path.resolve(here, "../../Code.gs"), "utf8");
   assert.match(gs, /function collectFormulaRollup_/);
@@ -199,7 +280,12 @@ test("код: формула только по отвезено, прежний 
   assert.match(gs, /ppPartner/);
   assert.match(gs, /formulaEconomy/);
   const worker = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
+  assert.match(gs, /STATS27:/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_month_money/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_role_assign/);
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS owner_expenses/);
   assert.match(worker, /saveStatsMonthMoney/);
+  const formulas = fs.readFileSync(path.resolve(here, "formulas.js"), "utf8");
+  assert.match(formulas, /function formulaClose_/);
+  assert.match(formulas, /TAX_RATE_ = 0\.2/);
 });

@@ -52,9 +52,15 @@
     return '<div class="nx-line' + (wait ? " nx-line--wait" : "") + '"><span>' + esc(label) + '</span><b class="nx-stat__num">' + esc(val) + delta + "</b></div>";
   }
 
-  function billInput(label, key, value) {
-    var shown = value == null || value === "" ? "" : String(value);
-    return '<label class="nx-line nx-bill"><span>' + esc(label) + '</span><input class="b-field__input" data-k="' + esc(key) + '" inputmode="decimal" placeholder="не введено" value="' + esc(shown) + '"></label>';
+  function closeOf(roll, pack, monthKey) {
+    if (!roll || roll.ok === false || roll.revenue == null || !formulas() || !formulas().formulaClose_) return null;
+    return formulas().formulaClose_({
+      monthKey: monthKey || "",
+      revenue: roll.revenue,
+      S: roll.S, G: roll.G, P: roll.P, N: roll.N,
+      rows: (pack && pack.expenses) || [],
+      repairs: (pack && pack.amort) || []
+    });
   }
 
   function convText(conv) {
@@ -127,6 +133,8 @@
     var prevRoll = prevRes && prevRes.formula ? prevRes.formula : null;
     var now = monthOf(roll, meta.setup);
     var before = monthOf(prevRoll, meta.prevSetup);
+    var closed = closeOf(roll, meta.expenses, meta.billMonth);
+    var beforeClose = closeOf(prevRoll, meta.prevExpenses, meta.prevBillMonth);
     var legacy = L().statsScreen_(periodRes, null);
     if (meta.bpSource && meta.bpSource !== periodRes) {
       var bpScreen = L().statsScreen_(meta.bpSource, null);
@@ -144,7 +152,7 @@
       html += line("Оборот", "нет данных") + line("Прибыль", "нет данных") + line("Себестоимость", "нет данных") + line("Доставки", "нет данных");
     } else {
       html += shelfMoney("Оборот", now.revenue, before ? before.revenue : null);
-      html += shelfMoney("Прибыль", now.profit, before ? before.profit : null);
+      html += shelfMoney("Прибыль", closed ? closed.afterTax : now.profit, beforeClose ? beforeClose.afterTax : (before ? before.profit : null));
       html += shelfMoney("Себестоимость", now.cost, before ? before.cost : null);
       html += shelfCount("Доставки", now.N, before ? before.N : null);
       if (roll.pending && (Number(roll.pending.revenue) > 0 || Number(roll.pending.N) > 0)) {
@@ -185,26 +193,41 @@
     }
     html += "</article>";
 
-    var setup = meta.setup || {};
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Расходы месяца</p>';
-    html += '<p class="b-note">Аренда по умолчанию 900 и действует с месяца, где её записали. Остальное пустое значит не введено и в прибыль идёт как 0.</p>';
+    html += '<p class="b-note">Статистика ничего не вводит. Суммы приходят со страницы «Расходы» во вкладке «Цели». Пустая статья значит не введено и в чистое не входит.</p>';
     if (meta.rangeBills) html += '<p class="b-note">Суммы за месяц целиком, диапазон дат их не делит.</p>';
-    html += billInput("Аренда", "rent", setup.rentEntered ? setup.rent : 900);
-    if (setup.rentFrom && setup.rentFrom !== meta.billMonth) {
-      html += '<p class="b-note">Аренда с месяца ' + esc(setup.rentFrom) + "</p>";
+    if (!closed) {
+      html += line("Аренда", "нет данных");
+    } else {
+      html += line("Аренда", moneyText(closed.rent) + (closed.rentDefault ? " по умолчанию" : ""));
+      if (closed.project.coupon > 0) html += line("Купоны", moneyText(closed.project.coupon));
+      if (closed.project.tool > 0) html += line("Инструмент", moneyText(closed.project.tool));
+      if (closed.project.smm > 0) html += line("SMM", moneyText(closed.project.smm));
+      else html += line("SMM", "не введено");
+      if (closed.project.other > 0) html += line("Прочее", moneyText(closed.project.other));
+      html += line("Амортизация", moneyText(closed.amort));
+      if (closed.amortNote) html += '<p class="b-note">' + esc(closed.amortNote) + "</p>";
+      html += line("Остаток доставки в чистое", moneyText(closed.deliveryRest));
+      html += '<p class="b-note">0,60 на доставку уже внутри валовой маржи, второй раз не прибавляется.</p>';
+      html += line("Налог 20%", moneyText(closed.tax));
+      html += line("Прибыль после налога", moneyText(closed.afterTax));
     }
-    html += billInput("Счёт за свет", "light", setup.lightBill);
-    if (now && now.lightBill && now.lightBill.entered) html += line("Разница, свет", moneyText(now.lightGap));
-    else html += line("Разница, свет", "не введено");
-    html += billInput("Закупка пакетов", "pack", setup.packBill);
-    if (now && now.packBill && now.packBill.entered) html += line("Разница, пакеты", moneyText(now.packGap));
-    else html += line("Разница, пакеты", "не введено");
-    html += billInput("Амортизация", "amort", setup.amort);
-    html += billInput("SMM", "smm", setup.smm);
-    html += billInput("Прочее", "other", setup.other);
-    html += '<button type="button" class="b-btn b-btn--sec" data-act="st-save-money" style="margin-top:8px">Сохранить расходы месяца</button>';
+    html += "</article>";
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Сверка с расходами</p>';
+    if (!closed) html += line("Сверка", "нет данных");
+    else {
+      var shownRecon = 0;
+      var ri;
+      for (ri = 0; ri < closed.recon.length; ri++) {
+        if (!closed.recon[ri].text) continue;
+        shownRecon++;
+        html += '<p class="b-note">' + esc(closed.recon[ri].text) + "</p>";
+      }
+      if (!shownRecon) html += '<p class="b-note">Расхождения нет, либо оплата не введена.</p>';
+    }
     html += "</article>";
 
+    var setup = meta.setup || {};
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Зарплата</p>';
     var cutterName = setup.cutter && setup.cutter.name ? setup.cutter.name : "не выбран";
     var courierName = setup.courier && setup.courier.name ? setup.courier.name : "не выбран";
@@ -329,6 +352,17 @@
     box.innerHTML = html;
   }
 
+  async function pullExpenses(month) {
+    if (!/^\d{4}-\d{2}$/.test(String(month || ""))) return null;
+    try {
+      return await api().apiGet({
+        action: "listOwnerExpenses",
+        month: month,
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    } catch (eE) { return null; }
+  }
+
   async function pullSetup(month) {
     if (!/^\d{4}-\d{2}$/.test(String(month || ""))) return null;
     try {
@@ -398,6 +432,8 @@
       var rangeBill = String(view.to || "").slice(0, 7);
       var rangeSetup = await pullSetup(rangeBill);
       var rangePrevSetup = rangePrev ? await pullSetup(String(rangePrev.to || "").slice(0, 7)) : null;
+      var rangeExp = await pullExpenses(rangeBill);
+      var rangePrevExp = rangePrev ? await pullExpenses(String(rangePrev.to || "").slice(0, 7)) : null;
       if (!document.getElementById("statsContainer")) return;
       paint(ranged, rangePrevRes, {
         title: L().statsFmtDay_(view.from) + "–" + L().statsFmtDay_(view.to),
@@ -407,6 +443,9 @@
         setup: rangeSetup,
         prevSetup: rangePrevSetup,
         billMonth: rangeBill,
+        prevBillMonth: rangePrev ? String(rangePrev.to || "").slice(0, 7) : "",
+        expenses: rangeExp,
+        prevExpenses: rangePrevExp,
         rangeBills: true
       });
       return;
@@ -429,6 +468,8 @@
     var prevRes = prevWin ? await pullExpected(prevWin.from, prevWin.to) : null;
     var setup = await pullSetup(mk);
     var prevSetup = prevWin ? await pullSetup(String(prevWin.to || "").slice(0, 7)) : null;
+    var exp = await pullExpenses(mk);
+    var prevExp = prevWin ? await pullExpenses(String(prevWin.to || "").slice(0, 7)) : null;
     if (!document.getElementById("statsContainer")) return;
     if (view.mode !== "month" || ensureMonth() !== mk) return;
     paint(res, prevRes, {
@@ -438,37 +479,11 @@
       stale: !res.factCutoff,
       setup: setup,
       prevSetup: prevSetup,
-      billMonth: mk
+      billMonth: mk,
+      prevBillMonth: prevWin ? String(prevWin.to || "").slice(0, 7) : "",
+      expenses: exp,
+      prevExpenses: prevExp
     });
-  }
-
-  function billValue(key) {
-    var el = document.querySelector('#statsContainer [data-k="' + key + '"]');
-    return el ? String(el.value || "").trim() : "";
-  }
-
-  async function saveMoney() {
-    var mk = view.mode === "range" && view.to ? String(view.to).slice(0, 7) : ensureMonth();
-    sh().toast("Сохраняю…");
-    var res = null;
-    try {
-      res = await api().apiGet({
-        action: "saveStatsMonthMoney",
-        month: mk,
-        rent: billValue("rent"),
-        lightBill: billValue("light"),
-        packBill: billValue("pack"),
-        amort: billValue("amort"),
-        smm: billValue("smm"),
-        other: billValue("other"),
-        _: String(Date.now())
-      }, { timeoutMs: 20000, cacheTtlMs: 0 });
-    } catch (eSave) { res = null; }
-    if (res && res.status === "success") {
-      sh().toast("Расходы месяца записаны");
-      cache = Object.create(null);
-      load({ force: true });
-    } else sh().toast("Не записалось");
   }
 
   function shift(delta) {
@@ -531,7 +546,6 @@
     if (act === "st-export") { exportTsv(); return true; }
     if (act === "st-range-open") { openRange(); return true; }
     if (act === "st-range") { range(); return true; }
-    if (act === "st-save-money") { saveMoney(); return true; }
     return false;
   }
 

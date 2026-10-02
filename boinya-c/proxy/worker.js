@@ -681,7 +681,7 @@ async function resolveActor_(params, env) {
 
 const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry)$/i;
 const AUTH_OWNER_RE = new RegExp(
-  "^(setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
+    "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
@@ -1244,6 +1244,9 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "getStatsMonthSetup") return getStatsMonthSetup_(params, env);
   if (a === "saveStatsMonthMoney") return saveStatsMonthMoney_(params, env);
   if (a === "saveStatsRoles") return saveStatsRoles_(params, env);
+  if (a === "listOwnerExpenses") return listOwnerExpenses_(params, env, actor);
+  if (a === "saveOwnerExpense") return saveOwnerExpense_(params, env, actor);
+  if (a === "deleteOwnerExpense") return deleteOwnerExpense_(params, env, actor);
   if (a === "listWarehouses") return listWarehouses_(env);
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
   if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
@@ -2792,6 +2795,106 @@ async function saveStatsRoles_(params, env) {
   await put("cutter", params && params.cutterTgId, params && params.cutterName);
   await put("courier", params && params.courierTgId, params && params.courierName);
   return getStatsMonthSetup_({ month: month }, env);
+}
+
+const OWNER_EXPENSE_CATS_ = {
+  light: 1, rent: 1, raw: 1, pack: 1, wage: 1, fuel: 1, amort: 1, coupon: 1, tool: 1, smm: 1, other: 1
+};
+
+async function ensureOwnerExpenses_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__ownerExpReady) return true;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS owner_expenses (" +
+      "id TEXT PRIMARY KEY, spent_on TEXT NOT NULL, amount REAL NOT NULL, category TEXT NOT NULL, " +
+      "comment TEXT NOT NULL DEFAULT '', object TEXT NOT NULL DEFAULT '', personal INTEGER NOT NULL DEFAULT 0, " +
+      "actor_id TEXT NOT NULL DEFAULT '', actor_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  env.__ownerExpReady = true;
+  return true;
+}
+
+function ownerExpensePublic_(row) {
+  return {
+    id: String(row.id || ""),
+    date: String(row.spent_on || "").slice(0, 10),
+    amount: Math.round((Number(row.amount) || 0) * 100) / 100,
+    category: String(row.category || ""),
+    comment: String(row.comment || ""),
+    object: String(row.object || ""),
+    personal: Number(row.personal) === 1,
+    actorId: String(row.actor_id || ""),
+    actorName: String(row.actor_name || ""),
+    createdAt: String(row.created_at || "")
+  };
+}
+
+function ownerOnly_(actor) {
+  return !!(actor && (actor.isOwner || actor.role === "owner"));
+}
+
+async function listOwnerExpenses_(params, env, actor) {
+  if (!ownerOnly_(actor)) return { status: "error", message: "owner_only" };
+  const month = String((params && (params.month || params.monthKey)) || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return { status: "error", message: "month" };
+  if (!env || !env.DB) return { status: "success", month: month, expenses: [], amort: [] };
+  await ensureOwnerExpenses_(env);
+  const from = month + "-01";
+  const to = month + "-31";
+  const monthRows = await env.DB.prepare(
+    "SELECT * FROM owner_expenses WHERE spent_on >= ? AND spent_on <= ? ORDER BY spent_on DESC, created_at DESC"
+  ).bind(from, to).all();
+  const amortRows = await env.DB.prepare(
+    "SELECT * FROM owner_expenses WHERE category = 'amort' ORDER BY spent_on ASC LIMIT 500"
+  ).all();
+  return {
+    status: "success",
+    month: month,
+    expenses: ((monthRows && monthRows.results) || []).map(ownerExpensePublic_),
+    amort: ((amortRows && amortRows.results) || []).map(ownerExpensePublic_)
+  };
+}
+
+async function saveOwnerExpense_(params, env, actor) {
+  if (!ownerOnly_(actor)) return { status: "error", message: "owner_only" };
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureOwnerExpenses_(env);
+  const date = String((params && (params.date || params.spentOn)) || "").slice(0, 10);
+  const category = String((params && params.category) || "");
+  const amount = statsMoneyOrNull_(params && params.amount);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { status: "error", message: "дата" };
+  if (!OWNER_EXPENSE_CATS_[category]) return { status: "error", message: "категория" };
+  if (!(amount > 0)) return { status: "error", message: "сумма" };
+  const personal = params && (params.personal === "1" || params.personal === 1 || params.personal === true) ? 1 : 0;
+  const id = "exp_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO owner_expenses (id, spent_on, amount, category, comment, object, personal, actor_id, actor_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    id,
+    date,
+    amount,
+    category,
+    String((params && params.comment) || "").slice(0, 240),
+    String((params && params.object) || "").slice(0, 80),
+    personal,
+    String((actor && actor.tid) || ""),
+    String((params && params.actorName) || "").slice(0, 80),
+    now
+  ).run();
+  return listOwnerExpenses_({ month: date.slice(0, 7) }, env, actor);
+}
+
+async function deleteOwnerExpense_(params, env, actor) {
+  if (!ownerOnly_(actor)) return { status: "error", message: "owner_only" };
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  await ensureOwnerExpenses_(env);
+  const id = String((params && params.id) || "");
+  if (!id) return { status: "error", message: "id" };
+  const row = await env.DB.prepare("SELECT spent_on FROM owner_expenses WHERE id = ?").bind(id).first();
+  if (!row) return { status: "error", message: "нет записи" };
+  await env.DB.prepare("DELETE FROM owner_expenses WHERE id = ?").bind(id).run();
+  return listOwnerExpenses_({ month: String(row.spent_on || "").slice(0, 7) }, env, actor);
 }
 
 async function listWarehouses_(env) {
