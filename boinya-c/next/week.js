@@ -28,12 +28,17 @@
     overview: null,
     role: "",
     notesOpen: {},
-    fillIndex: -1
+    fillIndex: -1,
+    skeletonRows: 3
   };
   var finish = null;
   var compareCache = {};
   var overviewCache = {};
+  var monthPeopleCache = {};
+  var peopleFlight = {};
+  var compareGen = 0;
   var COMPARE_TTL = 30000;
+  var STALE_TTL = 300000;
   var segsFn = function () { return []; };
 
   function esc(s) { return sh().esc(s); }
@@ -118,6 +123,7 @@
       '<span class="avatar" aria-hidden="true">' + esc(who.letter) + "</span>" +
       '<span class="who"><span class="name">' + esc(who.dog) + "</span>" +
       (who.nick ? '<span class="sub">' + esc(who.nick) + "</span>" : "") +
+      (source === "sum" && c && c._sumDate ? '<span class="sub">' + esc(dayCaption(c._sumDate)) + "</span>" : "") +
       (addr ? '<span class="sub">' + esc(addr) + "</span>" : "") +
       "</span>" + pillOf(seg) + "</button>";
   }
@@ -125,18 +131,12 @@
   function openRow(c, index, source) {
     if (!c) return;
     var who = splitWho(c);
-    var ot = logic().resolveOrderType(c);
-    var seg = c.segment || logic().orderTypeToSegment(ot) || "";
-    var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
-    var lead = [esc(seg), esc(c.address || ""), esc(price)].filter(Boolean).join("<br>");
+    var mix = root.BoinyaCrumbMix;
+    var lines = mix && mix.linesHtml ? mix.linesHtml(c.basket || c.items || []) : "";
     var html = (who.nick ? '<p class="sheet-lead">' + esc(who.nick) + "</p>" : "") +
-      (lead ? '<p class="sheet-lead">' + lead + "</p>" : "") +
-      '<button type="button" class="sheet-act" data-act="wedit" data-i="' + index + '" data-src="' + source + '">Править</button>' +
-      '<button type="button" class="sheet-act" data-act="wmove" data-i="' + index + '" data-src="' + source + '">Перенести</button>';
-    if (ot === "pp") {
-      html += '<button type="button" class="sheet-act" data-act="wslot" data-i="' + index + '" data-src="' + source + '" data-slot="1">Слот ПП 1</button>' +
-        '<button type="button" class="sheet-act" data-act="wslot" data-i="' + index + '" data-src="' + source + '" data-slot="2">Слот ПП 2</button>';
-    }
+      (lines ? '<div class="mix-list">' + lines + "</div>" : '<p class="b-note">Состав не указан</p>') +
+      '<button type="button" class="b-btn b-btn--main" data-act="wedit" data-i="' + index + '" data-src="' + source + '" style="margin-top:12px">Править</button>' +
+      '<button type="button" class="b-btn b-btn--sec" data-act="wmove" data-i="' + index + '" data-src="' + source + '" style="margin-top:8px">Перенести</button>';
     if (source === "month") {
       html += '<button type="button" class="sheet-act" data-act="wstage" data-i="' + index + '">В черновик</button>';
     }
@@ -172,22 +172,16 @@
     var names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
     var by = overviewMap();
     var monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
-    var shortM = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
     var html = '<div class="cal-head b-row"><button type="button" class="b-ib" data-act="wcal-shift" data-dir="-1" aria-label="Предыдущий месяц">‹</button>' +
       '<h2 class="b-grow" style="text-align:center;margin:0;font-size:18px">' + esc(monthNames[m] + " " + y) + "</h2>" +
       '<button type="button" class="b-ib" data-act="wcal-shift" data-dir="1" aria-label="Следующий месяц">›</button></div>';
     html += '<div class="wd" aria-hidden="true">' + names.map(function (n) { return "<span>" + n + "</span>"; }).join("") + "</div>";
-    html += '<div class="nx-cal grid">';
+    html += '<div class="nx-cal grid" id="nxCalGrid">';
     for (var i = 0; i < start; i++) html += '<span class="cell cell--pad"></span>';
-    var busy = 0;
-    var people = 0;
-    var sel = null;
     for (var d = 1; d <= days; d++) {
       var cur = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
       var hit = by[cur];
       var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
-      if (n > 0) { busy++; people += n; }
-      if (cur === view.date) sel = { n: n, segs: (hit && hit.segments) || {}, d: d };
       var dots = "";
       var segs = (hit && hit.segments) || {};
       if (n && segs["ПП"]) dots += '<i class="dot dot-pp"></i>';
@@ -203,26 +197,141 @@
         (dots ? '<span class="dots">' + dots + "</span>" : "") + "</button>";
     }
     html += "</div>";
-    var aside = "";
-    if (sel) {
-      var bits = [];
-      if (sel.segs["ПП"]) bits.push("ПП " + sel.segs["ПП"]);
-      if (sel.segs["БП"]) bits.push("БП " + sel.segs["БП"]);
-      if (sel.segs["Р"]) bits.push("розница " + sel.segs["Р"]);
-      if (sel.segs["ПАРТНЁР"]) bits.push("партнёр " + sel.segs["ПАРТНЁР"]);
-      aside = sel.d + " " + shortM[m] + (bits.length ? ", " + bits.join(", ") : "");
-    }
-    html += '<div class="sum"><div class="sum-line"><span><span class="num">' + (sel ? sel.n : 0) + "</span> чел.</span>" +
-      (aside ? '<span class="sum-aside">' + esc(aside) + "</span>" : "") + "</div>" +
-      '<div class="sum-foot">' + busy + ' дн. с записями, всего <span class="num" style="font-size:15px">' + people + "</span> чел.</div>" +
-      '<div class="legend"><span><i class="dot dot-pp"></i>ПП</span><span><i class="dot dot-bp"></i>БП</span><span><i class="dot dot-r"></i>розница</span><span><i class="dot dot-p"></i>партнёр</span>' +
-      '<span class="b-note">черта сверху — полный день, от ' + logic().FULL_FROM + ' человек</span></div></div>';
+    html += '<div class="legend"><span><i class="dot dot-pp"></i>ПП</span><span><i class="dot dot-bp"></i>БП</span><span><i class="dot dot-r"></i>розница</span><span><i class="dot dot-p"></i>партнёр</span>' +
+      '<span class="b-note">черта сверху — полный день, от ' + logic().FULL_FROM + " человек</span></div>";
+    html += summaryHtml();
     return html;
+  }
+
+  function displayedMonth() {
+    var iso = view.calCursor || view.date || new Date().toISOString().slice(0, 10);
+    return String(iso).slice(0, 7);
+  }
+
+  function selectedInView() {
+    var d = String(view.date || "").slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && d.slice(0, 7) === displayedMonth();
+  }
+
+  function dayCaption(iso) {
+    var names = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    var p = String(iso || "").split("-");
+    if (p.length < 3) return "";
+    return Number(p[2]) + " " + (names[Number(p[1]) - 1] || "");
+  }
+
+  function monthCaption(ym) {
+    var names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    var p = String(ym || "").split("-");
+    if (p.length < 2) return "Месяц";
+    return (names[Number(p[1]) - 1] || "Месяц") + " " + p[0];
+  }
+
+  function moneyOf(list) {
+    var sum = 0;
+    var seen = false;
+    (list || []).forEach(function (c) {
+      if (!c || c.orderPrice == null || c.orderPrice === "") return;
+      var v = Number(String(c.orderPrice).replace(/\s/g, "").replace(",", "."));
+      if (!isFinite(v)) return;
+      sum += v;
+      seen = true;
+    });
+    if (!seen) return null;
+    return Math.round(sum * 100) / 100;
+  }
+
+  function moneyText(n) {
+    if (n == null) return "—";
+    var s = String(Math.round(Number(n) * 100) / 100);
+    return s.replace(".", ",");
+  }
+
+  function shownClients() {
+    var list = (view.monthClients || []).slice();
+    if (view.calendarOnly || !list.length) {
+      (view.weekClients || []).forEach(function (c) { list.push(c); });
+    }
+    return list;
+  }
+
+  function flattenMonth(pack) {
+    var out = [];
+    if (!pack || !pack.byDate) return out;
+    Object.keys(pack.byDate).sort().forEach(function (iso) {
+      var rows = pack.byDate[iso];
+      if (!Array.isArray(rows)) return;
+      rows.forEach(function (c) {
+        if (!c) return;
+        var copy = {};
+        Object.keys(c).forEach(function (k) { copy[k] = c[k]; });
+        copy._sumDate = iso;
+        out.push(copy);
+      });
+    });
+    return out;
+  }
+
+  function overviewPeople(iso) {
+    if (iso) return logic().countFromMonth(view.overview, iso);
+    var n = 0;
+    ((view.overview && view.overview.days) || []).forEach(function (d) { n += Number(d && d.count) || 0; });
+    return n;
+  }
+
+  function summaryPeople() {
+    var month = displayedMonth();
+    var pack = monthPeopleCache[month];
+    if (selectedInView()) {
+      var shown = shownClients();
+      if (shown.length) return shown;
+      if (logic().monthPeopleReady(pack, view.overview)) return logic().peopleForDate(pack, view.date);
+      return [];
+    }
+    if (logic().monthPeopleReady(pack, view.overview)) return flattenMonth(pack);
+    return [];
+  }
+
+  function summaryHtml() {
+    var dayOn = selectedInView();
+    var people = summaryPeople();
+    var count = people.length;
+    if (!count) count = overviewPeople(dayOn ? view.date : "");
+    var title = dayOn ? dayCaption(view.date) : monthCaption(displayedMonth());
+    return '<article class="b-card nx-calsum" id="nxCalSum">' +
+      '<p class="b-lbl" style="margin-top:0">' + esc(title || "Месяц") + "</p>" +
+      '<div class="nx-counters">' +
+        '<div class="nx-count"><b>' + esc(String(count || 0)) + "</b><span>Люди</span></div>" +
+        '<div class="nx-count"><b>' + esc(moneyText(people.length ? moneyOf(people) : null)) + "</b><span>Сумма, BYN</span></div>" +
+      "</div></article>";
   }
 
   function weekOnScreen() {
     if (typeof root.__nxWeekVisible !== "function") return true;
     return !!root.__nxWeekVisible();
+  }
+
+  function monthRows() {
+    var pack = monthPeopleCache[displayedMonth()];
+    if (!logic().monthPeopleReady(pack, view.overview)) {
+      return '<p class="b-note">Считаю месяц…</p>';
+    }
+    var list = flattenMonth(pack);
+    view.summaryClients = list;
+    if (!list.length) {
+      return sh().empty({ icon: "doc", title: "Заказов нет", text: "В этом месяце пусто.", action: "" });
+    }
+    return '<p class="b-lbl">Клиенты</p>' + list.map(function (c, i) { return rowBtn(c, i, "sum"); }).join("");
+  }
+
+  function dayListHtml() {
+    if (!selectedInView()) return monthRows();
+    if (view.listLoading && !view.monthClients.length && !view.weekClients.length) {
+      return sh().skeleton(view.skeletonRows || 3);
+    }
+    var rows = dayRows();
+    if (!rows) return rows;
+    return '<p class="b-lbl">Клиенты</p>' + rows;
   }
 
   function dayRows() {
@@ -251,8 +360,7 @@
         html += '<p class="b-note">Считаю месяц…</p>';
       }
       html += monthCal();
-      if (view.listLoading && !view.monthClients.length && !view.weekClients.length) html += sh().skeleton(3);
-      else html += dayRows();
+      html += '<div id="nxDayList">' + dayListHtml() + "</div>";
       if (view.drafts.length) {
         html += '<p class="b-lbl">Черновик переносов</p>';
         view.drafts.forEach(function (c, i) {
@@ -286,8 +394,39 @@
     sh().dock('<div class="b-dock__act"><button type="button" class="b-btn b-btn--main" data-act="go-new">Новый заказ</button></div>');
   }
 
+  function paintFast() {
+    if (patchDay()) return;
+    paint();
+  }
+
+  function patchDay() {
+    if (typeof document === "undefined") return false;
+    var list = document.getElementById("nxDayList");
+    var grid = document.getElementById("nxCalGrid");
+    if (!list || !grid) return false;
+    var nodes = grid.querySelectorAll("[data-act=wcal]");
+    for (var i = 0; i < nodes.length; i++) {
+      var on = nodes[i].getAttribute("data-date") === view.date;
+      nodes[i].classList.toggle("is-on", on);
+      if (on) nodes[i].setAttribute("aria-pressed", "true");
+      else nodes[i].removeAttribute("aria-pressed");
+    }
+    list.innerHTML = dayListHtml();
+    var sum = document.getElementById("nxCalSum");
+    if (sum) {
+      var fresh = monthCal();
+      var holder = document.createElement("div");
+      holder.innerHTML = fresh;
+      var nextSum = holder.querySelector("#nxCalSum");
+      if (nextSum) sum.innerHTML = nextSum.innerHTML;
+    }
+    dock();
+    if (root.__nxAfterWeekPaint) root.__nxAfterWeekPaint();
+    return true;
+  }
+
   function clientAt(src, index) {
-    var list = src === "month" ? view.monthClients : view.weekClients;
+    var list = src === "month" ? view.monthClients : (src === "sum" ? (view.summaryClients || []) : view.weekClients);
     return list[index] || null;
   }
 
@@ -354,32 +493,109 @@
   function fetchCompare(opts) {
     opts = opts || {};
     var key = compareKey();
+    var asked = view.date;
+    var gen = ++compareGen;
     var hit = compareCache[key];
-    if (!opts.force && hit && Date.now() - hit.at < COMPARE_TTL) {
+    if (!opts.background && !opts.force && hit && Date.now() - hit.at < COMPARE_TTL) {
       applyCompare(hit.res);
       view.listLoading = false;
       view.loading = false;
-      paint();
+      paintFast();
       return Promise.resolve(hit.res);
+    }
+    if (!opts.background && !view.monthClients.length && !view.weekClients.length) {
+      view.listLoading = true;
+      paintFast();
     }
     var compare = { action: "getViewCompare" };
     if (opts.force) compare.force = "1";
     if (view.date) compare.date = view.date;
     else if (view.day) compare.day = view.day;
-    view.listLoading = true;
     return api().apiGet(compare, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
+      if (gen !== compareGen) return res;
+      if (String(view.date || "") !== String(asked || "")) return res;
       compareCache[key] = { at: Date.now(), res: res };
       applyCompare(res);
       view.listLoading = false;
       view.loading = false;
-      paint();
+      paintFast();
       return res;
     }).catch(function (e) {
+      if (gen !== compareGen) return;
       view.listLoading = false;
       view.loading = false;
       if (!view.monthClients.length && !view.weekClients.length) view.error = (e && e.message) || "Нет связи";
-      paint();
+      paintFast();
     });
+  }
+
+  function fetchMonthPeople(month, opts) {
+    opts = opts || {};
+    if (!opts.force && monthPeopleCache[month]) return Promise.resolve(monthPeopleCache[month]);
+    if (!opts.force && peopleFlight[month]) return peopleFlight[month];
+    var flight = api().apiGet(
+      { action: "getCalendarMonthPeople", month: month },
+      { timeoutMs: 12000, cacheTtlMs: opts.force ? 0 : 60000 }
+    ).then(function (res) {
+      if (res && res.byDate && typeof res.byDate === "object" && res.source && res.source !== "d1-error" && res.source !== "nodb") {
+        monthPeopleCache[month] = res;
+        return res;
+      }
+      return null;
+    }).catch(function () {
+      return null;
+    }).then(function (res) {
+      if (peopleFlight[month] === flight) delete peopleFlight[month];
+      return res;
+    });
+    peopleFlight[month] = flight;
+    return flight;
+  }
+
+  function openCalendarDay(iso) {
+    view.date = String(iso || "").slice(0, 10);
+    view.day = "";
+    view.seg = "month";
+    view.error = "";
+    var month = view.date.slice(0, 7);
+    var pack = monthPeopleCache[month];
+    var people = null;
+    if (logic().monthPeopleReady(pack, view.overview)) {
+      var listed = logic().peopleForDate(pack, view.date);
+      var expectN = logic().countFromMonth(view.overview, view.date);
+      if (listed.length || !expectN) people = listed;
+    }
+    var plan = logic().dayOpenPlan({
+      date: view.date,
+      people: people,
+      cached: compareCache[compareKey()],
+      now: Date.now(),
+      ttl: COMPARE_TTL,
+      staleTtl: STALE_TTL,
+      overviewCount: logic().countFromMonth(view.overview, view.date)
+    });
+    if (plan.res) applyCompare(plan.res);
+    else {
+      view.monthClients = [];
+      view.weekClients = [];
+    }
+    view.listLoading = !!plan.listLoading;
+    view.skeletonRows = plan.skeletonRows || 3;
+    view.loading = false;
+    paintFast();
+    if (plan.fetch === "none") {
+      compareGen++;
+      return;
+    }
+    if (plan.fetch === "now" && peopleFlight[month] && !monthPeopleCache[month]) {
+      var waitDate = view.date;
+      peopleFlight[month].then(function () {
+        if (view.date !== waitDate) return;
+        openCalendarDay(waitDate);
+      });
+      return;
+    }
+    fetchCompare({ background: plan.fetch === "background" });
   }
 
   function fetchOverview(month, opts) {
@@ -402,6 +618,11 @@
       view.overviewLoading = false;
       view.loading = false;
       paint();
+      var shown = (view.monthClients || []).length + (view.weekClients || []).length;
+      var expectShown = logic().countFromMonth(view.overview, view.date);
+      if (view.date && expectShown > 0 && !shown && !view.listLoading && (view.date || "").slice(0, 7) === month) {
+        openCalendarDay(view.date);
+      }
       return res;
     }).catch(function () {
       view.overviewLoading = false;
@@ -412,25 +633,41 @@
 
   async function load(opts) {
     opts = opts || {};
-    if (opts.force) compareCache = {};
+    if (opts.force) {
+      compareCache = {};
+      monthPeopleCache = {};
+      peopleFlight = {};
+    }
     var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
     view.error = "";
-    view.listLoading = true;
-    if (!view.overview) view.loading = true;
-    paint();
+    var ready = logic().monthPeopleReady(monthPeopleCache[month], view.overview);
+    view.listLoading = !ready && !view.monthClients.length && !view.weekClients.length;
+    if (!view.overview && !ready) view.loading = true;
+    if (ready && view.date) openCalendarDay(view.date);
+    else paint();
     loadCounts().catch(function () {});
     loadBanners().catch(function () {}).then(function () { if (weekOnScreen()) paint(); });
     fetchOverview(month, opts);
-    fetchCompare(opts);
+    fetchMonthPeople(month, opts).then(function (pack) {
+      if (!weekOnScreen()) return;
+      if ((view.calCursor || view.date || "").slice(0, 7) !== month) return;
+      if (logic().monthPeopleReady(pack, view.overview)) {
+        if (selectedInView()) openCalendarDay(view.date);
+        else paintFast();
+        return;
+      }
+      fetchCompare(opts);
+    });
   }
 
   function openEdit(c, calendarOnly) {
     if (!c || !ord().loadFromClient) return;
     sh().closeAll();
+    var when = selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10);
     ord().loadFromClient(c, {
-      day: view.calendarOnly || calendarOnly ? "" : (view.resolvedDay || view.day),
-      date: view.date,
-      calendarOnly: !!(view.calendarOnly || calendarOnly)
+      day: view.calendarOnly || calendarOnly ? "" : (view.resolvedDay || view.day || (c && c.day) || ""),
+      date: when,
+      calendarOnly: !!(view.calendarOnly || calendarOnly || !selectedInView())
     });
     if (root.__nxOpenNew) root.__nxOpenNew();
   }
@@ -472,7 +709,7 @@
       client: c.name,
       matchKey: c.matchKey || logic().viewClientKey(c.name),
       oldDay: view.calendarOnly ? "" : (view.resolvedDay || view.day),
-      oldDate: view.date,
+      oldDate: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
       newDay: newDay,
       newDate: newDate,
       calendarOnly: calendarOnly,
@@ -758,12 +995,19 @@
       return true;
     }
     if (act === "wcal") {
-      view.date = node.getAttribute("data-date");
-      view.day = "";
-      view.seg = "month";
-      view.monthClients = [];
-      view.weekClients = [];
-      fetchCompare({ force: false });
+      var picked = String(node.getAttribute("data-date") || "").slice(0, 10);
+      if (selectedInView() && String(view.date).slice(0, 10) === picked) {
+        view.date = "";
+        view.day = "";
+        view.resolvedDay = "";
+        view.monthClients = [];
+        view.weekClients = [];
+        view.listLoading = false;
+        view.loading = false;
+        paintFast();
+        return true;
+      }
+      openCalendarDay(picked);
       return true;
     }
     if (act === "wcal-shift") {
@@ -781,6 +1025,12 @@
         view.overviewLoading = true;
         paint();
         fetchOverview(monthKey, {});
+      }
+      if (!monthPeopleCache[monthKey]) {
+        fetchMonthPeople(monthKey, {}).then(function () {
+          if ((view.calCursor || "").slice(0, 7) !== monthKey) return;
+          if (weekOnScreen()) paintFast();
+        });
       }
       return true;
     }

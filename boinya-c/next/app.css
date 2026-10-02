@@ -138,6 +138,12 @@ body.nx-kb #nxNav {
   top: calc(64px + env(safe-area-inset-top));
   bottom: auto;
   z-index: 35;
+  touch-action: none;
+}
+
+.b-toast {
+  touch-action: none;
+  will-change: transform;
 }
 
 .nx-gate {
@@ -438,4 +444,109 @@ textarea.b-field__input {
 #whViewWeekBtn[aria-pressed="true"] {
   background: var(--b-text);
   color: var(--b-bg);
+}
+
+.nx-calsum {
+  margin-top: 12px;
+}
+
+.nx-counters {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.nx-count {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px 2px;
+  border: 1px solid var(--b-line);
+  border-radius: 12px;
+  background: var(--b-surface);
+  color: var(--b-text);
+}
+
+button.nx-count {
+  font: inherit;
+  cursor: pointer;
+}
+
+.nx-count b {
+  font-family: var(--b-display);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.nx-count span {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.15;
+  color: var(--b-text-2);
+  text-align: center;
+  white-space: normal;
+}
+
+.nx-cut-btn {
+  height: 60px;
+  margin-top: 8px;
+  font-size: 18px;
+}
+
+.nx-nickbox {
+  display: inline-block;
+  padding: 6px 10px;
+  border: 1px solid var(--b-line);
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.nx-addr {
+  margin: 8px 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.nx-accent {
+  margin: 8px 0 0;
+  color: var(--b-accent);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.nx-pack-grp {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--b-line);
+  border-radius: 12px;
+}
+
+.nx-pack-grp > div + div,
+.nx-pack-grp > .mix {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--b-line);
+}
+
+.nx-hot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--b-accent);
+  color: var(--b-bg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
 }
