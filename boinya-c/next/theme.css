@@ -98,6 +98,14 @@ html, body, .b-app {
   font-family: Onest, var(--b-font), sans-serif;
 }
 
+/* Onest + tabular-nums раздвигает глиф «1»: «140» читается как «1 40».
+   Пропорциональные цифры сидят плотно на всех экранах, включая тост вне .nx. */
+.b-app,
+.b-app * {
+  font-variant-numeric: lining-nums proportional-nums;
+  font-feature-settings: "tnum" 0;
+}
+
 .nx {
   height: var(--tg-viewport-stable-height, 100dvh);
   max-height: var(--tg-viewport-stable-height, 100dvh);

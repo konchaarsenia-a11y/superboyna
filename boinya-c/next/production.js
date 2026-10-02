@@ -24,6 +24,8 @@
   var planHtml = "";
   var depotAddr = "Белецкого 10к2";
   var depotName = "Склад";
+  var depotId = "";
+  var warehouses = [];
   var couriersN = 1;
 
   function sh() { return root.BoinyaShell; }
@@ -259,11 +261,11 @@
     var html = '<article class="' + cls + '" style="margin-top:12px" data-cut="' + esc(key) + '">';
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
-    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? " · излишек " + esc(String(it.surplus)) : "") + "</p>";
+    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? ", излишек " + esc(String(it.surplus)) : "") + "</p>";
     html += cutNote(it);
     if (!readonly) {
-      html += '<label class="nx-check"><input type="checkbox" data-act="pr-laid" data-key="' + esc(key) + '"' + (it.laid ? " checked" : "") + "> Выложено</label>";
-      html += '<label class="nx-check"><input type="checkbox" data-act="pr-done" data-key="' + esc(key) + '"' + (it.done ? " checked" : "") + "> Нарезано</label>";
+      html += '<button type="button" class="b-btn nx-cut-btn ' + (it.laid ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-laid" data-key="' + esc(key) + '">Выложено</button>';
+      html += '<button type="button" class="b-btn nx-cut-btn ' + (it.done ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-done" data-key="' + esc(key) + '">Нарезано</button>';
       html += '<label class="b-field" style="margin-top:8px"><span class="b-note">Излишек</span><input class="b-field__input" id="surplus_' + esc(key) + '" inputmode="decimal" value="' + esc(String(it.surplus || 0)) + '"></label>';
       html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-surplus" data-k="' + esc(key) + '" style="margin-top:8px">Сохранить излишек</button>';
     } else {
@@ -271,7 +273,7 @@
       if (it.laid) badges.push("выложено");
       if (it.done) badges.push("нарезано");
       if (it.outNext) badges.push("нет на след.");
-      if (badges.length) html += '<p class="b-note">' + esc(badges.join(" · ")) + "</p>";
+      if (badges.length) html += '<p class="b-note">' + esc(badges.join(", ")) + "</p>";
     }
     return html + "</article>";
   }
@@ -318,12 +320,6 @@
     html += '<div class="nx-bar" role="img" aria-label="' + r.total + ' процентов"><span style="width:' + r.total + '%"></span></div>';
     html += '<p class="nx-prog__pct">' + r.total + "%</p>";
     html += '<p class="nx-prog__line">' + esc(r.line) + "</p>";
-    if (r.grams != null) {
-      html += '<div class="nx-thin"><span>граммы ' + r.grams + '%</span><div class="nx-bar nx-bar--thin" aria-label="граммы ' + r.grams + ' процентов"><span style="width:' + r.grams + '%"></span></div></div>';
-    }
-    if (r.pieces != null) {
-      html += '<div class="nx-thin"><span>штуки ' + r.pieces + '%</span><div class="nx-bar nx-bar--thin" aria-label="штуки ' + r.pieces + ' процентов"><span style="width:' + r.pieces + '%"></span></div></div>';
-    }
     html += "</div>";
     return html;
   }
@@ -663,17 +659,17 @@
       sh().main(html);
       return;
     }
-    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Форматы пакетов</p><div class="nx-stats">';
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Форматы пакетов</p><div class="nx-counters">';
     order.forEach(function (k) {
       if (!(totals[k] > 0) && packOn[k] !== false) return;
-      html += '<button type="button" class="b-card' + (packOn[k] === false ? " nx-dim" : "") + '" data-act="pr-pack" data-k="' + esc(k) + '"><b>' + (totals[k] || 0) + "</b><span class=\"b-note\">" + esc(k) + "</span></button>";
+      html += '<button type="button" class="nx-count' + (packOn[k] === false ? " nx-dim" : "") + '" data-act="pr-pack" data-k="' + esc(k) + '"><b>' + (totals[k] || 0) + "</b><span>" + esc(k) + "</span></button>";
     });
     html += "</div>";
     html += '<p class="b-note">Итого пакетов: ' + enabledTotal + ", собрано " + doneN + " / " + clients.length + "</p>";
-    html += '<p class="b-lbl">Дрессура для нарезки</p><div class="nx-stats">' +
+    html += '<p class="b-lbl">Дрессура</p><div class="nx-counters">' +
       ["light", "heart", "kidney", "rumen"].map(function (k, i) {
-        var label = ["лёгкое г", "сердце г", "почки г", "рубец г"][i];
-        return '<div class="b-card"><b>' + (organs[k].total || 0) + '</b><span class="b-note">' + label + "</span></div>";
+        var label = ["лёгкое", "сердце", "почки", "рубец"][i];
+        return '<div class="nx-count"><b>' + (organs[k].total || 0) + "</b><span>" + label + "</span></div>";
       }).join("") + "</div></article>";
     clients.forEach(function (c) {
       var row = rowOf(c);
@@ -700,7 +696,6 @@
         '<span class="plaque ' + (c.assembled ? "plaque--gold" : "plaque--bad") + '">' + (c.assembled ? "собран" : "не собран") + "</span>" +
         (c.printed ? ", пропечатано" : "") + "</label>" +
         '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
-        (c.address ? '<p class="b-note">' + esc(c.address) + "</p>" : "") +
         lines +
         '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? ", без лакомств" : "") + "</p></article>";
     });
@@ -909,7 +904,7 @@
       var t = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
       if (t) bits.push(t);
     }
-    if (any) return bits.join(" · ");
+    if (any) return bits.join(", ");
     return raw.replace(/\[[^\]]+\]/g, " ").replace(/\+?375[\d\s\-]{9,}/g, "").replace(/\s{2,}/g, " ").trim();
   }
 
@@ -930,66 +925,78 @@
     return bits.join(", ");
   }
 
+  function slotLabel(c) {
+    var raw = c && (c.ppSlot || c.deliverySlot || "");
+    var m = String(raw).match(/(\d+)/);
+    if (m && (m[1] === "1" || m[1] === "2")) return "ПП" + m[1];
+    var seg = String((c && c.segment) || "");
+    if (/пп\s*1/i.test(seg)) return "ПП1";
+    if (/пп\s*2/i.test(seg)) return "ПП2";
+    if (/пп/i.test(seg)) return "ПП";
+    return seg;
+  }
+
+  function counterRow(pairs) {
+    return '<div class="nx-counters">' + pairs.map(function (p) {
+      return '<div class="nx-count"><b>' + esc(p.value) + "</b><span>" + esc(p.label) + "</span></div>";
+    }).join("") + "</div>";
+  }
+
   function paintRoute() {
     var day = dayOf("route");
     var html = segBar() + dayField("nxCourDay", day);
     html += '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--sec" data-act="pr-cour-reload">Обновить список</button></div>';
-    html += '<p class="b-lbl">Точка выезда</p><article class="b-card nx-depot"><p class="b-li__title" style="margin:0">' + esc(depotName || "Склад") + '</p><p class="b-note">' + esc(depotAddr || "Белецкого 10к2") + "</p></article>";
+    html += '<p class="b-lbl">Точка выезда</p><article class="b-card nx-depot"><p class="b-li__title" style="margin:0">' + esc(depotName || "Склад") + '</p><p class="b-note">' + esc(depotAddr || "Белецкого 10к2") + '</p>' +
+      '<button type="button" class="b-btn b-btn--sec" data-act="pr-dep-open" style="margin-top:8px">Сменить точку</button></article>';
     html += '<div class="nx-actions" style="margin-top:8px">' +
       '<button type="button" class="b-btn ' + (couriersN === 1 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="1">Курьеров 1</button>' +
       '<button type="button" class="b-btn ' + (couriersN === 2 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="2">Курьеров 2</button></div>';
-    html += '<div class="nx-actions"><label class="b-field"><span class="b-note">Час выезда</span><input class="b-field__input" id="nxDepH" inputmode="numeric" value="14"></label>' +
-      '<label class="b-field"><span class="b-note">Минуты</span><input class="b-field__input" id="nxDepM" inputmode="numeric" value="00"></label></div>';
-    html += '<div class="nx-actions"><button type="button" class="b-btn b-btn--main" data-act="pr-build">Собрать маршруты</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="pr-allmap">Все адреса дня на карте</button></div>';
+    html += '<div class="nx-actions"><button type="button" class="b-btn b-btn--main" data-act="pr-build">Собрать маршруты</button></div>';
     html += '<div id="nxPlan">' + (planHtml || "") + "</div>";
     var list = cour || [];
+    var doneCount = list.filter(function (c) { return c.delivered; }).length;
+    var leftCount = list.length - doneCount;
+    html += counterRow([
+      { value: "—", label: "Выплата" },
+      { value: String(doneCount), label: "Доставлено" },
+      { value: String(leftCount), label: "Осталось" }
+    ]);
     var allDone = list.length && list.every(function (c) { return c.delivered; });
     if (courDetail) html += '<button type="button" class="nx-link" data-act="pr-cour-back">← Итог</button>';
     if (allDone && !courDetail) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">Доставки завершены</p>' +
-        '<p class="b-note">Клиентов: ' + list.length + "</p><p class=\"b-note\">Все галочки проставлены</p>" +
+        '<p class="b-note">Все галочки проставлены</p>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="pr-cour-more">Подробнее</button></article>';
       sh().main(html);
       return;
     }
     if (!list.length) html += '<p class="b-note">Нет клиентов на день</p>';
-    var doneCount = list.filter(function (c) { return c.delivered; }).length;
-    var asmCount = list.filter(function (c) { return c.assembled; }).length;
-    if (list.length) html += '<p class="b-note">' + esc(String((cour._date || day))) + " · " + list.length + " клиентов · собрано " + asmCount + " · доставлено " + doneCount + "</p>";
     list.forEach(function (c, idx) {
       var addr = publicAddr(c.address || "");
+      var priv = privateAddr(c.address || "");
+      var note = noteFor(c.note || "", "cour");
       var tel = phoneOf(c);
-      var open = !!courOpen[idx];
-      var assembled = !!c.assembled;
       var who = String(c.name || "").split(/\s*[·•]\s*/);
-      var dog = who[0] || c.name || "";
-      var nick = who[1] || "";
-      var seg = c.segment || "";
+      var dog = who[0] || "";
+      var nick = who[1] || who[0] || c.name || "Клиент";
+      var slot = slotLabel(c);
       var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice) + " BYN") : "";
+      var accent = [slot, price].filter(Boolean).join(", ");
       var basket = basketLinesHtml(c.basket);
-      html += '<article class="stop' + (c.delivered ? " nx-dim" : "") + '">' +
-        '<div class="stop-top"><span class="stop-no">' + (idx + 1) + "</span>" +
-        '<div><b>' + esc(dog) + "</b>" +
-        (nick ? '<div class="b-note">' + esc(nick) + "</div>" : "") +
-        (seg || price ? '<div class="b-note">' + esc([seg, price].filter(Boolean).join(", ")) + "</div>" : "") +
-        (basket ? '<div class="b-note mix-list">' + basket + "</div>" : "") +
-        "</div>" +
-        '<span class="plaque ' + (assembled ? "plaque--gold" : "plaque--bad") + '">' + (assembled ? "собран" : "не собран") + "</span></div>" +
+      html += '<article class="b-card' + (c.delivered ? " nx-dim" : "") + '" style="margin-top:12px">' +
+        '<div class="nx-nickbox">' + esc(nick) + "</div>" +
+        (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
+        '<p class="nx-addr">' + esc(addr || "Адрес не указан") + "</p>" +
+        '<p class="b-note">' + esc(priv || "Этаж и квартира не указаны") + "</p>" +
+        (note ? '<p class="b-note">' + esc(note) + "</p>" : "") +
+        (accent ? '<p class="nx-accent">' + esc(accent) + "</p>" : "") +
+        '<section class="nx-pack-grp"><div class="nx-grp">Состав набора</div>' +
+        (basket || '<p class="b-note">Состав не указан</p>') + "</section>" +
         '<label class="nx-check"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> доставлен</label>" +
-        '<p class="b-note">' + (addr ? esc(addr) : "Адрес не указан") + "</p>" +
-        (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '">Карта</button>' : "") +
+        (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '" style="margin-top:8px">Карта</button>' : "") +
         (tel ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>" : '<p class="b-note">нет телефона</p>') +
-        '<button type="button" class="nx-link" data-act="pr-open" data-i="' + idx + '">' + (open ? "Свернуть" : "Этаж / кв / подробности") + "</button>";
-      if (open) {
-        var priv = privateAddr(c.address || "");
-        var note = noteFor(c.note || "", "cour");
-        html += '<div>' + (priv ? '<p class="b-note">' + esc(priv) + "</p>" : '<p class="b-note">Этаж / квартира не указаны</p>') +
-          (note ? '<p class="b-note">Примечание: ' + esc(note) + "</p>" : "") +
-          (!c.delivered ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-miss" data-i="' + idx + '">Не получил → менеджеру</button>' : "") +
-          "</div>";
-      }
-      html += "</article>";
+        (!c.delivered ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-miss" data-i="' + idx + '" style="margin-top:8px">Не получил</button>' : "") +
+        "</article>";
     });
     sh().main(html);
   }
@@ -1062,17 +1069,45 @@
 
   function applyDeparture(res) {
     var list = (res && res.warehouses) || [];
+    if (list.length) warehouses = list;
     var dep = res && res.departure;
     if (!dep) {
-      for (var i = 0; i < list.length; i++) if (list[i] && list[i].departure) dep = list[i];
+      for (var i = 0; i < warehouses.length; i++) if (warehouses[i] && warehouses[i].departure) dep = warehouses[i];
     }
     if (dep && dep.address) {
       depotAddr = String(dep.address);
       depotName = String(dep.name || "Склад");
+      depotId = dep.id != null ? String(dep.id) : depotId;
       return;
     }
     depotAddr = "Белецкого 10к2";
     depotName = "Склад";
+  }
+
+  function openDepot() {
+    if (!warehouses.length) {
+      sh().toast("Список точек пуст. Их добавляет владелец в Доступах");
+      return;
+    }
+    var html = warehouses.map(function (w) {
+      var on = String(w.id) === String(depotId) || (!depotId && w.departure);
+      return '<button type="button" class="b-btn ' + (on ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-dep" data-id="' + esc(w.id) + '" style="margin-top:8px">' +
+        esc((w.name || "Точка") + (w.address ? ", " + w.address : "")) + "</button>";
+    }).join("");
+    sh().openSheet({ title: "Точка выезда", html: html });
+  }
+
+  async function setDepot(id) {
+    var u = api().telegramUser && api().telegramUser();
+    var res = null;
+    try {
+      res = await api().apiPost({ action: "setDepartureWarehouse", id: id, telegramId: u && u.id });
+    } catch (eDep) { res = null; }
+    if (!res || res.status !== "success") { sh().toast("Не сменилось"); return; }
+    applyDeparture(res);
+    sh().closeTop("ok");
+    sh().toast("Точка выезда обновлена");
+    paintRoute();
   }
 
   async function loadDeparture() {
@@ -1480,6 +1515,28 @@
       return false;
     }
     if (!act || String(act).indexOf("pr-") !== 0) return false;
+    if (act === "pr-laid" || act === "pr-done") {
+      var flag = act === "pr-laid" ? "laid" : "done";
+      var itF = findCut(node.getAttribute("data-key"));
+      if (!itF) return true;
+      var prevF = !!itF[flag];
+      itF[flag] = !prevF;
+      sortCut();
+      paintCut();
+      var patch = {};
+      patch[flag] = !!itF[flag];
+      persistCut(itF, patch).then(function (ok) {
+        if (!ok) { itF[flag] = prevF; paintCut(); return; }
+        if (flag === "done" && itF.done && cutSession.active && cutItems.every(function (x) { return x.done; })) {
+          sh().confirm({ title: "Нарезка", text: "Все позиции отмечены. Завершить нарезку?", ok: "Завершить" }).then(function (go) {
+            if (go) finishCut();
+          });
+        }
+      });
+      return true;
+    }
+    if (act === "pr-dep-open") { openDepot(); return true; }
+    if (act === "pr-dep") { setDepot(node.getAttribute("data-id")); return true; }
     if (act === "pr-cut-start") { startCut(); return true; }
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
