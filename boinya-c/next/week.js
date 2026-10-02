@@ -28,11 +28,16 @@
     overview: null,
     role: "",
     notesOpen: {},
-    fillIndex: -1
+    fillIndex: -1,
+    listSource: "",
+    skeletonN: 3
   };
   var finish = null;
   var compareCache = {};
   var overviewCache = {};
+  var rosterByDate = Object.create(null);
+  var rosterAsked = Object.create(null);
+  var compareToken = 0;
   var COMPARE_TTL = 30000;
   var segsFn = function () { return []; };
 
@@ -161,6 +166,33 @@
     return map;
   }
 
+  function selectedMeta() {
+    var by = overviewMap();
+    var iso = String(view.date || "").slice(0, 10);
+    var hit = iso ? by[iso] : null;
+    var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
+    var shortM = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    var aside = "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      var m = Number(iso.slice(5, 7)) - 1;
+      var d = Number(iso.slice(8, 10));
+      var bits = [];
+      var segs = (hit && hit.segments) || {};
+      if (segs["ПП"]) bits.push("ПП " + segs["ПП"]);
+      if (segs["БП"]) bits.push("БП " + segs["БП"]);
+      if (segs["Р"]) bits.push("розница " + segs["Р"]);
+      if (segs["ПАРТНЁР"]) bits.push("партнёр " + segs["ПАРТНЁР"]);
+      aside = d + " " + shortM[m] + (bits.length ? ", " + bits.join(", ") : "");
+    }
+    return { n: iso ? n : 0, aside: aside };
+  }
+
+  function sumLineHtml() {
+    var meta = selectedMeta();
+    return '<span><span class="num">' + meta.n + "</span> чел.</span>" +
+      (meta.aside ? '<span class="sum-aside">' + esc(meta.aside) + "</span>" : "");
+  }
+
   function monthCal() {
     var iso = view.calCursor || view.date || new Date().toISOString().slice(0, 10);
     var p = iso.split("-");
@@ -172,7 +204,6 @@
     var names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
     var by = overviewMap();
     var monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
-    var shortM = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
     var html = '<div class="cal-head b-row"><button type="button" class="b-ib" data-act="wcal-shift" data-dir="-1" aria-label="Предыдущий месяц">‹</button>' +
       '<h2 class="b-grow" style="text-align:center;margin:0;font-size:18px">' + esc(monthNames[m] + " " + y) + "</h2>" +
       '<button type="button" class="b-ib" data-act="wcal-shift" data-dir="1" aria-label="Следующий месяц">›</button></div>';
@@ -181,13 +212,11 @@
     for (var i = 0; i < start; i++) html += '<span class="cell cell--pad"></span>';
     var busy = 0;
     var people = 0;
-    var sel = null;
     for (var d = 1; d <= days; d++) {
       var cur = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
       var hit = by[cur];
       var n = hit && isFinite(Number(hit.count)) ? Number(hit.count) : 0;
       if (n > 0) { busy++; people += n; }
-      if (cur === view.date) sel = { n: n, segs: (hit && hit.segments) || {}, d: d };
       var dots = "";
       var segs = (hit && hit.segments) || {};
       if (n && segs["ПП"]) dots += '<i class="dot dot-pp"></i>';
@@ -203,17 +232,7 @@
         (dots ? '<span class="dots">' + dots + "</span>" : "") + "</button>";
     }
     html += "</div>";
-    var aside = "";
-    if (sel) {
-      var bits = [];
-      if (sel.segs["ПП"]) bits.push("ПП " + sel.segs["ПП"]);
-      if (sel.segs["БП"]) bits.push("БП " + sel.segs["БП"]);
-      if (sel.segs["Р"]) bits.push("розница " + sel.segs["Р"]);
-      if (sel.segs["ПАРТНЁР"]) bits.push("партнёр " + sel.segs["ПАРТНЁР"]);
-      aside = sel.d + " " + shortM[m] + (bits.length ? ", " + bits.join(", ") : "");
-    }
-    html += '<div class="sum"><div class="sum-line"><span><span class="num">' + (sel ? sel.n : 0) + "</span> чел.</span>" +
-      (aside ? '<span class="sum-aside">' + esc(aside) + "</span>" : "") + "</div>" +
+    html += '<div class="sum"><div class="sum-line" id="nxCalSumLine">' + sumLineHtml() + "</div>" +
       '<div class="sum-foot">' + busy + ' дн. с записями, всего <span class="num" style="font-size:15px">' + people + "</span> чел.</div>" +
       '<div class="legend"><span><i class="dot dot-pp"></i>ПП</span><span><i class="dot dot-bp"></i>БП</span><span><i class="dot dot-r"></i>розница</span><span><i class="dot dot-p"></i>партнёр</span>' +
       '<span class="b-note">черта сверху — полный день, от ' + logic().FULL_FROM + ' человек</span></div></div>';
@@ -238,10 +257,40 @@
     return html;
   }
 
+  function dayListInner() {
+    if (view.listLoading && !view.monthClients.length && !view.weekClients.length) {
+      return sh().skeleton(view.skeletonN || 3);
+    }
+    return dayRows();
+  }
+
+  function paintList() {
+    if (!weekOnScreen()) return;
+    var list = document.getElementById("nxDayList");
+    var grid = document.querySelector("#nxMain .nx-cal");
+    if (!list || !grid) {
+      paint();
+      return;
+    }
+    var buttons = grid.querySelectorAll("[data-act='wcal']");
+    for (var i = 0; i < buttons.length; i++) {
+      var btn = buttons[i];
+      var on = btn.getAttribute("data-date") === view.date;
+      if (on) btn.classList.add("is-on");
+      else btn.classList.remove("is-on");
+      if (on) btn.setAttribute("aria-pressed", "true");
+      else btn.removeAttribute("aria-pressed");
+    }
+    var sum = document.getElementById("nxCalSumLine");
+    if (sum) sum.innerHTML = sumLineHtml();
+    list.innerHTML = dayListInner();
+    if (root.__nxAfterWeekPaint) root.__nxAfterWeekPaint();
+  }
+
   function paint() {
     if (!weekOnScreen()) return;
     var html = '<div id="nxSegs" class="b-seg" style="margin-bottom:16px"></div>';
-    html += banners();
+    html += '<div id="nxWeekBanner">' + banners() + "</div>";
     if (view.loading && !view.overview && !view.monthClients.length && !view.weekClients.length) {
       html += sh().skeleton(4);
     } else if (view.error && !view.monthClients.length && !view.weekClients.length && !view.overview) {
@@ -251,8 +300,7 @@
         html += '<p class="b-note">Считаю месяц…</p>';
       }
       html += monthCal();
-      if (view.listLoading && !view.monthClients.length && !view.weekClients.length) html += sh().skeleton(3);
-      else html += dayRows();
+      html += '<div id="nxDayList">' + dayListInner() + "</div>";
       if (view.drafts.length) {
         html += '<p class="b-lbl">Черновик переносов</p>';
         view.drafts.forEach(function (c, i) {
@@ -346,39 +394,111 @@
       view.calendarOnly = !!(view.date && !res.day && res.dateNotInWeek);
       if (res.dateIso && !view.date) view.date = isoFromDmy(res.dateIso);
       view.error = "";
+      view.listSource = "compare";
     } else if (!view.monthClients.length && !view.weekClients.length) {
       view.error = (res && res.message) || "Нет ответа";
     }
   }
 
+  function ingestRoster(res) {
+    if (!res || (res.status && res.status !== "success") || !Array.isArray(res.days)) return;
+    res.days.forEach(function (d) {
+      var iso = String((d && (d.dateIso || d.date)) || "").slice(0, 10);
+      if (!iso) return;
+      rosterByDate[iso] = Array.isArray(d.clients) ? d.clients : [];
+    });
+    if (!view.date || view.listSource === "compare") return;
+    var rows = rosterByDate[String(view.date).slice(0, 10)];
+    if (!rows || !rows.length || !view.listLoading) return;
+    view.monthClients = rows.slice();
+    view.weekClients = [];
+    view.listLoading = false;
+    view.listSource = "roster";
+    view.error = "";
+    paintList();
+  }
+
+  function fetchRoster(month) {
+    if (!month || rosterAsked[month]) return;
+    rosterAsked[month] = true;
+    api().apiGet({ action: "getMonthDayRoster", month: month }, { timeoutMs: 12000, cacheTtlMs: 20000 }).then(function (res) {
+      ingestRoster(res);
+    }).catch(function () {
+      rosterAsked[month] = false;
+    });
+  }
+
+  function openShownDay() {
+    var plan = logic().planCalendarDayOpen({
+      key: compareKey(),
+      iso: view.date,
+      compareCache: compareCache,
+      rosterByDate: rosterByDate,
+      overviewByDate: overviewMap(),
+      now: Date.now(),
+      ttl: COMPARE_TTL
+    });
+    view.error = "";
+    if (plan.mode === "cache") {
+      applyCompare(plan.res);
+      view.listLoading = false;
+      view.loading = false;
+      paintList();
+      return;
+    }
+    if (plan.mode === "roster") {
+      view.monthClients = plan.clients.slice();
+      view.weekClients = [];
+      view.listLoading = false;
+      view.loading = false;
+      view.listSource = "roster";
+      view.calendarOnly = !view.day;
+      paintList();
+      fetchCompare({ soft: true });
+      return;
+    }
+    view.monthClients = [];
+    view.weekClients = [];
+    view.listLoading = true;
+    view.listSource = "";
+    view.skeletonN = plan.skeleton || 3;
+    paintList();
+    fetchCompare({});
+  }
+
   function fetchCompare(opts) {
     opts = opts || {};
     var key = compareKey();
+    var token = ++compareToken;
     var hit = compareCache[key];
     if (!opts.force && hit && Date.now() - hit.at < COMPARE_TTL) {
       applyCompare(hit.res);
       view.listLoading = false;
       view.loading = false;
-      paint();
+      paintList();
       return Promise.resolve(hit.res);
     }
     var compare = { action: "getViewCompare" };
     if (opts.force) compare.force = "1";
     if (view.date) compare.date = view.date;
     else if (view.day) compare.day = view.day;
-    view.listLoading = true;
+    var haveRows = !!(view.monthClients.length || view.weekClients.length);
+    if (!opts.soft && !haveRows) view.listLoading = true;
+    if (!opts.soft && !haveRows) paintList();
     return api().apiGet(compare, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
+      if (token !== compareToken || compareKey() !== key) return res;
       compareCache[key] = { at: Date.now(), res: res };
       applyCompare(res);
       view.listLoading = false;
       view.loading = false;
-      paint();
+      paintList();
       return res;
     }).catch(function (e) {
+      if (token !== compareToken || compareKey() !== key) return;
       view.listLoading = false;
       view.loading = false;
       if (!view.monthClients.length && !view.weekClients.length) view.error = (e && e.message) || "Нет связи";
-      paint();
+      paintList();
     });
   }
 
@@ -412,15 +532,25 @@
 
   async function load(opts) {
     opts = opts || {};
-    if (opts.force) compareCache = {};
+    if (opts.force) {
+      compareCache = {};
+      rosterAsked = Object.create(null);
+    }
     var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
     view.error = "";
     view.listLoading = true;
+    view.listSource = "";
     if (!view.overview) view.loading = true;
     paint();
     loadCounts().catch(function () {});
-    loadBanners().catch(function () {}).then(function () { if (weekOnScreen()) paint(); });
+    loadBanners().catch(function () {}).then(function () {
+      if (!weekOnScreen()) return;
+      var host = document.getElementById("nxWeekBanner");
+      if (host) host.innerHTML = banners();
+      else paint();
+    });
     fetchOverview(month, opts);
+    fetchRoster(month);
     fetchCompare(opts);
   }
 
@@ -752,18 +882,14 @@
       var it = countOf(view.day);
       view.date = it && it.date ? isoFromDmy(it.date) : "";
       view.picked = {};
-      view.monthClients = [];
-      view.weekClients = [];
-      fetchCompare({ force: false });
+      openShownDay();
       return true;
     }
     if (act === "wcal") {
       view.date = node.getAttribute("data-date");
       view.day = "";
       view.seg = "month";
-      view.monthClients = [];
-      view.weekClients = [];
-      fetchCompare({ force: false });
+      openShownDay();
       return true;
     }
     if (act === "wcal-shift") {
@@ -772,6 +898,7 @@
       var dt = new Date(Number(parts[0]), Number(parts[1]) - 1 + Number(node.getAttribute("data-dir") || 0), 1);
       view.calCursor = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-01";
       var monthKey = view.calCursor.slice(0, 7);
+      fetchRoster(monthKey);
       if (overviewCache[monthKey]) {
         view.overview = overviewCache[monthKey];
         view.overviewLoading = false;

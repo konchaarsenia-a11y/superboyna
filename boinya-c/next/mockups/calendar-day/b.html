@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru" data-scheme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Макет B — нижний лист</title>
+  <link rel="stylesheet" href="../../theme.css">
+  <link rel="stylesheet" href="../../app.css">
+  <link rel="stylesheet" href="mock.css">
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var scheme = q.get("scheme");
+      if (scheme === "light" || scheme === "dark") document.documentElement.setAttribute("data-scheme", scheme);
+      document.addEventListener("DOMContentLoaded", function () {
+        if (q.get("shot") === "1") document.body.classList.add("shot");
+      });
+    })();
+  </script>
+</head>
+<body class="b-app">
+  <button type="button" class="theme-btn" id="theme">Светлая</button>
+  <div class="nx">
+    <header class="b-top">
+      <div class="b-top__ctx"><h1 class="b-top__title">15 октября</h1></div>
+    </header>
+    <main class="nx-main" id="list">
+      <p class="day-kicker">Записи дня</p>
+    </main>
+  </div>
+  <div class="nx-scrim" id="scrim" hidden>
+    <div class="nx-sheet" role="dialog" aria-labelledby="sheetTitle">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="nx-sheet__body" id="sheetBody"></div>
+      <div class="nx-sheet__foot">
+        <button type="button" class="b-btn b-btn--main" id="edit">Править</button>
+        <button type="button" class="b-btn b-btn--sec" id="move">Перенести</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    var ORDERS = [
+      {
+        letter: "Р", name: "Рекс", sub: "mira_test", addr: "ул. Некрасова 14", price: "42 BYN", seg: "ПП", pill: "pill pill--ok", dogs: true
+      },
+      {
+        letter: "Л", name: "Луна", sub: "dnevnik", addr: "пр. Победителей 7", price: "28 BYN", seg: "БП", pill: "pill pill--info", dogs: false
+      },
+      {
+        letter: "Б", name: "Боря", sub: "boris", addr: "ул. Кальварийская 3", price: "18 BYN", seg: "Р", pill: "pill pill--warn", dogs: false
+      }
+    ];
+
+    function crumb() {
+      return '<div class="mix"><div class="mix-title">Крошка лёгкого — 100 г</div></div>' +
+        '<div class="mix"><div class="mix-title">Крошка микс — 100 г</div>' +
+        '<div class="mix-parts"><div class="mix-part">лёгкое — 40 г</div><div class="mix-part">рубец — 60 г</div></div></div>';
+    }
+
+    function sheet(order) {
+      var dogs = order.dogs ? ' <span class="pill dogs">2 собаки</span>' : "";
+      var rex = '<div class="dog">Рекс</div>' +
+        '<div class="nx-grp">Дрессура</div><div class="line">Лёгкое — 200 г</div><div class="line">Почки, крупное — 100 г</div>' +
+        '<div class="nx-grp">Овощи</div><div class="line">Яблоки — 50 г</div>' +
+        '<div class="nx-grp">Присыпки</div>' + crumb() +
+        '<div class="nx-grp">Жевалки</div><div class="line">Трахея, мал — 2 шт</div>' +
+        '<div class="dog">Нора</div><div class="nx-grp">Дрессура</div><div class="line">Лёгкое — 80 г</div>';
+      var luna = '<div class="nx-grp">Дрессура</div><div class="line">Сердце — 150 г</div>' +
+        '<div class="nx-grp">Присыпки</div><div class="line">Крошка лёгкого — 100 г</div>';
+      var bor = '<div class="nx-grp">Жевалки</div><div class="line">Ухо говяжье — 1 шт</div><div class="line">Трахея, сред — 1 шт</div>';
+      var body = order.name === "Луна" ? luna : (order.name === "Боря" ? bor : rex);
+      return '<h2 class="sheet-who" id="sheetTitle">' + order.name + dogs + "</h2>" +
+        '<p class="sheet-sub">' + order.sub + "<br>" + order.addr + "<br>" + order.price + "</p>" + body;
+    }
+
+    document.getElementById("list").insertAdjacentHTML("beforeend", ORDERS.map(function (order) {
+      return '<button type="button" class="row" data-name="' + order.name + '">' +
+        '<span class="avatar" aria-hidden="true">' + order.letter + "</span>" +
+        '<span class="who"><span class="name">' + order.name +
+        (order.dogs ? ' <span class="pill dogs">2 собаки</span>' : "") +
+        '</span><span class="sub">' + order.sub + "</span><span class="sub">' + order.addr + ", " + order.price + "</span></span>" +
+        '<span class="' + order.pill + '">' + order.seg + "</span></button>";
+    }).join(""));
+
+    function open(name) {
+      var order = ORDERS.filter(function (o) { return o.name === name; })[0] || ORDERS[0];
+      document.getElementById("sheetBody").innerHTML = sheet(order);
+      document.getElementById("scrim").hidden = false;
+    }
+    function close() { document.getElementById("scrim").hidden = true; }
+
+    document.getElementById("list").addEventListener("click", function (e) {
+      var btn = e.target.closest(".row");
+      if (btn) open(btn.getAttribute("data-name"));
+    });
+    document.getElementById("scrim").addEventListener("click", function (e) {
+      if (e.target.id === "scrim") close();
+    });
+    document.getElementById("edit").addEventListener("click", function () {});
+    document.getElementById("move").addEventListener("click", function () {});
+    document.getElementById("theme").addEventListener("click", function () {
+      var light = document.documentElement.getAttribute("data-scheme") !== "light";
+      document.documentElement.setAttribute("data-scheme", light ? "light" : "dark");
+      this.textContent = light ? "Тёмная" : "Светлая";
+    });
+    open("Рекс");
+  </script>
+</body>
+</html>

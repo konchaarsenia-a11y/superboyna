@@ -362,6 +362,27 @@
     return "На этот день уже " + n + " " + recordsWord(n) + " Добавить ещё?";
   }
 
+  function planCalendarDayOpen(opts) {
+    opts = opts || {};
+    var key = String(opts.key || "");
+    var now = opts.now || Date.now();
+    var ttl = opts.ttl != null ? opts.ttl : 30000;
+    var cache = opts.compareCache || {};
+    var hit = key && cache[key];
+    if (hit && hit.res && (now - Number(hit.at || 0)) < ttl) {
+      return { mode: "cache", res: hit.res, fetchCompare: false, soft: false, skeleton: 0 };
+    }
+    var iso = String(opts.iso || "").slice(0, 10);
+    var roster = opts.rosterByDate && opts.rosterByDate[iso];
+    if (roster && roster.length) {
+      return { mode: "roster", clients: roster, fetchCompare: true, soft: true, skeleton: 0 };
+    }
+    var day = opts.overviewByDate && opts.overviewByDate[iso];
+    var count = day && isFinite(Number(day.count)) ? Number(day.count) : 0;
+    var skel = count > 0 ? Math.min(8, count) : 3;
+    return { mode: "skeleton", fetchCompare: true, soft: false, skeleton: skel };
+  }
+
   function countFromMonth(res, iso) {
     var want = String(iso || "").slice(0, 10);
     var days = (res && res.days) || [];
@@ -391,6 +412,7 @@
     FULL_FROM: FULL_FROM,
     fullDayPrompt: fullDayPrompt,
     countFromMonth: countFromMonth,
+    planCalendarDayOpen: planCalendarDayOpen,
     segmentToOrderType: segmentToOrderType,
     orderTypeToSegment: orderTypeToSegment,
     resolveOrderType: resolveOrderType,

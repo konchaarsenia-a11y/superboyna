@@ -1742,6 +1742,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
   if (a === "getViewCompare") return getViewCompare_(params, env);
   if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
   if (a === "getMonthOverview") return getMonthOverview_(params, env);
+  if (a === "getMonthDayRoster") return getMonthDayRoster_(params, env);
   if (a === "getWeekBannerState") return getSnap_(env, "weekBanner", defaultBanner_(params));
   if (a === "getCutting") return getCutting_(params, env);
   if (a === "getCourier") return getCourier_(params, env);
@@ -8717,6 +8718,49 @@ async function getMonthOverview_(params, env) {
   return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
 }
 
+/** Лёгкий состав месяца для мгновенного открытия дня. Старые getMonthOverview / getViewCompare не меняет. */
+async function getMonthDayRoster_(params, env) {
+  const month = monthKeyFromParam_(params && params.month);
+  if (!month) {
+    return { status: "success", month: "", days: [], source: "empty", action: "getMonthDayRoster" };
+  }
+  if (!env || !env.DB) {
+    return { status: "success", month: month, days: [], source: "empty", action: "getMonthDayRoster" };
+  }
+  try {
+    await ensureMetaColumn_(env);
+  } catch (eMeta) {}
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  const next = (m === 12 ? (y + 1) + "-01" : y + "-" + String(m + 1).padStart(2, "0")) + "-01";
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, meta_json, updated_at FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso < ? ORDER BY date_iso, client"
+    )
+      .bind(month + "-01", next)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (eR) {
+    return { status: "success", month: month, days: [], source: "d1-error", action: "getMonthDayRoster" };
+  }
+  const by = Object.create(null);
+  rows.forEach(function (r) {
+    const iso = String((r && r.date_iso) || "").slice(0, 10);
+    if (!iso) return;
+    if (!by[iso]) by[iso] = [];
+    try {
+      by[iso].push(clientFromRow_(r));
+    } catch (eC) {}
+  });
+  const days = Object.keys(by)
+    .sort()
+    .map(function (iso) {
+      return { dateIso: iso, count: by[iso].length, clients: by[iso] };
+    });
+  return { status: "success", month: month, days: days, source: "d1", action: "getMonthDayRoster" };
+}
+
 function defaultBanner_(params) {
   return {
     status: "success",
@@ -15191,6 +15235,14 @@ async function handleCutover_(a, params, env, ctx) {
   if (a === "getMonthOverview") {
     return cutoverGetMonthOverview_(params, env, ctx);
   }
+  if (a === "getMonthDayRoster") {
+    const roster = await getMonthDayRoster_(params, env);
+    if (roster && typeof roster === "object") {
+      roster.cutover = true;
+      roster.swr = false;
+    }
+    return roster;
+  }
   if (a === "getClients") {
     const forceClientsEarly =
       String((params && params.force) || "") === "1" ||
@@ -16258,6 +16310,7 @@ async function nominatimSuggestWorker_(text) {
 
 const _revalCooldown = new Map();
 function cutoverNeedsRevalidate_(a, params, fast, env) {
+  if (a === "getMonthDayRoster") return false;
   if (isD1PrimaryCanon_(env) && a === "getClients") {
     const empty = !fast || !Array.isArray(fast.clients) || !fast.clients.length;
     if (!empty) return false;
@@ -16388,6 +16441,7 @@ async function cutoverFastRead_(a, params, env) {
     if (a === "getViewCompare") return getViewCompare_(params, env);
     if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
     if (a === "getMonthOverview") return getMonthOverview_(params, env);
+    if (a === "getMonthDayRoster") return getMonthDayRoster_(params, env);
     if (a === "getWeekBannerState") return getSnap_(env, "weekBanner", null);
     if (a === "getCutting") return getCutting_(params, env);
     if (a === "getCourier") return getCourier_(params, env);

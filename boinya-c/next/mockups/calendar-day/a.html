@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru" data-scheme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Макет A — состав на месте</title>
+  <link rel="stylesheet" href="../../theme.css">
+  <link rel="stylesheet" href="../../app.css">
+  <link rel="stylesheet" href="mock.css">
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search).get("scheme");
+      if (q === "light" || q === "dark") document.documentElement.setAttribute("data-scheme", q);
+      if (new URLSearchParams(location.search).get("shot") === "1") document.addEventListener("DOMContentLoaded", function () {
+        document.body.classList.add("shot");
+      });
+    })();
+  </script>
+</head>
+<body class="b-app">
+  <button type="button" class="theme-btn" id="theme">Светлая</button>
+  <div class="nx">
+    <header class="b-top">
+      <div class="b-top__ctx"><h1 class="b-top__title">15 октября</h1></div>
+    </header>
+    <main class="nx-main" id="list">
+      <p class="day-kicker">Записи дня</p>
+    </main>
+  </div>
+  <script>
+    var ORDERS = [
+      {
+        letter: "Р", name: "Рекс", sub: "mira_test", addr: "ул. Некрасова 14, 42 BYN", seg: "ПП", pill: "pill pill--ok", dogs: true,
+        blocks: [
+          { dog: "Рекс", groups: [
+            ["Дрессура", ["Лёгкое — 200 г", "Почки, крупное — 100 г"]],
+            ["Овощи", ["Яблоки — 50 г"]],
+            ["Присыпки", { mix: true }],
+            ["Жевалки", ["Трахея, мал — 2 шт"]]
+          ]},
+          { dog: "Нора", groups: [["Дрессура", ["Лёгкое — 80 г"]]]}
+        ]
+      },
+      {
+        letter: "Л", name: "Луна", sub: "dnevnik", addr: "пр. Победителей 7, 28 BYN", seg: "БП", pill: "pill pill--info", dogs: false,
+        blocks: [{ dog: "", groups: [
+          ["Дрессура", ["Сердце — 150 г"]],
+          ["Присыпки", ["Крошка лёгкого — 100 г"]]
+        ]}]
+      },
+      {
+        letter: "Б", name: "Боря", sub: "boris", addr: "ул. Кальварийская 3, 18 BYN", seg: "Р", pill: "pill pill--warn", dogs: false,
+        blocks: [{ dog: "", groups: [["Жевалки", ["Ухо говяжье — 1 шт", "Трахея, сред — 1 шт"]]]}]
+      }
+    ];
+
+    function crumb() {
+      return '<div class="mix"><div class="mix-title">Крошка лёгкого — 100 г</div></div>' +
+        '<div class="mix"><div class="mix-title">Крошка микс — 100 г</div>' +
+        '<div class="mix-parts"><div class="mix-part">лёгкое — 40 г</div><div class="mix-part">рубец — 60 г</div></div></div>';
+    }
+
+    function groups(list) {
+      return list.map(function (g) {
+        var body = g[1] && g[1].mix ? crumb() : g[1].map(function (line) { return '<div class="line">' + line + "</div>"; }).join("");
+        return '<div class="nx-grp">' + g[0] + "</div>" + body;
+      }).join("");
+    }
+
+    function bodyOf(order) {
+      return order.blocks.map(function (b) {
+        return (b.dog && order.dogs ? '<div class="dog">' + b.dog + "</div>" : "") + groups(b.groups);
+      }).join("");
+    }
+
+    function row(order, open) {
+      return '<section class="acc' + (open ? " is-open" : "") + '">' +
+        '<button type="button" class="row" aria-expanded="' + (open ? "true" : "false") + '">' +
+        '<span class="avatar" aria-hidden="true">' + order.letter + "</span>" +
+        '<span class="who"><span class="name">' + order.name +
+        (order.dogs ? ' <span class="pill dogs">2 собаки</span>' : "") +
+        '</span><span class="sub">' + order.sub + "</span>" +
+        '<span class="sub">' + order.addr + "</span></span>" +
+        '<span class="' + order.pill + '">' + order.seg + "</span></button>" +
+        '<div class="acc-body">' + bodyOf(order) + "</div></section>";
+    }
+
+    document.getElementById("list").insertAdjacentHTML("beforeend", ORDERS.map(function (o, i) { return row(o, i === 0); }).join(""));
+    document.getElementById("list").addEventListener("click", function (e) {
+      var btn = e.target.closest(".row");
+      if (!btn) return;
+      var sec = btn.parentNode;
+      var on = !sec.classList.contains("is-open");
+      sec.classList.toggle("is-open", on);
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+    document.getElementById("theme").addEventListener("click", function () {
+      var light = document.documentElement.getAttribute("data-scheme") !== "light";
+      document.documentElement.setAttribute("data-scheme", light ? "light" : "dark");
+      this.textContent = light ? "Тёмная" : "Светлая";
+    });
+  </script>
+</body>
+</html>
