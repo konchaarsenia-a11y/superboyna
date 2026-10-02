@@ -700,7 +700,6 @@
         '<span class="plaque ' + (c.assembled ? "plaque--gold" : "plaque--bad") + '">' + (c.assembled ? "собран" : "не собран") + "</span>" +
         (c.printed ? ", пропечатано" : "") + "</label>" +
         '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
-        (c.address ? '<p class="b-note">' + esc(c.address) + "</p>" : "") +
         lines +
         '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? ", без лакомств" : "") + "</p></article>";
     });
