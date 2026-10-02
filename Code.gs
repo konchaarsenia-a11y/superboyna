@@ -21828,19 +21828,130 @@ function ppCyclePaidStatus_(cycleStore, ck) {
 }
 
 /**
- * Тот же фильтр, что collectPpActualOut_ (выручка) и финальный factCost:
- * paid=no → нет;
- * paid=yes → да;
- * слот ≥2 без paid=yes → нет (слот 2 только счётчик bySource.pp);
- * слот 1 / N=1 / слот 0 → да.
+ * Выручка ПП один раз на подписку за месяц.
+ * Если foldPpPaidSlots_ уже выбрал слот (ppPayKeys) — берём его.
+ * Иначе: paid=no → нет; paid=yes → да; есть цена → да, даже на слоте 2 (ожидание оплаты);
+ * слот ≥2 без цены и без paid=yes → нет. Доставки (bySource.pp) не фильтруем.
  */
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
+  if (monthCal && monthCal.ppPayKeys && Object.prototype.hasOwnProperty.call(monthCal.ppPayKeys, ck)) {
+    return !!monthCal.ppPayKeys[ck];
+  }
   var st = String(paid || "").toLowerCase();
   if (st === "no") return false;
   if (st === "yes") return true;
+  var price = Number((monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0);
+  if (price > 0) return true;
   var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
   if (minSlot >= 2) return false;
   return true;
+}
+
+function ppPaidFlag_(ent) {
+  if (!ent || typeof ent !== "object") return "";
+  var p = String(ent.paid || "").toLowerCase();
+  if (p === "yes" || p === "true" || p === "1") return "yes";
+  if (p === "no" || p === "false" || p === "0") return "no";
+  return "";
+}
+
+/** Оплата курьера по дате из «Память_Доставок». yes побеждает no. */
+function readPpPaidByDate_(ss, isos, tz) {
+  var map = {};
+  var memory = null;
+  try { memory = getMemoryCourierSheet_(); } catch (eMem) { memory = null; }
+  if (!memory) return map;
+  var seen = {};
+  isos = isos || [];
+  for (var i = 0; i < isos.length; i++) {
+    var iso = String(isos[i] || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || seen[iso]) continue;
+    seen[iso] = true;
+    var d = null;
+    try { d = parseFlexibleDate_(iso, tz); } catch (eD) { d = null; }
+    if (!d) continue;
+    var dateText = formatSheetDate(d, tz);
+    var mem = null;
+    try { mem = getMemoryJson_(memory, dateText, tz); } catch (eJ) { mem = null; }
+    if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") continue;
+    for (var k in mem) {
+      if (!Object.prototype.hasOwnProperty.call(mem, k)) continue;
+      if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(k)) continue;
+      var paid = ppPaidFlag_(mem[k]);
+      if (!paid) continue;
+      var ids = [];
+      var ck = clientMatchKey_(k) || String(k).toUpperCase();
+      if (ck) ids.push(ck);
+      var label = mem[k] && mem[k].client ? (clientMatchKey_(mem[k].client) || "") : "";
+      if (label && ids.indexOf(label) < 0) ids.push(label);
+      for (var n = 0; n < ids.length; n++) {
+        var id = iso + "|" + ids[n];
+        if (map[id] === "yes") continue;
+        map[id] = paid;
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Цена ПП один раз: слот с paid=yes, иначе младший слот с ценой и без paid=no.
+ * Второй слот в выручку не плюсуется. Доставки остаются в bySource.
+ */
+function foldPpPaidSlots_(ss, out, tz) {
+  var rows = (out && out.ppSlotRows) || [];
+  if (!rows.length) return;
+  var isos = [];
+  for (var i = 0; i < rows.length; i++) isos.push(rows[i].iso);
+  var paidMap = {};
+  try { paidMap = readPpPaidByDate_(ss, isos, tz); } catch (ePaid) { paidMap = {}; }
+  var groups = {};
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var ck = String(row.ck || "");
+    var iso = String(row.iso || "").slice(0, 10);
+    if (!ck || !iso) continue;
+    var gk = ck + "|" + iso.slice(0, 7);
+    if (!groups[gk]) groups[gk] = [];
+    groups[gk].push({
+      slot: Number(row.slot) || 0,
+      price: Number(row.price) || 0,
+      paid: paidMap[iso + "|" + ck] || ""
+    });
+  }
+  if (!out.ppPayKeys) out.ppPayKeys = {};
+  if (!out.ppPriceByKey) out.ppPriceByKey = {};
+  for (var gk in groups) {
+    if (!Object.prototype.hasOwnProperty.call(groups, gk)) continue;
+    var list = groups[gk];
+    var ck2 = gk.split("|")[0];
+    var chosen = null;
+    var sawNo = false;
+    var sawYes = false;
+    var i2;
+    for (i2 = 0; i2 < list.length; i2++) {
+      if (list[i2].paid === "yes") sawYes = true;
+      if (list[i2].paid === "no") sawNo = true;
+      if (list[i2].paid !== "yes" || !(list[i2].price > 0)) continue;
+      if (!chosen || list[i2].slot < chosen.slot) chosen = list[i2];
+    }
+    if (!chosen) {
+      for (i2 = 0; i2 < list.length; i2++) {
+        if (list[i2].paid === "no" || !(list[i2].price > 0)) continue;
+        if (!chosen || list[i2].slot < chosen.slot) chosen = list[i2];
+      }
+    }
+    var prevAmt = Number(out._ppFoldSum && out._ppFoldSum[ck2]) || 0;
+    if (!out._ppFoldSum) out._ppFoldSum = {};
+    if (chosen) out._ppFoldSum[ck2] = prevAmt + chosen.price;
+    else if (sawNo && !sawYes && out._ppFoldSum[ck2] == null) out._ppFoldSum[ck2] = 0;
+  }
+  for (var c in out._ppFoldSum) {
+    if (!Object.prototype.hasOwnProperty.call(out._ppFoldSum, c)) continue;
+    var amt = Math.round((Number(out._ppFoldSum[c]) || 0) * 100) / 100;
+    out.ppPayKeys[c] = amt > 0;
+    out.ppPriceByKey[c] = amt;
+  }
 }
 
 /** Ключи ПП, которые идут в выручку и в factCost. bySource.pp не фильтруем. */
@@ -22004,10 +22115,12 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
     // ПП: в календарный оборот не кладём по каждому слоту — раз через collectPpActualOut_
-    // (N≥2 только paid=yes; N=1 — пока не paid=no).
+    // (цена один раз на слоте с paid=yes, иначе на младшем слоте с ценой).
     var revenueAdd = 0;
     var slotForced = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2);
     if (src === "pp" && ck) {
+      if (!out.ppSlotRows) out.ppSlotRows = [];
+      out.ppSlotRows.push({ ck: ck, iso: iso, slot: slotForced >= 1 ? slotForced : 0, price: price });
       var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
       if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
       // слот доставки для фильтра «кто платит»
@@ -22090,6 +22203,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       out.ppDeliveryCountByKey[ck] = (Number(out.ppDeliveryCountByKey[ck]) || 0) + 1;
     }
     if (src === 'bp') {
+      if (ck) {
+        if (!out.bpClientKeys) out.bpClientKeys = {};
+        out.bpClientKeys[ck] = true;
+      }
       out.bpDeliveries++;
       var bpCostAdd = Math.round((productForCost + deliveryForCost) * 100) / 100;
       var bpCostRaw = Math.round((product + deliveryTariff) * 100) / 100;
@@ -22133,6 +22250,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     var costMonthKeys = [];
     if (fromIso || toIso) costMonthKeys = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
     if (!costMonthKeys.length && /^\d{4}-\d{2}$/.test(want)) costMonthKeys = [want];
+    try { foldPpPaidSlots_(ss, out, tz); } catch (eFold) {}
     var ppCycleForCost = {};
     try { ppCycleForCost = readPpCycleStoreMerged_(ss, costMonthKeys, tz); } catch (eCy) { ppCycleForCost = {}; }
     var ppCostSum = 0;
@@ -22245,6 +22363,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.ppFractionCost = Math.round((out.ppFractionCost || 0) * 100) / 100;
   out.ppFractionInClean = Math.round((out.ppFractionInClean != null ? out.ppFractionInClean : out.ppFractionCost) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
+  out.bpClients = Object.keys(out.bpClientKeys || {}).length;
   out.ppCostSkipped = Number(out.ppCostSkipped) || 0;
   if (!out.ppSchemeCounts) out.ppSchemeCounts = { RAW26: 0, LEGACY: 0 };
   if (!out.ppScheme) {
@@ -22259,8 +22378,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Выручка ПП за месяц: max [ЦЕНА] на клиента один раз (не сумма слотов).
- *  N=2: paid=yes / pays-now на 1-й → вся цена сразу. Слот 2 без paid=yes — не плюсуем. */
+/** Выручка ПП: цена слота с оплатой, иначе одна цена младшего открытого слота. Второй слот не суммируется. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   opts = opts || {};
   var out = {
@@ -25871,6 +25989,8 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   var tz = ss.getSpreadsheetTimeZone();
   var fee = STATS_DELIVERY_FUEL_PER_;
   var feeInClean = statsBpDeliveryInCleanByn_(1);
+  var allBp = {};
+  var bpCostAll = 0;
 
   // выручка ПП: max цена на клиента×месяц (не сумма слотов 1+2)
   var ppRevByMonthClient = {};
@@ -25890,10 +26010,13 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (e1) { bask = []; }
     }
     if (src === "bp") {
+      if (ck) allBp[ck] = true;
+      var rawAll = estimateBasketRawCost_(bask, "bp");
+      bpCostAll += Math.round((rawAll + fee) * 100) / 100;
       // Выхлоп «после перехода» — только БП тех, кто стал ПП.
       // Иначе все пробники мира минус выручка 5 человек → вечный минус.
       if (!ck || !convertKeys[ck]) return;
-      var raw = estimateBasketRawCost_(bask, "bp");
+      var raw = rawAll;
       var withFee = Math.round((raw + fee) * 100) / 100;
       out.bpDeliveries++;
       out.bpBasketCost += raw;
@@ -25939,6 +26062,8 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
     if (!ppRevByMonthClient.hasOwnProperty(prk)) continue;
     ppRevSum += Number(ppRevByMonthClient[prk]) || 0;
   }
+  out.trials = Object.keys(allBp).length;
+  out.bpCostAll = Math.round(bpCostAll * 100) / 100;
   out.ppRevenue = Math.round(ppRevSum * 100) / 100;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round(out.bpBasketCost * 100) / 100;
@@ -26649,6 +26774,7 @@ function handleGetStats(json, callback, fromPost) {
       bpDeliveryTariffEach: BP_DELIVERY_COST_BYN_,
       bpDeliveryInClean: Number(month.bpDeliveryInClean) || 0,
       bpDeliveries: month.bpDeliveries,
+      bpClients: Number(month.bpClients) || 0,
       missingPrice: month.missingPrice || 0,
       missingBasketCost: month.missingBasketCost || 0,
       byPartner: byPartner,
@@ -26733,6 +26859,8 @@ function handleGetStats(json, callback, fromPost) {
       // lifetime: все когда-либо перешедшие БП→ПП
       life: {
         converted: bpLife.converted,
+        trials: Number(bpLife.trials) || 0,
+        bpCostAll: Number(bpLife.bpCostAll) || 0,
         bpDeliveries: bpLife.bpDeliveries,
         bpCost: bpLife.bpCost,
         bpBasketCost: bpLife.bpBasketCost,
@@ -26880,6 +27008,7 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     onlyPast: false,
     deliveries: stats.deliveriesTotal || 0,
     bySource: stats.bySource || {},
+    costBySource: stats.costBySource || { pp: 0, retail: 0, bp: 0, partner: 0, other: 0 },
     revenue: revenue,
     cost: cost,
     profit: profit,
@@ -26917,6 +27046,7 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     bpDeliveryInClean: Number(stats.bpDeliveryInClean) || 0,
     bpDeliveryFeeEach: STATS_DELIVERY_FUEL_PER_,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
+    bpClients: Number(stats.bpClients) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
     actualDetail: {

@@ -120,27 +120,79 @@ test("диапазон показывает топливо только если
   assert.equal(fuel.lines.filter((row) => row.label === "Топливо доставок (4×N)")[0].value, "8 BYN");
 });
 
-test("подписи дашборда и порядок блоков как в старом экране", () => {
+test("экран статистики: четыре блока, без старого мусора", () => {
   const ui = fs.readFileSync(path.resolve(here, "stats.js"), "utf8");
-  [
-    "Вставь актуальный Code.gs → Deploy → New version.",
-    "пробник бесплатный",
-    "блок «БП» ниже",
-    "тумблер не врёт",
-    "канон 12.09: ЗП = recover",
-    "ЗП / мес (BYN)",
-    "Воронка БП (CRM)",
-    "Выхлоп (выручка − затраты БП перешедших)",
-    "Добавь партнёров и указывай при заказе БП",
-    "Только БП тех, кто стал ПП."
-  ].forEach((phrase) => assert.ok(ui.includes(phrase), phrase));
-  const order = ["Откуда деньги", "Затраты", "Нарезчик", ">БП</p>", "Партнёры", "Лист ПП (снимок)", "Воронка БП (CRM)", "Оборот по источникам"];
+  ["Откуда деньги", "Расходы", ">БП</p>", "Количество доставок", "нет данных", "разовые заказы", "Расчёт по датам", "За всё время", "Чистые"].forEach((phrase) => {
+    assert.ok(ui.includes(phrase), phrase);
+  });
+  ["Воронка БП", "Нарезчик", "Лист ПП", "ЗП / мес", "пробник бесплатный", "тумблер не врёт", "·"].forEach((phrase) => {
+    assert.equal(ui.includes(phrase), false, phrase);
+  });
+  const order = ["Оборот", "Откуда деньги", "Расходы", ">БП</p>"];
   let at = -1;
   order.forEach((mark) => {
     const next = ui.indexOf(mark, at + 1);
     assert.ok(next > at, mark);
     at = next;
   });
+  assert.match(ui, /white-space:\s*nowrap|nx-stat__num/);
+});
+
+test("сравнение равного периода и экран из четырёх блоков", () => {
+  const prev = stats.statsPrevEqualPeriod_("2026-10-01", "2026-10-02");
+  assert.deepEqual({ from: prev.from, to: prev.to, days: prev.days }, { from: "2026-09-29", to: "2026-09-30", days: 2 });
+  assert.equal(stats.statsPctDelta_(10, 0), null);
+  assert.equal(stats.statsPctDelta_(8, 10).text, "−20%");
+  assert.equal(stats.statsPctDelta_(12, 10).text, "+20%");
+  const screen = stats.statsScreen_({
+    factCutoff: "2026-10-02",
+    fact: {
+      revenue: 100, cost: 40, deliveries: 10,
+      ppRevenue: 80, retail: 20, partner: 5,
+      costBySource: { pp: 30, retail: 10, partner: 0 },
+      ppDeliveryFuelCost: 8,
+      ppBasketCost: 12,
+      bpCost: 6,
+      ppRecoverCost: 4,
+      couponsCost: 1,
+      ppPackagesCost: 2,
+      staffCost: 0,
+      bpClients: 4
+    },
+    bp: {
+      convertedToPp: 1,
+      life: { trials: 10, converted: 3, bpCostAll: 40 }
+    }
+  }, { revenue: 80, cost: 50, deliveries: 8, clean: 30 });
+  assert.deepEqual(screen.head.map((c) => c.label), ["Оборот", "Прибыль", "Себестоимость", "Количество доставок"]);
+  assert.equal(screen.head[0].value, 100);
+  assert.equal(screen.head[0].delta.text, "+25%");
+  assert.equal(screen.head[1].value, 60);
+  assert.equal(screen.head[1].delta.text, "+100%");
+  assert.equal(screen.head[2].delta.text, "−20%");
+  assert.equal(screen.pp.turnover, 80);
+  assert.equal(screen.pp.profit, 50);
+  assert.equal(screen.pp.clean, 50);
+  assert.equal(screen.retail.clean, 10);
+  assert.equal(screen.partnerTurnover, 5);
+  assert.equal(screen.expenses.find((e) => e.label === "Свет").missing, true);
+  assert.equal(screen.expenses.find((e) => e.label === "Топливо").value, 8);
+  assert.equal(screen.expenses.find((e) => e.label === "Сырьё").value, 22);
+  assert.equal(screen.expenses.find((e) => e.label === "Прочее").value, 3);
+  assert.equal(screen.bpMonth.conv.text, "из 4 перешли 1");
+  assert.equal(screen.bpMonth.conv.pct, "25%");
+  assert.equal(screen.bpMonth.net, null);
+  assert.equal(screen.bpMonth.payback, null);
+  assert.equal(screen.bpLife.spent, 40);
+  assert.equal(screen.bpLife.net, null);
+  assert.equal(screen.bpLife.payback, null);
+  const bare = stats.statsScreen_({ revenue: 10, cost: 4, deliveries: 1, ppRevenue: 10 }, null);
+  assert.equal(bare.pp.turnover, 10);
+  assert.equal(bare.pp.profit, null);
+  assert.equal(bare.pp.clean, null);
+  assert.equal(bare.expenses.find((e) => e.label === "Партнёры").missing, true);
+  assert.equal(bare.expenses.find((e) => e.label === "Свет").missing, true);
+  assert.equal(bare.head[1].value, 6);
 });
 
 test("в интерфейсе партнёров нет сида сетей", () => {
