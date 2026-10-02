@@ -2074,6 +2074,12 @@ var ASM_CHEW_PER_BIG = 4;
       var names = kept.length
         ? kept.map(function (k) { return k.name; })
         : crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
+      if (!names.length) {
+        var selfName = String((item && (item.name || item.main)) || "").trim();
+        var subCrumb = /^крошк/i.test(String((item && item.sub) || "").trim());
+        if (subCrumb && selfName && !/^крошка$/i.test(selfName)) names = [selfName];
+        else if (/^крошка\s+\S/i.test(selfName)) names = [selfName];
+      }
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
       var qty = val + " г";
       if (names.length >= 2) return "Крошка микс — " + qty;
@@ -2090,7 +2096,7 @@ var ASM_CHEW_PER_BIG = 4;
     }
 
     function formatPriceCompositionLine(it) {
-      if (isCrumbBasketItemUi_(it)) return crumbClientMessageLine_(it);
+      if (/^крошк/i.test(String((it && it.sub) || "")) || isCrumbBasketItemUi_(it)) return crumbClientMessageLine_(it);
       var main = it.main || it.name || "";
       var sub = it.sub || "";
       var val = it.val != null ? it.val : it.value;

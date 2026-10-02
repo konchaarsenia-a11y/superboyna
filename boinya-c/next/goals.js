@@ -322,11 +322,23 @@
     return html;
   }
 
+  function lightSlot() {
+    if (!isOwner()) return "";
+    return '<div id="nxLightCard"></div>';
+  }
+
+  function paintLight() {
+    if (!isOwner() || !root.BoinyaExpenses || !root.BoinyaExpenses.refreshLightCard) return;
+    root.BoinyaExpenses.bind(access);
+    root.BoinyaExpenses.refreshLightCard();
+  }
+
   function paint() {
     ensureCss();
     sh().dock("");
     if (horizon === "spend" && isOwner()) {
-      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + '<div id="expRoot"></div></div>');
+      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() + '<div id="expRoot"></div></div>');
+      paintLight();
       if (root.BoinyaExpenses) {
         root.BoinyaExpenses.bind(access);
         root.BoinyaExpenses.showInto();
@@ -334,15 +346,18 @@
       return;
     }
     if (!loaded && !loadError) {
-      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + sh().skeleton(4) + "</div>");
+      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() + sh().skeleton(4) + "</div>");
+      paintLight();
       return;
     }
     if (loadError && !goals.length) {
-      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() +
+      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() +
         sh().errorBox({ title: "Не удалось загрузить цели", text: loadError, act: "gl-retry" }) + "</div>");
+      paintLight();
       return;
     }
-    sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + filterBar() + taskBlock() + metricBlock() + reportBlock() + "</div>");
+    sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() + filterBar() + taskBlock() + metricBlock() + reportBlock() + "</div>");
+    paintLight();
   }
 
   function findGoal(id) {
@@ -389,7 +404,7 @@
     if (!isOwner()) return;
     var res = null;
     try {
-      res = await api().apiGet({ action: "listAccess", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      res = await api().apiGet({ action: "listAccess" }, { timeoutMs: 15000, cacheTtlMs: 60000 });
     } catch (e) {
       res = null;
     }
@@ -402,12 +417,14 @@
     });
   }
 
-  async function load(ticket) {
+  async function load(ticket, force) {
     loadError = "";
     var staffJob = loadStaff();
     var res = null;
+    var q = { action: "listGoals" };
+    if (force) q._ = String(Date.now());
     try {
-      res = await api().apiGet({ action: "listGoals", _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      res = await api().apiGet(q, { timeoutMs: 20000, cacheTtlMs: force ? 0 : 20000 });
     } catch (e) {
       res = null;
     }
@@ -421,13 +438,13 @@
     }
     goals = res.goals;
     loaded = true;
-    factsReady = false;
     paint();
-    await loadFacts(ticket);
+    await loadFacts(ticket, force);
   }
 
-  async function loadFacts(ticket) {
+  async function loadFacts(ticket, force) {
     if (!isOwner()) return;
+    if (ticket !== gen) return;
     var periods = Object.create(null);
     var month = logic().periodBounds("month", new Date());
     periods[month.from + "|" + month.to] = month;
@@ -436,34 +453,38 @@
       var b = boundsFor(g);
       if (b.ok) periods[b.from + "|" + b.to] = b;
     });
-    var subsRes = null;
-    try {
-      subsRes = await api().apiGet({ action: "listSubscriptions", sheet: "ПП", _: String(Date.now()) }, { timeoutMs: 25000, cacheTtlMs: 0 });
-    } catch (eS) {
-      subsRes = null;
-    }
-    if (ticket !== gen) return;
-    subscriptions = subsRes && subsRes.status === "success" && Array.isArray(subsRes.subscriptions) ? subsRes.subscriptions : null;
     var keys = Object.keys(periods);
-    var nextCache = Object.create(null);
-    for (var i = 0; i < keys.length; i++) {
-      var b = periods[keys[i]];
-      var statsRes = null;
-      try {
-        statsRes = await api().apiGet({
-          action: "getStats",
-          mode: "expected",
-          dateFrom: b.from,
-          dateTo: b.to,
-          force: "1",
-          _: String(Date.now())
-        }, { timeoutMs: 45000, cacheTtlMs: 0 });
-      } catch (eSt) {
-        statsRes = null;
+    var subsQ = { action: "listSubscriptions", sheet: "ПП" };
+    if (force) subsQ._ = String(Date.now());
+    var jobs = [api().apiGet(subsQ, { timeoutMs: 25000, cacheTtlMs: force ? 0 : 120000 }).then(function (r) {
+      return { kind: "subs", res: r };
+    }, function () { return { kind: "subs", res: null }; })];
+    keys.forEach(function (k) {
+      var b = periods[k];
+      var sq = {
+        action: "getStats",
+        mode: "expected",
+        dateFrom: b.from,
+        dateTo: b.to
+      };
+      if (force) {
+        sq.force = "1";
+        sq._ = String(Date.now());
       }
-      if (ticket !== gen) return;
-      nextCache[keys[i]] = statsRes && statsRes.status === "success" ? statsRes : null;
-    }
+      jobs.push(api().apiGet(sq, { timeoutMs: 45000, cacheTtlMs: force ? 0 : 120000 }).then(function (r) {
+        return { kind: "stats", key: k, res: r };
+      }, function () { return { kind: "stats", key: k, res: null }; }));
+    });
+    var packed = await Promise.all(jobs);
+    if (ticket !== gen) return;
+    var subsRes = null;
+    var nextCache = Object.create(null);
+    packed.forEach(function (row) {
+      if (!row) return;
+      if (row.kind === "subs") subsRes = row.res;
+      else nextCache[row.key] = row.res && row.res.status === "success" ? row.res : null;
+    });
+    subscriptions = subsRes && subsRes.status === "success" && Array.isArray(subsRes.subscriptions) ? subsRes.subscriptions : null;
     statsCache = nextCache;
     factsReady = true;
     var today = logic().periodBounds("day", new Date()).from;
@@ -496,11 +517,14 @@
     filter = "all";
     ensureCss();
     var ticket = ++gen;
-    loaded = false;
-    factsReady = false;
     loadError = "";
+    if (!loaded) factsReady = false;
     paint();
-    load(ticket);
+    load(ticket, false);
+  }
+
+  function leave() {
+    gen++;
   }
 
   function readDraftDom() {
@@ -739,7 +763,11 @@
       return true;
     }
     if (act === "gl-retry") {
-      show();
+      var ticket = ++gen;
+      loaded = false;
+      factsReady = false;
+      paint();
+      load(ticket, true);
       return true;
     }
     if (act === "gl-add-task") {
@@ -801,6 +829,7 @@
   root.BoinyaGoals = {
     bind: bind,
     show: show,
+    leave: leave,
     onAct: onAct
   };
 })(window);

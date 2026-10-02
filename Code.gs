@@ -5606,7 +5606,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   var itemsInSheet = targetSheet.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
   var basketRaw = normalizeBasketArg_(json.basket);
   // 2 собаки: на лист недели — суммы по позициям; dog-метки сохраняются в Календарь_Дат basketJson
-  var basket = mergeBasketQtyForSheet_(basketRaw);
+  // крошку раскладываем по источникам до суммы, иначе «крошка» без органа садится в первую строку КРОШКА *
+  var basket = mergeBasketQtyForSheet_(expandCrumbSheetLines_(basketRaw));
 
   var wrote = 0;
   var missed = [];
@@ -5722,11 +5723,18 @@ function findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub) {
     nameU = parts[0].trim();
     if (!rawSub) rawSub = parts[1] ? parts[1].trim() : "";
   }
-  // старые присыпки → родитель + крошка
-  var crumbParent = crumbParentNameGs_(nameU);
-  if (crumbParent) {
-    nameU = crumbParent;
-    rawSub = "Крошка";
+  // «крошка» + рубец/лёгкое/почки → своя строка присыпки, не первая «КРОШКА ПОЧЕК»
+  var sprinkleSku = sprinkleSkuFromOrder_(nameU, rawSub);
+  if (sprinkleSku) {
+    nameU = sprinkleSku;
+    rawSub = "";
+  } else {
+    // старые присыпки без своей строки → родитель + крошка
+    var crumbParent = crumbParentNameGs_(nameU);
+    if (crumbParent) {
+      nameU = crumbParent;
+      rawSub = "Крошка";
+    }
   }
 
   var subNorm = normalizeFraction(rawSub);
@@ -5766,6 +5774,9 @@ function findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub) {
         .trim();
     }
     sheetBase = normalizeProductAlias_(sheetBase);
+
+    // голое «КРОШКА» не имеет права сесть в «КРОШКА ПОЧЕК» / «КРОШКА ЛЁГКОГО» / «КРОШКА РУБЕЦ»
+    if (nameU === "КРОШКА" && sheetBase.indexOf("КРОШКА ") === 0) continue;
 
     // строго: не матчить «БАРАНЬЕ ЛЁГКОЕ» ↔ «ЛЁГКОЕ» через indexOf внутри строки
     if (!productBasesMatch_(nameU, sheetBase) && !productBasesMatch_(nameU, sheetFull.split(" / ")[0])) {
@@ -5812,6 +5823,69 @@ function findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub) {
   // soft: неизвестная фракция / крошка → пишем в родительскую позицию
   if (subNorm && softIdx >= 0) return { idx: softIdx, score: 3 };
   return { idx: -1, score: 0 };
+}
+
+/** Строка присыпки на листе: КРОШКА РУБЕЦ / КРОШКА ЛЁГКОГО / КРОШКА ПОЧЕК. Пусто, если это не крошка или микс. */
+function sprinkleSkuFromOrder_(nameU, rawSub) {
+  var name = String(nameU || "").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+  var sub = String(rawSub || "").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+  if (name === "КРОШКА ПОЧЕК") return "КРОШКА ПОЧЕК";
+  if (name === "КРОШКА ЛЕГКОГО" || name === "КРОШКА ЛЁГКОГО") return "КРОШКА ЛЁГКОГО";
+  if (name === "КРОШКА РУБЕЦ" || name === "КРОШКА РУБЦА") return "КРОШКА РУБЕЦ";
+  var blob = (name + " " + sub).trim();
+  if (blob.indexOf("+") >= 0) return "";
+  var crumbish = name.indexOf("КРОШКА") >= 0 || sub.indexOf("КРОШК") === 0;
+  if (!crumbish) return "";
+  var parent = crumbParentNameGs_(blob);
+  if (parent === "ПОЧКИ") return "КРОШКА ПОЧЕК";
+  if (parent === "ЛЁГКОЕ") return "КРОШКА ЛЁГКОГО";
+  if (parent === "РУБЕЦ Т") return "КРОШКА РУБЕЦ";
+  return "";
+}
+
+/** Крошка с sources → отдельные граммы по органу. Календарь хранит исходную корзину с sources. */
+function expandCrumbSheetLines_(basket) {
+  var out = [];
+  (basket || []).forEach(function (it) {
+    if (!it) return;
+    var cat = String(it.cat || "").toLowerCase();
+    var nm = String(it.name || it.main || "");
+    var crumb = cat === "crumb" || it.crumbKind || /^крошк/i.test(nm);
+    var sources = [];
+    if (crumb && Object.prototype.toString.call(it.sources) === "[object Array]") {
+      it.sources.forEach(function (s) {
+        var sn = String((s && (s.name || s.main)) || "").trim();
+        if (sn) sources.push(s);
+      });
+    }
+    if (!(crumb && sources.length)) {
+      out.push(it);
+      return;
+    }
+    var grams = Number(it.val != null ? it.val : it.value) || 0;
+    var ratio = Object.prototype.toString.call(it.ratio) === "[object Array]" ? it.ratio : [];
+    var sumR = 0;
+    var i;
+    for (i = 0; i < sources.length; i++) sumR += Number(ratio[i]) || 0;
+    sources.forEach(function (s, idx) {
+      var own = Number(s.val != null ? s.val : s.value) || 0;
+      var g = own;
+      if (!(g > 0) && sumR > 0) g = Math.round(grams * ((Number(ratio[idx]) || 0) / sumR));
+      if (!(g > 0) && sources.length === 1) g = grams;
+      if (!(g > 0)) return;
+      var parent = String(s.name || s.main || "").trim();
+      out.push({
+        cat: "crumb",
+        name: parent,
+        main: parent,
+        sub: "Крошка",
+        val: g,
+        value: g,
+        unit: "гр"
+      });
+    });
+  });
+  return out;
 }
 
 function crumbParentNameGs_(nameU) {

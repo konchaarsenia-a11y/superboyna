@@ -149,6 +149,7 @@
     if (!g) return false;
     if (String(g.cat || "").toLowerCase() === "crumb" || g.crumbKind) return true;
     if (sourcesOf(g).length) return true;
+    if (/^крошк/i.test(String(g.sub || "").trim())) return true;
     return /крошк/i.test(String(g.name || g.main || ""));
   }
 
@@ -235,6 +236,8 @@
     }
     if (isCrumb(g)) {
       var val = g.val != null ? g.val : g.value;
+      var parent = String(g.name || g.main || "").trim();
+      if (parent && !/^крошка$/i.test(parent)) return "<div>" + esc(singleLabel(parent, val)) + "</div>";
       var bit = val != null && val !== "" ? (" — " + val + " г") : "";
       return "<div>" + esc("Крошка" + bit) + "</div>";
     }
@@ -406,6 +409,10 @@
     linesHtml: linesHtml,
     rowHtml: lineHtml,
     singleLabel: singleLabel,
+    plainLabel: function (g) {
+      var html = lineHtml(g);
+      return String(html || "").replace(/<[^>]+>/g, "");
+    },
     genitive: genitive,
     organParts: organParts,
     dressuraSummary: dressuraSummary,
