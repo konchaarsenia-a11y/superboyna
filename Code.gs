@@ -26855,6 +26855,7 @@ function invalidateStatsCache_() {
       keys.push("STATS24:" + mk);
       keys.push("STATS25:" + mk);
       keys.push("STATS26:" + mk);
+      keys.push("STATS27:" + mk);
       keys.push("STATS23:" + mk);
       keys.push("STATS22:" + mk);
       keys.push("STATS21:" + mk);
@@ -27092,7 +27093,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS26:" + monthKey;
+  var cacheKey = "STATS27:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {

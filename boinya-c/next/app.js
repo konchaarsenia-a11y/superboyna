@@ -28,6 +28,7 @@
   function stats() { return root.BoinyaStats; }
   function partners() { return root.BoinyaPartners; }
   function goalsMod() { return root.BoinyaGoals; }
+  function expensesMod() { return root.BoinyaExpenses; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -391,6 +392,7 @@
       }
       paintChrome();
       goalsMod().bind(access);
+      if (expensesMod()) expensesMod().bind(access);
       goalsMod().show();
       return;
     }
@@ -464,7 +466,7 @@
     if (route.tab === "more" && moreView === "people") {
       return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце. Склады: название, адрес и одна точка выезда. Остатки склада не делятся.";
     }
-    if (route.tab === "goals") return "Цели: свои задачи и блок Общие. При создании выберите Мне, Общая или сотрудника. Владелец видит задачи каждого и показатели с деньгами. Процент — сколько отмечено на этом горизонте.";
+    if (route.tab === "goals") return "Цели: свои задачи и блок Общие. При создании выберите Мне, Общая или сотрудника. Владелец видит задачи каждого, показатели с деньгами и журнал «Расходы». Процент — сколько отмечено на этом горизонте. Личное в проект не входит.";
     if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
       return "Клиенты: пароль один раз за этот заход. ПП, АФК, БП и опросник — те же списки, что в старой версии. Карточка сохраняет в ту же таблицу.";
     }
@@ -484,7 +486,7 @@
       return "Прайс розницы: доставка, порог «бесплатно от» и цены позиций. Сохранение пишет в ту же таблицу. Уже сохранённые заказы не пересчитываются.";
     }
     if (route.tab === "more" && moreView === "stats") {
-      return "Статистика по формулам владельца. В деньги попадает только доставка с отметкой «отвёз». Строки сверху вниз: главное, откуда деньги, себестоимость, расходы месяца, зарплата, БП, партнёры. Чистые с перешедших и окупаемость считаются по себесу. Аренда по умолчанию 900. Пустое поле расхода — не введено. «Расчёт по датам» внизу. «Экспорт TSV» копирует выгрузку.";
+      return "Статистика по формулам владельца. В деньги попадает только доставка с отметкой «отвёз». Строки сверху вниз: главное, откуда деньги, себестоимость, расходы месяца, сверка с расходами, зарплата, БП, партнёры. Расходы вводятся только в Цели, страница «Расходы». Аренда по умолчанию 900, если за месяц её нет. Налог 20% с чистого после сверки. «Расчёт по датам» внизу. «Экспорт TSV» копирует выгрузку.";
     }
     if (route.tab === "more" && moreView === "partners") {
       return "Партнёры: заявки с датой 19:00–22:00, люди, точки, сети и пуши. «Мини-апп» открывает партнёрку. Сид сетей здесь нет. Вкладка «БП» — только у владельца: кто привёл клиента.";
@@ -643,6 +645,7 @@
     if (retail() && retail().onAct(act, node)) return;
     if (stats() && stats().onAct(act, node)) return;
     if (partners() && partners().onAct(act, node)) return;
+    if (expensesMod() && expensesMod().onAct(act, node)) return;
     if (goalsMod() && goalsMod().onAct(act, node)) return;
     if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
@@ -745,6 +748,10 @@
     }
     ensureSeg();
     render();
+    if (access.role === "owner" && expensesMod()) {
+      expensesMod().bind(access);
+      expensesMod().remindLight();
+    }
     refreshTasks().then(function () { if (access) paintChrome(); });
     if (ax().tabHas(access, "orderScreen")) {
       ord().loadDays();
