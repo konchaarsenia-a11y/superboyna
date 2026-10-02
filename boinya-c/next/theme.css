@@ -738,18 +738,6 @@ a.nx-tel {
 
 .row { margin-top: 8px; }
 
-.nx-frac {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.nx-frac .b-chip {
-  min-height: 32px;
-  padding: 4px 10px;
-}
-
 #nxMain .b-btn,
 #nxMain .b-field,
 #nxMain .nx-actions,

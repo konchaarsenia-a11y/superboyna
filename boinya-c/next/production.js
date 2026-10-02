@@ -114,8 +114,8 @@
       var word = "";
       var cut = root.BoinyaCutFrac;
       if (cut && cut.applies(g)) {
-        word = cut.label(g.frac);
-        if (word && !unit) unit = cut.defaultUnit(g);
+        word = cut.phrase ? cut.phrase(g) : cut.label(g.frac);
+        if (word && (!unit || unit === "гр")) unit = cut.defaultUnit(g);
       }
       var bit = val != null && val !== "" ? (" " + val + (unit ? " " + unit : "")) : "";
       if (word) bit += " " + word;

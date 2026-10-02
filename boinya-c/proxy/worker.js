@@ -7763,7 +7763,7 @@ function crumbParentFromBasketName_(name) {
 }
 
 function cuttingItemsFromPeople_(people, warehouseItems) {
-  function chewCutFrac_(it) {
+  function chewCutPhrase_(it) {
     if (!it || isCrumbBasketItemD1_(it)) return "";
     const cat = String(it.cat || "").toLowerCase();
     let chew = false;
@@ -7771,9 +7771,55 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
     else if (cat === "dressura" || cat === "other" || cat === "veg" || cat === "crumb") chew = false;
     else chew = isChewProductNameD1_(it.main || it.name || "");
     if (!chew) return "";
-    const f = String(it.frac || "").trim().toLowerCase();
-    if (f === "s" || f === "m" || f === "l") return f;
-    return "";
+    let sub = String(it.sub || "").trim();
+    let main = String(it.main || it.name || "");
+    if (!sub) {
+      const nm = String(it.name || it.main || "");
+      const parts = nm.split(" / ");
+      if (parts.length >= 2 && String(parts[1] || "").trim()) {
+        main = String(parts[0] || "").trim() || main;
+        sub = parts.slice(1).join(" / ").trim();
+      }
+    }
+    if (!sub) {
+      const u = String(it.name || it.main || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/ПОЛОВИН/.test(u)) sub = "ПОЛОВИНКА";
+      else if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*МАЛ/.test(u)) sub = "ОЧ МАЛ";
+      else if (/(^|[^А-ЯA-Z0-9])ОГР([^А-ЯA-Z0-9]|$)|ОГРОМ/.test(u)) sub = "ОГР";
+      else if (/ПАЛК|ПАЛОЧ/.test(u)) sub = "ПАЛК";
+      else if (/ПЛАСТ/.test(u)) sub = "ПЛАСТ";
+      else if (/(^|[^А-ЯA-Z0-9])БОЛ([^А-ЯA-Z0-9]|$)/.test(u)) sub = "БОЛ";
+      else if (/(^|[^А-ЯA-Z0-9])СРЕД([^А-ЯA-Z0-9]|$)/.test(u)) sub = "СРЕД";
+      else if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)/.test(u)) sub = "МАЛ";
+    }
+    const f = String(sub || "").trim();
+    const fu = f.toUpperCase().replace(/\s+/g, " ");
+    const m = String(main || "").toUpperCase();
+    let word = "";
+    if (f) {
+      if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) word = "очень мелкое";
+      else if (/^ЛОМТ/.test(fu)) word = "ломтики";
+      else if (/^ПОЛОСК/.test(fu)) word = "полоски";
+      else if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) word = "мелкий кубик";
+      else if (fu === "ПЛАСТ") word = "пластинки";
+      else if (/ПОЛОВИН/.test(fu)) word = "половинки";
+      else if (/ПАЛК/.test(fu)) word = "палочки";
+      else if (/^ОЧ/.test(fu) || fu === "ОЧ МАЛ") word = "очень маленькие";
+      else if (fu === "МАЛ" || fu === "ОЧ МАЛ") word = "маленькие";
+      else if (fu === "СРЕД") word = "средние";
+      else if (fu === "БОЛ") word = "большие";
+      else if (fu === "ОГР") word = "огромные";
+      else if (/^МЕЛК/.test(fu)) word = "мелкое";
+      else if (/^СРЕД/.test(fu)) word = "среднее";
+      else if (/^БОЛЬ|^КРУП/.test(fu)) word = "крупное";
+      else if (/^ЦЕЛ/.test(fu)) word = "целое";
+      else if (/ОБЫЧН/.test(fu) || /^КРОШК/.test(fu)) word = "";
+      else word = f.toLowerCase();
+    }
+    const frac = String(it.frac || "").trim().toLowerCase();
+    const extra = frac === "s" ? "мелкая" : frac === "m" ? "средняя" : frac === "l" ? "крупная" : "";
+    if (extra && word && extra !== word) return word + " " + extra;
+    return word || extra || "";
   }
   const coefByName = Object.create(null);
   (warehouseItems || []).forEach(function (w) {
@@ -7803,10 +7849,10 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
         };
       }
       acc[key].dry += val;
-      const cutFrac = chewCutFrac_(it);
-      if (cutFrac) {
-        if (!acc[key].sizeMap) acc[key].sizeMap = { s: 0, m: 0, l: 0 };
-        acc[key].sizeMap[cutFrac] += val;
+      const cutPhrase = chewCutPhrase_(it);
+      if (cutPhrase) {
+        if (!acc[key].sizeMap) acc[key].sizeMap = Object.create(null);
+        acc[key].sizeMap[cutPhrase] = (acc[key].sizeMap[cutPhrase] || 0) + val;
       }
     });
   });
@@ -7832,8 +7878,8 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       };
       if (it.sizeMap) {
         const sizes = [];
-        ["s", "m", "l"].forEach(function (code) {
-          if (it.sizeMap[code] > 0) sizes.push({ frac: code, dry: Math.round(it.sizeMap[code] * 100) / 100 });
+        Object.keys(it.sizeMap).sort().forEach(function (text) {
+          if (it.sizeMap[text] > 0) sizes.push({ text: text, dry: Math.round(it.sizeMap[text] * 100) / 100 });
         });
         if (sizes.length) row.sizes = sizes;
       }
@@ -7921,15 +7967,21 @@ function collapseCuttingAliasDups_(items) {
     if (allSame) return first;
     let dry = 0;
     let raw = 0;
-    const sizeMap = { s: 0, m: 0, l: 0 };
+    const sizeMap = Object.create(null);
     let anySize = false;
     list.forEach(function (it) {
       dry += Number(it.dry) || 0;
       raw += Number(it.raw) || 0;
       (it.sizes || []).forEach(function (s) {
-        const c = String((s && s.frac) || "");
-        if (c !== "s" && c !== "m" && c !== "l") return;
-        sizeMap[c] += Number(s.dry) || 0;
+        let text = String((s && (s.text || s.label)) || "");
+        if (!text) {
+          const c = String((s && s.frac) || "");
+          if (c === "s") text = "мелкая";
+          else if (c === "m") text = "средняя";
+          else if (c === "l") text = "крупная";
+        }
+        if (!text) return;
+        sizeMap[text] = (sizeMap[text] || 0) + (Number(s.dry) || 0);
         anySize = true;
       });
     });
@@ -7937,8 +7989,8 @@ function collapseCuttingAliasDups_(items) {
     first.raw = Math.round(raw * 100) / 100;
     if (anySize) {
       const sizes = [];
-      ["s", "m", "l"].forEach(function (c) {
-        if (sizeMap[c] > 0) sizes.push({ frac: c, dry: Math.round(sizeMap[c] * 100) / 100 });
+      Object.keys(sizeMap).sort().forEach(function (text) {
+        if (sizeMap[text] > 0) sizes.push({ text: text, dry: Math.round(sizeMap[text] * 100) / 100 });
       });
       if (sizes.length) first.sizes = sizes;
     }

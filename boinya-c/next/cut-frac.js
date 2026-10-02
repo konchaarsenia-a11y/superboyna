@@ -1,6 +1,7 @@
-/* Размер нарезки позиции: мелкая / средняя / крупная.
-   Жевалки и дрессура. Крошка и обычное мясо — без размера.
-   Старые строки без frac остаются без подписи. */
+/* Подпись фракции на сборке и нарезке.
+   Живой состав хранит её в sub (Среднее, СРЕД, Ломтики), не в frac.
+   Слова как у humanFraction. frac s/m/l дописываем, если он уже лежит в строке.
+   Крошка-микс и обычное мясо — без подписи. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -37,6 +38,7 @@
   function chewName(name) {
     var n = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
     n = n.replace(/\s*ШТ\.?$/i, "").trim();
+    n = n.replace(/\s+(СРЕД|МАЛ|БОЛ|ОГР|ПЛАСТ|ПАЛК|ПОЛОВИНКА|ОЧ МАЛ)$/i, "").trim();
     if (!n) return false;
     if (/^(БЫЧИЙ КОРЕНЬ|ТРАХЕЯ|АОРТА|УХО Г|УХО К|НОСЫ|СТАНОВАЯ ЖИЛА|КОЛЕНИ|ПЕРЕПЕЛКИ|ЛОП ХРЯЩ|УТИНЫЕ ШЕИ|ГУБЫ|КОПЫТО)$/.test(n)) return true;
     if (/УХО|УШК|КОРЕН|ХРЯЩ|ЛОПАТ|КОПЫТ|АОРТ|ТРАХЕ|ПЕРЕПЕЛ|СТАНОВ|КОЛЕН/.test(n)) return true;
@@ -68,6 +70,70 @@
     return "";
   }
 
+  /* То же дерево, что order-engine humanFraction. */
+  function catalogWord(main, sub) {
+    var f = String(sub || "").trim();
+    if (!f) return "";
+    var m = String(main || "").toUpperCase();
+    var fu = f.toUpperCase().replace(/\s+/g, " ");
+    if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "очень мелкое";
+    if (/^ЛОМТ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) return "мелкий кубик";
+    if (fu === "ПЛАСТ") return "пластинки";
+    if (/ПОЛОВИН/.test(fu)) return "половинки";
+    if (/ПАЛК/.test(fu)) return "палочки";
+    if (/^ОЧ/.test(fu) || fu === "ОЧ МАЛ") return "очень маленькие";
+    if (fu === "МАЛ" || fu === "ОЧ МАЛ") return "маленькие";
+    if (fu === "СРЕД") return "средние";
+    if (fu === "БОЛ") return "большие";
+    if (fu === "ОГР") return "огромные";
+    if (/^МЕЛК/.test(fu)) return "мелкое";
+    if (/^СРЕД/.test(fu)) return "среднее";
+    if (/^БОЛЬ|^КРУП/.test(fu)) return "крупное";
+    if (/^ЦЕЛ/.test(fu)) return "целое";
+    if (/ОБЫЧН/.test(fu)) return "";
+    return f.toLowerCase();
+  }
+
+  function embeddedChew(name) {
+    var u = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+    if (/ПОЛОВИН/.test(u)) return "ПОЛОВИНКА";
+    if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*МАЛ/.test(u)) return "ОЧ МАЛ";
+    if (/(^|[^А-ЯA-Z0-9])ОГР([^А-ЯA-Z0-9]|$)|ОГРОМ/.test(u)) return "ОГР";
+    if (/ПАЛК|ПАЛОЧ/.test(u)) return "ПАЛК";
+    if (/ПЛАСТ/.test(u)) return "ПЛАСТ";
+    if (/(^|[^А-ЯA-Z0-9])БОЛ([^А-ЯA-Z0-9]|$)/.test(u)) return "БОЛ";
+    if (/(^|[^А-ЯA-Z0-9])СРЕД([^А-ЯA-Z0-9]|$)/.test(u)) return "СРЕД";
+    if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)/.test(u)) return "МАЛ";
+    return "";
+  }
+
+  function subOf(it) {
+    var sub = String((it && it.sub) || "").trim();
+    var name = String((it && (it.name || it.main)) || "");
+    var main = String((it && (it.main || it.name)) || "");
+    if (sub) return { main: main, sub: sub };
+    var parts = name.split(" / ");
+    if (parts.length >= 2 && String(parts[1] || "").trim()) {
+      return { main: String(parts[0] || "").trim() || main, sub: parts.slice(1).join(" / ").trim() };
+    }
+    if (isChew(it)) {
+      var tok = embeddedChew(name);
+      if (tok) return { main: main, sub: tok };
+    }
+    return { main: main, sub: "" };
+  }
+
+  function phrase(it) {
+    if (!it || !applies(it)) return "";
+    var got = subOf(it);
+    var word = catalogWord(got.main, got.sub);
+    var extra = label(it.frac);
+    if (extra && word && extra !== word) return word + " " + extra;
+    return word || extra || "";
+  }
+
   function keep(it) {
     if (!it || !applies(it)) {
       if (it && it.frac != null) delete it.frac;
@@ -79,28 +145,21 @@
     return it;
   }
 
-  function stampNew(it) {
-    if (!it || !applies(it)) {
-      if (it) delete it.frac;
-      return it;
-    }
-    it.frac = code(it.frac) || "m";
-    return it;
-  }
-
-  function chipsHtml(frac, attrs) {
-    var on = code(frac);
-    var extra = attrs ? " " + attrs : "";
-    return '<div class="nx-frac" role="group" aria-label="Размер">' + ORDER.map(function (c) {
-      return '<button type="button" class="b-chip' + (on === c.id ? " b-chip--on" : "") + '"' + extra + ' data-frac="' + c.id + '">' + c.label + "</button>";
-    }).join("") + "</div>";
+  function sizeWord(s) {
+    if (!s) return "";
+    if (s.text) return String(s.text);
+    if (s.label) return String(s.label);
+    var fracWord = label(s.frac);
+    if (fracWord) return fracWord;
+    if (s.sub) return catalogWord(s.main || "", s.sub);
+    return "";
   }
 
   function sizesText(sizes, unit) {
     var bits = [];
     var u = unit === "гр" || unit === "г" ? "г" : "шт";
     (sizes || []).forEach(function (s) {
-      var word = label(s && s.frac);
+      var word = sizeWord(s);
       if (!word) return;
       var n = s.dry;
       if (!(Number(n) > 0)) return;
@@ -112,14 +171,14 @@
   return {
     code: code,
     label: label,
+    catalogWord: catalogWord,
+    phrase: phrase,
     applies: applies,
     isChew: isChew,
     isDressura: isDressura,
     isCrumb: isCrumb,
     defaultUnit: defaultUnit,
     keep: keep,
-    stampNew: stampNew,
-    chipsHtml: chipsHtml,
     sizesText: sizesText
   };
 });
