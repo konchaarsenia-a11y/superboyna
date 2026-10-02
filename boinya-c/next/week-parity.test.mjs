@@ -163,6 +163,40 @@ test("вкладки доступов: все дети схлопываются 
   assert.equal(collapsed.indexOf("deferredScreen"), -1);
 });
 
+test("открытие дня: месяц и кэш без сети, иначе скелетон", () => {
+  const people = Array.from({ length: 8 }, (_, i) => ({ name: "c" + i, segment: "ПП" }));
+  const ready = L.dayOpenPlan({ date: "2026-10-02", people: people, now: 1000, overviewCount: 8 });
+  assert.equal(ready.fetch, "none");
+  assert.equal(ready.paint, "clients");
+  assert.equal(ready.res.month.length, 8);
+  const cached = L.dayOpenPlan({
+    date: "2026-10-02",
+    cached: { at: 1000, res: { status: "success", month: people, week: [] } },
+    now: 5000,
+    ttl: 30000
+  });
+  assert.equal(cached.fetch, "none");
+  assert.equal(cached.source, "cache");
+  const stale = L.dayOpenPlan({
+    date: "2026-10-02",
+    cached: { at: 0, res: { status: "success", month: people, week: [] } },
+    now: 60000,
+    ttl: 30000,
+    staleTtl: 300000
+  });
+  assert.equal(stale.fetch, "background");
+  assert.equal(stale.paint, "clients");
+  const cold = L.dayOpenPlan({ date: "2026-10-03", now: 1, overviewCount: 8 });
+  assert.equal(cold.paint, "skeleton");
+  assert.equal(cold.fetch, "now");
+  assert.equal(cold.skeletonRows, 8);
+  const pack = { source: "d1", byDate: { "2026-10-02": people } };
+  assert.equal(L.monthPeopleReady(pack, null), true);
+  assert.equal(L.monthPeopleReady({ source: "d1", byDate: {} }, null), false);
+  assert.equal(L.monthPeopleReady({ source: "d1", byDate: {} }, { days: [] }), true);
+  assert.equal(L.monthPeopleReady({ source: "d1-error", byDate: {} }, { days: [] }), false);
+});
+
 test("уведомления: только отличие от роли", () => {
   var defs = L.NOTIFY_DEFAULTS.manager;
   assert.equal(L.notifyOverride(defs, defs), "");
