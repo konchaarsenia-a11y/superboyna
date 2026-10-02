@@ -96,7 +96,7 @@
   }
 
   function blankPicker() {
-    return { cat: "chew", q: "", name: "", sub: "", frac: "", qty: 200, kind: "meat", sources: [], open: false };
+    return { cat: "chew", q: "", name: "", sub: "", qty: 200, kind: "meat", sources: [], open: false };
   }
 
   function esc(s) { return sh().esc(s); }
@@ -388,11 +388,8 @@
     }
     var subHtml = crumb && srcs.length >= 2 ? sub : ('<span class="b-sheet__sub">' + sub + esc(price) + "</span>");
     if (crumb && srcs.length >= 2 && price) subHtml += '<span class="b-sheet__sub">' + esc(price) + "</span>";
-    var fracHtml = "";
-    var cut = root.BoinyaCutFrac;
-    if (cut && cut.applies(it)) fracHtml = cut.chipsHtml(it.frac, 'data-act="line-frac" data-i="' + i + '"');
     return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
-      subHtml + fracHtml + "</div>" +
+      subHtml + "</div>" +
       '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
       '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
       '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div></div>';
@@ -1003,10 +1000,6 @@
               return '<button type="button" class="b-chip' + (picker.sub === f ? " b-chip--on" : "") + '" data-act="pfrac" data-frac="' + esc(f) + '">' + esc(e.humanFraction(picker.name, f)) + "</button>";
             }).join("") + "</div>";
         }
-        var cutPick = root.BoinyaCutFrac;
-        if (cutPick && cutPick.applies({ cat: picker.cat, name: picker.name, main: picker.name })) {
-          body += '<p class="b-lbl">Размер</p>' + cutPick.chipsHtml(picker.frac || "m", 'data-act="pcut"');
-        }
         var unit = e.unitForItem(picker.cat, picker.name);
         body += '<p class="b-lbl">Количество</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
           '<span class="b-step__val">' + esc(picker.qty) + " " + esc(unit) + "</span>" +
@@ -1102,9 +1095,7 @@
       sh().toast("Выберите фракцию");
       return;
     }
-    var added = { cat: picker.cat, main: picker.name, name: picker.name, sub: picker.sub || "", value: picker.qty || 1, frac: picker.frac || "" };
-    if (root.BoinyaCutFrac) root.BoinyaCutFrac.stampNew(added);
-    pushItem(added);
+    pushItem({ cat: picker.cat, main: picker.name, name: picker.name, sub: picker.sub || "", value: picker.qty || 1 });
     sh().closeTop("ok");
   }
 
@@ -1176,11 +1167,9 @@
   }
 
   function pushQuiet(it) {
-    var row = {
-      cat: it.cat, main: it.main, name: it.name || it.main, sub: it.sub || "", value: it.value, crumbKind: it.crumbKind, sources: it.sources, ratio: it.ratio, frac: it.frac || ""
-    };
-    if (root.BoinyaCutFrac) root.BoinyaCutFrac.stampNew(row);
-    state.baskets[state.activeDog].push(row);
+    state.baskets[state.activeDog].push({
+      cat: it.cat, main: it.main, name: it.name || it.main, sub: it.sub || "", value: it.value, crumbKind: it.crumbKind, sources: it.sources, ratio: it.ratio
+    });
   }
 
   async function resolveBp() {
@@ -1643,7 +1632,6 @@
       picker.cat = node.getAttribute("data-cat");
       picker.name = "";
       picker.sub = "";
-      picker.frac = "";
       picker.qty = picker.cat === "chew" ? 1 : 200;
       rebuildAdd(null);
       return true;
@@ -1651,18 +1639,11 @@
     if (act === "pname") {
       picker.name = node.getAttribute("data-name");
       picker.sub = "";
-      picker.frac = (root.BoinyaCutFrac && root.BoinyaCutFrac.applies({ cat: picker.cat, name: picker.name, main: picker.name })) ? "m" : "";
       picker.qty = eng().unitForItem(picker.cat, picker.name) === "шт" ? 1 : 200;
       rebuildAdd(null);
       return true;
     }
     if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); rebuildAdd(null); return true; }
-    if (act === "pcut") {
-      var picked = node.getAttribute("data-frac") || "";
-      picker.frac = picker.frac === picked ? "" : picked;
-      rebuildAdd(null);
-      return true;
-    }
     if (act === "pqty") {
       var step = (picker.cat === "chew" || (picker.name && eng().unitForItem(picker.cat, picker.name) === "шт")) ? 1 : 50;
       picker.qty = Math.max(step, Number(picker.qty) + Number(node.getAttribute("data-dir")) * step);
@@ -1673,17 +1654,6 @@
     if (act === "csrc-add") { picker.sources.push(""); if (!picker.grams) picker.grams = []; picker.grams.push(""); rebuildAdd(null); return true; }
     if (act === "csrc-del") { picker.sources.pop(); if (picker.grams) picker.grams.pop(); rebuildAdd(null); return true; }
     if (act === "padd") { addFromPicker(); return true; }
-    if (act === "line-frac") {
-      var lines = state.baskets[state.activeDog];
-      var li = Number(node.getAttribute("data-i"));
-      var line = lines && lines[li];
-      if (!line || !root.BoinyaCutFrac || !root.BoinyaCutFrac.applies(line)) return true;
-      var nextFrac = node.getAttribute("data-frac") || "";
-      line.frac = line.frac === nextFrac ? "" : nextFrac;
-      root.BoinyaCutFrac.keep(line);
-      patchLines();
-      return true;
-    }
     if (act === "step") {
       var list = state.baskets[state.activeDog];
       var i = Number(node.getAttribute("data-i"));

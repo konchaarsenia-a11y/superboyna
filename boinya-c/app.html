@@ -15,20 +15,20 @@
         if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
           q.set("cutover", "1");
         }
-        if (!q.get("v")) q.set("v", "71120100");
+        if (!q.get("v")) q.set("v", "71120200");
         location.replace("next.html?" + q.toString() + (u.hash || ""));
       } catch (e) {
         if (!/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
-          location.replace("next.html?cutover=1&v=71120100" + (location.hash || ""));
+          location.replace("next.html?cutover=1&v=71120200" + (location.hash || ""));
         }
       }
     })();
   </script>
-  <link rel="preload" href="app.main.js?v=71120100" as="script">
+  <link rel="preload" href="app.main.js?v=71120200" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71120100";
+      var APP_VER = "v71120200";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -3001,8 +3001,8 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71120100"></script>
-  <script src="courier-asm.js?v=71120100"></script>
-  <script src="app.main.js?v=71120100" defer></script>
+  <script src="courier-maps.js?v=71120200"></script>
+  <script src="courier-asm.js?v=71120200"></script>
+  <script src="app.main.js?v=71120200" defer></script>
 </body>
 </html>
