@@ -1,5 +1,6 @@
-/* Полоса нарезки: «Выложено» — половина веса, «Нарезано» — весь вес.
-   Доля по граммам и по штукам, общая — среднее двух целых процентов, если есть оба. */
+/* Итог нарезки только в процентах.
+   Нарезано — 80% результата, выложено — 20%.
+   Доля этапа: среднее целых процентов по граммам и по штукам, если есть оба. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -18,12 +19,6 @@
     return /шт/i.test(String((it && it.unit) || ""));
   }
 
-  function creditFactor(it) {
-    if (it && it.done) return 1;
-    if (it && it.laid) return 0.5;
-    return 0;
-  }
-
   function roundPct(done, all) {
     if (!all) return null;
     return Math.round((done / all) * 100);
@@ -34,40 +29,43 @@
     return String(x).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   }
 
-  function summarize(items) {
+  function stageShare(items, flag) {
     var gramsAll = 0;
-    var gramsDone = 0;
+    var gramsGot = 0;
     var piecesAll = 0;
-    var piecesDone = 0;
+    var piecesGot = 0;
     (items || []).forEach(function (it) {
       var qty = amount(it);
-      var got = qty * creditFactor(it);
+      var on = !!(it && it[flag]);
       if (isPiece(it)) {
         piecesAll += qty;
-        piecesDone += got;
+        if (on) piecesGot += qty;
       } else {
         gramsAll += qty;
-        gramsDone += got;
+        if (on) gramsGot += qty;
       }
     });
-    var grams = roundPct(gramsDone, gramsAll);
-    var pieces = roundPct(piecesDone, piecesAll);
-    var total = 0;
-    if (grams != null && pieces != null) total = Math.round((grams + pieces) / 2);
-    else if (grams != null) total = grams;
-    else if (pieces != null) total = pieces;
-    var bits = [];
-    if (gramsAll) bits.push(groupThousands(gramsDone) + " из " + groupThousands(gramsAll) + " г");
-    if (piecesAll) bits.push(groupThousands(piecesDone) + " из " + groupThousands(piecesAll) + " шт.");
+    var grams = roundPct(gramsGot, gramsAll);
+    var pieces = roundPct(piecesGot, piecesAll);
+    var pct = 0;
+    if (grams != null && pieces != null) pct = Math.round((grams + pieces) / 2);
+    else if (grams != null) pct = grams;
+    else if (pieces != null) pct = pieces;
+    return { pct: pct, grams: grams, pieces: pieces };
+  }
+
+  function summarize(items) {
+    var cut = stageShare(items, "done");
+    var laid = stageShare(items, "laid");
+    var total = Math.round(0.8 * cut.pct + 0.2 * laid.pct);
+    var line = "нарезано " + cut.pct + "% + выложено " + laid.pct + "% = 0,8×" + cut.pct + " + 0,2×" + laid.pct + " = " + total + "%";
     return {
       total: total,
-      grams: grams,
-      pieces: pieces,
-      gramsDone: gramsDone,
-      gramsAll: gramsAll,
-      piecesDone: piecesDone,
-      piecesAll: piecesAll,
-      line: bits.join(", ") || "0"
+      cut: cut.pct,
+      laid: laid.pct,
+      grams: null,
+      pieces: null,
+      line: line
     };
   }
 

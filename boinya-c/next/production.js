@@ -259,11 +259,11 @@
     var html = '<article class="' + cls + '" style="margin-top:12px" data-cut="' + esc(key) + '">';
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
-    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? " · излишек " + esc(String(it.surplus)) : "") + "</p>";
+    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? ", излишек " + esc(String(it.surplus)) : "") + "</p>";
     html += cutNote(it);
     if (!readonly) {
-      html += '<label class="nx-check"><input type="checkbox" data-act="pr-laid" data-key="' + esc(key) + '"' + (it.laid ? " checked" : "") + "> Выложено</label>";
-      html += '<label class="nx-check"><input type="checkbox" data-act="pr-done" data-key="' + esc(key) + '"' + (it.done ? " checked" : "") + "> Нарезано</label>";
+      html += '<button type="button" class="b-btn nx-cut-btn ' + (it.laid ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-laid" data-key="' + esc(key) + '">Выложено</button>';
+      html += '<button type="button" class="b-btn nx-cut-btn ' + (it.done ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-done" data-key="' + esc(key) + '">Нарезано</button>';
       html += '<label class="b-field" style="margin-top:8px"><span class="b-note">Излишек</span><input class="b-field__input" id="surplus_' + esc(key) + '" inputmode="decimal" value="' + esc(String(it.surplus || 0)) + '"></label>';
       html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-surplus" data-k="' + esc(key) + '" style="margin-top:8px">Сохранить излишек</button>';
     } else {
@@ -271,7 +271,7 @@
       if (it.laid) badges.push("выложено");
       if (it.done) badges.push("нарезано");
       if (it.outNext) badges.push("нет на след.");
-      if (badges.length) html += '<p class="b-note">' + esc(badges.join(" · ")) + "</p>";
+      if (badges.length) html += '<p class="b-note">' + esc(badges.join(", ")) + "</p>";
     }
     return html + "</article>";
   }
@@ -318,12 +318,6 @@
     html += '<div class="nx-bar" role="img" aria-label="' + r.total + ' процентов"><span style="width:' + r.total + '%"></span></div>';
     html += '<p class="nx-prog__pct">' + r.total + "%</p>";
     html += '<p class="nx-prog__line">' + esc(r.line) + "</p>";
-    if (r.grams != null) {
-      html += '<div class="nx-thin"><span>граммы ' + r.grams + '%</span><div class="nx-bar nx-bar--thin" aria-label="граммы ' + r.grams + ' процентов"><span style="width:' + r.grams + '%"></span></div></div>';
-    }
-    if (r.pieces != null) {
-      html += '<div class="nx-thin"><span>штуки ' + r.pieces + '%</span><div class="nx-bar nx-bar--thin" aria-label="штуки ' + r.pieces + ' процентов"><span style="width:' + r.pieces + '%"></span></div></div>';
-    }
     html += "</div>";
     return html;
   }
@@ -1479,6 +1473,26 @@
       return false;
     }
     if (!act || String(act).indexOf("pr-") !== 0) return false;
+    if (act === "pr-laid" || act === "pr-done") {
+      var flag = act === "pr-laid" ? "laid" : "done";
+      var itF = findCut(node.getAttribute("data-key"));
+      if (!itF) return true;
+      var prevF = !!itF[flag];
+      itF[flag] = !prevF;
+      sortCut();
+      paintCut();
+      var patch = {};
+      patch[flag] = !!itF[flag];
+      persistCut(itF, patch).then(function (ok) {
+        if (!ok) { itF[flag] = prevF; paintCut(); return; }
+        if (flag === "done" && itF.done && cutSession.active && cutItems.every(function (x) { return x.done; })) {
+          sh().confirm({ title: "Нарезка", text: "Все позиции отмечены. Завершить нарезку?", ok: "Завершить" }).then(function (go) {
+            if (go) finishCut();
+          });
+        }
+      });
+      return true;
+    }
     if (act === "pr-cut-start") { startCut(); return true; }
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
