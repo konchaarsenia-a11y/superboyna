@@ -84,6 +84,13 @@ test("без отметки оплаты цена подписки один ра
   assert.equal(L.attributePpRevenue(rows).doubled.length, 1);
 });
 
+test("в правке заказа с месяца есть Отмена через deleteParams", function () {
+  var src = fs.readFileSync(new URL("./orders.js", import.meta.url), "utf8");
+  assert.match(src, /data-act="cancel-order"/);
+  assert.match(src, /deleteParams\(/);
+  assert.match(src, /Отменить доставку/);
+});
+
 test("воркер чередует слот и не держит мёртвую ветку count<=0", function () {
   var src = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
   assert.match(src, /function suggestPpDeliverySlotD1_/);
