@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71120300";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71120400";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3286,6 +3286,12 @@
       var names = kept.length
         ? kept.map(function (k) { return k.name; })
         : crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
+      if (!names.length) {
+        var selfName = String((item && (item.name || item.main)) || "").trim();
+        var subCrumb = /^крошк/i.test(String((item && item.sub) || "").trim());
+        if (subCrumb && selfName && !/^крошка$/i.test(selfName)) names = [selfName];
+        else if (/^крошка\s+\S/i.test(selfName)) names = [selfName];
+      }
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
       var qty = val + " г";
       if (names.length >= 2) return "Крошка микс — " + qty;
@@ -25888,7 +25894,7 @@
     }
 
     function formatPriceCompositionLine(it) {
-      if (isCrumbBasketItemUi_(it)) return crumbClientMessageLine_(it);
+      if (/^крошк/i.test(String((it && it.sub) || "")) || isCrumbBasketItemUi_(it)) return crumbClientMessageLine_(it);
       var main = it.main || it.name || "";
       var sub = it.sub || "";
       var val = it.val != null ? it.val : it.value;

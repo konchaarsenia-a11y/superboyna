@@ -379,7 +379,9 @@
       var q1 = mix.partQty(it, srcs[0], 0, 1);
       name = mix.singleLabel(srcs[0].name || srcs[0].main, q1 ? q1.qty : grams);
     } else if (crumb) {
-      name = grams != null && grams !== "" ? ("Крошка — " + grams + " г") : "Крошка";
+      var parent = String(it.main || it.name || "").trim();
+      if (parent && !/^крошка$/i.test(parent)) name = mix.singleLabel(parent, grams);
+      else name = grams != null && grams !== "" ? ("Крошка — " + grams + " г") : "Крошка";
     } else if (it.sub) sub = esc(eng().humanFraction(it.main, it.sub));
     var price = "";
     if (state.orderType === "retail") {
@@ -1009,8 +1011,7 @@
     return '<label class="b-field">' + sh().ico("search", "b-ico b-ico--20") +
       '<input class="b-field__input" id="pq" data-k="pq" value="' + esc(picker.q) + '" placeholder="Найти позицию"></label>' +
       '<div class="b-chips" style="margin-top:12px">' + chips + "</div>" +
-      '<div class="b-list" style="margin-top:12px">' + body + "</div>" +
-      '<p class="b-note" style="margin-top:8px">Один и тот же лист в заказе. «Крошки» открывают конструктор: вид и источники.</p>';
+      '<div class="b-list" style="margin-top:12px">' + body + "</div>";
   }
 
   function crumbHtml() {
@@ -1546,11 +1547,11 @@
 
   function rebuildAdd(caret) {
     sh().replaceTop({ html: addHtml(), foot: addFoot() });
+    if (caret == null) return;
     var again = document.getElementById("pq");
     if (!again) return;
     again.focus();
-    var pos = caret == null ? again.value.length : caret;
-    try { again.setSelectionRange(pos, pos); } catch (ePq) {}
+    try { again.setSelectionRange(caret, caret); } catch (ePq) {}
   }
 
   function onAct(act, node) {

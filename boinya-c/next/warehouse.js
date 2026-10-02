@@ -81,9 +81,7 @@
       "</div>" +
       '<div id="warehousePreviewBox"></div>' +
       '<p class="b-lbl">Остатки</p>' +
-      '<div id="warehouseContainer"><p class="b-note">Нажмите «Обновить»…</p></div>' +
-      '<p class="b-lbl">Движения</p>' +
-      '<div id="warehouseLedger"><p class="b-note">—</p></div>'
+      '<div id="warehouseContainer"><p class="b-note">Нажмите «Обновить»…</p></div>'
     );
     syncLabels();
   }
@@ -100,11 +98,9 @@
       "</div></article>";
   }
 
-  function applyStock(html, ledHtml) {
+  function applyStock(html) {
     var box = document.getElementById("warehouseContainer");
-    var led = document.getElementById("warehouseLedger");
     if (box) box.innerHTML = html;
-    if (led) led.innerHTML = ledHtml;
   }
 
   async function loadWarehouse(opts) {
@@ -114,10 +110,9 @@
     syncLabels();
     var asOf = L.warehouseTodayIso_();
     var box = document.getElementById("warehouseContainer");
-    var led = document.getElementById("warehouseLedger");
     if (!box) return;
     if (opts.soft && cache && cache.view === view && cache.asOf === asOf) {
-      applyStock(cache.html, cache.led);
+      applyStock(cache.html);
       return;
     }
     if (!opts.soft || !cache) box.innerHTML = '<p class="b-note">Загрузка…</p>';
@@ -149,7 +144,7 @@
 
     if (!res || res.status !== "success") {
       if (cache && cache.html) {
-        applyStock(cache.html, cache.led);
+        applyStock(cache.html);
         try { sh().toast("Склад: показан кэш"); } catch (eT) {}
       } else if (box) {
         box.innerHTML = sh().errorBox({
@@ -157,7 +152,6 @@
           text: lastErr ? String(lastErr).slice(0, 80) : "",
           act: "wh-retry"
         });
-        if (led) led.innerHTML = '<p class="b-note">—</p>';
       }
       return;
     }
@@ -181,11 +175,8 @@
         var shown = L.shownWarehouseQty_(it, view, byRow[it.row], flags.gasAsOf);
         return stockCard(it, shown);
       }).join("") || '<p class="b-note">Пусто</p>';
-      var ledHtml = (res.ledger || []).slice(0, 15).map(function (x) {
-        return '<div class="nx-line">' + esc(String(x.type || "")) + ", " + esc(String(x.qty)) + " " + esc(String(x.unit || "")) + "</div>";
-      }).join("") || '<p class="b-note">Лента пуста</p>';
-      cache = { html: html, led: ledHtml, view: view, asOf: asOf };
-      applyStock(html, ledHtml);
+      cache = { html: html, view: view, asOf: asOf };
+      applyStock(html);
     } catch (eRender) {
       if (alive("warehouseContainer")) {
         document.getElementById("warehouseContainer").innerHTML = '<p class="b-note">Ошибка отрисовки склада</p>';

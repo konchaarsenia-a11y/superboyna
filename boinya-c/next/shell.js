@@ -197,24 +197,35 @@
 
   var touchY = 0;
   var touchDy = 0;
+  var touchDismiss = false;
   function onTouchStart(e) {
     var t = e.touches && e.touches[0];
     touchY = t ? t.clientY : 0;
     touchDy = 0;
+    touchDismiss = false;
+    var sheet = el("nxScrim") && el("nxScrim").querySelector(".b-sheet");
+    if (!sheet || !t) return;
+    var fromGrab = t.target && t.target.closest && t.target.closest(".b-sheet__grab, .b-sheet__head");
+    var body = sheet.querySelector(".nx-sheet__body");
+    if (fromGrab) touchDismiss = true;
+    else if (!body || body.scrollTop <= 0) touchDismiss = true;
   }
   function onTouchMove(e) {
     var t = e.touches && e.touches[0];
     if (!t) return;
     touchDy = t.clientY - touchY;
     var sheet = el("nxScrim") && el("nxScrim").querySelector(".b-sheet");
-    if (sheet && touchDy > 0) sheet.style.transform = "translateY(" + Math.min(touchDy, 180) + "px)";
+    if (sheet && touchDismiss && touchDy > 0) sheet.style.transform = "translateY(" + Math.min(touchDy, 180) + "px)";
   }
   function onTouchEnd() {
     var sheet = el("nxScrim") && el("nxScrim").querySelector(".b-sheet");
     if (sheet) sheet.style.transform = "";
-    if (touchDy > 80) closeTop("swipe");
-    if (touchDy > 80) blurActive();
+    if (touchDismiss && touchDy > 80) {
+      closeTop("swipe");
+      blurActive();
+    }
     touchDy = 0;
+    touchDismiss = false;
   }
 
   function blurIfSwipe() {}

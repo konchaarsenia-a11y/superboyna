@@ -344,6 +344,7 @@
   }
 
   function render() {
+    if (route.tab !== "goals" && goalsMod() && goalsMod().leave) goalsMod().leave();
     if (!access) return;
     if (q().get("shot") === "states") { paintStates(); return; }
     if (ax().isSimple(access) && route.tab !== "goals") { paintSimple(); return; }
@@ -750,7 +751,6 @@
     render();
     if (access.role === "owner" && expensesMod()) {
       expensesMod().bind(access);
-      expensesMod().remindLight();
     }
     refreshTasks().then(function () { if (access) paintChrome(); });
     if (ax().tabHas(access, "orderScreen")) {
