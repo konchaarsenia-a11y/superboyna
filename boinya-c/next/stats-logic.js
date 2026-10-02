@@ -482,6 +482,7 @@
     statsPpDeliveryLabel_: statsPpDeliveryLabel_,
     statsPpCostFootnote_: statsPpCostFootnote_,
     statsPpFeeEchoLine_: statsPpFeeEchoLine_,
+    statsConvLine_: statsConvLine_,
     statsBarPct_: statsBarPct_,
     statsDelta_: statsDelta_,
     statsClean_: statsClean_,

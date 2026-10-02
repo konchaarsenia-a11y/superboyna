@@ -129,12 +129,75 @@ test("пустые расходы месяца: аренда 900, остальн
   eq(m.profit, F.kopeck_(m.gross - 900), "прибыль");
 });
 
+test("чистые перешедших и партнёры: себес §3, цена ПП один раз, БП перешедших не вычитается дважды", () => {
+  const eco = F.formulaEconomy_([
+    { ck: "A", name: "Аня", iso: "2026-10-01", src: "bp", delivered: true, S: 2, G: 0, P: 1, partner: "Точка", partnerPays: false },
+    { ck: "A", iso: "2026-10-10", src: "pp", delivered: true, price: 20, S: 3, G: 0, P: 2, sig: "same", slot: 1, paid: "yes" },
+    { ck: "A", iso: "2026-10-20", src: "pp", delivered: true, price: 20, S: 3, G: 0, P: 2, sig: "same", slot: 2, paid: "no" },
+    { ck: "A", iso: "2026-09-15", src: "pp", delivered: true, price: 20, S: 3, G: 0, P: 2, sig: "same", slot: 1, paid: "yes" },
+    { ck: "B", name: "Боря", iso: "2026-10-02", src: "bp", delivered: true, S: 1, G: 0, P: 0, partner: "Точка", partnerPays: true },
+    { ck: "C", name: "Вера", iso: "2026-10-03", src: "retail", delivered: true, price: 10, S: 1, G: 100, P: 0, partner: "" },
+    { ck: "C", iso: "2026-09-02", src: "bp", delivered: true, S: 1, G: 0, P: 0, partner: "Другая", partnerPays: false },
+    { ck: "D", iso: "2026-10-04", src: "bp", delivered: false, S: 5, G: 0, P: 0, partner: "Точка" },
+    { ck: "A", iso: "2026-10-11", src: "retail", delivered: true, price: 8, S: 0, G: 0, P: 0, missingBasket: true },
+    { ck: "E", name: "Глеб", iso: "2026-10-01", src: "bp", delivered: true, S: 1, G: 0, P: 0, partner: "Плюс", partnerPays: false },
+    { ck: "E", iso: "2026-10-08", src: "pp", delivered: true, price: 40, S: 2, G: 0, P: 0, sig: "e", slot: 1, paid: "yes" }
+  ], {
+    monthKey: "2026-10",
+    converted: { A: "2026-10-05", C: "2026-09-01", E: "2026-10-02" }
+  });
+  eq(eco.bp.month.trials, 3, "бп месяца");
+  eq(eco.bp.month.converted, 2, "перешли Аня и Глеб");
+  eq(eco.bp.month.spent, 20.7, "наши БП Ани и Глеба");
+  eq(eco.bp.month.covered, 9.4, "Боря закрыт точкой");
+  eq(eco.bp.month.net, 3.6, "чистые октября");
+  eq(eco.bp.month.outside, 0, "чужих БП в октябре нет");
+  eq(eco.bp.month.payback, 3.6, "окупаемость месяца");
+  eq(eco.bp.life.trials, 4, "все БП");
+  eq(eco.bp.life.converted, 3, "Аня, Вера, Глеб");
+  eq(eco.bp.life.spent, 30.1, "БП Ани, Веры и Глеба");
+  eq(eco.bp.life.net, 1, "накоплено");
+  eq(eco.bp.life.outside, 0, "БП перешедших внутри чистых");
+  eq(eco.bp.life.payback, 1, "окупаемость всего");
+  const tochkaM = eco.partners.month.find((p) => p.name === "Точка");
+  const drugaM = eco.partners.month.find((p) => p.name === "Другая");
+  const tochkaL = eco.partners.life.find((p) => p.name === "Точка");
+  eq(tochkaM.trials, 2, "точка бп");
+  eq(tochkaM.converted, 1, "точка переход");
+  eq(tochkaM.spent, 11.3, "точка потрачено");
+  eq(tochkaM.net, -13.3, "точка чистые октября");
+  eq(tochkaM.payback, -13.3, "точка итог");
+  eq(tochkaL.payback, -6.5, "точка за всё время, сентябрь ПП внутри");
+  eq(drugaM.trials, 0, "у Другой в октябре нет БП");
+  eq(drugaM.net, -3.3, "розница Веры в октябре");
+  eq(drugaM.payback, -3.3, "итог Другой");
+  const drugaL = eco.partners.life.find((p) => p.name === "Другая");
+  eq(drugaL.trials, 1, "БП Веры за всё время");
+  eq(drugaL.converted, 1, "Вера перешла");
+  eq(drugaL.spent, 9.4, "себес её БП");
+  eq(drugaL.net, -12.7, "накоплено Веры");
+  eq(drugaL.payback, -12.7, "БП уже внутри чистых");
+  const plus = eco.partners.month.find((p) => p.name === "Плюс");
+  eq(plus.trials, 1, "плюс бп");
+  eq(plus.converted, 1, "плюс переход");
+  eq(plus.net, 20.2, "плюс чистые");
+  eq(plus.payback, 20.2, "плюс прибыль");
+  eq(eco.coverage.notDelivered, 1, "неотвезено");
+  eq(eco.coverage.missingBasket, 1, "нет состава");
+  assert.match(eco.note, /отвёз/);
+  assert.match(eco.note, /Без состава 1/);
+  assert.match(eco.attribution, /кто привёл/);
+});
+
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {
   const gs = fs.readFileSync(path.resolve(here, "../../Code.gs"), "utf8");
   assert.match(gs, /function collectFormulaRollup_/);
+  assert.match(gs, /function collectFormulaEconomy_/);
   assert.match(gs, /function readDeliveredByDate_/);
   assert.match(gs, /function foldPpRevenueOnce_/);
   assert.match(gs, /только отвезено/);
+  assert.match(gs, /ppPartner/);
+  assert.match(gs, /formulaEconomy/);
   const worker = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_month_money/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_role_assign/);

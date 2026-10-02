@@ -1,4 +1,4 @@
-/* Статистика владельца: четыре блока, getStats только на чтение. */
+/* Статистика владельца: полки по формулам, getStats только на чтение. */
 (function (root) {
   "use strict";
 
@@ -69,7 +69,37 @@
       line("Переход в ПП", convText(block.conv)) +
       line("Потрачено на БП", moneyText(block.spent)) +
       line("Чистые с перешедших", moneyText(block.net)) +
+      line("БП без перехода", moneyText(block.outside)) +
       line("Окупаемость", moneyText(block.payback));
+  }
+
+  function economyOf(res) {
+    var raw = res && res.formulaEconomy;
+    if (!raw || raw.ok === false) return null;
+    if (raw.rows && formulas() && formulas().formulaEconomy_) {
+      try {
+        return formulas().formulaEconomy_(raw.rows, {
+          monthKey: raw.monthKey || "",
+          converted: raw.converted || {}
+        });
+      } catch (eE) { return null; }
+    }
+    if (raw.bp) return raw;
+    return null;
+  }
+
+  function fromEconomy(block) {
+    if (!block) return null;
+    return {
+      conv: L().statsConvLine_(block.trials, block.converted),
+      spent: block.spent,
+      net: block.net,
+      outside: block.outside,
+      payback: block.payback,
+      covered: block.covered,
+      paysCost: !!block.paysCost,
+      name: block.name || ""
+    };
   }
 
   function formulas() { return root.BoinyaFormulas; }
@@ -138,7 +168,7 @@
       if (ppR > rtR) bigger = "ПП";
       else if (rtR > ppR) bigger = "Розница";
       else if (ppR > 0 || rtR > 0) bigger = "Поровну";
-      html += line("Больше принесло", bigger);
+      html += line("Что больше принесло", bigger);
     }
     html += "</article>";
 
@@ -186,12 +216,43 @@
     html += '<p class="b-note">Отдельной ЗП курьера в формуле нет. Дорога 4 BYN на доставку уже в себестоимости.</p>';
     html += "</article>";
 
+    var econ = economyOf(meta.bpSource) || economyOf(periodRes);
     var monthTitle = meta.bpTitle || "Этот месяц";
+    var monthBp = econ ? fromEconomy(econ.bp && econ.bp.month) : null;
+    var lifeBp = econ ? fromEconomy(econ.bp && econ.bp.life) : null;
     html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">БП</p>' +
       '<p class="b-note">бесплатная проба</p>' +
-      bpBlock(monthTitle, legacy.bpMonth) +
-      bpBlock("За всё время", legacy.bpLife) +
-      "</article></div>";
+      '<p class="b-note">Чистые = выручка минус себестоимость всех отвезено доставок перешедшего, за месяц и за всё время. Окупаемость = чистые минус БП тех, кто не перешёл.</p>' +
+      bpBlock(monthTitle, monthBp || legacy.bpMonth) +
+      bpBlock("За всё время", lifeBp || legacy.bpLife);
+    if (econ && econ.note) html += '<p class="b-note">' + esc(econ.note) + "</p>";
+    else html += '<p class="b-note">Чистые и окупаемость появятся, когда бэкенд пришлёт состав доставок. Пока их нет, это не ноль.</p>';
+    html += "</article>";
+
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Партнёры</p>';
+    html += '<p class="b-note">' + esc((econ && econ.attribution) || "Партнёр точки берётся из поля партнёра на строке БП, кто привёл.") + "</p>";
+    html += partnerShelf(monthTitle, econ && econ.partners ? econ.partners.month : null);
+    html += partnerShelf("За всё время", econ && econ.partners ? econ.partners.life : null);
+    if (econ && econ.coverage && econ.coverage.bpWithoutPartner > 0) {
+      html += '<p class="b-note">БП без имени партнёра: ' + esc(String(econ.coverage.bpWithoutPartner)) + "</p>";
+    }
+    html += "</article></div>";
+    return html;
+  }
+
+  function partnerShelf(title, list) {
+    var html = '<p class="b-lbl">' + esc(title) + "</p>";
+    if (!list) return html + line("Точки", "нет данных");
+    if (!list.length) return html + line("Точки", "нет данных");
+    var i;
+    for (i = 0; i < list.length; i++) {
+      var p = fromEconomy(list[i]) || {};
+      html += line(p.name || "Точка", convText(p.conv));
+      html += line("Потрачено", moneyText(p.spent));
+      html += line("Чистые с перешедших", moneyText(p.net));
+      html += line(Number(p.payback) < 0 ? "Убыток" : "Прибыль", moneyText(p.payback));
+      if (p.paysCost && Number(p.covered) > 0) html += line("Закрыла точка", moneyText(p.covered));
+    }
     return html;
   }
 
@@ -229,7 +290,7 @@
     sh().openSheet({
       title: "Расчёт по датам",
       id: "stats-range",
-      html: '<p class="b-note">Период любой длины, включая будущие записи. На экране те же четыре блока и сравнение с прошлым отрезком такой же длины.</p>' +
+      html: '<p class="b-note">Период любой длины, включая будущие записи. На экране те же полки и сравнение с прошлым отрезком такой же длины.</p>' +
         '<div class="nx-pair">' +
           '<div><p class="b-note">С</p><label class="b-field"><input class="b-field__input" type="date" id="statsExpectFrom" value="' + esc(from) + '"></label></div>' +
           '<div><p class="b-note">По</p><label class="b-field"><input class="b-field__input" type="date" id="statsExpectTo" value="' + esc(to) + '"></label></div>' +
