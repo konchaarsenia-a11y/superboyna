@@ -311,9 +311,8 @@
       '<div class="b-top__ctx">' +
         '<h1 class="b-top__title">' + esc(opts.title || "") + "</h1>" +
       "</div>" +
-      '<button class="b-ib" type="button" data-act="help" aria-label="Справка">' + ico("info", "b-ico b-ico--20") + "</button>" +
+      '<button class="b-ib" type="button" data-act="guide" aria-label="Справка">' + ico("info", "b-ico b-ico--20") + "</button>" +
       calc +
-      '<button class="b-ib" type="button" data-act="menu" aria-label="Меню">' + ico("dots", "b-ico b-ico--20") + "</button>" +
       bell;
     stripDots(el("nxTop"));
     fitHeaderTitle();

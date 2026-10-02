@@ -491,6 +491,14 @@
     return "Этот экран ещё не перенесён. Кнопка «Открыть в старой версии» ведёт в привычное приложение. Данные те же.";
   }
 
+  function openGuide() {
+    sh().openSheet({
+      title: "Справка",
+      html: '<button class="b-btn b-btn--sec" type="button" data-act="menu">Раздел</button>' +
+        '<button class="b-btn b-btn--sec" type="button" data-act="help" style="margin-top:8px">Как пользоваться</button>'
+    });
+  }
+
   function openHelp() {
     sh().openSheet({ title: "Как пользоваться", html: '<p style="margin:0 0 12px">' + sh().esc(helpText()) + "</p>" + '<p class="b-note">Полная инструкция лежит в файле next/HELP.md.</p>' });
   }
@@ -598,6 +606,7 @@
       render();
       return;
     }
+    if (act === "guide") { openGuide(); return; }
     if (act === "help") { openHelp(); return; }
     if (act === "menu") { openMenu(); return; }
     if (act === "tasks") { openTasks(); return; }
