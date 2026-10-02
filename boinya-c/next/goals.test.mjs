@@ -174,6 +174,56 @@ test("уведомление Telegram выключено, пока GOALS_TG_NOTI
   const authStart = worker.indexOf("const AUTH_OWNER_RE");
   const authEnd = worker.indexOf("const AUTH_TABS_ORDERS");
   const auth = worker.slice(authStart, authEnd);
-  assert.match(auth, /listGoals\|saveGoal\|deleteGoal/);
+  assert.doesNotMatch(auth, /listGoals\|saveGoal\|deleteGoal/);
   assert.match(worker, /GOALS_TG_NOTIFY/);
+  const ensure = extractFn(worker, "ensureGoals_");
+  assert.match(ensure, /ALTER TABLE goals ADD COLUMN scope TEXT NOT NULL DEFAULT ''/);
+  assert.match(ensure, /ALTER TABLE goals ADD COLUMN owner_tg_id TEXT NOT NULL DEFAULT ''/);
+  assert.match(ensure, /catch \(eScope\)/);
+  assert.match(ensure, /catch \(eOwner\)/);
+  const schema = fs.readFileSync(path.resolve(here, "../proxy/schema.sql"), "utf8");
+  assert.match(schema, /scope TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema, /owner_tg_id TEXT NOT NULL DEFAULT ''/);
+});
+
+test("задачи личные и общие, показатели только владельцу", () => {
+  const ctx = createContext({});
+  runInContext(
+    [
+      extractFn(worker, "goalScopeOf_"),
+      extractFn(worker, "goalActorOwner_"),
+      extractFn(worker, "goalActorTid_"),
+      extractFn(worker, "goalRowVisible_"),
+      extractFn(worker, "goalAssign_")
+    ].join("\n"),
+    ctx
+  );
+  const owner = { isOwner: true, tid: "1", role: "owner" };
+  const maria = { isOwner: false, tid: "200", role: "manager" };
+  const courier = { isOwner: false, tid: "300", role: "courier" };
+  assert.equal(ctx.goalScopeOf_({ kind: "task", scope: "", owner_tg_id: "" }).scope, "shared");
+  assert.equal(ctx.goalRowVisible_({ kind: "task", scope: "", owner_tg_id: "" }, courier), true);
+  const mine = { kind: "task", scope: "person", owner_tg_id: "200" };
+  assert.equal(ctx.goalRowVisible_(mine, maria), true);
+  assert.equal(ctx.goalRowVisible_(mine, courier), false);
+  assert.equal(ctx.goalRowVisible_(mine, owner), true);
+  assert.equal(ctx.goalRowVisible_({ kind: "metric", scope: "", owner_tg_id: "" }, maria), false);
+  assert.equal(ctx.goalRowVisible_({ kind: "metric", scope: "", owner_tg_id: "" }, owner), true);
+  const shared = ctx.goalAssign_({ scope: "shared" }, null, maria, "task");
+  assert.equal(shared.ok, true);
+  assert.equal(shared.scope, "");
+  assert.equal(shared.ownerTgId, "");
+  assert.equal(ctx.goalAssign_({ scope: "person", ownerTgId: "1" }, null, maria, "task").ok, false);
+  assert.equal(ctx.goalAssign_({ scope: "me" }, null, maria, "task").ownerTgId, "200");
+  assert.equal(ctx.goalAssign_({}, mine, maria, "task").scope, "person");
+  assert.equal(ctx.goalAssign_({}, mine, maria, "task").ownerTgId, "200");
+  assert.equal(ctx.goalAssign_({ kind: "metric" }, null, maria, "metric").ok, false);
+  assert.equal(ctx.goalAssign_({ scope: "person", ownerTgId: "300" }, null, owner, "task").ok, true);
+  assert.equal(ctx.goalAssign_({ scope: "person", ownerTgId: "300" }, null, owner, "task").ownerTgId, "300");
+  assert.match(ui, /Общие/);
+  assert.match(ui, /Общая/);
+  assert.match(ui, /scopeChip\("me", "Мне"/);
+  assert.match(ui, /gl-scope/);
+  assert.equal(ui.includes("·"), false);
+  assert.match(ui, /if \(!isOwner\(\)\) return ""/);
 });

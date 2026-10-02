@@ -145,6 +145,7 @@
       var cl = { pp: "ПП", afk: "АФК", bp: "БП", survey: "Опросник", calc: "Расчёт", pick: "Подбор" };
       return cl[route.seg] || "Клиенты";
     }
+    if (route.tab === "goals") return "Личные и общие";
     if (route.tab === "warehouse" || (ax().isSimple(access) && access.role === "logistics")) {
       return wh() ? wh().contextLine() : "Склад";
     }
@@ -161,6 +162,7 @@
     if (priceView === "calc") return "Расчёт";
     if (priceView === "pick") return "Подбор";
     if (q().get("shot") === "states") return "Состояния";
+    if (route.tab === "goals") return "Цели";
     if (ax().isSimple(access)) return ax().SIMPLE[access.role] || "Бойня";
     var map = ax().NAV_LABELS;
     if (route.tab === "orders" && route.seg === "new" && ord().getState().isEdit) return "Правка заказа";
@@ -180,7 +182,7 @@
   }
 
   function paintChrome() {
-    var nav = ax().isSimple(access) ? [] : ax().navItems(access);
+    var nav = ax().navItems(access);
     try { document.body.setAttribute("data-nx-role", access && access.role ? access.role : ""); } catch (eRole) {}
     sh().chrome({
       title: headerTitle(),
@@ -343,7 +345,7 @@
   function render() {
     if (!access) return;
     if (q().get("shot") === "states") { paintStates(); return; }
-    if (ax().isSimple(access)) { paintSimple(); return; }
+    if (ax().isSimple(access) && route.tab !== "goals") { paintSimple(); return; }
     ensureSeg();
     if (route.tab === "orders" && route.seg === "new" && ax().tabHas(access, "orderScreen")) {
       paintChrome();
@@ -383,8 +385,8 @@
       return;
     }
     if (route.tab === "goals") {
-      if (!access || access.role !== "owner") {
-        paintStub("Цели", "Раздел только у владельца.");
+      if (!access || access.role === "partner" || access.role === "none" || access.role === "pending" || access.role === "denied") {
+        paintStub("Цели", "Этот раздел для команды.");
         return;
       }
       paintChrome();
@@ -441,8 +443,9 @@
     if (ax().tabHas(access, "partnerHubScreen")) {
       more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заявки, точки, сети, пуши</span></span><span class="b-li__chev">›</span></button>';
     }
-    if (access.role === "owner") {
-      more += '<button type="button" class="b-li" data-act="more-goals"><span class="b-li__body"><span class="b-li__title">Цели</span><span class="b-li__sub">Задачи и показатели</span></span><span class="b-li__chev">›</span></button>';
+    if (access.role !== "partner") {
+      var goalsSub = access.role === "owner" ? "Задачи, общие и показатели" : "Свои и общие задачи";
+      more += '<button type="button" class="b-li" data-act="more-goals"><span class="b-li__body"><span class="b-li__title">Цели</span><span class="b-li__sub">' + goalsSub + '</span></span><span class="b-li__chev">›</span></button>';
     }
     sh().main('<div class="b-list">' + (more || '<p class="b-note">В этом разделе пока пусто.</p>') + "</div>" + '<p class="b-mark">' + sh().esc(badgeLabel() || "Бойня") + "</p>");
   }
@@ -461,7 +464,7 @@
     if (route.tab === "more" && moreView === "people") {
       return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце. Склады: название, адрес и одна точка выезда. Остатки склада не делятся.";
     }
-    if (route.tab === "goals") return "Цели: задачи на день, неделю, месяц, полгода и год. Процент — сколько отмечено. Показатели считаются из статистики и карточек ПП. Когда цифра доходит до цели, она закрывается сама. Раздел только у владельца.";
+    if (route.tab === "goals") return "Цели: свои задачи и блок Общие. При создании выберите Мне, Общая или сотрудника. Владелец видит задачи каждого и показатели с деньгами. Процент — сколько отмечено на этом горизонте.";
     if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
       return "Клиенты: пароль один раз за этот заход. ПП, АФК, БП и опросник — те же списки, что в старой версии. Карточка сохраняет в ту же таблицу.";
     }

@@ -1,4 +1,4 @@
-/* Цели владельца. Задачи по горизонтам и показатели из статистики / карточек ПП.
+/* Цели. Личные задачи и блок «Общие», показатели с деньгами только у владельца.
    Хранение: D1 через listGoals / saveGoal / deleteGoal (worker), не лист заказов.
    TODO: Помощник по целям — AI helper, не реализован. Экрана нет. */
 (function (root) {
@@ -15,6 +15,12 @@
   var gen = 0;
   var saving = false;
   var draft = blankDraft();
+  var filter = "all";
+  var staff = [];
+  var taskTitle = "";
+  var taskPick = "me";
+  var taskOwner = "";
+  var ASSIGN_ROLES = { owner: 1, manager: 1, all: 1, cutter: 1, courier: 1, logistics: 1 };
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -50,15 +56,67 @@
       ".nx-goals .b-check--on{background:#FF6A1A;border-color:#FF6A1A;color:#0d0d0f}",
       ".nx-goals__stack{display:flex;flex-direction:column;gap:12px}",
       ".nx-goals__group{margin-top:8px}",
+      ".nx-goals__filters{margin:0 0 12px}",
       ".nx-goals .b-lbl{margin-top:20px}"
     ].join("");
     document.head.appendChild(s);
+  }
+
+  function isOwner() {
+    return !!(access && access.role === "owner");
+  }
+
+  function myId() {
+    return String((access && access.telegramId) || "");
+  }
+
+  function canOpen() {
+    if (!access) return false;
+    var role = access.role;
+    if (role === "partner" || role === "none" || role === "pending" || role === "denied") return false;
+    return true;
+  }
+
+  function isPersonal(t) {
+    return !!(t && t.scope === "person" && t.ownerTgId);
   }
 
   function tasksOf(id) {
     return goals.filter(function (g) {
       return g && g.kind === "task" && g.horizon === id;
     });
+  }
+
+  function byScope(list, mode, tid) {
+    return list.filter(function (t) {
+      if (mode === "shared") return !isPersonal(t);
+      if (mode === "person") return isPersonal(t) && String(t.ownerTgId) === String(tid || "");
+      return true;
+    });
+  }
+
+  function visibleToMe(list) {
+    return list.filter(function (t) {
+      if (!isPersonal(t)) return true;
+      if (isOwner()) return true;
+      return String(t.ownerTgId) === myId();
+    });
+  }
+
+  function shownTasks(list) {
+    var base = visibleToMe(list);
+    if (!isOwner() || filter === "all") return base;
+    if (filter === "shared") return byScope(base, "shared");
+    return byScope(base, "person", filter);
+  }
+
+  function personLabel(tid) {
+    if (String(tid || "") === myId()) return "Мои";
+    var i;
+    for (i = 0; i < staff.length; i++) {
+      if (String(staff[i].telegramId) === String(tid)) return staff[i].name || "Сотрудник";
+    }
+    return "Сотрудник";
   }
 
   function boundsFor(goal, now) {
@@ -121,30 +179,88 @@
     }).join("") + "</div>";
   }
 
-  function taskBlock() {
-    var list = tasksOf(horizon);
+  function taskRow(t) {
+    var done = !!t.done;
+    return '<div class="nx-goals__row">' +
+      '<button type="button" class="b-check' + (done ? " b-check--on" : "") + '" data-act="gl-check" data-id="' + esc(t.id) + '" aria-pressed="' + (done ? "true" : "false") + '" aria-label="' + (done ? "Снять отметку" : "Отметить") + '">' +
+      (done ? checkSvg() : "") + "</button>" +
+      '<button type="button" class="nx-goals__text' + (done ? " nx-goals__text--done" : "") + '" data-act="gl-edit" data-id="' + esc(t.id) + '">' + esc(t.title) + "</button>" +
+      '<button type="button" class="nx-goals__link" data-act="gl-del" data-id="' + esc(t.id) + '">Удалить</button>' +
+      "</div>";
+  }
+
+  function rowsHtml(list) {
+    if (!list.length) return '<div class="b-list"><p class="b-note" style="padding:12px 16px">Задач нет</p></div>';
+    return '<div class="b-list">' + list.map(taskRow).join("") + "</div>";
+  }
+
+  function block(title, list, keep) {
+    if (!list.length && !keep) return "";
+    return '<section class="nx-goals__group"><p class="b-lbl">' + esc(title) + "</p>" + rowsHtml(list) + "</section>";
+  }
+
+  function heroHtml(list) {
     var pct = logic().taskPct(list);
     var cap = pct.total ? (pct.done + " из " + pct.total) : "нет задач";
-    var html = '<section class="nx-goals__group"><p class="b-lbl" style="margin-top:0">Задачи</p>' +
-      '<article class="b-card"><div class="nx-goals__hero">' +
-      '<p class="nx-goals__num">' + pct.pct + '%</p>' +
+    return '<article class="b-card"><div class="nx-goals__hero">' +
+      '<p class="nx-goals__num">' + pct.pct + "%</p>" +
       '<p class="nx-goals__cap">выполнено, ' + esc(cap) + "</p>" +
       '<div class="nx-goals__bar" aria-hidden="true"><span style="width:' + pct.pct + '%"></span></div>' +
       "</div></article>";
-    if (!list.length) {
-      html += '<p class="b-note" style="margin-top:12px">На этот горизонт задач нет</p>';
-    } else {
-      html += '<div class="b-list" style="margin-top:12px">' + list.map(function (t) {
-        var done = !!t.done;
-        return '<div class="nx-goals__row">' +
-          '<button type="button" class="b-check' + (done ? " b-check--on" : "") + '" data-act="gl-check" data-id="' + esc(t.id) + '" aria-pressed="' + (done ? "true" : "false") + '" aria-label="' + (done ? "Снять отметку" : "Отметить") + '">' +
-          (done ? checkSvg() : "") + "</button>" +
-          '<button type="button" class="nx-goals__text' + (done ? " nx-goals__text--done" : "") + '" data-act="gl-edit" data-id="' + esc(t.id) + '">' + esc(t.title) + "</button>" +
-          '<button type="button" class="nx-goals__link" data-act="gl-del" data-id="' + esc(t.id) + '">Удалить</button>' +
-          "</div>";
-      }).join("") + "</div>";
+  }
+
+  function filterBar() {
+    if (!isOwner()) return "";
+    function chip(id, label) {
+      var on = filter === id;
+      return '<button type="button" class="b-chip' + (on ? " b-chip--on" : "") + '" data-act="gl-filter" data-f="' + esc(id) + '">' + esc(label) + "</button>";
     }
-    html += '<button type="button" class="b-btn b-btn--main" style="margin-top:12px" data-act="gl-add-task">Добавить задачу</button></section>';
+    var html = chip("all", "Все") + chip("shared", "Общие") + chip(myId() || "mine", "Мои");
+    var seen = {};
+    if (myId()) seen[myId()] = 1;
+    seen.all = 1;
+    seen.shared = 1;
+    staff.forEach(function (p) {
+      var id = String(p.telegramId || "");
+      if (!id || seen[id]) return;
+      seen[id] = 1;
+      html += chip(id, p.name || "Сотрудник");
+    });
+    goals.forEach(function (g) {
+      if (!isPersonal(g) || seen[g.ownerTgId]) return;
+      seen[g.ownerTgId] = 1;
+      html += chip(String(g.ownerTgId), personLabel(g.ownerTgId));
+    });
+    return '<div class="b-pills nx-goals__filters">' + html + "</div>";
+  }
+
+  function taskBlock() {
+    var all = tasksOf(horizon);
+    var shown = shownTasks(all);
+    var html = heroHtml(shown);
+    if (!isOwner()) {
+      html += block("Общие", byScope(all, "shared"), true);
+      html += block("Мои", byScope(all, "person", myId()), true);
+    } else if (filter === "shared") {
+      html += block("Общие", byScope(all, "shared"), true);
+    } else if (filter !== "all") {
+      html += block(personLabel(filter), byScope(all, "person", filter), true);
+    } else {
+      html += block("Общие", byScope(all, "shared"), true);
+      html += block("Мои", byScope(all, "person", myId()), true);
+      var seen = {};
+      if (myId()) seen[myId()] = 1;
+      var ids = [];
+      all.forEach(function (t) {
+        if (!isPersonal(t) || seen[t.ownerTgId]) return;
+        seen[t.ownerTgId] = 1;
+        ids.push(String(t.ownerTgId));
+      });
+      ids.forEach(function (id) {
+        html += block(personLabel(id), byScope(all, "person", id), true);
+      });
+    }
+    html += '<button type="button" class="b-btn b-btn--main" style="margin-top:16px" data-act="gl-add-task">Добавить задачу</button>';
     return html;
   }
 
@@ -183,7 +299,7 @@
   }
 
   function reportBlock() {
-    if (!factsReady) return "";
+    if (!isOwner() || !factsReady) return "";
     var month = logic().periodBounds("month", new Date());
     var missing = logic().unavailableReport(snapFor(month), statsLogic());
     if (!missing.length) return "";
@@ -194,6 +310,7 @@
   }
 
   function metricBlock() {
+    if (!isOwner()) return "";
     var list = goals.filter(function (g) { return g && g.kind === "metric"; });
     var html = '<section class="nx-goals__group"><p class="b-lbl">Показатели</p>';
     if (!list.length) html += '<p class="b-note">Показателей пока нет</p>';
@@ -214,7 +331,7 @@
         sh().errorBox({ title: "Не удалось загрузить цели", text: loadError, act: "gl-retry" }) + "</div>");
       return;
     }
-    sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + taskBlock() + metricBlock() + reportBlock() + "</div>");
+    sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + filterBar() + taskBlock() + metricBlock() + reportBlock() + "</div>");
   }
 
   function findGoal(id) {
@@ -248,20 +365,42 @@
       target: goal.target == null ? "" : String(goal.target),
       period: goal.period || "",
       dateFrom: goal.dateFrom || "",
-      dateTo: goal.dateTo || ""
+      dateTo: goal.dateTo || "",
+      scope: goal.kind === "metric" ? "" : (goal.scope || "shared"),
+      ownerTgId: goal.kind === "metric" ? "" : (goal.ownerTgId || "")
     });
     if (!res || res.status !== "success" || !res.goal) return null;
     return res.goal;
   }
 
+  async function loadStaff() {
+    staff = [];
+    if (!isOwner()) return;
+    var res = null;
+    try {
+      res = await api().apiGet({ action: "listAccess", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    } catch (e) {
+      res = null;
+    }
+    var people = res && Array.isArray(res.people) ? res.people : [];
+    people.forEach(function (p) {
+      var role = String((p && p.role) || "").toLowerCase();
+      var id = String((p && p.telegramId) || "");
+      if (!id || id === myId() || !ASSIGN_ROLES[role]) return;
+      staff.push({ telegramId: id, name: String(p.name || "Сотрудник"), role: role });
+    });
+  }
+
   async function load(ticket) {
     loadError = "";
+    var staffJob = loadStaff();
     var res = null;
     try {
       res = await api().apiGet({ action: "listGoals", _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
     } catch (e) {
       res = null;
     }
+    await staffJob;
     if (ticket !== gen) return;
     if (!res || res.status !== "success" || !Array.isArray(res.goals)) {
       loadError = (res && res.message) || "Нет связи с сервером";
@@ -277,6 +416,7 @@
   }
 
   async function loadFacts(ticket) {
+    if (!isOwner()) return;
     var periods = Object.create(null);
     var month = logic().periodBounds("month", new Date());
     periods[month.from + "|" + month.to] = month;
@@ -341,7 +481,8 @@
   }
 
   function show() {
-    if (!access || access.role !== "owner") return;
+    if (!canOpen()) return;
+    filter = "all";
     ensureCss();
     var ticket = ++gen;
     loaded = false;
@@ -392,24 +533,73 @@
     sh().replaceTop({ title: "Новый показатель", html: metricSheetHtml() });
   }
 
-  async function addTask() {
-    var text = await sh().prompt({
-      title: "Новая задача",
-      text: "Что сделать на этот горизонт",
-      ok: "Добавить"
-    });
-    if (text == null) return;
-    var title = String(text).trim();
-    if (!title) return;
+  function readTaskTitle() {
+    var el = document.getElementById("glTaskTitle");
+    if (el) taskTitle = el.value;
+  }
+
+  function scopeChip(id, label, on, ownerId) {
+    return '<button type="button" class="b-chip' + (on ? " b-chip--on" : "") + '" data-act="gl-scope" data-s="' + esc(id) + '"' +
+      (ownerId ? ' data-id="' + esc(ownerId) + '"' : "") + ">" + esc(label) + "</button>";
+  }
+
+  function taskSheetHtml() {
+    var chips = scopeChip("me", "Мне", taskPick === "me", "") +
+      scopeChip("shared", "Общая", taskPick === "shared", "");
+    if (isOwner()) {
+      staff.forEach(function (p) {
+        var on = taskPick === "person" && taskOwner === p.telegramId;
+        chips += scopeChip("person", p.name || "Сотрудник", on, p.telegramId);
+      });
+    }
+    return '<p class="b-lbl" style="margin-top:0">Задача</p>' +
+      '<label class="b-field"><input class="b-field__input" id="glTaskTitle" value="' + esc(taskTitle) + '" placeholder="Что сделать"></label>' +
+      '<p class="b-lbl">Кому</p><div class="b-pills">' + chips + "</div>" +
+      '<button type="button" class="b-btn b-btn--main" style="margin-top:16px" data-act="gl-task-save">Добавить</button>';
+  }
+
+  function openTask() {
+    taskTitle = "";
+    taskPick = "me";
+    taskOwner = "";
+    sh().openSheet({ title: "Новая задача", html: taskSheetHtml() });
+  }
+
+  function refreshTaskSheet() {
+    sh().replaceTop({ title: "Новая задача", html: taskSheetHtml() });
+  }
+
+  async function saveTask() {
+    readTaskTitle();
+    var title = String(taskTitle || "").trim();
+    if (!title) {
+      sh().toast("Напишите задачу");
+      return;
+    }
+    if (taskPick === "person" && !taskOwner) {
+      sh().toast("Выберите сотрудника");
+      return;
+    }
     if (saving) return;
     saving = true;
+    var scope = "shared";
+    var ownerTgId = "";
+    if (taskPick === "me") {
+      scope = "person";
+      ownerTgId = myId();
+    } else if (taskPick === "person") {
+      scope = "person";
+      ownerTgId = taskOwner;
+    }
     var goal = {
       id: "g" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36),
       kind: "task",
       horizon: horizon,
       title: title.slice(0, 240),
       done: false,
-      doneAt: ""
+      doneAt: "",
+      scope: scope,
+      ownerTgId: ownerTgId
     };
     var saved = await persist(goal);
     saving = false;
@@ -417,6 +607,7 @@
       sh().toast("Не удалось сохранить");
       return;
     }
+    sh().closeTop("ok");
     replaceLocal(saved);
     paint();
     sh().toast("Задача добавлена");
@@ -541,7 +732,24 @@
       return true;
     }
     if (act === "gl-add-task") {
-      addTask();
+      openTask();
+      return true;
+    }
+    if (act === "gl-filter") {
+      filter = node.getAttribute("data-f") || "all";
+      sh().resetScroll();
+      paint();
+      return true;
+    }
+    if (act === "gl-scope") {
+      readTaskTitle();
+      taskPick = node.getAttribute("data-s") || "me";
+      taskOwner = node.getAttribute("data-id") || "";
+      refreshTaskSheet();
+      return true;
+    }
+    if (act === "gl-task-save") {
+      saveTask();
       return true;
     }
     if (act === "gl-add-metric") {

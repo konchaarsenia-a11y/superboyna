@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS warehouses (
   created_by TEXT NOT NULL DEFAULT ''
 );
 
--- Цели владельца (задачи и показатели). Не зеркалится в Sheets.
+-- Цели: задачи (общие и личные) и показатели владельца. Не зеркалится в Sheets.
+-- scope пустой = общая задача (старые строки без колонки тоже общие). person + owner_tg_id = личная.
 CREATE TABLE IF NOT EXISTS goals (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -91,6 +92,8 @@ CREATE TABLE IF NOT EXISTS goals (
   period TEXT NOT NULL DEFAULT '',
   date_from TEXT NOT NULL DEFAULT '',
   date_to TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  owner_tg_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
