@@ -22145,6 +22145,139 @@ function formulaMoney_(n) {
 }
 
 /**
+ * Строки для чистых БП и партнёров. Листы не пишет.
+ * Партнёр — ppPartner на строке БП. Деньги помечает только Память_Доставок («отвёз»).
+ * Считает экран через formulaEconomy_ (себес §3).
+ */
+function collectFormulaEconomy_(ss, crmSs, monthKey) {
+  var fail = { ok: false };
+  try {
+    var tz = (ss && ss.getSpreadsheetTimeZone()) || "Europe/Minsk";
+    var deliveredMap = {};
+    var paidMap = {};
+    try { deliveredMap = readDeliveredByDate_(ss, [], tz); } catch (eD) { deliveredMap = {}; }
+    try { paidMap = readPpPaidByDate_(ss, [], tz); } catch (ePaid) { paidMap = {}; }
+    var pays = {};
+    try {
+      var partnersPay = readAllPartners_();
+      var ppi;
+      for (ppi = 0; ppi < partnersPay.length; ppi++) {
+        var pnm = String(partnersPay[ppi].name || "").trim();
+        if (pnm && partnersPay[ppi].paysCost) pays[pnm.toLowerCase()] = true;
+      }
+    } catch (ePay) {}
+    var converted = {};
+    try {
+      var conv = collectBpToPpConversions_(ss, crmSs, "", { allTime: true }) || {};
+      var ymap = conv.ymdByKey || {};
+      var ckeys = conv.keys || [];
+      var ci;
+      for (ci = 0; ci < ckeys.length; ci++) {
+        var kcv = String(ckeys[ci] || "");
+        if (!kcv) continue;
+        converted[kcv] = String(ymap[kcv] || "").slice(0, 10);
+      }
+    } catch (eConv) {}
+    var cal = [];
+    try { cal = readAllCalendarRows_(); } catch (eR) { cal = []; }
+    var books = [];
+    try { books = readAllBookings_(); } catch (eB) { books = []; }
+    var bookByKey = {};
+    var bi;
+    for (bi = 0; bi < books.length; bi++) {
+      var b = books[bi];
+      if (!b || !b.client) continue;
+      if (String(b.status || "").toLowerCase() === "cancelled") continue;
+      var bDate = parseFlexibleDate_(b.date, tz);
+      var bIso = bDate ? Utilities.formatDate(bDate, tz, "yyyy-MM-dd") : "";
+      if (!bIso) continue;
+      var bCk = clientMatchKey_(b.client) || String(b.client || "").toUpperCase();
+      if (!bCk) continue;
+      bookByKey[bIso + "|" + bCk] = b;
+    }
+    function takeBasket_(row) {
+      var bask = row && row.basket;
+      if ((!bask || !bask.length) && row && row.basketJson) {
+        try { bask = JSON.parse(String(row.basketJson)); } catch (eBj) { bask = []; }
+      }
+      return bask || [];
+    }
+    var seen = {};
+    var flat = [];
+    function pushRow_(row) {
+      if (!row) return;
+      if (String(row.status || "").toLowerCase() === "cancelled") return;
+      var iso = String(row.dateIso || "").slice(0, 10);
+      if (!iso || iso.length < 10) {
+        var bd = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
+        if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
+      }
+      if (!iso) return;
+      var ck = clientMatchKey_(row.client) || String(row.client || "").toUpperCase();
+      if (!ck) return;
+      var dedupe = iso + "|" + ck;
+      if (seen[dedupe]) return;
+      seen[dedupe] = true;
+      var book = bookByKey[dedupe];
+      if (book) {
+        if (!(calendarRowPrice_(row) > 0) && calendarRowPrice_(book) > 0) row.orderPrice = book.orderPrice;
+        if (!(takeBasket_(row).length) && takeBasket_(book).length) row.basket = book.basket;
+        if (!row.source && book.source) row.source = book.source;
+        if (!row.segment && book.segment) row.segment = book.segment;
+        if (!row.note && book.note) row.note = book.note;
+        if (!row.ppPartner && book.ppPartner) row.ppPartner = book.ppPartner;
+        if (!row.ppSlot && book.ppSlot) row.ppSlot = book.ppSlot;
+      }
+      var src = calendarSourceKind_(row);
+      var price = calendarRowPrice_(row);
+      if (src === "other" && price > 0) src = "retail";
+      if (src === "partner") return;
+      if (src !== "pp" && src !== "retail" && src !== "bp") return;
+      var bask = takeBasket_(row);
+      var units = formulaBasketUnits_(bask, src);
+      var partner = src === "bp" ? String(row.ppPartner || "").trim() : "";
+      var slot = 0;
+      if (src === "pp") {
+        try { slot = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2) || 0; } catch (eSlot) { slot = 0; }
+      }
+      flat.push({
+        ck: ck,
+        name: String(row.client || ""),
+        iso: iso,
+        src: src,
+        delivered: !!deliveredMap[dedupe],
+        price: src === "bp" ? 0 : price,
+        S: units.S,
+        G: units.G,
+        P: units.P,
+        sig: formulaBasketSig_(bask),
+        missingBasket: !(bask && bask.length),
+        slot: slot,
+        paid: src === "pp" ? (paidMap[dedupe] || "") : "",
+        partner: partner,
+        partnerPays: !!(partner && pays[partner.toLowerCase()])
+      });
+    }
+    var ri;
+    for (ri = 0; ri < cal.length; ri++) pushRow_(cal[ri]);
+    for (var bk in bookByKey) {
+      if (!bookByKey.hasOwnProperty(bk)) continue;
+      if (seen[bk]) continue;
+      pushRow_(bookByKey[bk]);
+    }
+    return {
+      ok: true,
+      monthKey: String(monthKey || "").slice(0, 7),
+      converted: converted,
+      rows: flat
+    };
+  } catch (eAll) {
+    fail.error = String((eAll && eAll.message) || eAll);
+    return fail;
+  }
+}
+
+/**
  * Сводка для экрана v2. Старые fact/costActual не трогает.
  * В деньги попадает только отвезено (Память_Доставок). ПП: цена один раз, на слоте оплаты, и только если эта доставка отвезена.
  */
@@ -26721,6 +26854,7 @@ function invalidateStatsCache_() {
       var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
       keys.push("STATS24:" + mk);
       keys.push("STATS25:" + mk);
+      keys.push("STATS26:" + mk);
       keys.push("STATS23:" + mk);
       keys.push("STATS22:" + mk);
       keys.push("STATS21:" + mk);
@@ -26958,7 +27092,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS25:" + monthKey;
+  var cacheKey = "STATS26:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -27308,6 +27442,7 @@ function handleGetStats(json, callback, fromPost) {
   ok.note = statsPpFeeNote_(feeEchoMonth,
     "Схема с листа ПП. Нарезчик выкл → recover в чистом. БП = состав + 6р. ЗП — если нарезчик вкл и месяц ≥ «с».");
   try { ok.formula = collectFormulaRollup_(ss, { monthKey: monthKey }); } catch (eFormula) { ok.formula = { ok: false }; }
+  try { ok.formulaEconomy = collectFormulaEconomy_(ss, crm, monthKey); } catch (eEco) { ok.formulaEconomy = { ok: false }; }
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
   } catch (ePut) {}
