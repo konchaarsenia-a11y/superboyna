@@ -515,10 +515,34 @@
     }
   }
 
+  function numOrNull(v) {
+    if (v == null || v === "") return null;
+    var n = Number(String(v).replace(",", "."));
+    if (!isFinite(n)) return null;
+    return Math.round(n * 100) / 100;
+  }
+
+  function metricText(v) {
+    return v == null ? "—" : String(v);
+  }
+
+  function cardMetricRow(c) {
+    var rev = numOrNull(c.statedCost);
+    if (rev == null) rev = numOrNull(c.calcFactCost);
+    var cost = c.econ && c.econ.rawCost != null && c.econ.rawCost !== "" ? numOrNull(c.econ.rawCost) : null;
+    var profit = rev != null && cost != null ? Math.round((rev - cost) * 100) / 100 : null;
+    return '<div class="nx-counters">' +
+      '<div class="nx-count"><b>' + esc(metricText(rev)) + "</b><span>Оборот</span></div>" +
+      '<div class="nx-count"><b>' + esc(metricText(profit)) + "</b><span>Приход</span></div>" +
+      '<div class="nx-count"><b>' + esc(metricText(cost)) + "</b><span>Себес</span></div>" +
+      "</div>";
+  }
+
   function paintCard() {
     var c = card;
     var html = segBar();
     html += '<button type="button" class="nx-link" data-act="cl-back">← К списку</button>';
+    html += cardMetricRow(c);
     var clientFields = '<p class="b-lbl">Имя</p>' + field("cxLabel", c.label, "Имя") +
       '<p class="b-lbl">Ник</p>' + field("cxNick", c.nick, "Ник") +
       '<p class="b-lbl">Телефон</p>' + field("cxPhone", c.phone, "Телефон") +
@@ -965,6 +989,7 @@
     sh().hideToast();
     paint();
     loadPeople().then(function () { if (view === "card" && card) paint(); });
+    refreshCardMetrics();
     } catch (eCard) {
       sh().toast((eCard && eCard.message) || "Не открылось");
     }
@@ -1436,6 +1461,34 @@
     if (!text) { sh().toast("Сначала собери сообщение"); return; }
     try { if (navigator.clipboard) await navigator.clipboard.writeText(text); } catch (e) {}
     sh().toast("Скопировано");
+  }
+
+  async function refreshCardMetrics() {
+    if (!card || card.sheet !== "ПП" || !P() || !eng()) return;
+    var stamp = String(card.nick || "") + "|" + String(card.subId || "");
+    var res = await liveCalc(card.basket || [], { scheme: card.scheme, coef: card.coef, deliveriesN: card.deliveries, forNew: 0 });
+    if (!card || view !== "card") return;
+    if (String(card.nick || "") + "|" + String(card.subId || "") !== stamp) return;
+    if (!res) return;
+    var list = card.basket || [];
+    var q = null;
+    try {
+      var cost = P().recalcPpCostSum(res, list);
+      var pc = card.packCounts || {};
+      var packagesByn = P().packagesBynFromUCountsLocal_(pc);
+      q = P().quotePp({
+        scheme: card.scheme || "RAW26",
+        coef: card.coef,
+        deliveriesN: card.deliveries,
+        costSum: cost,
+        list: list,
+        packagesByn: packagesByn,
+        fracRates: card.fracs || fracRates()
+      });
+    } catch (eMet) { return; }
+    if (!q || !q.fact || q.fact.rawCost == null || q.fact.rawCost === "") return;
+    card.econ = q.fact;
+    paint();
   }
 
   async function econ() {
