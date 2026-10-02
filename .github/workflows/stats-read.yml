@@ -1,0 +1,44 @@
+# Read-only month stats for the owner, encrypted.
+# The repo is public: the log shows only month status lines and one base64 envelope.
+# Only the owner's box has the private key (scripts/keys/stats-read.pub.pem is the public half).
+# Trigger: Run workflow from a branch other than main, or push a branch named stats-read/<anything>.
+# Never runs on main. Push to main does not match the branch filter. workflow_dispatch on main is skipped.
+name: stats-read
+
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "Months, comma separated (YYYY-MM)"
+        required: false
+        default: "2026-09,2026-10"
+  push:
+    branches:
+      - "stats-read/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stats-read
+  cancel-in-progress: false
+
+jobs:
+  read:
+    if: github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/stats-read/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Self-test (encryption)
+        run: node scripts/test-stats-read-crypto.mjs
+      - name: Read stats (encrypted output)
+        env:
+          GAS_SHARED_SECRET: ${{ secrets.GAS_SHARED_SECRET }}
+          MONTHS: ${{ github.event.inputs.months || '2026-09,2026-10' }}
+        run: node scripts/stats-read-encrypted.mjs
