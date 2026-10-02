@@ -947,7 +947,31 @@
     return '<button type="button" class="b-chip' + (on ? " b-chip--on" : "") + '" data-act="note-role" data-i="' + i + '" data-role="' + role + '">' + esc(label) + "</button>";
   }
 
-  function openAdd() {
+  async function ensurePriceExtras_() {
+    var ex = root.BoinyaPriceExtras;
+    if (!ex) return;
+    if (!ex.ready_()) {
+      try {
+        var res = await api().apiGet({ action: "listPricePositions", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+        ex.remember_((res && res.status === "success" && res.positions) || []);
+      } catch (eX) { ex.remember_([]); }
+    }
+    var price = null;
+    try { price = await api().apiGet({ action: "getRetailPriceList" }, { timeoutMs: 12000, cacheTtlMs: 60000 }); } catch (eP) { price = null; }
+    if (price && price.status === "success" && price.items && eng() && eng().applyRetailPriceMapToUi_) {
+      eng().applyRetailPriceMapToUi_(ex.mergeRetailItems_(price.items, ex.list_()), price.delivery || null);
+    }
+    ex.installCatalog_(eng());
+  }
+
+  function extraUnit_(cat, name) {
+    var ex = root.BoinyaPriceExtras;
+    if (!ex) return "";
+    return ex.unitFor_(cat, name) || "";
+  }
+
+  async function openAdd() {
+    await ensurePriceExtras_();
     eng().applyState(state);
     picker.open = true;
     sh().openSheet({
@@ -990,7 +1014,7 @@
       body = items.map(function (name) {
         var on = picker.name === name ? " b-chip--on" : "";
         return '<button type="button" class="b-li" data-act="pname" data-name="' + esc(name) + '"><span class="b-grow">' + esc(e.prettyProductName(name)) +
-          '</span><span class="b-note">' + esc(e.unitForItem(picker.cat, name)) + "</span></button>";
+          '</span><span class="b-note">' + esc(extraUnit_(picker.cat, name) || e.unitForItem(picker.cat, name)) + "</span></button>";
       }).join("");
       if (picker.name) {
         var fr = fractionsWithoutCrumb_(e.catalogFractionsForUi_(picker.cat, picker.name));
@@ -1000,7 +1024,7 @@
               return '<button type="button" class="b-chip' + (picker.sub === f ? " b-chip--on" : "") + '" data-act="pfrac" data-frac="' + esc(f) + '">' + esc(e.humanFraction(picker.name, f)) + "</button>";
             }).join("") + "</div>";
         }
-        var unit = e.unitForItem(picker.cat, picker.name);
+        var unit = extraUnit_(picker.cat, picker.name) || e.unitForItem(picker.cat, picker.name);
         body += '<p class="b-lbl">Количество</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
           '<span class="b-step__val">' + esc(picker.qty) + " " + esc(unit) + "</span>" +
           '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
@@ -1095,7 +1119,10 @@
       sh().toast("Выберите фракцию");
       return;
     }
-    pushItem({ cat: picker.cat, main: picker.name, name: picker.name, sub: picker.sub || "", value: picker.qty || 1 });
+    var row = { cat: picker.cat, main: picker.name, name: picker.name, sub: picker.sub || "", value: picker.qty || 1 };
+    var xu = extraUnit_(picker.cat, picker.name);
+    if (xu) row.unit = xu;
+    pushItem(row);
     sh().closeTop("ok");
   }
 
@@ -1639,13 +1666,13 @@
     if (act === "pname") {
       picker.name = node.getAttribute("data-name");
       picker.sub = "";
-      picker.qty = eng().unitForItem(picker.cat, picker.name) === "шт" ? 1 : 200;
+      picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : 200;
       rebuildAdd(null);
       return true;
     }
     if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); rebuildAdd(null); return true; }
     if (act === "pqty") {
-      var step = (picker.cat === "chew" || (picker.name && eng().unitForItem(picker.cat, picker.name) === "шт")) ? 1 : 50;
+      var step = (picker.cat === "chew" || (picker.name && (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт")) ? 1 : 50;
       picker.qty = Math.max(step, Number(picker.qty) + Number(node.getAttribute("data-dir")) * step);
       rebuildAdd(null);
       return true;

@@ -361,10 +361,14 @@
       if (pb && hadBpMonth) pb.month.trials[c.ck] = true;
       if (pb && hadBpMonth && convMonth) pb.month.converted[c.ck] = true;
       if (!convLife && !convMonth) continue;
-      var months = Object.keys(c.pp);
+      var ppFlat = [];
+      var ppMonths = Object.keys(c.pp);
       var mi;
-      for (mi = 0; mi < months.length; mi++) {
-        var settled = settlePp_(c.pp[months[mi]]);
+      for (mi = 0; mi < ppMonths.length; mi++) ppFlat = ppFlat.concat(c.pp[ppMonths[mi]]);
+      var shares = formulaPpClientMonths_(ppFlat);
+      var shareKeys = Object.keys(shares);
+      for (mi = 0; mi < shareKeys.length; mi++) {
+        var settled = shares[shareKeys[mi]];
         if (!(settled.N > 0)) continue;
         var piece = {
           S: settled.S, G: settled.G, P: settled.P, N: settled.N,
@@ -374,7 +378,7 @@
           pushNet_(life, piece, null);
           if (pb) pushNet_(pb.life, piece, null);
         }
-        if (convMonth && months[mi] === monthKey) {
+        if (convMonth && shareKeys[mi] === monthKey) {
           pushNet_(month, piece, null);
           if (pb) pushNet_(pb.month, piece, null);
         }
@@ -435,6 +439,277 @@
       bp: { month: finishBucket_(month), life: finishBucket_(life) },
       partners: { month: listMonth, life: listLife }
     };
+  }
+
+  function isoDay_(iso) {
+    return String(iso || "").slice(0, 10);
+  }
+
+  function daysBetweenIso_(a, b) {
+    var pa = isoDay_(a).split("-");
+    var pb = isoDay_(b).split("-");
+    if (pa.length < 3 || pb.length < 3) return 0;
+    var ua = Date.UTC(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+    var ub = Date.UTC(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+    return Math.round((ub - ua) / 86400000);
+  }
+
+  function addDaysIso_(iso, n) {
+    var p = isoDay_(iso).split("-");
+    var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+    d.setUTCDate(d.getUTCDate() + (Number(n) || 0));
+    var m = d.getUTCMonth() + 1;
+    var day = d.getUTCDate();
+    return d.getUTCFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+  }
+
+  function monthBoundsIso_(mk) {
+    var y = Number(String(mk).slice(0, 4));
+    var m = Number(String(mk).slice(5, 7));
+    var last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { from: mk + "-01", to: mk + "-" + (last < 10 ? "0" : "") + last };
+  }
+
+  function ppSlot_(row) {
+    return Number(row && row.slot) || 0;
+  }
+
+  function ppStartsCycle_(prev, row) {
+    var slot = ppSlot_(row);
+    var prevSlot = ppSlot_(prev);
+    var gap = daysBetweenIso_(prev.iso, row.iso);
+    if (slot === 1) return true;
+    if (slot >= 1 && prevSlot >= 1 && slot < prevSlot) return true;
+    if (gap >= 18) return true;
+    return false;
+  }
+
+  function ppSplitCycles_(rows) {
+    var list = (rows || []).slice().sort(function (a, b) {
+      if (a.iso !== b.iso) return a.iso < b.iso ? -1 : 1;
+      return ppSlot_(a) - ppSlot_(b);
+    });
+    var cycles = [];
+    var cur = [];
+    var prev = null;
+    var i;
+    for (i = 0; i < list.length; i++) {
+      if (prev && ppStartsCycle_(prev, list[i])) {
+        cycles.push(cur);
+        cur = [];
+      }
+      cur.push(list[i]);
+      prev = list[i];
+    }
+    if (cur.length) cycles.push(cur);
+    return cycles;
+  }
+
+  function ppPayRow_(cycle) {
+    var yes = [];
+    var open = [];
+    var i;
+    for (i = 0; i < cycle.length; i++) {
+      var row = cycle[i];
+      if (row.missingBasket) continue;
+      var paid = String(row.paid || "");
+      if (paid === "yes") yes.push(row);
+      else if (paid !== "no") {
+        var slot = ppSlot_(row);
+        if (slot >= 2) continue;
+        if (slot === 0 && row !== cycle[0]) continue;
+        open.push(row);
+      }
+    }
+    var pool = (yes.length ? yes : open).slice().sort(function (a, b) {
+      var as = ppSlot_(a) >= 1 ? ppSlot_(a) : 9;
+      var bs = ppSlot_(b) >= 1 ? ppSlot_(b) : 9;
+      if (as !== bs) return as - bs;
+      return a.iso < b.iso ? -1 : 1;
+    });
+    return pool.length ? pool[0] : null;
+  }
+
+  function blankShare_() {
+    return { revenue: 0, S: 0, G: 0, P: 0, N: 0, missingBasket: 0 };
+  }
+
+  function formulaPpClientMonths_(rows) {
+    var cycles = ppSplitCycles_(rows || []);
+    var by = {};
+    function bucket(mk) {
+      if (!by[mk]) by[mk] = blankShare_();
+      return by[mk];
+    }
+    var ci;
+    for (ci = 0; ci < cycles.length; ci++) {
+      var cycle = cycles[ci];
+      var pay = ppPayRow_(cycle);
+      var seen = {};
+      var ri;
+      for (ri = 0; ri < cycle.length; ri++) {
+        var row = cycle[ri];
+        var mk = isoDay_(row.iso).slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(mk)) continue;
+        if (row.missingBasket) {
+          if (row.delivered) bucket(mk).missingBasket++;
+          continue;
+        }
+        if (!row.delivered) continue;
+        var b = bucket(mk);
+        var sig = String(row.sig || "");
+        if (!(sig && seen[sig])) {
+          b.S = kopeck_(b.S + num_(row.S));
+          b.G += num_(row.G);
+          b.P += num_(row.P);
+        }
+        b.N += 1;
+        if (sig) seen[sig] = true;
+      }
+      if (pay && pay.delivered && num_(pay.price) > 0) {
+        bucket(isoDay_(pay.iso).slice(0, 7)).revenue = kopeck_(bucket(isoDay_(pay.iso).slice(0, 7)).revenue + num_(pay.price));
+      }
+    }
+    return by;
+  }
+
+  function formulaRollup_(rows, opts) {
+    opts = opts || {};
+    var from = isoDay_(opts.fromIso);
+    var to = isoDay_(opts.toIso);
+    if (!from && !to && /^\d{4}-\d{2}$/.test(String(opts.monthKey || ""))) {
+      var bounds = monthBoundsIso_(String(opts.monthKey));
+      from = bounds.from;
+      to = bounds.to;
+    }
+    var look = from ? addDaysIso_(from, -35) : "";
+    var out = {
+      ok: true,
+      deliveredOnly: true,
+      from: from,
+      to: to,
+      S: 0, G: 0, P: 0, N: 0,
+      revenue: 0,
+      ppRevenue: 0,
+      retailRevenue: 0,
+      pp: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+      retail: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+      bp: { S: 0, G: 0, P: 0, N: 0 },
+      pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0 },
+      skippedPartner: 0,
+      missingBasket: 0,
+      missingPrice: 0,
+      wageSplit: false,
+      wageNote: "В памяти доставок нет, кто нарезал каждую строку. Вся сумма за период у выбранного нарезчика-сборщика."
+    };
+    function inside(iso) {
+      return (!from || iso >= from) && (!to || iso <= to);
+    }
+    function looked(iso) {
+      return !!(look && iso >= look && from && iso < from);
+    }
+    function addU(bucket, S, G, P, n) {
+      bucket.S = kopeck_(bucket.S + num_(S));
+      bucket.G += num_(G);
+      bucket.P += num_(P);
+      bucket.N += num_(n);
+    }
+    var pp = {};
+    var rest = [];
+    var i;
+    for (i = 0; i < (rows || []).length; i++) {
+      var row = rows[i] || {};
+      var iso = isoDay_(row.iso);
+      var src = String(row.src || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+      if (src === "partner") {
+        if (inside(iso)) out.skippedPartner++;
+        continue;
+      }
+      if (src === "pp") {
+        if (!inside(iso) && !looked(iso)) continue;
+        var ck = String(row.ck || "");
+        if (!ck) continue;
+        if (!pp[ck]) pp[ck] = [];
+        pp[ck].push(row);
+        continue;
+      }
+      if (!inside(iso)) continue;
+      if (src !== "retail" && src !== "bp") continue;
+      rest.push(row);
+    }
+    for (i = 0; i < rest.length; i++) {
+      var one = rest[i];
+      var price = num_(one.price);
+      if (one.missingBasket) {
+        if (one.delivered) out.missingBasket++;
+        else out.pending.N += 1;
+        continue;
+      }
+      if (one.delivered) {
+        addU(out, one.S, one.G, one.P, 1);
+        if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
+        else {
+          addU(out.retail, one.S, one.G, one.P, 1);
+          if (price > 0) {
+            out.revenue = kopeck_(out.revenue + price);
+            out.retailRevenue = kopeck_(out.retailRevenue + price);
+            out.retail.revenue = kopeck_(out.retail.revenue + price);
+          } else out.missingPrice++;
+        }
+      } else {
+        out.pending.N += 1;
+        if (price > 0 && String(one.src) !== "bp") {
+          out.pending.revenue = kopeck_(out.pending.revenue + price);
+          out.pending.retailRevenue = kopeck_(out.pending.retailRevenue + price);
+        }
+      }
+    }
+    var keys = Object.keys(pp);
+    for (i = 0; i < keys.length; i++) {
+      var cycles = ppSplitCycles_(pp[keys[i]]);
+      var ci;
+      for (ci = 0; ci < cycles.length; ci++) {
+        var cycle = cycles[ci];
+        var pay = ppPayRow_(cycle);
+        var seen = {};
+        var ri;
+        for (ri = 0; ri < cycle.length; ri++) {
+          var slotRow = cycle[ri];
+          var slotIso = isoDay_(slotRow.iso);
+          if (!inside(slotIso)) {
+            if (slotRow.delivered && slotRow.sig) seen[String(slotRow.sig)] = true;
+            continue;
+          }
+          if (slotRow.missingBasket) {
+            if (slotRow.delivered) out.missingBasket++;
+            else out.pending.N += 1;
+            continue;
+          }
+          if (slotRow.delivered) {
+            var sig = String(slotRow.sig || "");
+            if (!(sig && seen[sig])) addU(out, slotRow.S, slotRow.G, slotRow.P, 0);
+            if (!(sig && seen[sig])) addU(out.pp, slotRow.S, slotRow.G, slotRow.P, 0);
+            addU(out, 0, 0, 0, 1);
+            addU(out.pp, 0, 0, 0, 1);
+            if (sig) seen[sig] = true;
+          } else out.pending.N += 1;
+        }
+        if (!pay) continue;
+        var payIso = isoDay_(pay.iso);
+        var payPrice = num_(pay.price);
+        if (!inside(payIso)) continue;
+        if (pay.delivered && payPrice > 0) {
+          out.revenue = kopeck_(out.revenue + payPrice);
+          out.ppRevenue = kopeck_(out.ppRevenue + payPrice);
+          out.pp.revenue = kopeck_(out.pp.revenue + payPrice);
+        } else if (!pay.delivered && payPrice > 0) {
+          out.pending.revenue = kopeck_(out.pending.revenue + payPrice);
+          out.pending.ppRevenue = kopeck_(out.pending.ppRevenue + payPrice);
+        } else if (pay.delivered && !(payPrice > 0)) out.missingPrice++;
+      }
+    }
+    return out;
   }
 
   var TAX_RATE_ = 0.2;
@@ -657,6 +932,9 @@
     reconcile_: reconcile_,
     amortMonth_: amortMonth_,
     expenseBucket_: expenseBucket_,
-    formulaClose_: formulaClose_
+    formulaClose_: formulaClose_,
+    formulaRollup_: formulaRollup_,
+    formulaPpClientMonths_: formulaPpClientMonths_,
+    monthBoundsIso_: monthBoundsIso_
   };
 });

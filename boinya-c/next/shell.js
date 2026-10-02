@@ -476,6 +476,10 @@
       return;
     }
     scrim.hidden = false;
+    var active = document.activeElement;
+    if (active && active !== document.body && scrim.contains(active)) {
+      try { active.blur(); } catch (eBlur) {}
+    }
     var closeBtn = top.hideClose ? "" : '<button class="b-ib" type="button" data-act="sheet-close" aria-label="Закрыть">' + ico("close", "b-ico b-ico--20") + "</button>";
     scrim.innerHTML =
       '<section class="b-sheet nx-sheet" role="dialog" aria-modal="true" tabindex="-1" aria-label="' + esc(top.title || "Лист") + '">' +

@@ -683,7 +683,7 @@ const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNat
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
-    "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|" +
+    "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|addPricePosition|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
     "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse)$"
@@ -693,6 +693,7 @@ const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDeta
 const AUTH_TAB_RULES = [
   { re: /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|getStatsMonthSetup|saveStatsMonthMoney|saveStatsRoles)$/i, tabs: ["statsScreen"] },
   { re: /^saveRetailPrices$/i, tabs: ["retailPriceScreen"] },
+  { re: /^listPricePositions$/i, tabs: ["orderScreen", "retailPriceScreen", "clientsScreen", "priceScreen"] },
   {
     re: /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|pullClientsFromMonth|materializeWeek|setWeekBannerState|ensureBpFromOrder|markBpTouch|recordBpToPpConversion|enrollDeferredToPp|saveClientProfile|deleteClientBatch|moveClientBatch)$/i,
     tabs: AUTH_TABS_ORDERS
@@ -1247,6 +1248,8 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "listOwnerExpenses") return listOwnerExpenses_(params, env, actor);
   if (a === "saveOwnerExpense") return saveOwnerExpense_(params, env, actor);
   if (a === "deleteOwnerExpense") return deleteOwnerExpense_(params, env, actor);
+  if (a === "listPricePositions") return listPricePositions_(params, env, actor);
+  if (a === "addPricePosition") return addPricePosition_(params, env, actor);
   if (a === "listWarehouses") return listWarehouses_(env);
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
   if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
@@ -2831,6 +2834,96 @@ function ownerExpensePublic_(row) {
 
 function ownerOnly_(actor) {
   return !!(actor && (actor.isOwner || actor.role === "owner"));
+}
+
+async function ensurePricePositions_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__pricePosReady) return true;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS price_positions (" +
+      "id TEXT PRIMARY KEY, name TEXT NOT NULL, cat TEXT NOT NULL, fractions TEXT NOT NULL DEFAULT '', " +
+      "price REAL NOT NULL, unit TEXT NOT NULL, actor_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)"
+  ).run();
+  env.__pricePosReady = true;
+  return true;
+}
+
+function pricePositionPublic_(row) {
+  var fractions = [];
+  try { fractions = JSON.parse(String(row.fractions || "[]")); } catch (eF) { fractions = []; }
+  if (!Array.isArray(fractions)) fractions = [];
+  return {
+    id: String(row.id || ""),
+    name: String(row.name || ""),
+    cat: String(row.cat || ""),
+    fractions: fractions,
+    price: Math.round((Number(row.price) || 0) * 100) / 100,
+    unit: String(row.unit || ""),
+    createdAt: String(row.created_at || "")
+  };
+}
+
+async function listPricePositions_(params, env) {
+  if (!env || !env.DB) return { status: "success", positions: [], fromD1: false };
+  await ensurePricePositions_(env);
+  const res = await env.DB.prepare(
+    "SELECT id, name, cat, fractions, price, unit, created_at FROM price_positions ORDER BY created_at ASC"
+  ).all();
+  const rows = (res && res.results) || [];
+  return {
+    status: "success",
+    positions: rows.map(pricePositionPublic_),
+    fromD1: true
+  };
+}
+
+async function addPricePosition_(params, env, actor) {
+  if (!ownerOnly_(actor)) return { status: "error", message: "owner_only" };
+  if (!env || !env.DB) return { status: "error", message: "нет базы" };
+  const name = String((params && params.name) || "").replace(/ё/g, "е").replace(/Ё/g, "Е").replace(/\s+/g, " ").trim().toUpperCase();
+  const cat = String((params && (params.cat || params.category)) || "").toLowerCase().trim();
+  const unitRaw = String((params && params.unit) || "").toLowerCase();
+  const unit = /шт|piece/.test(unitRaw) ? "шт" : (/гр|г\b|per100/.test(unitRaw) ? "гр" : "");
+  let fractions = params && (params.fractions != null ? params.fractions : params.fraction);
+  if (typeof fractions === "string") fractions = fractions.split(/[,;]+/);
+  if (!Array.isArray(fractions)) fractions = [];
+  const cleanFr = [];
+  const seenFr = {};
+  fractions.forEach(function (f) {
+    const one = String(f || "").replace(/\s+/g, " ").trim();
+    if (!one || seenFr[one.toUpperCase()]) return;
+    seenFr[one.toUpperCase()] = true;
+    cleanFr.push(one);
+  });
+  const price = Math.round((Number(String((params && params.price) || "").replace(",", ".")) || 0) * 100) / 100;
+  if (name.length < 2) return { status: "error", message: "Укажите название" };
+  if (name.length > 40) return { status: "error", message: "Название длиннее 40 знаков" };
+  if (!/^(dressura|chew|other|veg)$/.test(cat)) return { status: "error", message: "Выберите категорию" };
+  if (unit !== "гр" && unit !== "шт") return { status: "error", message: "Выберите единицу: гр или шт" };
+  if (!(price > 0)) return { status: "error", message: "Укажите цену" };
+  await ensurePricePositions_(env);
+  const dup = await env.DB.prepare(
+    "SELECT id FROM price_positions WHERE name = ? AND cat = ? LIMIT 1"
+  ).bind(name, cat).first();
+  if (dup && dup.id) return { status: "error", message: "Такая позиция уже есть" };
+  const id = "pp_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const created = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO price_positions (id, name, cat, fractions, price, unit, actor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, name, cat, JSON.stringify(cleanFr), price, unit, String((actor && actor.tid) || ""), created).run();
+  const position = { id: id, name: name, cat: cat, fractions: cleanFr, price: price, unit: unit, createdAt: created };
+  try {
+    await gasProxy_("addPricePosition", {
+      id: id,
+      name: name,
+      cat: cat,
+      fractions: JSON.stringify(cleanFr),
+      price: price,
+      unit: unit,
+      telegramId: String((actor && actor.tid) || "")
+    }, env, { write: true });
+  } catch (eGas) {}
+  return { status: "success", position: position, d1Verified: true };
 }
 
 async function listOwnerExpenses_(params, env, actor) {

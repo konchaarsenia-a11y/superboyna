@@ -2809,6 +2809,20 @@ function doGet(e) {
       delivery: e.parameter.delivery ? JSON.parse(decodeURIComponent(e.parameter.delivery)) : null
     }, callback, false);
   }
+  if (action === "listPricePositions") {
+    return handleListPricePositions({}, callback, false);
+  }
+  if (action === "addPricePosition") {
+    return handleAddPricePosition({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      cat: e.parameter.cat || "",
+      fractions: e.parameter.fractions ? decodeURIComponent(e.parameter.fractions) : "",
+      price: e.parameter.price || "",
+      unit: e.parameter.unit ? decodeURIComponent(e.parameter.unit) : ""
+    }, callback, false);
+  }
   if (action === "calcPrice") {
     return handleCalcPrice({
       mode: e.parameter.mode || "subscription",
@@ -3409,6 +3423,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "saveRetailPrices") {
     return handleSaveRetailPrices(json, callback, fromPost);
+  }
+  if (action === "listPricePositions") {
+    return handleListPricePositions(json, callback, fromPost);
+  }
+  if (action === "addPricePosition") {
+    return handleAddPricePosition(json, callback, fromPost);
   }
   if (action === "calcPrice") {
     return handleCalcPrice(json, callback, fromPost);
@@ -18364,6 +18384,8 @@ function parseMemoryDateLoose_(v, tz) {
       if (y < 100) y += 2000;
       return new Date(y, Number(m[2]) - 1, Number(m[1]));
     }
+    var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
     var d = new Date(s);
     if (!isNaN(d.getTime())) return d;
   } catch (e) {}
@@ -19387,6 +19409,100 @@ function handleSaveRetailPrices(json, callback, fromPost) {
       delivery: { fee: del.fee, freeFrom: del.freeFrom },
       saved: Object.keys(map).length
     };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+var PRICE_POSITIONS_SHEET_ = "Прайс_Позиции";
+
+function pricePositionsSheet_() {
+  var ss = getPriceSpreadsheet_();
+  var sh = ss.getSheetByName(PRICE_POSITIONS_SHEET_);
+  if (!sh) {
+    sh = ss.insertSheet(PRICE_POSITIONS_SHEET_);
+    sh.getRange(1, 1, 1, 7).setValues([["id", "name", "cat", "fractions", "price", "unit", "created"]]);
+  }
+  return sh;
+}
+
+function readPricePositionRows_() {
+  var sh = pricePositionsSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  var r;
+  for (r = 1; r < data.length; r++) {
+    var name = String(data[r][1] || "").trim();
+    if (!name) continue;
+    var fractions = [];
+    try { fractions = JSON.parse(String(data[r][3] || "[]")); } catch (eF) { fractions = []; }
+    if (!Array.isArray(fractions)) fractions = [];
+    out.push({
+      id: String(data[r][0] || ""),
+      name: name,
+      cat: String(data[r][2] || ""),
+      fractions: fractions,
+      price: Number(data[r][4]) || 0,
+      unit: String(data[r][5] || "")
+    });
+  }
+  return out;
+}
+
+function handleListPricePositions(json, callback, fromPost) {
+  try {
+    var ok = { status: "success", positions: readPricePositionRows_() };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function handleAddPricePosition(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var actor = String(json.telegramId || json.actorId || "").trim();
+    if (!actorIsOwnerForRetail_(actor)) {
+      var forbid = { status: "error", message: "owner_only" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+    var name = String(json.name || "").replace(/ё/g, "е").replace(/Ё/g, "Е").replace(/\s+/g, " ").trim().toUpperCase();
+    var cat = String(json.cat || json.category || "").toLowerCase().trim();
+    var unit = /шт/i.test(String(json.unit || "")) ? "шт" : "гр";
+    var fractions = json.fractions;
+    if (typeof fractions === "string" && fractions.charAt(0) === "[") {
+      try { fractions = JSON.parse(fractions); } catch (eJ) { fractions = String(fractions).split(/[,;]+/); }
+    } else if (typeof fractions === "string") fractions = fractions.split(/[,;]+/);
+    if (!Array.isArray(fractions)) fractions = [];
+    var clean = [];
+    var seen = {};
+    var i;
+    for (i = 0; i < fractions.length; i++) {
+      var one = String(fractions[i] || "").replace(/\s+/g, " ").trim();
+      if (!one || seen[one.toUpperCase()]) continue;
+      seen[one.toUpperCase()] = true;
+      clean.push(one);
+    }
+    var price = Number(json.price);
+    if (name.length < 2 || !/^(dressura|chew|other|veg)$/.test(cat) || !(price > 0)) {
+      var need = { status: "error", message: "Проверьте название, категорию и цену" };
+      return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+    }
+    var rows = readPricePositionRows_();
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].name === name && rows[i].cat === cat) {
+        var dup = { status: "success", position: rows[i], duplicate: true };
+        return fromPost ? jsonpText(callback, dup) : jsonp(callback, dup);
+      }
+    }
+    var id = String(json.id || "").trim() || ("pp_" + new Date().getTime());
+    var sh = pricePositionsSheet_();
+    sh.appendRow([id, name, cat, JSON.stringify(clean), price, unit, new Date()]);
+    var position = { id: id, name: name, cat: cat, fractions: clean, price: price, unit: unit };
+    var ok = { status: "success", position: position, appended: true };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } catch (e) {
     var bad = { status: "error", message: String(e) };
@@ -22126,6 +22242,7 @@ function formulaBasketUnits_(basket, src) {
       var cat = String(it.cat || "").toLowerCase();
       var name = String(it.name || it.main || "");
       if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
+      else if (String(it.unit || "").toLowerCase() === "шт") piece = true;
       else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
     }
     if (piece) P += val;
@@ -22279,6 +22396,229 @@ function collectFormulaEconomy_(ss, crmSs, monthKey) {
   }
 }
 
+/** Календарный день без сдвига UTC. Зеркало formulas.js addDaysIso_. */
+function formulaIsoAddDays_(iso, n) {
+  var p = String(iso || "").slice(0, 10).split("-");
+  if (p.length < 3) return "";
+  var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+  d.setUTCDate(d.getUTCDate() + (Number(n) || 0));
+  var m = d.getUTCMonth() + 1;
+  var day = d.getUTCDate();
+  return d.getUTCFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+}
+
+function formulaMonthLastIso_(mk) {
+  if (!/^\d{4}-\d{2}$/.test(String(mk || ""))) return "";
+  var y = Number(String(mk).slice(0, 4));
+  var m = Number(String(mk).slice(5, 7));
+  var last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return mk + "-" + (last < 10 ? "0" : "") + last;
+}
+
+function formulaPpSlot_(row) {
+  return Number(row && row.slot) || 0;
+}
+
+function formulaPpStartsCycle_(prev, row) {
+  var slot = formulaPpSlot_(row);
+  var prevSlot = formulaPpSlot_(prev);
+  var gap = 0;
+  try {
+    var a = String(prev.iso || "").slice(0, 10).split("-");
+    var b = String(row.iso || "").slice(0, 10).split("-");
+    var ua = Date.UTC(Number(a[0]), Number(a[1]) - 1, Number(a[2]));
+    var ub = Date.UTC(Number(b[0]), Number(b[1]) - 1, Number(b[2]));
+    gap = Math.round((ub - ua) / 86400000);
+  } catch (eG) { gap = 0; }
+  if (slot === 1) return true;
+  if (slot >= 1 && prevSlot >= 1 && slot < prevSlot) return true;
+  if (gap >= 18) return true;
+  return false;
+}
+
+function formulaPpSplitCycles_(rows) {
+  var list = (rows || []).slice().sort(function (a, b) {
+    if (String(a.iso) !== String(b.iso)) return String(a.iso) < String(b.iso) ? -1 : 1;
+    return formulaPpSlot_(a) - formulaPpSlot_(b);
+  });
+  var cycles = [];
+  var cur = [];
+  var prev = null;
+  var i;
+  for (i = 0; i < list.length; i++) {
+    if (prev && formulaPpStartsCycle_(prev, list[i])) {
+      cycles.push(cur);
+      cur = [];
+    }
+    cur.push(list[i]);
+    prev = list[i];
+  }
+  if (cur.length) cycles.push(cur);
+  return cycles;
+}
+
+function formulaPpPayRow_(cycle) {
+  var yes = [];
+  var open = [];
+  var i;
+  for (i = 0; i < cycle.length; i++) {
+    var row = cycle[i];
+    if (row.missingBasket) continue;
+    var paid = String(row.paid || "");
+    if (paid === "yes") yes.push(row);
+    else if (paid !== "no") {
+      var slot = formulaPpSlot_(row);
+      if (slot >= 2) continue;
+      if (slot === 0 && row !== cycle[0]) continue;
+      open.push(row);
+    }
+  }
+  var pool = (yes.length ? yes : open).slice().sort(function (a, b) {
+    var as = formulaPpSlot_(a) >= 1 ? formulaPpSlot_(a) : 9;
+    var bs = formulaPpSlot_(b) >= 1 ? formulaPpSlot_(b) : 9;
+    if (as !== bs) return as - bs;
+    return String(a.iso) < String(b.iso) ? -1 : 1;
+  });
+  return pool.length ? pool[0] : null;
+}
+
+/**
+ * Сводка строк. Зеркало boinya-c/next/formulas.js formulaRollup_.
+ * ПП: цена один раз на слоте оплаты цикла. Слот 2 без «оплатил» цену не открывает.
+ * Одинаковый состав цикла не суммируется второй раз. Без состава в оборот не входит.
+ */
+function formulaRollupRows_(rows, opts) {
+  opts = opts || {};
+  var from = String(opts.from || "").slice(0, 10);
+  var to = String(opts.to || "").slice(0, 10);
+  var look = from ? formulaIsoAddDays_(from, -35) : "";
+  var out = {
+    ok: true,
+    deliveredOnly: true,
+    S: 0, G: 0, P: 0, N: 0,
+    revenue: 0,
+    ppRevenue: 0,
+    retailRevenue: 0,
+    pp: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    retail: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    bp: { S: 0, G: 0, P: 0, N: 0 },
+    pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0 },
+    skippedPartner: 0,
+    missingBasket: 0,
+    missingPrice: 0,
+    wageSplit: false,
+    wageNote: "В памяти доставок нет, кто нарезал каждую строку. Вся сумма за период у выбранного нарезчика-сборщика."
+  };
+  function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+  function inside(iso) { return (!from || iso >= from) && (!to || iso <= to); }
+  function looked(iso) { return !!(look && iso >= look && from && iso < from); }
+  function addU(bucket, S, G, P, n) {
+    bucket.S = money((Number(bucket.S) || 0) + (Number(S) || 0));
+    bucket.G = (Number(bucket.G) || 0) + (Number(G) || 0);
+    bucket.P = (Number(bucket.P) || 0) + (Number(P) || 0);
+    bucket.N = (Number(bucket.N) || 0) + (Number(n) || 0);
+  }
+  var pp = {};
+  var rest = [];
+  var i;
+  for (i = 0; i < (rows || []).length; i++) {
+    var row = rows[i] || {};
+    var iso = String(row.iso || "").slice(0, 10);
+    var src = String(row.src || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+    if (src === "partner") {
+      if (inside(iso)) out.skippedPartner++;
+      continue;
+    }
+    if (src === "pp") {
+      if (!inside(iso) && !looked(iso)) continue;
+      var ck = String(row.ck || "");
+      if (!ck) continue;
+      if (!pp[ck]) pp[ck] = [];
+      pp[ck].push(row);
+      continue;
+    }
+    if (!inside(iso)) continue;
+    if (src !== "retail" && src !== "bp") continue;
+    rest.push(row);
+  }
+  for (i = 0; i < rest.length; i++) {
+    var one = rest[i];
+    var price = Number(one.price) || 0;
+    if (one.missingBasket) {
+      if (one.delivered) out.missingBasket++;
+      else out.pending.N += 1;
+      continue;
+    }
+    if (one.delivered) {
+      addU(out, one.S, one.G, one.P, 1);
+      if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
+      else {
+        addU(out.retail, one.S, one.G, one.P, 1);
+        if (price > 0) {
+          out.revenue = money(out.revenue + price);
+          out.retailRevenue = money(out.retailRevenue + price);
+          out.retail.revenue = money(out.retail.revenue + price);
+        } else out.missingPrice++;
+      }
+    } else {
+      out.pending.N += 1;
+      if (price > 0 && String(one.src) !== "bp") {
+        out.pending.revenue = money(out.pending.revenue + price);
+        out.pending.retailRevenue = money(out.pending.retailRevenue + price);
+      }
+    }
+  }
+  var keys = [];
+  for (var pk in pp) if (pp.hasOwnProperty(pk)) keys.push(pk);
+  for (i = 0; i < keys.length; i++) {
+    var cycles = formulaPpSplitCycles_(pp[keys[i]]);
+    var ci;
+    for (ci = 0; ci < cycles.length; ci++) {
+      var cycle = cycles[ci];
+      var pay = formulaPpPayRow_(cycle);
+      var seen = {};
+      var ri;
+      for (ri = 0; ri < cycle.length; ri++) {
+        var slotRow = cycle[ri];
+        var slotIso = String(slotRow.iso || "").slice(0, 10);
+        if (!inside(slotIso)) {
+          if (slotRow.delivered && slotRow.sig) seen[String(slotRow.sig)] = true;
+          continue;
+        }
+        if (slotRow.missingBasket) {
+          if (slotRow.delivered) out.missingBasket++;
+          else out.pending.N += 1;
+          continue;
+        }
+        if (slotRow.delivered) {
+          var sig = String(slotRow.sig || "");
+          if (!(sig && seen[sig])) {
+            addU(out, slotRow.S, slotRow.G, slotRow.P, 0);
+            addU(out.pp, slotRow.S, slotRow.G, slotRow.P, 0);
+          }
+          addU(out, 0, 0, 0, 1);
+          addU(out.pp, 0, 0, 0, 1);
+          if (sig) seen[sig] = true;
+        } else out.pending.N += 1;
+      }
+      if (!pay) continue;
+      var payIso = String(pay.iso || "").slice(0, 10);
+      var payPrice = Number(pay.price) || 0;
+      if (!inside(payIso)) continue;
+      if (pay.delivered && payPrice > 0) {
+        out.revenue = money(out.revenue + payPrice);
+        out.ppRevenue = money(out.ppRevenue + payPrice);
+        out.pp.revenue = money(out.pp.revenue + payPrice);
+      } else if (!pay.delivered && payPrice > 0) {
+        out.pending.revenue = money(out.pending.revenue + payPrice);
+        out.pending.ppRevenue = money(out.pending.ppRevenue + payPrice);
+      } else if (pay.delivered && !(payPrice > 0)) out.missingPrice++;
+    }
+  }
+  return out;
+}
+
 /**
  * Сводка для экрана v2. Старые fact/costActual не трогает.
  * В деньги попадает только отвезено (Память_Доставок). ПП: цена один раз, на слоте оплаты, и только если эта доставка отвезена.
@@ -22305,8 +22645,13 @@ function collectFormulaRollup_(ss, opts) {
     var want = String(opts.monthKey || "").slice(0, 7);
     var fromIso = opts.fromIso ? String(opts.fromIso).slice(0, 10) : "";
     var toIso = opts.toIso ? String(opts.toIso).slice(0, 10) : "";
+    var periodFrom = fromIso;
+    var periodTo = toIso;
+    if (!periodFrom && /^\d{4}-\d{2}$/.test(want)) periodFrom = want + "-01";
+    if (!periodTo && /^\d{4}-\d{2}$/.test(want)) periodTo = formulaMonthLastIso_(want);
+    var lookFrom = periodFrom ? formulaIsoAddDays_(periodFrom, -35) : "";
     var months = [];
-    if (fromIso || toIso) months = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
+    if (periodFrom || periodTo) months = monthsInIsoRange_(lookFrom || periodFrom || periodTo, periodTo || periodFrom);
     else if (/^\d{4}-\d{2}$/.test(want)) months = [want];
     var deliveredMap = {};
     var paidMap = {};
@@ -22325,15 +22670,15 @@ function collectFormulaRollup_(ss, opts) {
       var bDate = parseFlexibleDate_(b.date, tz);
       var bIso = bDate ? Utilities.formatDate(bDate, tz, "yyyy-MM-dd") : "";
       if (!bIso) continue;
-      if (want && !fromIso && !toIso && bIso.slice(0, 7) !== want) continue;
-      if (fromIso && bIso < fromIso) continue;
-      if (toIso && bIso > toIso) continue;
+      if (lookFrom && bIso < lookFrom) continue;
+      if (periodTo && bIso > periodTo) continue;
+      if (!lookFrom && want && !fromIso && !toIso && bIso.slice(0, 7) !== want) continue;
       var bCk = clientMatchKey_(b.client) || String(b.client || "").toUpperCase();
       if (!bCk) continue;
       bookByKey[bIso + "|" + bCk] = b;
     }
     var seen = {};
-    var ppGroups = {};
+    var events = [];
     function takeBasket_(row) {
       var bask = row && row.basket;
       if ((!bask || !bask.length) && row && row.basketJson) {
@@ -22345,14 +22690,14 @@ function collectFormulaRollup_(ss, opts) {
       if (!row) return;
       if (String(row.status || "").toLowerCase() === "cancelled") return;
       var iso = String(row.dateIso || "").slice(0, 10);
-      if (!iso || iso.length < 10) {
+      if (!iso || iso.length < 10 || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
         var bd = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
         if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
       }
       if (!iso) return;
-      if (want && !fromIso && !toIso && iso.slice(0, 7) !== want) return;
-      if (fromIso && iso < fromIso) return;
-      if (toIso && iso > toIso) return;
+      if (lookFrom && iso < lookFrom) return;
+      if (periodTo && iso > periodTo) return;
+      if (!lookFrom && want && !fromIso && !toIso && iso.slice(0, 7) !== want) return;
       var ck = clientMatchKey_(row.client) || String(row.client || "").toUpperCase();
       var dedupe = iso + "|" + (ck || String(row.client || "").toUpperCase());
       if (seen[dedupe]) return;
@@ -22364,48 +22709,35 @@ function collectFormulaRollup_(ss, opts) {
         if (!row.source && book.source) row.source = book.source;
         if (!row.segment && book.segment) row.segment = book.segment;
         if (!row.note && book.note) row.note = book.note;
+        if (!row.ppSlot && book.ppSlot) row.ppSlot = book.ppSlot;
       }
       var src = calendarSourceKind_(row);
       var price = calendarRowPrice_(row);
       if (src === "other" && price > 0) src = "retail";
-      if (src === "partner") {
-        out.skippedPartner++;
-        return;
-      }
+      if (src === "bp") price = 0;
+      var inPeriod = (!periodFrom || iso >= periodFrom) && (!periodTo || iso <= periodTo);
+      if (!inPeriod && src !== "pp") return;
       var delivered = !!deliveredMap[dedupe];
       var bask = takeBasket_(row);
-      if (src === "pp" && ck) {
-        if (!ppGroups[ck]) ppGroups[ck] = [];
-        var slot = 0;
-        try { slot = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2) || 0; } catch (eSlot) { slot = 0; }
-        ppGroups[ck].push({
-          iso: iso,
-          slot: slot,
-          price: price,
-          delivered: delivered,
-          basket: bask,
-          name: String(row.client || "")
-        });
-        return;
-      }
       var units = formulaBasketUnits_(bask, src);
-      if (src === "bp") price = 0;
-      if (delivered) {
-        formulaAddUnits_(out, units, 1);
-        if (src === "bp") formulaAddUnits_(out.bp, units, 1);
-        else {
-          formulaAddUnits_(out.retail, units, 1);
-          out.revenue += price;
-          out.retailRevenue += price;
-          out.retail.revenue += price;
-        }
-      } else {
-        out.pending.N += 1;
-        if (price > 0) {
-          out.pending.revenue += price;
-          out.pending.retailRevenue += price;
-        }
+      var slot = 0;
+      if (src === "pp") {
+        try { slot = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2) || 0; } catch (eSlot) { slot = 0; }
       }
+      events.push({
+        ck: ck,
+        iso: iso,
+        src: src,
+        delivered: delivered,
+        price: price,
+        S: units.S,
+        G: units.G,
+        P: units.P,
+        sig: formulaBasketSig_(bask),
+        missingBasket: !(bask && bask.length),
+        slot: slot,
+        paid: src === "pp" ? (paidMap[dedupe] || "") : ""
+      });
     }
     var ri;
     for (ri = 0; ri < rows.length; ri++) consider_(rows[ri]);
@@ -22414,53 +22746,22 @@ function collectFormulaRollup_(ss, opts) {
       if (seen[bk]) continue;
       consider_(bookByKey[bk]);
     }
-    for (var pck in ppGroups) {
-      if (!ppGroups.hasOwnProperty(pck)) continue;
-      var g = ppGroups[pck];
-      var yes = [];
-      var open = [];
-      var gi;
-      for (gi = 0; gi < g.length; gi++) {
-        var flag = paidMap[g[gi].iso + "|" + pck] || "";
-        if (flag === "yes") yes.push(g[gi]);
-        else if (flag !== "no") open.push(g[gi]);
-      }
-      var pool = (yes.length ? yes : open).slice().sort(function (x, y) {
-        var xs = x.slot >= 1 ? x.slot : 9;
-        var ys = y.slot >= 1 ? y.slot : 9;
-        if (xs !== ys) return xs - ys;
-        return String(x.iso || "") < String(y.iso || "") ? -1 : 1;
-      });
-      var pay = pool.length ? pool[0] : null;
-      var payPrice = pay && Number(pay.price) > 0 ? Number(pay.price) : 0;
-      var got = [];
-      var wait = [];
-      for (gi = 0; gi < g.length; gi++) {
-        if (g[gi].delivered) got.push(g[gi]);
-        else wait.push(g[gi]);
-      }
-      var folded = formulaFoldBaskets_(got.map(function (x) { return x.basket; }));
-      var unitsPp = formulaBasketUnits_(folded, "pp");
-      formulaAddUnits_(out, unitsPp, got.length);
-      formulaAddUnits_(out.pp, unitsPp, got.length);
-      if (pay && pay.delivered && payPrice > 0) {
-        out.revenue += payPrice;
-        out.ppRevenue += payPrice;
-        out.pp.revenue += payPrice;
-      } else if (payPrice > 0) {
-        out.pending.revenue += payPrice;
-        out.pending.ppRevenue += payPrice;
-      }
-      out.pending.N += wait.length;
-    }
-    out.revenue = formulaMoney_(out.revenue);
-    out.ppRevenue = formulaMoney_(out.ppRevenue);
-    out.retailRevenue = formulaMoney_(out.retailRevenue);
-    out.pp.revenue = formulaMoney_(out.pp.revenue);
-    out.retail.revenue = formulaMoney_(out.retail.revenue);
-    out.pending.revenue = formulaMoney_(out.pending.revenue);
-    out.pending.ppRevenue = formulaMoney_(out.pending.ppRevenue);
-    out.pending.retailRevenue = formulaMoney_(out.pending.retailRevenue);
+    var rolled = formulaRollupRows_(events, { from: periodFrom, to: periodTo });
+    out.S = rolled.S;
+    out.G = rolled.G;
+    out.P = rolled.P;
+    out.N = rolled.N;
+    out.revenue = rolled.revenue;
+    out.ppRevenue = rolled.ppRevenue;
+    out.retailRevenue = rolled.retailRevenue;
+    out.pp = rolled.pp;
+    out.retail = rolled.retail;
+    out.bp = rolled.bp;
+    out.pending = rolled.pending;
+    out.skippedPartner = rolled.skippedPartner;
+    out.missingBasket = rolled.missingBasket;
+    out.missingPrice = rolled.missingPrice;
+    out.deliveredOnly = true;
   } catch (eAll) {
     out.ok = false;
     out.error = String((eAll && eAll.message) || eAll);
