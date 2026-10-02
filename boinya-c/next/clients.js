@@ -353,6 +353,7 @@
   function paintList() {
     var rows = filteredSubs();
     var html = segBar();
+    html += ppTotalsHtml();
     html += '<div class="b-row" style="margin-bottom:8px">' +
       '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="cl-refresh">Обновить</button>' +
       '<span class="b-note" style="margin:0">' + rows.length + "</span></div>";
@@ -515,34 +516,61 @@
     }
   }
 
-  function numOrNull(v) {
-    if (v == null || v === "") return null;
-    var n = Number(String(v).replace(",", "."));
-    if (!isFinite(n)) return null;
-    return Math.round(n * 100) / 100;
+  function ppListTotals_(list) {
+    var seen = {};
+    var turnover = 0;
+    var cost = 0;
+    var costKnown = false;
+    var n = 0;
+    (list || []).forEach(function (s) {
+      if (String((s && s.sheet) || "") !== "ПП") return;
+      var id = String((s && s.subId) || "").trim();
+      var key = id ? ("id:" + id.toUpperCase()) : ("row:" + String((s && s.rowIndex) || "") + "|" + String((s && s.nick) || "").toUpperCase());
+      if (seen[key]) return;
+      seen[key] = true;
+      n++;
+      var turn = Number(s.turnover);
+      if (!isFinite(turn)) turn = 0;
+      turnover += turn;
+      if (s.cost != null && s.cost !== "") {
+        costKnown = true;
+        cost += Number(s.cost) || 0;
+      }
+    });
+    turnover = Math.round(turnover * 100) / 100;
+    cost = costKnown ? Math.round(cost * 100) / 100 : null;
+    return {
+      clients: n,
+      turnover: turnover,
+      cost: cost,
+      income: cost == null ? null : Math.round((turnover - cost) * 100) / 100
+    };
   }
 
-  function metricText(v) {
-    return v == null ? "—" : String(v);
+  function moneyFixed(v) {
+    if (v == null) return "нет данных";
+    return sh().money(v) + " BYN";
   }
 
-  function cardMetricRow(c) {
-    var rev = numOrNull(c.statedCost);
-    if (rev == null) rev = numOrNull(c.calcFactCost);
-    var cost = c.econ && c.econ.rawCost != null && c.econ.rawCost !== "" ? numOrNull(c.econ.rawCost) : null;
-    var profit = rev != null && cost != null ? Math.round((rev - cost) * 100) / 100 : null;
-    return '<div class="nx-counters">' +
-      '<div class="nx-count"><b>' + esc(metricText(rev)) + "</b><span>Оборот</span></div>" +
-      '<div class="nx-count"><b>' + esc(metricText(profit)) + "</b><span>Приход</span></div>" +
-      '<div class="nx-count"><b>' + esc(metricText(cost)) + "</b><span>Себес</span></div>" +
-      "</div>";
+  function ppTotalsHtml() {
+    if (seg !== "pp") return "";
+    var all = (subs || []).filter(function (s) { return String(s.sheet || "") === "ПП"; });
+    if (!all.length) return "";
+    var hasMoney = all.some(function (s) { return s.turnover != null || s.cost != null; });
+    if (!hasMoney) return "";
+    var t = ppListTotals_(subs);
+    return '<div class="nx-counters nx-pp-totals" style="margin:8px 0 12px">' +
+      '<div class="nx-count"><b>' + esc(moneyFixed(t.turnover)) + "</b><span>Оборот</span></div>" +
+      '<div class="nx-count"><b>' + esc(moneyFixed(t.income)) + "</b><span>Приход</span></div>" +
+      '<div class="nx-count"><b>' + esc(moneyFixed(t.cost)) + "</b><span>Себес</span></div>" +
+      "</div>" +
+      '<p class="b-note">Все клиенты ПП, цена один раз</p>';
   }
 
   function paintCard() {
     var c = card;
     var html = segBar();
     html += '<button type="button" class="nx-link" data-act="cl-back">← К списку</button>';
-    html += cardMetricRow(c);
     var clientFields = '<p class="b-lbl">Имя</p>' + field("cxLabel", c.label, "Имя") +
       '<p class="b-lbl">Ник</p>' + field("cxNick", c.nick, "Ник") +
       '<p class="b-lbl">Телефон</p>' + field("cxPhone", c.phone, "Телефон") +
@@ -989,7 +1017,6 @@
     sh().hideToast();
     paint();
     loadPeople().then(function () { if (view === "card" && card) paint(); });
-    refreshCardMetrics();
     } catch (eCard) {
       sh().toast((eCard && eCard.message) || "Не открылось");
     }
@@ -1463,34 +1490,6 @@
     sh().toast("Скопировано");
   }
 
-  async function refreshCardMetrics() {
-    if (!card || card.sheet !== "ПП" || !P() || !eng()) return;
-    var stamp = String(card.nick || "") + "|" + String(card.subId || "");
-    var res = await liveCalc(card.basket || [], { scheme: card.scheme, coef: card.coef, deliveriesN: card.deliveries, forNew: 0 });
-    if (!card || view !== "card") return;
-    if (String(card.nick || "") + "|" + String(card.subId || "") !== stamp) return;
-    if (!res) return;
-    var list = card.basket || [];
-    var q = null;
-    try {
-      var cost = P().recalcPpCostSum(res, list);
-      var pc = card.packCounts || {};
-      var packagesByn = P().packagesBynFromUCountsLocal_(pc);
-      q = P().quotePp({
-        scheme: card.scheme || "RAW26",
-        coef: card.coef,
-        deliveriesN: card.deliveries,
-        costSum: cost,
-        list: list,
-        packagesByn: packagesByn,
-        fracRates: card.fracs || fracRates()
-      });
-    } catch (eMet) { return; }
-    if (!q || !q.fact || q.fact.rawCost == null || q.fact.rawCost === "") return;
-    card.econ = q.fact;
-    paint();
-  }
-
   async function econ() {
     if (!card) return;
     var list = card.basket || [];
@@ -1743,6 +1742,7 @@
     armEnroll: armEnroll,
     armEdit: armEdit,
     setSearch: setSearch,
-    currentSeg: currentSeg
+    currentSeg: currentSeg,
+    ppListTotals_: ppListTotals_
   };
 })(window);

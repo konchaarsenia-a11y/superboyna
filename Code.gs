@@ -16988,6 +16988,7 @@ function handleListSubscriptions(json, callback, fromPost) {
       ? readCrmSheetLiveNarrow_(crmSs, sheetName, 5)
       : (getCrmSheetValuesFast_(crmSs, sheetName) || readCrmSheetLiveNarrow_(crmSs, sheetName, 5));
     if (!data || data.length < 3) continue;
+    var moneyCols = /^ПП$/i.test(sheetName) ? ppListMoneyCols_(data[0]) : null;
     // починить ID только по явному repairIds=1 (не на каждый list — это запись на чтение)
     if (forceRepair) {
       try {
@@ -17012,7 +17013,7 @@ function handleListSubscriptions(json, callback, fromPost) {
       var statusCell = String(data[r][3] || "");
       var bpMeta = /^БП$/i.test(sheetName) ? parseBpMetaFromWishes_(wishesCell) : null;
       if (/^БП$/i.test(sheetName)) statusCell = normalizeBpStage_(statusCell);
-      list.push({
+      var item = {
         nick: nick,
         label: nickRaw.replace(/\s+/g, " ").trim().substring(0, 80),
         subId: subId,
@@ -17027,7 +17028,14 @@ function handleListSubscriptions(json, callback, fromPost) {
         lastTouch: bpMeta ? bpMeta.lastTouch : "",
         ownerTelegramId: bpMeta ? bpMeta.ownerTelegramId : "",
         ownerName: bpMeta ? bpMeta.ownerName : ""
-      });
+      };
+      if (moneyCols) {
+        var money = ppListMoney_(data[r], moneyCols);
+        item.turnover = money.turnover;
+        item.cost = money.cost;
+        item.income = money.income;
+      }
+      list.push(item);
     }
   }
   var ok = {
@@ -21218,6 +21226,65 @@ function firstMoneyAny_(row, cols) {
     return numCrmMoney_(row[c]);
   }
   return 0;
+}
+
+/** Колонки оборота и себеста листа ПП. Та же очередь, что у collectPpMoneyStats_. */
+function ppListMoneyCols_(headers) {
+  var factCols = [];
+  var dirtyCols = [];
+  var turnoverCols = [];
+  var costCols = [];
+  var itogSebCols = [];
+  var rawSebCols = [];
+  headers = headers || [];
+  for (var c = 0; c < headers.length; c++) {
+    var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
+    if (!h) continue;
+    if (h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) factCols.push(c);
+    if (/^ГРЯЗН/.test(h) || h.indexOf("ГРЯЗН") === 0) dirtyCols.push(c);
+    if (h.indexOf("ОБОРОТ") >= 0) turnoverCols.push(c);
+    if (h.indexOf("ОБЩАЯ СЕБЕСТОИМ") >= 0) costCols.push(c);
+    if (h.indexOf("ИТОГОВАЯ СЕБЕСТОИМ") >= 0) itogSebCols.push(c);
+    if (h === "СЕБЕСТОИМОСТЬ" || (h.indexOf("СЕБЕСТОИМ") >= 0 && h.indexOf("ИТОГ") < 0 && h.indexOf("ОБЩ") < 0)) {
+      rawSebCols.push(c);
+    }
+  }
+  return {
+    turnPick: turnoverCols.concat(factCols).concat(dirtyCols),
+    costPick: costCols.concat(itogSebCols).concat(rawSebCols)
+  };
+}
+
+function ppListCostKnown_(row, cols) {
+  if (!row || !cols) return false;
+  for (var i = 0; i < cols.length; i++) {
+    var c = cols[i];
+    if (c == null || c < 0) continue;
+    if (row[c] != null && row[c] !== "") return true;
+  }
+  return false;
+}
+
+/**
+ * Одна строка листа ПП — одна подписка.
+ * Цена один раз: число слотов (колонка доставок) не множитель, второй слот отдельно не плюсуется.
+ */
+function ppListMoney_(row, cols) {
+  cols = cols || {};
+  var turn = firstPositiveMoney_(row, cols.turnPick);
+  if (!turn) turn = firstMoneyAny_(row, cols.turnPick);
+  var cost = null;
+  if (ppListCostKnown_(row, cols.costPick)) {
+    cost = firstPositiveMoney_(row, cols.costPick);
+    if (!cost) cost = firstMoneyAny_(row, cols.costPick);
+    cost = Math.round((Number(cost) || 0) * 100) / 100;
+  }
+  turn = Math.round((Number(turn) || 0) * 100) / 100;
+  return {
+    turnover: turn,
+    cost: cost,
+    income: cost == null ? null : Math.round((turn - cost) * 100) / 100
+  };
 }
 
 /**
