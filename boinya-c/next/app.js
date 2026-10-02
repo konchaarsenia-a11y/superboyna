@@ -27,6 +27,7 @@
   function retail() { return root.BoinyaRetailAdmin; }
   function stats() { return root.BoinyaStats; }
   function partners() { return root.BoinyaPartners; }
+  function goalsMod() { return root.BoinyaGoals; }
 
   function q() {
     return new URLSearchParams(location.search);
@@ -382,7 +383,13 @@
       return;
     }
     if (route.tab === "goals") {
-      paintStub("Цели скоро", "Раздел для владельца ещё готовится. Здесь пока пусто — отдельным обновлением.");
+      if (!access || access.role !== "owner") {
+        paintStub("Цели", "Раздел только у владельца.");
+        return;
+      }
+      paintChrome();
+      goalsMod().bind(access);
+      goalsMod().show();
       return;
     }
     if (route.tab === "more" && moreView === "people" && ax().tabHas(access, "peopleScreen")) {
@@ -435,7 +442,7 @@
       more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заявки, точки, сети, пуши</span></span><span class="b-li__chev">›</span></button>';
     }
     if (access.role === "owner") {
-      more += '<button type="button" class="b-li" data-act="more-goals"><span class="b-li__body"><span class="b-li__title">Цели</span><span class="b-li__sub">Раздел ещё готовится</span></span><span class="b-li__chev">›</span></button>';
+      more += '<button type="button" class="b-li" data-act="more-goals"><span class="b-li__body"><span class="b-li__title">Цели</span><span class="b-li__sub">Задачи и показатели</span></span><span class="b-li__chev">›</span></button>';
     }
     sh().main('<div class="b-list">' + (more || '<p class="b-note">В этом разделе пока пусто.</p>') + "</div>" + '<p class="b-mark">' + sh().esc(badgeLabel() || "Бойня") + "</p>");
   }
@@ -454,7 +461,7 @@
     if (route.tab === "more" && moreView === "people") {
       return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце. Склады: название, адрес и одна точка выезда. Остатки склада не делятся.";
     }
-    if (route.tab === "goals") return "Цели — новый раздел только у владельца. В этом обновлении экрана ещё нет.";
+    if (route.tab === "goals") return "Цели: задачи на день, неделю, месяц, полгода и год. Процент — сколько отмечено. Показатели считаются из статистики и карточек ПП. Когда цифра доходит до цели, она закрывается сама. Раздел только у владельца.";
     if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
       return "Клиенты: пароль один раз за этот заход. ПП, АФК, БП и опросник — те же списки, что в старой версии. Карточка сохраняет в ту же таблицу.";
     }
@@ -624,6 +631,7 @@
     if (retail() && retail().onAct(act, node)) return;
     if (stats() && stats().onAct(act, node)) return;
     if (partners() && partners().onAct(act, node)) return;
+    if (goalsMod() && goalsMod().onAct(act, node)) return;
     if (wk() && wk().onAct(act, node)) return;
     if (route.tab === "orders" && route.seg === "new") ord().onAct(act, node);
   }

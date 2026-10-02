@@ -1,6 +1,6 @@
 /* Права как в boinya-c/app.main.js: ROLE_TABS, TAB_TREE_, tabHas_, canUseTasksMenu.
    Нижняя панель собирается из этих прав, ничего сверх дерева не показывается.
-   «Цели» — только владелец (решение 27.09), в этом шаге экран-заглушка. */
+   «Цели» — только владелец (решение 27.09), вкладка нижней панели. */
 (function (root) {
   "use strict";
 
@@ -104,6 +104,7 @@
     else if (h("priceScreen")) items.push({ id: "clients", label: "Расчёт" });
     if (h("cuttingScreen") || h("courierScreen")) items.push({ id: "production", label: NAV_LABELS.production });
     if (h("warehouseScreen")) items.push({ id: "warehouse", label: NAV_LABELS.warehouse });
+    if (access.role === "owner") items.push({ id: "goals", label: NAV_LABELS.goals });
     if (h("templatesScreen") || h("statsScreen") || h("retailPriceScreen") || h("peopleScreen") || h("partnerHubScreen") || h("priceScreen") || access.role === "owner") {
       items.push({ id: "more", label: access.role === "partner" ? "Партнёры" : NAV_LABELS.more });
     }
