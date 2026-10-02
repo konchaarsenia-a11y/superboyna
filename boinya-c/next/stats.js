@@ -187,13 +187,12 @@
   }
 
   function shell() {
-    var bounds = L().statsMonthBounds_();
-    sh().dock("");
+    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="st-range-open">Расчёт по датам</button>');
     sh().main(
       '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
       '<article class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Статистика</p>' +
-        '<p class="b-note">Факт за выбранный месяц, даты ≤ сегодня</p>' +
+        '<p class="b-note">Факт за выбранный месяц, даты до сегодня</p>' +
         '<div class="nx-cut-head" style="justify-content:space-between">' +
           '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="st-prev" aria-label="Предыдущий месяц">‹</button>' +
           '<b id="statsMonthLabel">' + esc(L().statsMonthLabelRu_(ensureMonth())) + "</b>" +
@@ -203,16 +202,23 @@
           '<button type="button" class="b-btn b-btn--sec" data-act="st-reload">Обновить</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="st-export">Экспорт TSV</button>' +
         "</div></article>" +
-      '<div id="statsContainer"><p class="b-note">—</p></div>' +
-      '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Диапазон дат</p>' +
-        '<p class="b-note">Включая будущие записи. Прибыль = оборот, чистое = оборот − затраты.</p>' +
+      '<div id="statsContainer"><p class="b-note">—</p></div>'
+    );
+  }
+
+  function openRange() {
+    var bounds = L().statsMonthBounds_();
+    sh().openSheet({
+      title: "Расчёт по датам",
+      id: "stats-range",
+      html: '<p class="b-note">Включая будущие записи. Прибыль это оборот, чистое это оборот минус затраты.</p>' +
         '<div class="nx-pair">' +
           '<div><p class="b-note">С</p><label class="b-field"><input class="b-field__input" type="date" id="statsExpectFrom" value="' + esc(bounds.from) + '"></label></div>' +
           '<div><p class="b-note">По</p><label class="b-field"><input class="b-field__input" type="date" id="statsExpectTo" value="' + esc(bounds.to) + '"></label></div>' +
         "</div>" +
-        '<button type="button" class="b-btn b-btn--main" style="margin-top:12px" data-act="st-range">Посчитать</button>' +
-        '<div id="statsExpectBox"></div></article>'
-    );
+        '<div id="statsExpectBox"></div>',
+      foot: '<button type="button" class="b-btn b-btn--main" data-act="st-range">Посчитать</button>'
+    });
   }
 
   function applyRes(res) {
@@ -321,11 +327,13 @@
     }
     var n = L().statsExpectedRows_(res);
     var by = n.by;
-    box.innerHTML = '<div class="nx-tiles" style="margin-top:12px">' +
-      tile("Прибыль (=оборот)", n.profit) + tile("Чистое", n.clean) +
-      tile("Затраты", n.cost) + tile("Доставок", n.deliveries) + "</div>" +
-      '<p class="b-note">' + esc(res.from) + " → " + esc(res.to) + "</p>" +
-      '<p class="b-note">ПП ' + esc(by.pp || 0) + ", БП " + esc(by.bp || 0) + ", розница " + esc(by.retail || 0) + ", партнёр-заказ " + esc(by.partner || 0) + "</p>" +
+    box.innerHTML = '<div class="nx-counters" style="margin-top:12px">' +
+      '<div class="nx-count"><b>' + esc(String(n.profit)) + '</b><span>Прибыль</span></div>' +
+      '<div class="nx-count"><b>' + esc(String(n.clean)) + '</b><span>Чистое</span></div>' +
+      '<div class="nx-count"><b>' + esc(String(n.cost)) + '</b><span>Затраты</span></div>' +
+      '<div class="nx-count"><b>' + esc(String(n.deliveries)) + '</b><span>Доставок</span></div></div>' +
+      '<p class="b-note">с ' + esc(res.from) + " по " + esc(res.to) + "</p>" +
+      '<p class="b-note">ПП ' + esc(by.pp || 0) + ", БП " + esc(by.bp || 0) + ", розница " + esc(by.retail || 0) + ", партнёр " + esc(by.partner || 0) + "</p>" +
       n.lines.map(function (row) { return line(row.label, row.value); }).join("") +
       (n.feeLine ? '<p class="b-note">' + esc(n.feeLine) + "</p>" : "");
   }
@@ -355,6 +363,7 @@
     if (act === "st-next") { shift(1); return true; }
     if (act === "st-reload") { load({ force: true }); return true; }
     if (act === "st-export") { exportTsv(); return true; }
+    if (act === "st-range-open") { openRange(); return true; }
     if (act === "st-range") { range(); return true; }
     if (act === "st-cutter-on") { cutter(true); return true; }
     if (act === "st-cutter-off") { cutter(false); return true; }
