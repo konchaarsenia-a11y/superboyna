@@ -9,6 +9,8 @@
   var cutDone = null;
   var cutDetail = false;
   var cutSession = { active: false, startedAt: 0, day: "", timer: null, poll: null };
+  var cutCutter = null;
+  var cutterWait = null;
   var cutFlags = Object.create(null);
   var asm = null;
   var asmDaySeen = "";
@@ -312,8 +314,14 @@
       '<div class="b-card"><b>' + c.toCut + '</b><span class="b-note">осталось нарезать</span></div>' +
       '<div class="b-card"><b>' + c.laidOnly + '</b><span class="b-note">выложено, не нарезано</span></div>' +
       '<div class="b-card"><b>' + c.both + '</b><span class="b-note">выложено и нарезано</span></div></div>';
+    if (cutCutter && (cutCutter.name || cutCutter.id)) {
+      html += '<p class="b-note">Сегодня режет ' + esc(cutCutter.name || cutCutter.id) + "</p>";
+    }
     if (cutSession.active) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" id="nxCutTimer" style="margin:0">' + esc(formatElapsed(Date.now() - cutSession.startedAt)) + '</p><p class="b-note">идёт нарезка</p></article>';
+      if (needCutterAsk_(cutCutter)) {
+        html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-cutter" style="margin-top:8px">Кто сегодня режет?</button>';
+      }
     } else if (cutItems.length) {
       html += '<button type="button" class="b-btn b-btn--main" data-act="pr-cut-start" style="margin-top:12px">Начать нарезку</button>';
     }
@@ -374,6 +382,7 @@
       return;
     }
     cutDate = (res && res.date) || cutDate;
+    cutCutter = (res && res.cutter && (res.cutter.id || res.cutter.name)) ? res.cutter : null;
     if (res && res.completion) {
       cutDone = res.completion;
       cutItems = ((res.items && res.items.length) ? res.items : (cutDone.items || [])).slice();
@@ -436,10 +445,130 @@
     return ok;
   }
 
+  function needCutterAsk_(cutter) {
+    return !(cutter && (String(cutter.id || "").trim() || String(cutter.name || "").trim()));
+  }
+
+  function cutVolumes_(items) {
+    var G = 0;
+    var P = 0;
+    (items || []).forEach(function (it) {
+      var dry = Number(it && it.dry) || 0;
+      var unit = String((it && it.unit) || "");
+      if (unit === "шт") P += dry;
+      else G += dry;
+    });
+    return { G: G, P: P };
+  }
+
+  function cutterWage_(G, P, N) {
+    var lib = root.BoinyaFormulas;
+    if (lib && lib.formulaParts_) return lib.formulaParts_({ G: G, P: P, N: N }).wage;
+    var wage = 2.5 * (Number(G) || 0) / 100 + 0.5 * (Number(P) || 0) + 3 * (Number(N) || 0);
+    return Math.round(wage * 100) / 100;
+  }
+
+  async function deliveriesOfDay_(day) {
+    try {
+      var res = await api().apiGet({ action: "getClients", day: day }, { timeoutMs: 20000, cacheTtlMs: 15000 });
+      var list = (res && res.clients) || [];
+      var n = 0;
+      list.forEach(function (c) {
+        if (String((c && c.status) || "").toLowerCase() === "cancelled") return;
+        n += 1;
+      });
+      return n;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function askCutter() {
+    return api().apiGet({ action: "listCuttingStaff" }, { timeoutMs: 12000, cacheTtlMs: 0 }).catch(function () {
+      return null;
+    }).then(function (staff) {
+      staff = staff || {};
+      var people = Array.isArray(staff.people) ? staff.people.slice() : [];
+      var def = staff.defaultCutter || {};
+      var defId = String(def.id || "");
+      if (!people.length && (defId || def.name)) {
+        people = [{ id: defId, name: def.name || "Нарезчик" }];
+      }
+      if (defId && !people.some(function (p) { return String(p.id || "") === defId; })) {
+        people.unshift({ id: defId, name: def.name || defId });
+      }
+      if (!people.length) {
+        sh().toast("Нет сотрудников с доступом");
+        return null;
+      }
+      var opts = people.map(function (p) {
+        var id = String(p.id || "");
+        var on = id && id === defId ? " selected" : "";
+        return '<option value="' + esc(id) + '"' + on + ">" + esc(p.name || id) + "</option>";
+      }).join("");
+      return new Promise(function (resolve) {
+        cutterWait = resolve;
+        sh().openSheet({
+          title: "Кто сегодня режет?",
+          html: '<p class="b-note">Один раз на этот день. По умолчанию тот, кто назначен нарезчиком на месяц.</p>' +
+            '<label class="b-field"><span class="b-note">Сотрудник</span><select class="b-field__input" id="nxCutterPick">' + opts + "</select></label>" +
+            '<button type="button" class="b-btn b-btn--main" data-act="pr-cutter-ok" style="margin-top:12px">Это он</button>',
+          onClose: function () {
+            if (!cutterWait) return;
+            var done = cutterWait;
+            cutterWait = null;
+            done(null);
+          }
+        });
+      });
+    });
+  }
+
+  async function saveCutter(day, picked) {
+    var vol = cutVolumes_(cutItems);
+    var N = await deliveriesOfDay_(day);
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "saveCuttingCutter",
+        day: day,
+        cutterId: picked.id || "",
+        cutterName: picked.name || "",
+        G: String(vol.G),
+        P: String(vol.P),
+        N: String(N),
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    } catch (e) { res = null; }
+    if (!res || res.status !== "success") return null;
+    return {
+      id: (res.cutter && res.cutter.id) || picked.id || "",
+      name: (res.cutter && res.cutter.name) || picked.name || "",
+      iso: res.iso || "",
+      wage: res.wage != null ? res.wage : cutterWage_(vol.G, vol.P, N),
+      G: vol.G,
+      P: vol.P,
+      N: N
+    };
+  }
+
   async function startCut() {
     var day = currentDay("nxCutDay", "cut");
     if (!day) { sh().toast("Сначала выберите день"); return; }
     if (!cutItems.length) { sh().toast("Нечего резать"); return; }
+    if (needCutterAsk_(cutCutter)) {
+      var picked = await askCutter();
+      if (!picked || (!picked.id && !picked.name)) {
+        sh().toast("Нарезка не начата");
+        return;
+      }
+      var saved = await saveCutter(day, picked);
+      if (!saved) {
+        sh().toast("Не записалось, кто режет");
+        return;
+      }
+      cutCutter = saved;
+    }
     var startedAt = Date.now();
     try {
       var res = await api().apiGet({ action: "startCuttingSession", day: day, startedAt: startedAt }, { timeoutMs: 20000, cacheTtlMs: 0 });
@@ -1596,6 +1725,30 @@
     }
     if (act === "pr-dep-open") { openDepot(); return true; }
     if (act === "pr-dep") { setDepot(node.getAttribute("data-id")); return true; }
+    if (act === "pr-cutter-ok") {
+      var sel = document.getElementById("nxCutterPick");
+      var id = sel ? String(sel.value || "") : "";
+      var name = "";
+      if (sel && sel.options && sel.selectedIndex >= 0) name = String(sel.options[sel.selectedIndex].text || "");
+      var donePick = cutterWait;
+      cutterWait = null;
+      sh().closeTop("ok");
+      if (donePick) donePick({ id: id, name: name });
+      return true;
+    }
+    if (act === "pr-cutter") {
+      var dayNow = currentDay("nxCutDay", "cut");
+      askCutter().then(function (picked) {
+        if (!picked || (!picked.id && !picked.name)) return;
+        return saveCutter(dayNow, picked).then(function (saved) {
+          if (!saved) { sh().toast("Не записалось, кто режет"); return; }
+          cutCutter = saved;
+          sh().toast("Сегодня режет " + (saved.name || saved.id));
+          paintCut();
+        });
+      });
+      return true;
+    }
     if (act === "pr-cut-start") { startCut(); return true; }
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
@@ -1697,6 +1850,9 @@
     show: show,
     onAct: onAct,
     seg: function () { return seg; },
+    needCutterAsk_: needCutterAsk_,
+    cutVolumes_: cutVolumes_,
+    cutterWage_: cutterWage_,
     slotLabel: slotLabel,
     windowLabel: windowLabel,
     pauseBackground: pauseBackground,

@@ -547,24 +547,72 @@
     };
   }
 
+  var ppMoney = null;
+  var ppMoneyState = "";
+
   function moneyFixed(v) {
     if (v == null) return "нет данных";
     return sh().money(v) + " BYN";
   }
 
+  /** Сводка ПП = тот же срез, что экран статистики (цена один раз на оплаченном слоте). */
+  function ppMoneyFromStats_(res) {
+    var lib = root.BoinyaStatsLogic;
+    if (!lib || !lib.statsScreen_) return null;
+    var screen = lib.statsScreen_(res || {}, null);
+    var pp = screen && screen.pp;
+    if (!pp) return null;
+    var turn = pp.turnover;
+    if (turn == null || !isFinite(Number(turn))) {
+      return { turnover: null, income: null, cost: null, month: String((res && res.monthKey) || "") };
+    }
+    var income = pp.profit == null || !isFinite(Number(pp.profit)) ? null : Number(pp.profit);
+    var cost = income == null ? null : Math.round((Number(turn) - income) * 100) / 100;
+    return {
+      turnover: Number(turn),
+      income: income,
+      cost: cost,
+      month: String((res && res.monthKey) || "")
+    };
+  }
+
+  async function loadPpMoney() {
+    var lib = root.BoinyaStatsLogic;
+    if (!lib || !lib.currentStatsMonthKey_) return;
+    var mk = lib.currentStatsMonthKey_();
+    if (ppMoney && ppMoney.month === mk && ppMoneyState === "ok") return;
+    ppMoneyState = "load";
+    try {
+      var res = await api().apiGet(
+        { action: "getStats", period: "month", month: mk },
+        { timeoutMs: 28000, cacheTtlMs: 20000 }
+      );
+      if (!res || res.status !== "success") throw new Error("stats");
+      var got = String(res.monthKey || "");
+      if (got && got !== mk) throw new Error("month");
+      ppMoney = ppMoneyFromStats_(res);
+      ppMoneyState = ppMoney ? "ok" : "err";
+    } catch (e) {
+      ppMoney = null;
+      ppMoneyState = "err";
+    }
+  }
+
   function ppTotalsHtml() {
     if (seg !== "pp") return "";
     var all = (subs || []).filter(function (s) { return String(s.sheet || "") === "ПП"; });
-    if (!all.length) return "";
-    var hasMoney = all.some(function (s) { return s.turnover != null || s.cost != null; });
-    if (!hasMoney) return "";
-    var t = ppListTotals_(subs);
+    if (!all.length && ppMoneyState !== "ok") return "";
+    var t = ppMoneyState === "ok" ? ppMoney : null;
+    var turn = t ? t.turnover : null;
+    var income = t ? t.income : null;
+    var cost = t ? t.cost : null;
+    var wait = ppMoneyState !== "ok" && ppMoneyState !== "err";
     return '<div class="nx-counters nx-pp-totals" style="margin:8px 0 12px">' +
-      '<div class="nx-count"><b>' + esc(moneyFixed(t.turnover)) + "</b><span>Оборот</span></div>" +
-      '<div class="nx-count"><b>' + esc(moneyFixed(t.income)) + "</b><span>Приход</span></div>" +
-      '<div class="nx-count"><b>' + esc(moneyFixed(t.cost)) + "</b><span>Себес</span></div>" +
+      '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(turn)) + "</b><span>Оборот</span></div>" +
+      '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(income)) + "</b><span>Приход</span></div>" +
+      '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(cost)) + "</b><span>Себес</span></div>" +
       "</div>" +
-      '<p class="b-note">Все клиенты ПП, цена один раз</p>';
+      '<p class="b-note">Этот месяц, цена один раз на слоте с оплатой, и только если эта доставка отвезена</p>';
   }
 
   function paintCard() {
@@ -781,6 +829,11 @@
     paint();
     if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list") {
       loadPeople().catch(function () {});
+      if (seg === "pp") {
+        loadPpMoney().then(function () {
+          if (view === "list" && seg === "pp") paint();
+        });
+      }
       loadSubs(false).then(function () {
         if (view === "list" && (seg === "pp" || seg === "afk" || seg === "bp")) paint();
       });
@@ -1221,7 +1274,13 @@
       if (root.__nxOpenNew) root.__nxOpenNew();
       return true;
     }
-    if (act === "cl-refresh") { loadSubs(true).then(paint); return true; }
+    if (act === "cl-refresh") {
+      ppMoney = null;
+      ppMoneyState = "";
+      if (seg === "pp") loadPpMoney().then(function () { if (view === "list" && seg === "pp") paint(); });
+      loadSubs(true).then(paint);
+      return true;
+    }
     if (act === "cl-bp-filter") { bpFilter = node.getAttribute("data-f"); paint(); return true; }
     if (act === "cl-bp-add") { showBpForm = true; loadPeople().then(paint); return true; }
     if (act === "cl-bp-cancel") { showBpForm = false; paint(); return true; }
@@ -1743,6 +1802,7 @@
     armEdit: armEdit,
     setSearch: setSearch,
     currentSeg: currentSeg,
-    ppListTotals_: ppListTotals_
+    ppListTotals_: ppListTotals_,
+    ppMoneyFromStats_: ppMoneyFromStats_
   };
 })(window);

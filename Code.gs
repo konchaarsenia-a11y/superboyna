@@ -2073,6 +2073,20 @@ function doGet(e) {
       startedAt: e.parameter.startedAt || ""
     }, callback, false);
   }
+  if (action === "saveCuttingCutter") {
+    return handleSaveCuttingCutter({
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      iso: e.parameter.iso || "",
+      cutterId: e.parameter.cutterId ? decodeURIComponent(e.parameter.cutterId) : "",
+      cutterName: e.parameter.cutterName ? decodeURIComponent(e.parameter.cutterName) : "",
+      G: e.parameter.G || "",
+      P: e.parameter.P || "",
+      N: e.parameter.N || ""
+    }, callback, false);
+  }
+  if (action === "listCuttingWages") {
+    return handleListCuttingWages({ month: e.parameter.month || "" }, callback, false);
+  }
   if (action === "stopCuttingSession") {
     return handleStopCuttingSession({ day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "" }, callback, false);
   }
@@ -3230,6 +3244,12 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "startCuttingSession") {
     return handleStartCuttingSession(json, callback, fromPost);
   }
+  if (action === "saveCuttingCutter") {
+    return handleSaveCuttingCutter(json, callback, fromPost);
+  }
+  if (action === "listCuttingWages") {
+    return handleListCuttingWages(json, callback, fromPost);
+  }
   if (action === "stopCuttingSession") {
     return handleStopCuttingSession(json, callback, fromPost);
   }
@@ -3709,6 +3729,125 @@ function collectTransferOnlyCutting_(ss, dayName) {
     if (map.hasOwnProperty(k)) lines.push({ label: k, val: map[k] });
   }
   return { clients: clients, lines: lines };
+}
+
+function cutterDayWageGs_(G, P, N) {
+  var g = Number(G) || 0;
+  var p = Number(P) || 0;
+  var n = Number(N) || 0;
+  return Math.round((2.5 * (g / 100) + 0.5 * p + 3 * n) * 100) / 100;
+}
+
+function cuttingWageSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("ЗП_Нарезка");
+  if (!sh) {
+    sh = ss.insertSheet("ЗП_Нарезка");
+    sh.getRange(1, 1, 1, 8).setValues([["Дата", "День", "Кто", "Имя", "G", "P", "N", "ЗП"]]);
+  }
+  return sh;
+}
+
+function handleSaveCuttingCutter(json, callback, fromPost) {
+  json = json || {};
+  var iso = String(json.iso || "").slice(0, 10);
+  var id = String(json.cutterId || json.id || "").trim();
+  var name = String(json.cutterName || json.name || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    var badDate = { status: "error", message: "need_date" };
+    return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
+  }
+  if (!id && !name) {
+    var badWho = { status: "error", message: "need_cutter" };
+    return fromPost ? jsonpText(callback, badWho) : jsonp(callback, badWho);
+  }
+  var G = Number(json.G) || 0;
+  var P = Number(json.P) || 0;
+  var N = Number(json.N) || 0;
+  var wage = cutterDayWageGs_(G, P, N);
+  var sh = cuttingWageSheet_();
+  var last = Math.max(sh.getLastRow(), 1);
+  var found = 0;
+  if (last >= 2) {
+    var dates = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < dates.length; i++) {
+      var cell = dates[i][0];
+      var text = "";
+      if (Object.prototype.toString.call(cell) === "[object Date]" && !isNaN(cell.getTime())) {
+        text = Utilities.formatDate(cell, Session.getScriptTimeZone(), "yyyy-MM-dd");
+      } else {
+        text = String(cell || "").slice(0, 10);
+      }
+      if (text === iso) { found = i + 2; break; }
+    }
+  }
+  var row = [iso, String(json.day || ""), id, name, G, P, N, wage];
+  if (found) sh.getRange(found, 1, 1, 8).setValues([row]);
+  else sh.getRange(last + 1, 1, 1, 8).setValues([row]);
+  var ok = {
+    status: "success",
+    iso: iso,
+    cutter: { id: id, name: name },
+    G: G, P: P, N: N, wage: wage,
+    countsInCost: true,
+    countsInProfit: false
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleListCuttingWages(json, callback, fromPost) {
+  json = json || {};
+  var month = String(json.month || json.monthKey || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    var bad = { status: "error", message: "month" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sh = cuttingWageSheet_();
+  var last = sh.getLastRow();
+  var days = [];
+  var by = {};
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, 8).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      var cell = vals[i][0];
+      var iso = "";
+      if (Object.prototype.toString.call(cell) === "[object Date]" && !isNaN(cell.getTime())) {
+        iso = Utilities.formatDate(cell, Session.getScriptTimeZone(), "yyyy-MM-dd");
+      } else {
+        iso = String(cell || "").slice(0, 10);
+      }
+      if (iso.slice(0, 7) !== month) continue;
+      var id = String(vals[i][2] || "");
+      var name = String(vals[i][3] || "");
+      var G = Number(vals[i][4]) || 0;
+      var P = Number(vals[i][5]) || 0;
+      var N = Number(vals[i][6]) || 0;
+      var wage = Number(vals[i][7]);
+      if (!isFinite(wage)) wage = cutterDayWageGs_(G, P, N);
+      days.push({ iso: iso, day: String(vals[i][1] || ""), cutterId: id, cutterName: name, G: G, P: P, N: N, wage: wage });
+      var key = id || name;
+      if (!by[key]) by[key] = { id: id, name: name, wage: 0, days: 0, G: 0, P: 0, N: 0 };
+      by[key].wage = Math.round((by[key].wage + wage) * 100) / 100;
+      by[key].days += 1;
+      by[key].G += G;
+      by[key].P += P;
+      by[key].N += N;
+      if (name) by[key].name = name;
+    }
+  }
+  var staff = [];
+  for (var k in by) if (by.hasOwnProperty(k)) staff.push(by[k]);
+  var ok = {
+    status: "success",
+    month: month,
+    formula: "2.50×G/100 + 0.50×P + 3.00×N",
+    countsInCost: true,
+    countsInProfit: false,
+    note: "ЗП дня уже внутри себестоимости. В чистую прибыль отдельно не прибавляется.",
+    staff: staff,
+    days: days
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function getCuttingSession_() {
