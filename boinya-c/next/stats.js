@@ -157,7 +157,7 @@
       html += shelfMoney("Себестоимость", now.cost, before ? before.cost : null);
       html += shelfCount("Доставки", now.N, before ? before.N : null);
       if (roll && Number(roll.missingBasket) > 0) {
-        html += line("Без состава", String(roll.missingBasket) + " не в обороте");
+        html += line("Без состава", String(roll.missingBasket) + ", цена в обороте");
       }
       if (roll && Number(roll.missingPrice) > 0) {
         html += line("Без цены", String(roll.missingPrice) + " не в обороте");

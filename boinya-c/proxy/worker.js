@@ -11911,7 +11911,7 @@ async function cutoverGetStats_(params, env, ctx) {
   const mode = String((params && (params.mode || params.expected)) || "").toLowerCase();
   const monthRaw = String((params && (params.month || params.monthKey)) || "").trim();
   const monthKey = /^\d{4}-\d{2}$/.test(monthRaw) ? monthRaw : "";
-  const snapKey = monthKey ? "getStats:" + monthKey : "getStats";
+  const snapKey = monthKey ? "getStats28:" + monthKey : "getStats28";
 
   // expected/range — всегда живой GAS (другие даты)
   if (
@@ -11928,11 +11928,11 @@ async function cutoverGetStats_(params, env, ctx) {
         const mk =
           String((live && live.monthKey) || monthKey || "").trim() ||
           "";
-        const key = /^\d{4}-\d{2}$/.test(mk) ? "getStats:" + mk : snapKey;
+        const key = /^\d{4}-\d{2}$/.test(mk) ? "getStats28:" + mk : snapKey;
         await putSnap_(env, key, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
         // legacy alias для текущего месяца без month в запросе
-        if (key.indexOf("getStats:") === 0) {
-          await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        if (key.indexOf("getStats28:") === 0) {
+          await putSnap_(env, "getStats28", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
         }
       } catch (eS) {}
     }
@@ -11946,7 +11946,7 @@ async function cutoverGetStats_(params, env, ctx) {
 
   // чужой месяц без force — не отдавать snap текущего месяца
   if (monthKey) {
-    const monthSnap = await getSnapRaw_(env, "getStats:" + monthKey);
+    const monthSnap = await getSnapRaw_(env, "getStats28:" + monthKey);
     const monthOk =
       monthSnap &&
       monthSnap.status === "success" &&
@@ -11965,7 +11965,7 @@ async function cutoverGetStats_(params, env, ctx) {
                 if (liveBg && liveBg.status === "success" && env && env.DB) {
                   await putSnap_(
                     env,
-                    "getStats:" + monthKey,
+                    "getStats28:" + monthKey,
                     Object.assign({}, liveBg, { cachedAt: new Date().toISOString() })
                   );
                 }
@@ -11987,7 +11987,7 @@ async function cutoverGetStats_(params, env, ctx) {
       try {
         await putSnap_(
           env,
-          "getStats:" + monthKey,
+          "getStats28:" + monthKey,
           Object.assign({}, liveM, { cachedAt: new Date().toISOString() })
         );
       } catch (eSM) {}
@@ -12000,7 +12000,7 @@ async function cutoverGetStats_(params, env, ctx) {
     return liveM || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
   }
 
-  const snap = await getSnapRaw_(env, "getStats");
+  const snap = await getSnapRaw_(env, "getStats28");
   const snapOk = snap && snap.status === "success" && (snap.fact || snap.bp || snap.month);
   const snapAgeMs =
     snap && snap.cachedAt ? Date.now() - Date.parse(String(snap.cachedAt)) : Number.POSITIVE_INFINITY;
@@ -12011,9 +12011,9 @@ async function cutoverGetStats_(params, env, ctx) {
     if (live && live.status === "success" && env && env.DB) {
       try {
         const mk = String((live && live.monthKey) || "").trim();
-        await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        await putSnap_(env, "getStats28", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
         if (/^\d{4}-\d{2}$/.test(mk)) {
-          await putSnap_(env, "getStats:" + mk, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+          await putSnap_(env, "getStats28:" + mk, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
         }
       } catch (eS) {}
     }
@@ -15869,7 +15869,7 @@ async function handleCutover_(a, params, env, ctx) {
             const mm = d.getMonth() + 1;
             const mk = d.getFullYear() + "-" + (mm < 10 ? "0" : "") + mm;
             try {
-              await putSnap_(env, "getStats:" + mk, {
+              await putSnap_(env, "getStats28:" + mk, {
                 status: "stale",
                 message: "staff_changed",
                 cachedAt: new Date().toISOString()
@@ -15877,7 +15877,7 @@ async function handleCutover_(a, params, env, ctx) {
             } catch (eSt) {}
           }
           try {
-            await putSnap_(env, "getStats", {
+            await putSnap_(env, "getStats28", {
               status: "stale",
               message: "staff_changed",
               cachedAt: new Date().toISOString()
