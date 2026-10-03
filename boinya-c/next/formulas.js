@@ -511,7 +511,6 @@
     var i;
     for (i = 0; i < cycle.length; i++) {
       var row = cycle[i];
-      if (row.missingBasket) continue;
       var paid = String(row.paid || "");
       if (paid === "yes") yes.push(row);
       else if (paid !== "no") {
@@ -530,6 +529,25 @@
     return pool.length ? pool[0] : null;
   }
 
+  function ppMonthCarrier_(cycle, from, to) {
+    function inn(iso) {
+      iso = isoDay_(iso);
+      return (!from || iso >= from) && (!to || iso <= to);
+    }
+    var pay = ppPayRow_(cycle);
+    if (pay && inn(pay.iso)) return pay;
+    var pick = null;
+    var i;
+    for (i = 0; i < (cycle || []).length; i++) {
+      var row = cycle[i];
+      if (!row.delivered || !inn(row.iso)) continue;
+      var slot = ppSlot_(row);
+      if (slot >= 2 && String(row.paid || "") !== "yes") continue;
+      if (!pick || isoDay_(row.iso) < isoDay_(pick.iso)) pick = row;
+    }
+    return pick;
+  }
+
   function blankShare_() {
     return { revenue: 0, S: 0, G: 0, P: 0, N: 0, missingBasket: 0 };
   }
@@ -544,30 +562,39 @@
     var ci;
     for (ci = 0; ci < cycles.length; ci++) {
       var cycle = cycles[ci];
-      var pay = ppPayRow_(cycle);
       var seen = {};
       var ri;
       for (ri = 0; ri < cycle.length; ri++) {
         var row = cycle[ri];
         var mk = isoDay_(row.iso).slice(0, 7);
         if (!/^\d{4}-\d{2}$/.test(mk)) continue;
-        if (row.missingBasket) {
-          if (row.delivered) bucket(mk).missingBasket++;
-          continue;
-        }
+        if (row.missingBasket && row.delivered) bucket(mk).missingBasket++;
         if (!row.delivered) continue;
         var b = bucket(mk);
+        if (!seen[mk]) seen[mk] = {};
         var sig = String(row.sig || "");
-        if (!(sig && seen[sig])) {
+        if (!(sig && seen[mk][sig])) {
           b.S = kopeck_(b.S + num_(row.S));
           b.G += num_(row.G);
           b.P += num_(row.P);
         }
         b.N += 1;
-        if (sig) seen[sig] = true;
+        if (sig) seen[mk][sig] = true;
       }
-      if (pay && pay.delivered && num_(pay.price) > 0) {
-        bucket(isoDay_(pay.iso).slice(0, 7)).revenue = kopeck_(bucket(isoDay_(pay.iso).slice(0, 7)).revenue + num_(pay.price));
+      var priced = {};
+      for (ri = 0; ri < cycle.length; ri++) {
+        var prow = cycle[ri];
+        if (!prow.delivered || !(num_(prow.price) > 0)) continue;
+        var pslot = ppSlot_(prow);
+        var ppayed = String(prow.paid || "");
+        if (pslot >= 2 && ppayed !== "yes") continue;
+        var pmk = isoDay_(prow.iso).slice(0, 7);
+        if (!priced[pmk]) priced[pmk] = prow;
+      }
+      var pkeys = Object.keys(priced);
+      var pi;
+      for (pi = 0; pi < pkeys.length; pi++) {
+        bucket(pkeys[pi]).revenue = kopeck_(bucket(pkeys[pi]).revenue + num_(priced[pkeys[pi]].price));
       }
     }
     return by;
@@ -641,11 +668,7 @@
     for (i = 0; i < rest.length; i++) {
       var one = rest[i];
       var price = num_(one.price);
-      if (one.missingBasket) {
-        if (one.delivered) out.missingBasket++;
-        else out.pending.N += 1;
-        continue;
-      }
+      if (one.delivered && one.missingBasket) out.missingBasket++;
       if (one.delivered) {
         addU(out, one.S, one.G, one.P, 1);
         if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
@@ -671,22 +694,15 @@
       var ci;
       for (ci = 0; ci < cycles.length; ci++) {
         var cycle = cycles[ci];
-        var pay = ppPayRow_(cycle);
+        var pay = ppMonthCarrier_(cycle, from, to);
         var seen = {};
         var ri;
         for (ri = 0; ri < cycle.length; ri++) {
           var slotRow = cycle[ri];
           var slotIso = isoDay_(slotRow.iso);
-          if (!inside(slotIso)) {
-            if (slotRow.delivered && slotRow.sig) seen[String(slotRow.sig)] = true;
-            continue;
-          }
-          if (slotRow.missingBasket) {
-            if (slotRow.delivered) out.missingBasket++;
-            else out.pending.N += 1;
-            continue;
-          }
-          if (slotRow.delivered) {
+        if (!inside(slotIso)) continue;
+        if (slotRow.delivered && slotRow.missingBasket) out.missingBasket++;
+        if (slotRow.delivered) {
             var sig = String(slotRow.sig || "");
             if (!(sig && seen[sig])) addU(out, slotRow.S, slotRow.G, slotRow.P, 0);
             if (!(sig && seen[sig])) addU(out.pp, slotRow.S, slotRow.G, slotRow.P, 0);
