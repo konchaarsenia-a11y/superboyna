@@ -896,6 +896,8 @@ var ASM_CHEW_PER_BIG = 4;
       ];
     }
 
+    var PRICE_PICK_EX_KEY_ = "boinya_c_pick_examples_v1";
+
     function pricePickReadStoredExamples_() {
       try {
         if (typeof localStorage === "undefined") return [];
