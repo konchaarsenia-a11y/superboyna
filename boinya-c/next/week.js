@@ -39,6 +39,9 @@
   var compareGen = 0;
   var COMPARE_TTL = 30000;
   var STALE_TTL = 300000;
+  var dirtyMonths = {};
+  var pending = [];
+  var refreshGen = {};
   var segsFn = function () { return []; };
 
   function esc(s) { return sh().esc(s); }
@@ -552,15 +555,19 @@
 
   function fetchMonthPeople(month, opts) {
     opts = opts || {};
+    if (dirtyMonths[month]) opts.force = true;
     if (!opts.force && monthPeopleCache[month]) return Promise.resolve(monthPeopleCache[month]);
     if (!opts.force && peopleFlight[month]) return peopleFlight[month];
+    var gen = opts.gen || 0;
     var flight = api().apiGet(
       { action: "getCalendarMonthPeople", month: month },
       { timeoutMs: 12000, cacheTtlMs: opts.force ? 0 : 60000 }
     ).then(function (res) {
+      if (gen && refreshGen[month] !== gen) return monthPeopleCache[month] || null;
       if (res && res.byDate && typeof res.byDate === "object" && res.source && res.source !== "d1-error" && res.source !== "nodb") {
-        monthPeopleCache[month] = res;
-        return res;
+        if (!res.month) res.month = month;
+        absorbPeople(month, res);
+        return monthPeopleCache[month];
       }
       return null;
     }).catch(function () {
@@ -621,6 +628,7 @@
 
   function fetchOverview(month, opts) {
     opts = opts || {};
+    if (dirtyMonths[month]) opts.force = true;
     if (!opts.force && overviewCache[month]) {
       var cur = (view.calCursor || view.date || "").slice(0, 7);
       if (cur === month) view.overview = overviewCache[month];
@@ -629,16 +637,16 @@
       paint();
       return Promise.resolve(overviewCache[month]);
     }
-    view.overviewLoading = true;
-    return api().apiGet({ action: "getMonthOverview", month: month }, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
-      if (res && (res.days || res.status === "success")) {
-        overviewCache[month] = res;
-        var now = (view.calCursor || view.date || "").slice(0, 7);
-        if (now === month) view.overview = res;
-      }
+    var quiet = !!opts.silent || (!!overviewCache[month] && !opts.loud);
+    if (!quiet) view.overviewLoading = true;
+    var q = { action: "getMonthOverview", month: month };
+    if (opts.force) q.force = "1";
+    return api().apiGet(q, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
+      if (res && (res.days || res.status === "success")) absorbOverview(month, res);
       view.overviewLoading = false;
       view.loading = false;
-      paint();
+      if (quiet && weekOnScreen()) paintMonthQuiet();
+      else paint();
       var shown = (view.monthClients || []).length + (view.weekClients || []).length;
       var expectShown = logic().countFromMonth(view.overview, view.date);
       if (view.date && expectShown > 0 && !shown && !view.listLoading && (view.date || "").slice(0, 7) === month) {
@@ -648,15 +656,154 @@
     }).catch(function () {
       view.overviewLoading = false;
       view.loading = false;
-      paint();
+      if (!quiet) paint();
     });
+  }
+
+  function monthStores() {
+    var list = [{ overview: overviewCache, people: monthPeopleCache }];
+    try {
+      if (ord() && ord().monthStore) list.push(ord().monthStore());
+    } catch (e) {}
+    list.forEach(function (st) { st.pending = pending; });
+    return list;
+  }
+
+  function personKnown(date, client) {
+    var key = logic().isoDay(date);
+    if (!key) return false;
+    var pack = monthPeopleCache[key.slice(0, 7)];
+    if (!pack || !pack.byDate || !Array.isArray(pack.byDate[key])) return false;
+    var want = logic().viewClientKey((client && (client.matchKey || client.name || client.client)) || "");
+    if (!want) return false;
+    for (var i = 0; i < pack.byDate[key].length; i++) {
+      var row = pack.byDate[key][i];
+      if (logic().viewClientKey((row && (row.matchKey || row.name)) || "") === want) return true;
+    }
+    return false;
+  }
+
+  function publishOverview(month, res) {
+    if (!month || !res) return;
+    overviewCache[month] = res;
+    try {
+      var st = ord() && ord().monthStore && ord().monthStore();
+      if (st && st.overview) st.overview[month] = res;
+    } catch (e) {}
+    if ((view.calCursor || view.date || "").slice(0, 7) === month) view.overview = res;
+  }
+
+  function pendingFor(month) {
+    return pending.filter(function (p) {
+      if (!p) return false;
+      return (p.date && p.date.slice(0, 7) === month) || (p.oldDate && p.oldDate.slice(0, 7) === month);
+    });
+  }
+
+  function pendingStamp(p) {
+    var who = (p && p.client && (p.client.matchKey || p.client.name)) || "";
+    return String(p && p.op) + "|" + String(p && p.date) + "|" + String(p && p.oldDate || "") + "|" + logic().viewClientKey(who);
+  }
+
+  function syncPeopleView() {
+    var month = displayedMonth();
+    if (overviewCache[month]) view.overview = overviewCache[month];
+    var pack = monthPeopleCache[month];
+    if (!view.date || !logic().monthPeopleReady(pack, view.overview)) return;
+    var listed = logic().peopleForDate(pack, view.date);
+    var cmp = logic().resFromPeople(view.date, listed);
+    applyCompare(cmp);
+    compareCache[compareKey()] = { at: Date.now(), res: cmp };
+  }
+
+  function paintMonthQuiet() {
+    syncPeopleView();
+    if (!weekOnScreen()) return;
+    view.loading = false;
+    view.overviewLoading = false;
+    view.listLoading = false;
+    var grid = typeof document !== "undefined" && document.getElementById("nxCalGrid");
+    if (!grid) {
+      paint();
+      return;
+    }
+    var holder = document.createElement("div");
+    holder.innerHTML = monthCal();
+    var nextGrid = holder.querySelector("#nxCalGrid");
+    if (nextGrid) grid.innerHTML = nextGrid.innerHTML;
+    var sum = document.getElementById("nxCalSum");
+    var nextSum = holder.querySelector("#nxCalSum");
+    if (sum && nextSum) sum.innerHTML = nextSum.innerHTML;
+    var list = document.getElementById("nxDayList");
+    if (list) list.innerHTML = dayListHtml();
+    dock();
+    if (root.__nxAfterWeekPaint) root.__nxAfterWeekPaint();
+  }
+
+  function absorbPeople(month, pack) {
+    var merged = logic().mergePeoplePack(pack, pendingFor(month));
+    if (!merged.pack) return;
+    monthPeopleCache[month] = merged.pack;
+    var keep = {};
+    (merged.pending || []).forEach(function (p) { keep[pendingStamp(p)] = 1; });
+    pending = pending.filter(function (p) {
+      var inMonth = (p.date && p.date.slice(0, 7) === month) || (p.oldDate && p.oldDate.slice(0, 7) === month);
+      if (!inMonth) return true;
+      return !!keep[pendingStamp(p)];
+    });
+    if (overviewCache[month]) publishOverview(month, logic().countsFromPeople(overviewCache[month], merged.pack));
+  }
+
+  function absorbOverview(month, res) {
+    var merged = logic().mergeOverview(overviewCache[month], res, pendingFor(month), month);
+    if (monthPeopleCache[month]) merged = logic().countsFromPeople(merged, monthPeopleCache[month]);
+    if (merged) publishOverview(month, merged);
+  }
+
+  function silentRefreshMonth(month) {
+    if (!month || !api()) return;
+    var gen = (refreshGen[month] || 0) + 1;
+    refreshGen[month] = gen;
+    if (api().bustMem) api().bustMem(["getMonthOverview", "getCalendarMonthPeople", "getViewCompare", "getWeekDayCounts"]);
+    api().apiGet({ action: "getMonthOverview", month: month, force: "1" }, { timeoutMs: 18000, cacheTtlMs: 0 }).then(function (res) {
+      if (refreshGen[month] !== gen) return;
+      if (res && (res.days || res.status === "success")) absorbOverview(month, res);
+      if (!pendingFor(month).length) delete dirtyMonths[month];
+      if (weekOnScreen() && displayedMonth() === month) paintMonthQuiet();
+    }).catch(function () {});
+    fetchMonthPeople(month, { force: true, gen: gen }).then(function () {
+      if (refreshGen[month] !== gen) return;
+      if (!pendingFor(month).length) delete dirtyMonths[month];
+      if (weekOnScreen() && displayedMonth() === month) paintMonthQuiet();
+    });
+    loadCounts().catch(function () {});
+  }
+
+  function noteMonth(change) {
+    var changes = Array.isArray(change) ? change : [change];
+    var months = {};
+    changes.forEach(function (ch) {
+      if (!ch) return;
+      if (ch.op !== "remove" && ch.op !== "touch") ch.known = personKnown(ch.date, ch.client);
+      var got = null;
+      monthStores().forEach(function (st) { got = logic().applyMonthChange(st, ch); });
+      if (got && got.pending) pending.push(got.pending);
+      (got && got.months || []).forEach(function (m) { months[m] = 1; });
+    });
+    var list = Object.keys(months);
+    if (!list.length) {
+      var shown = displayedMonth();
+      if (shown) list = [shown];
+    }
+    list.forEach(function (m) { dirtyMonths[m] = true; });
+    paintMonthQuiet();
+    list.forEach(silentRefreshMonth);
   }
 
   async function load(opts) {
     opts = opts || {};
     if (opts.force) {
       compareCache = {};
-      monthPeopleCache = {};
       peopleFlight = {};
     }
     var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
@@ -740,7 +887,26 @@
     });
     var res = await api().apiGet(params, { timeoutMs: 35000, cacheTtlMs: 0 });
     confirmWrite(res, "перенесено");
-    if (logic().writeAccepted(res)) load({ force: true });
+    if (logic().writeAccepted(res)) {
+      noteMonth({
+        op: "move",
+        date: newDate,
+        oldDate: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
+        client: {
+          name: c.name,
+          matchKey: c.matchKey || "",
+          address: c.address || "",
+          phone: c.phone || "",
+          note: c.note || "",
+          segment: c.segment || "",
+          orderType: ot,
+          basket: c.basket || [],
+          orderPrice: c.orderPrice,
+          ppSlot: c.ppSlot || "",
+          day: newDay
+        }
+      });
+    }
   }
 
   async function delOne(c) {
@@ -764,7 +930,13 @@
     });
     var res = await api().apiGet(params, { timeoutMs: 30000, cacheTtlMs: 0 });
     confirmWrite(res, "удалено");
-    if (logic().writeAccepted(res)) load({ force: true });
+    if (logic().writeAccepted(res)) {
+      noteMonth({
+        op: "remove",
+        date: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
+        client: c
+      });
+    }
   }
 
   async function setSlot(c, slot) {
@@ -821,7 +993,13 @@
     view.drafts = [];
     var added = res.result && res.result.added;
     sh().toast("Добавлено: " + (added || 0));
-    load({ force: true });
+    noteMonth(snap.map(function (c) {
+      return {
+        op: "save",
+        date: view.date,
+        client: c
+      };
+    }));
   }
 
   async function countOnIso(iso) {
@@ -860,6 +1038,7 @@
         } catch (e) { p = null; }
         if (p && p.sheetsVerified && (p.status === "success" || p.status === "accepted")) {
           sh().toast("Точно " + (done || "сохранено"));
+          Object.keys(dirtyMonths).forEach(silentRefreshMonth);
           return;
         }
         if (p && p.status === "error" && !p.pendingSheets && !p.pendingSheetsMirror && !p.d1Verified) {
@@ -1208,6 +1387,7 @@
     onAct: onAct,
     confirmWrite: confirmWrite,
     confirmFullDay: confirmFullDay,
+    noteMonth: noteMonth,
     setRole: function (role) { view.role = role || ""; },
     setDay: function (day) {
       if (!day) return;

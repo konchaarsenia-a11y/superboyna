@@ -469,6 +469,21 @@
     }), { timeoutMs: 35000, cacheTtlMs: 0 });
     sh().toast(L().peopleToast(placed, "перенесено"));
     if (L().writeAccepted(placed)) {
+      if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) {
+        root.BoinyaWeek.noteMonth({
+          op: "move",
+          date: newDate,
+          oldDate: p.dateIso || p.date || "",
+          client: {
+            name: task.clientNick || p.client || "",
+            matchKey: p.matchKey || "",
+            address: p.address || "",
+            phone: p.phone || "",
+            note: p.note || "",
+            segment: p.segment || ""
+          }
+        });
+      }
       await refresh();
       sh().closeAll();
     }
