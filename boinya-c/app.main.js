@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71122400";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71122700";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -17336,7 +17336,8 @@
         showToast("БП → ПП…");
         var res = await apiGet({
           action: "moveSubscription",
-          nick: label || nick,
+          nick: nick,
+          label: label || nick,
           subId: subId,
           fromSheet: "БП",
           toSheet: "ПП",
@@ -24055,7 +24056,7 @@
       costSum = Number(costSum) || 0;
       var scheme = subDetailSchemeValue_();
       coef = Number(coef) || (scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
-      n = Math.max(1, Number(n) || 1);
+      n = monthDeliveriesN_(n);
       packagesByn = Number(packagesByn) || 0;
       fracTotal = Number(fracTotal) || 0;
       var total;
@@ -24230,7 +24231,7 @@
         applySubDetailFact_("", "Состав пуст — стоимость 0");
         return;
       }
-      var n = Math.max(1, Number(document.getElementById("subDetailDeliveries") && document.getElementById("subDetailDeliveries").value) || 1);
+      var n = monthDeliveriesN_(document.getElementById("subDetailDeliveries") && document.getElementById("subDetailDeliveries").value);
       var coef = subDetailCoefValue_();
       var seq = ++_subDetailFactSeq;
       var hint = document.getElementById("subDetailFactHint");
@@ -24876,7 +24877,7 @@
         return (Number(it && (it.val != null ? it.val : it.value)) || 0) > 0 && (it.main || it.name);
       });
       if (!list.length) return "";
-      var n = Math.max(1, Number((document.getElementById("subDetailDeliveries") || {}).value) || 1);
+      var n = monthDeliveriesN_((document.getElementById("subDetailDeliveries") || {}).value);
       var stated = Number((document.getElementById("subDetailStatedPrice") || {}).value);
       var fact = Number((document.getElementById("subDetailFact") || {}).value);
       var schMsg = (typeof subDetailSchemeValue_ === "function") ? subDetailSchemeValue_() : "LEGACY";
@@ -24963,7 +24964,8 @@
         showToast("Переношу…");
         var res = await apiGet({
           action: "moveSubscription",
-          nick: label || nick,
+          nick: nick,
+          label: label || nick,
           subId: subId,
           fromSheet: fromSheet,
           toSheet: toSheet,
@@ -25018,7 +25020,8 @@
         showToast("Удаляю…");
         var res = await apiGet({
           action: "deleteSubscription",
-          nick: label || nick,
+          nick: nick,
+          label: label || nick,
           subId: subId,
           sheet: sheet,
           segment: sheet,
@@ -25565,7 +25568,7 @@
       }
       syncPricePacksFromBasket_();
       var nEl = document.getElementById("priceDeliveriesN");
-      var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
+      var deliveriesN = monthDeliveriesN_(nEl && nEl.value);
       syncPricePpSchemeDefaults_();
       var fp = priceBasketFingerprint(list) + "|N" + deliveriesN + "|S" + pricePpScheme;
       if (pricePpApiCache && pricePpApiCache.fingerprint === fp && pricePpApiCache.res) {
@@ -25578,7 +25581,7 @@
 
     function renderPpResultFromApi(res, list, retailCached) {
       var nEl = document.getElementById("priceDeliveriesN");
-      var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
+      var deliveriesN = monthDeliveriesN_(nEl && nEl.value);
       syncPricePpSchemeDefaults_();
       var coef = getPricePpCoef();
       var packagesByn = calcPricePacksByn();
@@ -25597,6 +25600,7 @@
       var apiScheme = normalizePpSchemeLocal_(res && (res.scheme || res.ppScheme));
       var useApiFact = apiScheme === pricePpScheme &&
         res && res.factCost != null && isFinite(Number(res.factCost));
+      if (pricePpScheme === "RAW26" && useApiFact && !raw26ApiFactUsable_(res, deliveriesN)) useApiFact = false;
       if (pricePpScheme === "RAW26") {
         var recover = useApiFact && res.recoverByn != null
           ? Number(res.recoverByn) || 0
@@ -25975,9 +25979,42 @@
       return money2_(subTotal);
     }
 
+    /** Месячное N. «2», «2/мес», «2 доставки» → 2. Слот «1/2» → знаменатель 2, не 1. */
+    function monthDeliveriesN_(raw) {
+      if (typeof raw === "number" && isFinite(raw) && raw >= 1) return Math.max(1, Math.round(raw));
+      var s = String(raw == null ? "" : raw).trim().replace(",", ".");
+      if (!s) return 1;
+      if (/^\d+(?:\.\d+)?$/.test(s)) {
+        var plain = Math.round(Number(s));
+        return plain >= 1 ? plain : 1;
+      }
+      var slash = s.match(/(\d+)\s*\/\s*(\d+)/);
+      if (slash) {
+        var den = Number(slash[2]);
+        if (den >= 1) return den;
+      }
+      var lead = s.match(/(\d+)/);
+      if (lead) {
+        var nLead = Number(lead[1]);
+        if (nLead >= 1) return nLead;
+      }
+      return 1;
+    }
+
+    /** API-факт годится, только если его N и доставка совпали с выбранным месячным N. */
+    function raw26ApiFactUsable_(res, deliveriesN) {
+      if (!res || res.factCost == null || !isFinite(Number(res.factCost))) return false;
+      var n = monthDeliveriesN_(deliveriesN);
+      if (String(res.scheme || res.ppScheme || "").toUpperCase() === "LEGACY") return true;
+      if (res.deliveriesN != null && res.deliveriesN !== "" && monthDeliveriesN_(res.deliveriesN) !== n) return false;
+      var del = Number(res.deliveryByn);
+      if (isFinite(del) && del >= 0 && Math.abs(del - PP_RAW26_DELIVERY_PER * n) > 0.05) return false;
+      return true;
+    }
+
     function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal, scheme, opts) {
       opts = opts || {};
-      var n = Math.max(1, Number(deliveriesN) || 1);
+      var n = monthDeliveriesN_(deliveriesN);
       var blocks = buildPriceCompositionForMessage(list);
       var note = String(clientNote || "").trim();
       var sch = String(scheme || "").toUpperCase();
@@ -25991,6 +26028,7 @@
       var sShow = String(roundRub(sExact));
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
+      if (sch === "RAW26") msg += "\n\nДоставка - " + (PP_RAW26_DELIVERY_PER * n) + " рублей";
       if (note) msg += "\n\n" + note;
       msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " рублей";
       msg += "\n\nВ подписке с учётом доставок, поддержки 24/7 и партнёрской программы со скидками для наших клиентов\n" +
@@ -26204,9 +26242,8 @@
       extra = extra || {};
       var mode = extra.mode || "pp";
       var nElFetch = document.getElementById("priceDeliveriesN");
-      var deliveriesN = Math.max(
-        1,
-        Number(extra.deliveriesN) || Number(nElFetch && nElFetch.value) || 1
+      var deliveriesN = monthDeliveriesN_(
+        extra.deliveriesN != null && extra.deliveriesN !== "" ? extra.deliveriesN : (nElFetch && nElFetch.value)
       );
       var forNew;
       if (extra.forNew === 0 || extra.forNew === false || extra.forNew === "0") forNew = false;

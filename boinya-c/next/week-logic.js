@@ -690,6 +690,333 @@
     };
   }
 
+  function isoDay(raw) {
+    var s = String(raw || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (!m) return "";
+    return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+  }
+
+  function rowKey(c) {
+    if (!c) return "";
+    return viewClientKey(c.matchKey || "") || viewClientKey(c.name || c.client || "");
+  }
+
+  function findRow(list, client) {
+    var key = rowKey(client);
+    if (!key || !list) return -1;
+    for (var i = 0; i < list.length; i++) {
+      if (rowKey(list[i]) === key) return i;
+    }
+    return -1;
+  }
+
+  function segLabel(c) {
+    return orderTypeToSegment(resolveOrderType(c)) || String((c && c.segment) || "");
+  }
+
+  function asClient(raw, date) {
+    raw = raw || {};
+    var name = String(raw.name || raw.client || "").trim();
+    var ot = resolveOrderType(raw);
+    return {
+      name: name,
+      matchKey: String(raw.matchKey || "").trim(),
+      address: raw.address || "",
+      phone: raw.phone || "",
+      note: raw.note || "",
+      segment: segLabel(raw),
+      source: raw.source || ot || "",
+      orderType: ot,
+      basket: Array.isArray(raw.basket) ? raw.basket : [],
+      orderPrice: raw.orderPrice != null ? raw.orderPrice : "",
+      ppSlot: raw.ppSlot || "",
+      deliverySlot: raw.deliverySlot || "",
+      day: raw.day || "",
+      dateIso: date || ""
+    };
+  }
+
+  function dayAt(overview, iso) {
+    var days = (overview && overview.days) || [];
+    for (var i = 0; i < days.length; i++) {
+      var id = String(days[i].dateIso || days[i].date || "").slice(0, 10);
+      if (id === iso) return days[i];
+    }
+    return null;
+  }
+
+  function bumpDay(overview, iso, delta, seg) {
+    if (!overview) return;
+    if (!Array.isArray(overview.days)) overview.days = [];
+    var day = dayAt(overview, iso);
+    if (!day && delta > 0) {
+      day = { dateIso: iso, count: 0, segments: {} };
+      overview.days.push(day);
+    }
+    if (!day) return;
+    day.count = Math.max(0, (Number(day.count) || 0) + delta);
+    if (!day.segments) day.segments = {};
+    if (seg) {
+      var n = (Number(day.segments[seg]) || 0) + delta;
+      if (n > 0) day.segments[seg] = n;
+      else delete day.segments[seg];
+    }
+    if (!(Number(day.count) > 0)) {
+      overview.days = overview.days.filter(function (d) {
+        return String(d.dateIso || d.date || "").slice(0, 10) !== iso;
+      });
+    }
+  }
+
+  function peopleList(store, iso, create) {
+    var month = iso.slice(0, 7);
+    var pack = store.people && store.people[month];
+    if (!pack || !pack.byDate || typeof pack.byDate !== "object") return null;
+    if (!Array.isArray(pack.byDate[iso])) {
+      if (!create) return [];
+      pack.byDate[iso] = [];
+    }
+    return pack.byDate[iso];
+  }
+
+  function pendingHas(store, iso, client, kind) {
+    var key = rowKey(client);
+    if (!key) return false;
+    var list = store.pending || [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p) continue;
+      var d = kind === "remove" ? (p.op === "move" ? p.oldDate : p.date) : p.date;
+      if (d !== iso) continue;
+      if (kind === "remove" && p.op !== "remove" && p.op !== "move") continue;
+      if (kind !== "remove" && p.op === "remove") continue;
+      if (rowKey(p.client) === key || rowKey(p.oldClient) === key) return true;
+    }
+    return false;
+  }
+
+  function removeOn(store, iso, client) {
+    if (!iso) return false;
+    var month = iso.slice(0, 7);
+    var list = peopleList(store, iso);
+    var removed = null;
+    if (list) {
+      var idx = findRow(list, client);
+      if (idx >= 0) {
+        removed = list.splice(idx, 1)[0];
+        var pack = store.people[month];
+        if (!list.length) delete pack.byDate[iso];
+        if (Number(pack.total) > 0) pack.total -= 1;
+      } else return false;
+    } else if (pendingHas(store, iso, client, "remove")) return false;
+    var overview = store.overview && store.overview[month];
+    if (overview) bumpDay(overview, iso, -1, segLabel(removed || client));
+    return true;
+  }
+
+  function addOn(store, iso, client, known) {
+    if (!iso) return false;
+    var name = String((client && (client.name || client.client)) || "").trim();
+    if (!name) return false;
+    var month = iso.slice(0, 7);
+    var row = asClient(client, iso);
+    var list = peopleList(store, iso, true);
+    var added = false;
+    if (list) {
+      var idx = findRow(list, row);
+      if (idx >= 0) list[idx] = Object.assign({}, list[idx], row);
+      else {
+        list.push(row);
+        var pack = store.people[month];
+        pack.total = (Number(pack.total) || 0) + 1;
+        added = true;
+      }
+    } else if (known || pendingHas(store, iso, row, "add")) added = false;
+    else added = true;
+    if (added) {
+      var overview = store.overview && store.overview[month];
+      if (overview) bumpDay(overview, iso, 1, segLabel(row));
+    }
+    return added;
+  }
+
+  /* Сразу после записи: день, бейдж и список месяца. Чужой снимок не создаём. */
+  function applyMonthChange(store, change) {
+    store = store || {};
+    change = change || {};
+    var op = String(change.op || "save");
+    var months = {};
+    function mark(iso) { if (iso && iso.length >= 7) months[iso.slice(0, 7)] = true; }
+    if (op === "touch") {
+      Object.keys(store.overview || {}).forEach(function (m) { months[m] = true; });
+      Object.keys(store.people || {}).forEach(function (m) { months[m] = true; });
+      var today = isoDay(change.date);
+      if (!today) {
+        var now = new Date();
+        today = now.getFullYear() + "-" + ("0" + (now.getMonth() + 1)).slice(-2) + "-" + ("0" + now.getDate()).slice(-2);
+      }
+      mark(today);
+      return { months: Object.keys(months), pending: null };
+    }
+    var date = isoDay(change.date);
+    var oldDate = isoDay(change.oldDate);
+    var client = asClient(change.client, date);
+    var oldClient = change.oldClient ? asClient({ name: change.oldClient, matchKey: change.oldMatchKey || client.matchKey, segment: client.segment, orderType: client.orderType }, oldDate || date) : null;
+    if (!client.name && oldClient) client = oldClient;
+    if (op === "remove") {
+      var cut = date || oldDate;
+      removeOn(store, cut, oldClient || client);
+      mark(cut);
+      return { months: Object.keys(months), pending: { op: "remove", date: cut, client: oldClient || client } };
+    }
+    var moved = !!(oldDate && date && oldDate !== date);
+    if (moved) removeOn(store, oldDate, oldClient || client);
+    else if (oldClient && rowKey(oldClient) && rowKey(oldClient) !== rowKey(client)) removeOn(store, date, oldClient);
+    if (date) addOn(store, date, client, !!change.known);
+    mark(date);
+    mark(oldDate);
+    return {
+      months: Object.keys(months),
+      pending: { op: moved ? "move" : "save", date: date, oldDate: moved ? oldDate : "", client: client, oldClient: oldClient }
+    };
+  }
+
+  function clonePack(v) {
+    try { return JSON.parse(JSON.stringify(v)); } catch (e) { return v; }
+  }
+
+  function pendingHits(pack, p) {
+    if (!p || !p.date || !pack || !pack.byDate) return false;
+    var list = pack.byDate[p.date] || [];
+    var has = findRow(list, p.client || p.oldClient) >= 0;
+    if (p.op === "remove") return !has;
+    if (p.op === "move" && p.oldDate && p.oldDate.slice(0, 7) === p.date.slice(0, 7)) {
+      var oldList = pack.byDate[p.oldDate] || [];
+      if (findRow(oldList, p.oldClient || p.client) >= 0) return false;
+    }
+    return has;
+  }
+
+  function mergePeoplePack(server, pendings) {
+    if (!server || !server.byDate || typeof server.byDate !== "object") return { pack: null, pending: pendings || [] };
+    if (server.source === "d1-error" || server.source === "nodb") return { pack: null, pending: pendings || [] };
+    var pack = clonePack(server);
+    var left = [];
+    (pendings || []).forEach(function (p) {
+      if (!p || !p.date) return;
+      var dest = p.date.slice(0, 7);
+      var src = p.oldDate ? p.oldDate.slice(0, 7) : "";
+      var packMonth = String(pack.month || dest).slice(0, 7);
+      if (pack.month && packMonth !== dest && packMonth !== src) {
+        left.push(p);
+        return;
+      }
+      var store = { overview: {}, people: {} };
+      store.people[packMonth] = pack;
+      if (packMonth === src && src && src !== dest) {
+        var oldList = (pack.byDate && pack.byDate[p.oldDate]) || [];
+        if (findRow(oldList, p.oldClient || p.client) >= 0) removeOn(store, p.oldDate, p.oldClient || p.client);
+        left.push(p);
+        return;
+      }
+      if (pendingHits(pack, p)) return;
+      if (p.op === "remove") removeOn(store, p.date, p.client);
+      else {
+        if (src && src === dest) removeOn(store, p.oldDate, p.oldClient || p.client);
+        addOn(store, p.date, p.client, false);
+      }
+      left.push(p);
+    });
+    return { pack: pack, pending: left };
+  }
+
+  function mergeOverview(local, server, pendings, month) {
+    if (!server || !Array.isArray(server.days)) return local || null;
+    var next = clonePack(server);
+    if (!local || !Array.isArray(local.days)) return next;
+    var localMap = {};
+    local.days.forEach(function (d) {
+      var iso = String(d.dateIso || d.date || "").slice(0, 10);
+      if (iso) localMap[iso] = d;
+    });
+    var mode = {};
+    (pendings || []).forEach(function (p) {
+      if (!p) return;
+      if (p.date && p.date.slice(0, 7) === month) mode[p.date] = p.op === "remove" ? "remove" : "add";
+      if (p.oldDate && p.oldDate.slice(0, 7) === month) mode[p.oldDate] = "remove";
+    });
+    Object.keys(mode).forEach(function (iso) {
+      var loc = localMap[iso];
+      var srv = null;
+      (next.days || []).forEach(function (d) {
+        if (String(d.dateIso || d.date || "").slice(0, 10) === iso) srv = d;
+      });
+      var lc = loc ? Number(loc.count) || 0 : 0;
+      var sc = srv ? Number(srv.count) || 0 : 0;
+      if (mode[iso] === "add" && lc > sc && loc) {
+        if (srv) {
+          srv.count = lc;
+          srv.segments = clonePack(loc.segments || {});
+        } else {
+          if (!Array.isArray(next.days)) next.days = [];
+          next.days.push(clonePack(loc));
+        }
+      }
+      if (mode[iso] === "remove" && sc > lc) {
+        if (lc <= 0) {
+          next.days = (next.days || []).filter(function (d) {
+            return String(d.dateIso || d.date || "").slice(0, 10) !== iso;
+          });
+        } else if (srv && loc) {
+          srv.count = lc;
+          srv.segments = clonePack(loc.segments || {});
+        }
+      }
+    });
+    return next;
+  }
+
+  function countsFromPeople(overview, pack) {
+    if (!overview || !pack || !pack.byDate || typeof pack.byDate !== "object") return overview || null;
+    if (pack.source === "d1-error" || pack.source === "nodb") return overview;
+    var next = clonePack(overview);
+    if (!Array.isArray(next.days)) next.days = [];
+    Object.keys(pack.byDate).forEach(function (iso) {
+      var list = pack.byDate[iso];
+      if (!Array.isArray(list)) return;
+      var segs = {};
+      list.forEach(function (c) {
+        var s = segLabel(c);
+        if (s) segs[s] = (segs[s] || 0) + 1;
+      });
+      var day = null;
+      for (var i = 0; i < next.days.length; i++) {
+        if (String(next.days[i].dateIso || next.days[i].date || "").slice(0, 10) === iso) day = next.days[i];
+      }
+      if (!list.length) {
+        next.days = next.days.filter(function (d) {
+          return String(d.dateIso || d.date || "").slice(0, 10) !== iso;
+        });
+        return;
+      }
+      if (!day) {
+        day = { dateIso: iso, count: list.length, segments: segs };
+        next.days.push(day);
+      } else {
+        day.count = list.length;
+        day.segments = segs;
+        day.dateIso = iso;
+      }
+    });
+    var total = 0;
+    next.days.forEach(function (d) { total += Number(d && d.count) || 0; });
+    next.total = total;
+    next.status = next.status || "success";
+    return next;
+  }
+
   function basketLine(c) {
     var list = (c && c.basket) || [];
     if (!list.length) {
@@ -713,6 +1040,11 @@
     peopleForDate: peopleForDate,
     resFromPeople: resFromPeople,
     dayOpenPlan: dayOpenPlan,
+    applyMonthChange: applyMonthChange,
+    mergePeoplePack: mergePeoplePack,
+    mergeOverview: mergeOverview,
+    countsFromPeople: countsFromPeople,
+    isoDay: isoDay,
     segmentToOrderType: segmentToOrderType,
     orderTypeToSegment: orderTypeToSegment,
     resolveOrderType: resolveOrderType,

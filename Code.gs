@@ -2636,6 +2636,12 @@ function doGet(e) {
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
     }, callback, false);
   }
+  if (action === "repairPpAfkTrio") {
+    return handleRepairPpAfkTrio({
+      confirm: e.parameter.confirm ? decodeURIComponent(e.parameter.confirm) : "",
+      dry: e.parameter.dry || ""
+    }, callback, false);
+  }
   if (action === "getSubscription") {
     return handleGetSubscription({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -2762,6 +2768,7 @@ function doGet(e) {
   if (action === "moveSubscription") {
     return handleMoveSubscription({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      label: e.parameter.label ? decodeURIComponent(e.parameter.label) : "",
       subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
       fromSheet: e.parameter.fromSheet ? decodeURIComponent(e.parameter.fromSheet) : "",
       toSheet: e.parameter.toSheet ? decodeURIComponent(e.parameter.toSheet) : "",
@@ -2779,6 +2786,7 @@ function doGet(e) {
   if (action === "deleteSubscription") {
     return handleDeleteSubscription({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      label: e.parameter.label ? decodeURIComponent(e.parameter.label) : "",
       subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
       sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
@@ -3399,6 +3407,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "repairSubscriptionDupes") {
     return handleRepairSubscriptionDupes(json, callback, fromPost);
+  }
+  if (action === "repairPpAfkTrio") {
+    return handleRepairPpAfkTrio(json, callback, fromPost);
   }
   if (action === "getSubscription") {
     return handleGetSubscription(json, callback, fromPost);
@@ -11202,35 +11213,7 @@ function handlePpAfkCallback_(cq) {
 /** Перенос строки подписки между CRM-листами без HTTP-обёртки. */
 function moveSubscriptionSheetsOnly_(nick, fromSheet, toSheet) {
   var crmSs = getCrmSpreadsheet_();
-  var fromSh = findSheetByBaseName_(crmSs, fromSheet);
-  var toSh = findSheetByBaseName_(crmSs, toSheet);
-  if (!fromSh || !toSh) return { status: "error", message: "sheet_missing" };
-  var rowIdx = findSubscriptionRowIndex_(fromSh, nick, "");
-  if (rowIdx < 0) {
-    // уже в АФК?
-    var already = findSubscriptionRowIndex_(toSh, nick, "");
-    if (already >= 0) return { status: "success", message: "already_on_target", nick: nick };
-    return { status: "error", message: "not_found" };
-  }
-  var colsFrom = Math.max(fromSh.getLastColumn(), 1);
-  var vals = fromSh.getRange(rowIdx + 1, 1, 1, colsFrom).getValues()[0];
-  var movedLabel = String(vals[0] || nick || "").trim();
-  vals[1] = nextSubscriptionIdForSheet_(toSh);
-  var insertRow = findEmptySubscriptionRow_(toSh);
-  writeSubscriptionRowValues_(toSh, insertRow, vals);
-  fromSh.deleteRow(rowIdx + 1);
-  try {
-    clearCrmSheetCache_(fromSheet);
-    clearCrmSheetCache_(toSheet);
-    clearCrmSheetCache_();
-  } catch (eC) {}
-  return {
-    status: "success",
-    nick: extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick,
-    fromSheet: fromSheet,
-    toSheet: toSheet,
-    row: insertRow
-  };
+  return moveCrmSubscriptionRows_(crmSs, nick, "", "", fromSheet, toSheet);
 }
 
 /** Триггеры: ежедневно около 11:00 и 19:00 (слот проверяем по Минску). */
@@ -17778,6 +17761,216 @@ function handleRepairSubscriptionDupes(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+/**
+ * Разовый ремонт только трёх карточек: evgenia_ln / evgenia_In → только ПП,
+ * Маргарита Сергеевна → только АФК, дубль «Андрей» в ПП снимается если есть andreiprigunov.
+ * Запись только при confirm=evgenia-marga-andrei и без dry=1. Чужих клиентов не меняет.
+ */
+function handleRepairPpAfkTrio(json, callback, fromPost) {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (e) {
+    var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var confirm = String((json && json.confirm) || "") === "evgenia-marga-andrei";
+  var dry = !confirm || String((json && json.dry) || "") === "1";
+  var report = repairPpAfkTrioSheets_(crmSs, dry);
+  report.status = "success";
+  return fromPost ? jsonpText(callback, report) : jsonp(callback, report);
+}
+
+function repairPpAfkTrioSheets_(crmSs, dry) {
+  var names = ["ПП", "АФК", "БП"];
+  var rows = [];
+  var s, r, sh, data, cell;
+  for (s = 0; s < names.length; s++) {
+    sh = findSheetByBaseName_(crmSs, names[s]);
+    if (!sh) continue;
+    data = sh.getDataRange().getValues();
+    for (r = 1; r < data.length; r++) {
+      cell = String(data[r][0] || "").trim();
+      if (!cell) continue;
+      if (/^себестоим/i.test(cell) || /^стоимость\s*100/i.test(cell) || /^итого$/i.test(cell)) continue;
+      if (/^(id|ник|nick|клиент|client)$/i.test(cell)) continue;
+      rows.push({
+        sheet: names[s],
+        sh: sh,
+        row: r,
+        cell: cell,
+        subId: sanitizeSubId_(data[r][1]),
+        deliveries: data[r][2],
+        status: String(data[r][3] || ""),
+        wishes: String(data[r][4] || "")
+      });
+    }
+  }
+  function igOf(v) { return String(extractInstagramNick_(v) || "").toLowerCase(); }
+  function isEvg(row) {
+    var ig = igOf(row.cell);
+    return ig === "evgenia_ln" || ig === "evgenia_in";
+  }
+  function isMarga(row) { return clientMatchKey_(row.cell) === clientMatchKey_("Маргарита Сергеевна"); }
+  function isAndreiOnly(row) {
+    if (igOf(row.cell)) return false;
+    return clientMatchKey_(row.cell) === clientMatchKey_("Андрей");
+  }
+  function isPrig(row) { return igOf(row.cell) === "andreiprigunov"; }
+  var before = [];
+  var i;
+  for (i = 0; i < rows.length; i++) {
+    if (isEvg(rows[i]) || isMarga(rows[i]) || isAndreiOnly(rows[i]) || isPrig(rows[i])) {
+      before.push({
+        sheet: rows[i].sheet,
+        row: rows[i].row + 1,
+        cell: rows[i].cell,
+        subId: rows[i].subId,
+        deliveries: rows[i].deliveries,
+        status: rows[i].status,
+        wishes: rows[i].wishes
+      });
+    }
+  }
+  var both = [];
+  var seenBoth = {};
+  var i2, j2, ka, kb, keyBoth;
+  for (i2 = 0; i2 < rows.length; i2++) {
+    if (rows[i2].sheet !== "ПП" && rows[i2].sheet !== "АФК") continue;
+    for (j2 = i2 + 1; j2 < rows.length; j2++) {
+      if (rows[j2].sheet !== "ПП" && rows[j2].sheet !== "АФК") continue;
+      if (rows[i2].sheet === rows[j2].sheet) continue;
+      ka = igOf(rows[i2].cell) || clientMatchKey_(rows[i2].cell);
+      kb = igOf(rows[j2].cell) || clientMatchKey_(rows[j2].cell);
+      if (!ka || ka !== kb) continue;
+      if (igOf(rows[i2].cell) && igOf(rows[j2].cell) && igOf(rows[i2].cell) !== igOf(rows[j2].cell)) continue;
+      keyBoth = String(ka).toUpperCase();
+      if (seenBoth[keyBoth]) continue;
+      seenBoth[keyBoth] = true;
+      both.push({
+        key: keyBoth,
+        a: { sheet: rows[i2].sheet, cell: rows[i2].cell, subId: rows[i2].subId },
+        b: { sheet: rows[j2].sheet, cell: rows[j2].cell, subId: rows[j2].subId }
+      });
+    }
+  }
+  var twins = [];
+  for (i2 = 0; i2 < rows.length; i2++) {
+    if (rows[i2].sheet !== "ПП" && rows[i2].sheet !== "АФК") continue;
+    if (igOf(rows[i2].cell)) continue;
+    var disp = clientMatchKey_(rows[i2].cell);
+    if (!disp) continue;
+    var mates = [];
+    for (j2 = 0; j2 < rows.length; j2++) {
+      if (i2 === j2) continue;
+      if (rows[j2].sheet !== "ПП" && rows[j2].sheet !== "АФК") continue;
+      if (!igOf(rows[j2].cell)) continue;
+      var bare = String(rows[j2].cell || "");
+      var igm = extractInstagramNick_(bare);
+      if (igm) {
+        var esc = String(igm).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        bare = bare.replace(new RegExp("@?" + esc, "ig"), " ").replace(/\s+/g, " ").trim();
+      }
+      if (clientMatchKey_(bare) !== disp) continue;
+      mates.push({ sheet: rows[j2].sheet, cell: rows[j2].cell, subId: rows[j2].subId });
+    }
+    if (!mates.length) continue;
+    twins.push({ nameOnly: { sheet: rows[i2].sheet, cell: rows[i2].cell, subId: rows[i2].subId }, handled: mates });
+  }
+  var changes = [];
+  var deletes = [];
+  function queueDelete(row, who) {
+    deletes.push(row);
+    changes.push({ op: "drop", who: who, sheet: row.sheet, cell: row.cell, subId: row.subId, row: row.row + 1 });
+  }
+  var evgPp = [];
+  var evgAfk = [];
+  var margaPp = [];
+  var margaAfk = [];
+  var prigs = [];
+  var andreis = [];
+  for (i = 0; i < rows.length; i++) {
+    if (isEvg(rows[i]) && rows[i].sheet === "ПП") evgPp.push(rows[i]);
+    if (isEvg(rows[i]) && rows[i].sheet === "АФК") evgAfk.push(rows[i]);
+    if (isMarga(rows[i]) && rows[i].sheet === "ПП") margaPp.push(rows[i]);
+    if (isMarga(rows[i]) && rows[i].sheet === "АФК") margaAfk.push(rows[i]);
+    if (isPrig(rows[i])) prigs.push(rows[i]);
+    if (isAndreiOnly(rows[i]) && rows[i].sheet === "ПП") andreis.push(rows[i]);
+  }
+  if (evgPp.length) {
+    for (i = 0; i < evgAfk.length; i++) queueDelete(evgAfk[i], "evgenia");
+  } else if (evgAfk.length) {
+    changes.push({ op: "retarget", who: "evgenia", to: "ПП", cell: evgAfk[0].cell, subId: evgAfk[0].subId });
+    if (!dry) moveCrmSubscriptionRows_(crmSs, evgAfk[0].cell, "", evgAfk[0].subId, "АФК", "ПП");
+  }
+  if (margaAfk.length) {
+    for (i = 0; i < margaPp.length; i++) queueDelete(margaPp[i], "Маргарита Сергеевна");
+  } else if (margaPp.length) {
+    changes.push({ op: "retarget", who: "Маргарита Сергеевна", to: "АФК", cell: margaPp[0].cell });
+    if (!dry) moveCrmSubscriptionRows_(crmSs, margaPp[0].cell, "", margaPp[0].subId, "ПП", "АФК");
+  }
+  if (prigs.length && andreis.length) {
+    var host = prigs[0];
+    for (i = 0; i < prigs.length; i++) if (prigs[i].sheet === "ПП") host = prigs[i];
+    for (i = 0; i < andreis.length; i++) {
+      changes.push({ op: "merge", from: andreis[i].cell, into: host.cell, sheet: host.sheet });
+      if (!dry) {
+        var hostW = String(host.wishes || "");
+        var dupW = String(andreis[i].wishes || "");
+        if (dupW && hostW.indexOf(dupW) < 0) {
+          var mergedW = hostW ? (hostW + "\n" + dupW) : dupW;
+          try { host.sh.getRange(host.row + 1, 5).setValue(mergedW); } catch (eW) {}
+          host.wishes = mergedW;
+        }
+        if ((host.deliveries == null || host.deliveries === "") && andreis[i].deliveries) {
+          try { host.sh.getRange(host.row + 1, 3).setValue(andreis[i].deliveries); } catch (eDeliv) {}
+        }
+      }
+      queueDelete(andreis[i], "Андрей");
+    }
+  } else if (andreis.length) {
+    changes.push({ op: "skip", who: "Андрей", reason: "no_andreiprigunov_card" });
+  }
+  if (!dry && deletes.length) {
+    deletes.sort(function (a, b) { return b.row - a.row; });
+    var seenDel = {};
+    for (i = 0; i < deletes.length; i++) {
+      var dk = deletes[i].sheet + ":" + deletes[i].row;
+      if (seenDel[dk]) continue;
+      seenDel[dk] = true;
+      try { deletes[i].sh.deleteRow(deletes[i].row + 1); } catch (eDelRow) {}
+    }
+    try { SpreadsheetApp.flush(); } catch (eFl) {}
+    try {
+      clearCrmSheetCache_("ПП");
+      clearCrmSheetCache_("АФК");
+      clearCrmSheetCache_("БП");
+      clearCrmSheetCache_();
+    } catch (eCache) {}
+  }
+  var otherBoth = [];
+  var otherTwins = [];
+  for (i = 0; i < both.length; i++) {
+    var bk = String(both[i].key || "");
+    if (bk === "EVGENIA_LN" || bk === "EVGENIA_IN" || bk === "EVGENIALN" || bk === "EVGENIAIN") continue;
+    if (bk === clientMatchKey_("Маргарита Сергеевна")) continue;
+    otherBoth.push(both[i]);
+  }
+  for (i = 0; i < twins.length; i++) {
+    var tn = clientMatchKey_(twins[i].nameOnly.cell);
+    if (tn === clientMatchKey_("Андрей") || tn === clientMatchKey_("Маргарита Сергеевна")) continue;
+    otherTwins.push(twins[i]);
+  }
+  return {
+    dry: !!dry,
+    before: before,
+    changes: changes,
+    scan: { bothSheets: both, nameOnlyTwins: twins },
+    otherClients: { bothSheets: otherBoth, nameOnlyTwins: otherTwins },
+    note: dry
+      ? "Сухой прогон листа. Запись: confirm=evgenia-marga-andrei без dry=1."
+      : "Лист обновлён только для evgenia, Маргариты Сергеевны и дубля «Андрей»."
+  };
+}
+
 function handleRepairSubscriptionIds(json, callback, fromPost) {
   var crmSs;
   try { crmSs = getCrmSpreadsheet_(); } catch (e) {
@@ -18321,6 +18514,47 @@ function maybeRecordBpToPpOnPpSave_(crmSs, opts) {
   return out;
 }
 
+/** Строки листа для переноса: subId чужого человека не забирает строку. */
+function selectSubscriptionMoveRows_(data, nick, label, subId) {
+  var out = [];
+  if (!data || !data.length) return out;
+  var wantId = sanitizeSubId_(subId);
+  var wants = [];
+  function addWant(w) {
+    w = String(w || "").trim();
+    if (!w) return;
+    for (var i = 0; i < wants.length; i++) if (wants[i] === w) return;
+    wants.push(w);
+  }
+  addWant(nick);
+  addWant(label);
+  addWant(extractInstagramNick_(nick) || extractInstagramNick_(label) || "");
+  for (var r = 1; r < data.length; r++) {
+    var cell = String(data[r][0] || "").trim();
+    if (!cell) continue;
+    if (/^себестоим/i.test(cell) || /^стоимость\s*100/i.test(cell) || /^итого$/i.test(cell)) continue;
+    if (/^(id|ник|nick|клиент|client)$/i.test(cell)) continue;
+    var idOk = !!(wantId && sanitizeSubId_(data[r][1]) === wantId);
+    var nickOk = false;
+    for (var w = 0; w < wants.length; w++) {
+      var want = wants[w];
+      if (cell === want || nicksMatch_(cell, want)) nickOk = true;
+      if (!nickOk && nicksMatch_(extractInstagramNick_(cell) || "", want)) nickOk = true;
+    }
+    if (wantId && idOk && wants.length && !nickOk) continue;
+    if (!nickOk) continue;
+    out.push(r);
+  }
+  if (wantId) {
+    var withId = [];
+    for (var j = 0; j < out.length; j++) {
+      if (sanitizeSubId_(data[out[j]][1]) === wantId) withId.push(out[j]);
+    }
+    if (withId.length) return withId;
+  }
+  return out;
+}
+
 function findSubscriptionRowIndex_(sh, nick, subId) {
   if (!sh || sh.getLastRow() < 2) return -1;
   var data = sh.getDataRange().getValues();
@@ -18481,6 +18715,83 @@ function syncBpStageSurveys_(crmSs, nick, stage, opts) {
   return { stage: stage, survey: survey, due: due, kind: kind };
 }
 
+/** Перенос CRM-строки: снять все совпадения с источника, на цель не заводить строку из одного отображаемого имени. */
+function moveCrmSubscriptionRows_(crmSs, nick, label, subId, fromSheet, toSheet) {
+  var fromSh = findSheetByBaseName_(crmSs, fromSheet);
+  var toSh = findSheetByBaseName_(crmSs, toSheet);
+  if (!fromSh || !toSh) return { status: "error", message: "sheet_missing" };
+  var fromData = fromSh.getDataRange().getValues();
+  var idxs = selectSubscriptionMoveRows_(fromData, nick, label, subId);
+  if (!idxs.length) {
+    var toDataMiss = toSh.getDataRange().getValues();
+    var already = selectSubscriptionMoveRows_(toDataMiss, nick, label, subId);
+    if (already.length) {
+      return { status: "success", message: "already_on_target", nick: nick, label: label || nick, fromSheet: fromSheet, toSheet: toSheet, subId: subId };
+    }
+    return { status: "error", message: "not_found" };
+  }
+  var rowIdx = idxs[0];
+  var colsFrom = Math.max(fromSh.getLastColumn(), 1);
+  var vals = fromSh.getRange(rowIdx + 1, 1, 1, colsFrom).getValues()[0];
+  var movedLabel = String(vals[0] || nick || label || "").trim();
+  if (!movedLabel) return { status: "error", message: "empty_nick_row", row: rowIdx + 1 };
+  var toData = toSh.getDataRange().getValues();
+  var targetSame = selectSubscriptionMoveRows_(toData, movedLabel, label || nick, "");
+  var keepId = sanitizeSubId_(vals[1]);
+  var collision = false;
+  if (keepId) {
+    for (var tr = 1; tr < toData.length; tr++) {
+      if (sanitizeSubId_(toData[tr][1]) !== keepId) continue;
+      var tCell = String(toData[tr][0] || "").trim();
+      if (!tCell) continue;
+      if (nicksMatch_(tCell, movedLabel) || (nick && nicksMatch_(tCell, nick))) continue;
+      collision = true;
+    }
+  }
+  var insertRow = 0;
+  if (!targetSame.length) {
+    if (/^БП$/i.test(fromSheet) && /^ПП$/i.test(toSheet)) {
+      try {
+        var tzMove = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "Europe/Minsk";
+        var ymdMove = Utilities.formatDate(new Date(), tzMove, "yyyy-MM-dd");
+        vals[4] = stampFromBpIntoWishes_(String(vals[4] || ""), ymdMove);
+      } catch (eStamp) {}
+    }
+    if (!keepId || collision) vals[1] = nextSubscriptionIdForSheet_(toSh);
+    insertRow = findEmptySubscriptionRow_(toSh);
+    writeSubscriptionRowValues_(toSh, insertRow, vals);
+    try { SpreadsheetApp.flush(); } catch (eFl0) {}
+    var written = String(toSh.getRange(insertRow, 1).getValue() || "").trim();
+    if (!written) return { status: "error", message: "write_failed", toSheet: toSheet, row: insertRow };
+  }
+  idxs.sort(function (a, b) { return b - a; });
+  for (var di = 0; di < idxs.length; di++) {
+    try { fromSh.deleteRow(idxs[di] + 1); } catch (eDel) {}
+  }
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try {
+    clearCrmSheetCache_(fromSheet);
+    clearCrmSheetCache_(toSheet);
+    clearCrmSheetCache_();
+  } catch (eC) {}
+  var movedId = "";
+  try { movedId = sanitizeSubId_(insertRow ? toSh.getRange(insertRow, 2).getValue() : vals[1]); } catch (eId) { movedId = sanitizeSubId_(vals[1]); }
+  return {
+    status: "success",
+    message: targetSame.length ? "already_on_target" : "moved",
+    nick: extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick,
+    label: movedLabel,
+    subId: movedId || String(vals[1] || ""),
+    fromSheet: fromSheet,
+    toSheet: toSheet,
+    row: insertRow,
+    deletedSource: idxs.length,
+    deliveries: Number(vals[2]) || 0,
+    statusText: String(vals[3] || ""),
+    wishes: String(vals[4] || "")
+  };
+}
+
 function handleMoveSubscription(json, callback, fromPost) {
   var crmSs;
   try { crmSs = getCrmSpreadsheet_(); } catch (e) {
@@ -18490,8 +18801,9 @@ function handleMoveSubscription(json, callback, fromPost) {
   var fromSheet = String(json.fromSheet || json.sheet || "").trim();
   var toSheet = String(json.toSheet || json.targetSheet || "").trim();
   var nick = String(json.nick || json.client || "").trim();
+  var label = String(json.label || "").trim();
   var subId = String(json.subId || "").trim();
-  if (!fromSheet || !toSheet || (!nick && !subId)) {
+  if (!fromSheet || !toSheet || (!nick && !label && !subId)) {
     var need = { status: "error", message: "need_from_to_nick" };
     return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
   }
@@ -18499,44 +18811,14 @@ function handleMoveSubscription(json, callback, fromPost) {
     var same = { status: "success", message: "same_sheet", sheet: toSheet };
     return fromPost ? jsonpText(callback, same) : jsonp(callback, same);
   }
-  var fromSh = findSheetByBaseName_(crmSs, fromSheet);
-  var toSh = findSheetByBaseName_(crmSs, toSheet);
-  if (!fromSh || !toSh) {
-    var no = { status: "error", message: "sheet_missing", fromSheet: fromSheet, toSheet: toSheet };
-    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+  var movedRow = moveCrmSubscriptionRows_(crmSs, nick, label, subId, fromSheet, toSheet);
+  if (!movedRow || movedRow.status !== "success") {
+    return fromPost ? jsonpText(callback, movedRow || { status: "error", message: "not_found" }) : jsonp(callback, movedRow || { status: "error", message: "not_found" });
   }
-  var rowIdx = findSubscriptionRowIndex_(fromSh, nick, subId);
-  if (rowIdx < 0) {
-    var miss = { status: "error", message: "not_found" };
-    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
-  }
-  var colsFrom = Math.max(fromSh.getLastColumn(), 1);
-  var vals = fromSh.getRange(rowIdx + 1, 1, 1, colsFrom).getValues()[0];
-  var movedLabel = String(vals[0] || nick || "").trim();
-  if (!movedLabel) {
-    var emptyNick = { status: "error", message: "empty_nick_row", row: rowIdx + 1 };
-    return fromPost ? jsonpText(callback, emptyNick) : jsonp(callback, emptyNick);
-  }
-  vals[1] = nextSubscriptionIdForSheet_(toSh);
+  var movedLabel = movedRow.label || nick;
+  var insertRow = movedRow.row || 0;
   var isBpToPp = /^БП$/i.test(fromSheet) && /^ПП$/i.test(toSheet);
-  if (isBpToPp) {
-    try {
-      var tzMove = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "Europe/Minsk";
-      var ymdMove = Utilities.formatDate(new Date(), tzMove, "yyyy-MM-dd");
-      vals[4] = stampFromBpIntoWishes_(String(vals[4] || ""), ymdMove);
-    } catch (eStamp) {}
-  }
-  var insertRow = findEmptySubscriptionRow_(toSh);
-  writeSubscriptionRowValues_(toSh, insertRow, vals);
-  try { SpreadsheetApp.flush(); } catch (eFl0) {}
-  var written = String(toSh.getRange(insertRow, 1).getValue() || "").trim();
-  if (!written) {
-    var failW = { status: "error", message: "write_failed", toSheet: toSheet, row: insertRow };
-    return fromPost ? jsonpText(callback, failW) : jsonp(callback, failW);
-  }
-  fromSh.deleteRow(rowIdx + 1);
-  try { SpreadsheetApp.flush(); } catch (eFl) {}
-  var movedNick = extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick;
+  var movedNick = movedRow.nick || nick;
   if (isBpToPp) {
     try {
       appendStatsConversion_(SpreadsheetApp.getActiveSpreadsheet(), {
@@ -18544,7 +18826,7 @@ function handleMoveSubscription(json, callback, fromPost) {
         label: movedLabel,
         fromSheet: fromSheet,
         toSheet: toSheet,
-        subId: sanitizeSubId_(toSh.getRange(insertRow, 2).getValue()),
+        subId: movedRow.subId || "",
         note: "moveSubscription"
       });
     } catch (eConv) {}
@@ -18576,41 +18858,45 @@ function handleMoveSubscription(json, callback, fromPost) {
     clearCrmSheetCache_("Опросник");
     clearCrmSheetCache_();
   } catch (eC) {}
-  var movedId = sanitizeSubId_(toSh.getRange(insertRow, 2).getValue());
   var ok = {
     status: "success",
     nick: movedNick,
     label: movedLabel,
-    subId: movedId || String(vals[1] || ""),
+    subId: movedRow.subId || "",
     fromSheet: fromSheet,
     toSheet: toSheet,
     row: insertRow,
-    deliveries: Number(vals[2]) || 0,
-    statusText: String(vals[3] || ""),
-    wishes: String(vals[4] || ""),
-    surveysMoved: surveysMoved
+    deletedSource: movedRow.deletedSource || 0,
+    deliveries: movedRow.deliveries || 0,
+    statusText: movedRow.statusText || "",
+    wishes: movedRow.wishes || "",
+    surveysMoved: surveysMoved,
+    message: movedRow.message || "moved"
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 /** Удалить строки подписки на листах-кандидатах. Без rescue/repair (дорого) — вызывающий чистит раз. */
-function deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId) {
+function deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId, label) {
   var sheets = listCrmSheetCandidates_(crmSs, sheetName);
   var deletedRows = [];
   var deletedFrom = [];
   var total = 0;
   var tried = [];
   nick = String(nick || "").trim();
+  label = String(label || "").trim();
   subId = String(subId || "").trim();
   for (var s = 0; s < sheets.length; s++) {
     var sh = sheets[s];
     tried.push(sh.getName());
-    // С ником: сначала ник+id, потом только ник. НЕ откатываемся на «только subId» —
-    // иначе чужой id сносит другого человека / пачку.
+    // С ником: сначала ник+id, потом только ник, потом подпись карточки.
+    // НЕ откатываемся на «только subId», если ник или подпись переданы —
+    // иначе чужой id сносит другого человека.
     var idxs = [];
     if (nick && subId) idxs = findAllSubscriptionRowIndexes_(sh, nick, subId);
     if (!idxs.length && nick) idxs = findAllSubscriptionRowIndexes_(sh, nick, "");
-    if (!idxs.length && !nick && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
+    if (!idxs.length && label && label !== nick) idxs = findAllSubscriptionRowIndexes_(sh, label, "");
+    if (!idxs.length && !nick && !label && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
     if (!idxs.length) continue;
     idxs.sort(function (a, b) { return b - a; });
     for (var i = 0; i < idxs.length; i++) {
@@ -18641,9 +18927,10 @@ function handleDeleteSubscription(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var sheetName = String(json.sheet || json.segment || "").trim() || "ПП";
-  var nick = String(json.nick || json.client || json.label || "").trim();
+  var nick = String(json.nick || json.client || "").trim();
+  var label = String(json.label || "").trim();
   var subId = String(json.subId || "").trim();
-  if (!nick && !subId) {
+  if (!nick && !label && !subId) {
     var need = { status: "error", message: "need_nick" };
     return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
   }
@@ -18652,7 +18939,7 @@ function handleDeleteSubscription(json, callback, fromPost) {
     var no = { status: "error", message: "sheet_missing", sheet: sheetName };
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }
-  var del = deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId);
+  var del = deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId, label);
   if (!del.deletedCount) {
     var miss = {
       status: "error",
@@ -18718,13 +19005,14 @@ function handleDeleteSubscriptionBatch(json, callback, fromPost) {
   for (var i = 0; i < items.length; i++) {
     var it = items[i] || {};
     if (typeof it === "string") it = { nick: it };
-    var nick = String(it.nick || it.label || it.client || "").trim();
+    var nick = String(it.nick || it.client || "").trim();
+    var label = String(it.label || "").trim();
     var subId = String(it.subId || "").trim();
-    if (!nick && !subId) {
+    if (!nick && !label && !subId) {
       fail.push({ i: i, message: "need_nick" });
       continue;
     }
-    var del = deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId);
+    var del = deleteSubscriptionRowsFast_(crmSs, sheetName, nick || label, subId, label);
     if (!del.deletedCount) {
       fail.push({ i: i, nick: nick, subId: subId, message: "not_found" });
       continue;
@@ -20902,6 +21190,28 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
   };
 }
 
+/** Месячное N. «2», «2/мес» → 2. Слот «1/2» → знаменатель 2, не 1. */
+function monthDeliveriesN_(raw) {
+  if (typeof raw === "number" && isFinite(raw) && raw >= 1) return Math.max(1, Math.round(raw));
+  var s = String(raw == null ? "" : raw).trim().replace(",", ".");
+  if (!s) return 1;
+  if (/^\d+(?:\.\d+)?$/.test(s)) {
+    var plain = Math.round(Number(s));
+    return plain >= 1 ? plain : 1;
+  }
+  var slash = s.match(/(\d+)\s*\/\s*(\d+)/);
+  if (slash) {
+    var den = Number(slash[2]);
+    if (den >= 1) return den;
+  }
+  var lead = s.match(/(\d+)/);
+  if (lead) {
+    var nLead = Number(lead[1]);
+    if (nLead >= 1) return nLead;
+  }
+  return 1;
+}
+
 /**
  * @param {number} costSum сырьё
  * @param {Array} basket
@@ -20914,7 +21224,7 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
  */
 function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt, schemeOpt, linesOpt, retailGoodsOpt) {
   var scheme = normalizePpScheme_(schemeOpt) || "LEGACY";
-  var n = Math.max(1, Number(deliveriesN) || 1);
+  var n = monthDeliveriesN_(deliveriesN);
   var coef = Number(coefIn);
   var pc = packCountsOpt && typeof packCountsOpt === "object"
     ? {
