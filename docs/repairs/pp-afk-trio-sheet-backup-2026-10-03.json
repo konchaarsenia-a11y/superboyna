@@ -1,0 +1,31 @@
+{
+  "exportedAt": "2026-10-03T18:40:00Z",
+  "source": "GAS listSubscriptions read-only. D1 snap was not readable from this environment: worker listSubscriptions returns auth_required without Telegram initData.",
+  "writes": "none",
+  "note": "Sheet at export: evgenia_In is only on ПП (subId 22, row 31). The cell is evgenia_In with a capital i, not evgenia_ln. Маргарита Сергеевна is only on АФК (subId 34, row 32). andreiprigunov and a card named Андрей are not on CRM sheets ПП, АФК or БП. A Saturday delivery named Andreiprigunov still exists on the week sheet; that is not a CRM subscription card and was not changed.",
+  "trioSheetRows": [
+    {
+      "sheet": "ПП",
+      "nick": "evgenia_In",
+      "label": "Евгения evgenia_In",
+      "subId": "22",
+      "deliveries": 2,
+      "status": "Дом",
+      "wishes": "Хрящ полоски [COEF:2.6] [SCHEME:RAW26]",
+      "rowIndex": 31
+    },
+    {
+      "sheet": "АФК",
+      "nick": "Маргарита Сергеевна",
+      "label": "Маргарита Сергеевна",
+      "subId": "34",
+      "deliveries": 2,
+      "status": "ДОМ",
+      "wishes": "[COEF:2.6] [SCHEME:RAW26]",
+      "rowIndex": 32
+    }
+  ],
+  "sheetPlanIfRepairRanOnThisExport": [],
+  "scanBothSheets": [],
+  "scanNameOnlyTwins": []
+}
