@@ -1,0 +1,311 @@
+/* Макеты: секции как в Telegram (inset groups), цвета темы Бойни / themeParams. */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--tg-theme-bg-color, var(--b-bg));
+  color: var(--tg-theme-text-color, var(--b-text));
+  font-family: Onest, var(--b-font), sans-serif;
+}
+.tg {
+  min-height: 100%;
+  background: var(--tg-theme-bg-color, var(--b-bg));
+  color: var(--tg-theme-text-color, var(--b-text));
+  padding-bottom: 28px;
+}
+.tg-top {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  position: sticky;
+  top: 0;
+  background: var(--tg-theme-header-bg-color, var(--b-bg));
+  z-index: 5;
+}
+.tg-top h1 {
+  margin: 0;
+  flex: 1;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+.tg-ib {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--tg-theme-text-color, var(--b-text));
+  font-size: 22px;
+  position: relative;
+}
+.tg-h {
+  margin: 18px 16px 6px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tg-theme-section-header-text-color, var(--b-text-2));
+}
+.tg-sec {
+  margin: 0 16px;
+  background: var(--tg-theme-section-bg-color, var(--b-surface));
+  border: 1px solid color-mix(in srgb, var(--b-line) 55%, transparent);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.tg-sec + .tg-sec { margin-top: 10px; }
+.tg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 16px;
+  position: relative;
+}
+.tg-row + .tg-row::before,
+.tg-line + .tg-line::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color, var(--b-line));
+  opacity: 0.45;
+}
+.tg-line { position: relative; padding: 10px 16px; font-size: 16px; }
+.tg-grow { flex: 1; min-width: 0; }
+.tg-title { font-weight: 650; font-size: 16px; }
+.tg-sub { color: var(--tg-theme-subtitle-text-color, var(--b-text-2)); font-size: 14px; margin-top: 2px; }
+.tg-chev { color: var(--tg-theme-hint-color, var(--b-text-3)); font-size: 20px; }
+.tg-btn {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 12px 16px;
+  min-height: 50px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--tg-theme-button-color, var(--b-accent));
+  color: var(--tg-theme-button-text-color, var(--b-on-accent));
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+}
+.tg-btn.sec {
+  background: var(--tg-theme-secondary-bg-color, var(--b-surface-2));
+  color: var(--tg-theme-text-color, var(--b-text));
+}
+.tg-actions { display: flex; gap: 8px; padding: 12px 16px 16px; }
+.tg-actions .tg-btn { width: auto; flex: 1; margin: 0; }
+.nick-box {
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  border: 1.5px solid var(--tg-theme-hint-color, var(--b-line));
+  border-radius: 12px;
+  font-size: 20px;
+  font-weight: 750;
+}
+.addr-lg {
+  margin: 10px 16px 0;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.meta-top { padding: 8px 16px 12px; font-size: 16px; line-height: 1.45; }
+.accent-band {
+  margin: 0 16px 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, #ff6a1a 18%, var(--b-surface));
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.accent-band b {
+  display: block;
+  color: #ff6a1a;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+}
+.accent-band span { color: var(--b-text-2); font-size: 13px; font-weight: 600; }
+.box {
+  margin: 0 16px 14px;
+  border: 1.5px solid var(--b-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.box h3 {
+  margin: 0;
+  padding: 10px 16px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--b-text-2);
+}
+.grp {
+  margin: 8px 12px;
+  border: 1.5px solid var(--b-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.grp h4 {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 750;
+  background: var(--b-surface-2);
+}
+.grp .tg-line { padding-left: 12px; }
+.alt .tg-line:nth-child(even) { background: color-mix(in srgb, var(--b-text) 5%, transparent); }
+.crumb {
+  margin: 0 16px 10px 28px;
+  border-left: 2px solid var(--b-line);
+  padding-left: 10px;
+}
+.crumb .tg-line { padding: 4px 0; }
+.crumb .tg-line + .tg-line::before { display: none; }
+.dogs {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--b-surface-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.skel {
+  height: 14px;
+  margin: 12px 16px;
+  border-radius: 7px;
+  background: var(--b-surface-2);
+}
+.skel.w2 { width: 62%; }
+.skel.w3 { width: 40%; }
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 8px;
+}
+.cal i {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--b-surface-2);
+  font-style: normal;
+  font-weight: 650;
+}
+.cal i.on { background: var(--b-text); color: var(--b-bg); }
+.cal i small { display: block; font-size: 10px; font-weight: 700; }
+.tiles, .pills {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+}
+.tiles .t, .pills .t {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  border-radius: 12px;
+  background: var(--b-surface-2);
+  padding: 8px 2px 10px;
+}
+.tiles .t b, .pills .t b {
+  display: block;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+.tiles .t span, .pills .t span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--b-text-2);
+  line-height: 1.15;
+}
+.pills {
+  margin: 0 16px 10px;
+  padding: 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, #ff6a1a 16%, var(--b-surface));
+}
+.pills .t { background: transparent; }
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--tg-theme-secondary-bg-color, var(--b-surface));
+  border-radius: 16px 16px 0 0;
+  padding-bottom: 18px;
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 45%);
+}
+.grab { width: 36px; height: 4px; border-radius: 2px; background: var(--b-line); margin: 8px auto; }
+.pop {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  width: 230px;
+  background: var(--b-surface);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
+  z-index: 6;
+  overflow: hidden;
+}
+.badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ff6a1a;
+  color: #0d0d0f;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-grid;
+  place-items: center;
+}
+.dot-o {
+  width: 8px; height: 8px; border-radius: 4px; background: #ff6a1a; display: inline-block;
+}
+.tabs { display: flex; gap: 6px; padding: 8px 12px; overflow: auto; }
+.tab {
+  border: 0;
+  border-radius: 10px;
+  background: var(--b-surface-2);
+  color: var(--b-text-3);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+.tab.on { background: var(--b-text); color: var(--b-bg); }
+.tab.fill { background: #ff6a1a; color: #0d0d0f; }
+.bar { height: 10px; border-radius: 6px; background: var(--b-surface-2); overflow: hidden; margin: 8px 16px; }
+.bar > span { display: block; height: 100%; background: #ff6a1a; }
+.ring {
+  width: 120px; height: 120px; border-radius: 60px;
+  margin: 12px auto;
+  display: grid; place-items: center;
+  background: conic-gradient(#ff6a1a 0 60%, var(--b-surface-2) 60% 100%);
+}
+.ring b {
+  width: 88px; height: 88px; border-radius: 44px;
+  display: grid; place-items: center;
+  background: var(--b-surface);
+  font-size: 28px;
+}
+.split { display: flex; height: 16px; border-radius: 8px; overflow: hidden; margin: 8px 16px 4px; }
+.split i { display: block; height: 100%; }
+.split i.cut { width: 80%; background: #ff6a1a; }
+.split i.lay { width: 20%; background: color-mix(in srgb, #ff6a1a 45%, var(--b-surface-2)); }
+.formula { margin: 4px 16px 8px; font-size: 13px; color: var(--b-text-2); line-height: 1.4; }
+.bigbtn { min-height: 64px; font-size: 18px; }
+.stats3 { display: flex; gap: 8px; padding: 0 16px; }
+.stats3 .tg-sec { margin: 0; flex: 1; text-align: center; padding: 12px 4px; }
+.stats3 b { display: block; font-size: 22px; letter-spacing: 0; }
+.stats3 span { font-size: 11px; color: var(--b-text-2); }
+.scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 45%); }

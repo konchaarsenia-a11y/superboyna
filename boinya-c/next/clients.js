@@ -1299,7 +1299,8 @@
       sh().toast("Не внеслось в ПП: " + ((res && (res.message || res.detail)) || "ошибка"));
       return;
     }
-    sh().toast(enroll.id ? "Отправлено в ПП" : "Внесено в ПП · " + nick);
+    sh().toast(enroll.id ? "Отправлено в ПП" : "Внесено в ПП: " + nick);
+    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) root.BoinyaWeek.noteMonth({ op: "touch" });
     enroll = null;
     editingId = "";
     seg = "pp";

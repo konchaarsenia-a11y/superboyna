@@ -268,6 +268,29 @@
     };
   }
 
+  var MONTH_READS = ["getMonthOverview", "getCalendarMonthPeople", "getViewCompare", "getWeekDayCounts"];
+
+  function bustMem(actions) {
+    var want = null;
+    if (actions && actions.length) {
+      want = {};
+      for (var i = 0; i < actions.length; i++) want[String(actions[i])] = 1;
+    }
+    Object.keys(mem).forEach(function (k) {
+      var am = String(k).match(/(?:^|&)action=([^&]*)/);
+      var action = am ? decodeURIComponent(am[1]) : "";
+      if (!want || want[action]) delete mem[k];
+    });
+  }
+
+  function noteWrite(res) {
+    if (!res || res.status === "error") return res;
+    if (res.status === "success" || res.status === "accepted" || res.writeId || res.sheetsVerified || res.pendingSheets || res.d1Verified) {
+      bustMem(MONTH_READS);
+    }
+    return res;
+  }
+
   function network(params, opts) {
     var action = String(params.action || "");
     return WRITE.test(action) ? postWrite(params, opts.timeoutMs || 22000) : jsonp(params, opts.timeoutMs || 28000);
@@ -328,6 +351,7 @@
     }
     trackStart();
     var p = runChain(retries).then(function (res) {
+      if (WRITE.test(action)) noteWrite(res);
       remember(key, ttl, res);
       return res;
     }).finally(function () {
@@ -346,7 +370,10 @@
       });
     }
     trackStart();
-    return postWrite(payload, 25000).finally(trackEnd);
+    return postWrite(payload, 25000).then(function (res) {
+      noteWrite(res);
+      return res;
+    }).finally(trackEnd);
   }
 
   root.BoinyaApi = {
@@ -356,6 +383,7 @@
     liveInitData: liveInitData,
     waitForInitData: waitForInitData,
     telegramUser: telegramUser,
-    webhook: webhook
+    webhook: webhook,
+    bustMem: bustMem
   };
 })(window);

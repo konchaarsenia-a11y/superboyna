@@ -3,9 +3,9 @@
  * ВАЖНО: app.main.js / app.html / bridge / config — network-first.
  * Старый cache-first + ignoreSearch залипал на мёртвом JS → delete/move «не работают».
  */
-const SW_VER = "boinya-c-sw-v13-71122301";
-const SHELL = "boinya-c-shell-v13";
-const API_CACHE = "boinya-c-api-v13";
+const SW_VER = "boinya-c-sw-v15-71122500";
+const SHELL = "boinya-c-shell-v15";
+const API_CACHE = "boinya-c-api-v15";
 
 const PRECACHE = [
   "./",
@@ -150,8 +150,8 @@ self.addEventListener("fetch", function (event) {
     ) {
       return;
     }
-    if (/[?&]action=(getClients|getViewCompare|getWeekDayCounts)/i.test(url.search)) {
-      return; // всегда сеть
+    if (/[?&]action=(getClients|getViewCompare|getWeekDayCounts|getMonthOverview|getCalendarMonthPeople)/i.test(url.search)) {
+      return; // всегда сеть: месяц нельзя отдавать из cache-first
     }
     event.respondWith(
       caches.open(API_CACHE).then(function (cache) {
