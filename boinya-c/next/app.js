@@ -14,6 +14,8 @@
   var partnersOpen = "";
   var suppressNav = false;
   var flyCache = [];
+  var routeLocked = false;
+  var shownKey = "";
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -346,20 +348,85 @@
     sh().main(back + stub(title, text));
   }
 
+  function routeKey() {
+    return [route.tab, route.seg, moreView, priceView].join("/");
+  }
+
+  function tabAllowed(tab) {
+    if (!access) return false;
+    if (tab === "goals") {
+      var role = access.role;
+      return role !== "partner" && role !== "none" && role !== "pending" && role !== "denied";
+    }
+    var nav = ax().navItems(access);
+    var i;
+    for (i = 0; i < nav.length; i++) if (nav[i].id === tab) return true;
+    return false;
+  }
+
+  function applyEntryRoute() {
+    var nav = ax().navItems(access);
+    route.tab = (nav[0] && nav[0].id) || "orders";
+    route.seg = "";
+    moreView = "";
+    priceView = "";
+    priceFrom = null;
+    if (q().get("tab")) route.tab = q().get("tab");
+    if (q().get("seg")) route.seg = q().get("seg");
+    if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
+    if (q().get("view") === "templates") { route.tab = "more"; moreView = "templates"; }
+    if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
+    if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
+    if (q().get("view") === "partners") { route.tab = "more"; moreView = "partners"; }
+    if (access.role === "partner" && !q().get("tab")) { route.tab = "more"; moreView = "partners"; }
+    if (route.seg === "calc" || route.seg === "pick") {
+      priceView = route.seg;
+      if (!priceFrom) priceFrom = { tab: "orders", seg: "new", moreView: "" };
+    }
+    ensureSeg();
+  }
+
+  function settleRoute() {
+    if (!routeLocked) {
+      applyEntryRoute();
+      routeLocked = true;
+      return;
+    }
+    if (!tabAllowed(route.tab)) {
+      var nav = ax().navItems(access);
+      route.tab = (nav[0] && nav[0].id) || "orders";
+      route.seg = "";
+      moreView = "";
+      priceView = "";
+      priceFrom = null;
+    }
+    ensureSeg();
+  }
+
+  function paintSameOrRender() {
+    if (shownKey && shownKey === routeKey()) paintChrome();
+    else render();
+  }
+
   function render() {
     if (route.tab !== "production" && prod() && prod().pauseBackground) prod().pauseBackground();
     if (route.tab !== "goals" && goalsMod() && goalsMod().leave) goalsMod().leave();
     if (!access) return;
     if (q().get("shot") === "states") { paintStates(); return; }
-    if (ax().isSimple(access) && route.tab !== "goals" && route.tab !== "more") { paintSimple(); return; }
+    if (ax().isSimple(access) && route.tab !== "goals" && route.tab !== "more") {
+      paintSimple();
+      shownKey = routeKey();
+      return;
+    }
     ensureSeg();
+    if (route.tab === "orders" && route.seg === "week") route.seg = "month";
+    shownKey = routeKey();
     if (route.tab === "orders" && route.seg === "new" && ax().tabHas(access, "orderScreen")) {
       paintChrome();
       ord().paint();
       ord().paintSegs(orderSegs(), "new");
       return;
     }
-    if (route.tab === "orders" && route.seg === "week") route.seg = "month";
     if (route.tab === "orders" && route.seg === "month") {
       paintChrome();
       wk().setRole(access.role);
@@ -497,7 +564,7 @@
       return "Партнёры: заявки с датой 19:00–22:00, люди, точки, сети и пуши. «Мини-апп» открывает партнёрку. Сид сетей здесь нет. Вкладка «БП» — только у владельца: кто привёл клиента.";
     }
     if (route.tab === "production" && route.seg === "cut") {
-      return "Нарезка дня, включая «Будущая неделя». «Начать нарезку», галочки «Выложено» и «Нарезано», «!» — нет на следующую, излишек. «Завершить нарезку» спрашивает по неотмеченным: заготовлена или нет в наличии.";
+      return "Нарезка дня, включая «Будущая неделя». «Начать нарезку», галочки «Выложено» и «Нарезано». «!» слева — нет на следующую. Вторая «!» открывает излишек. «Завершить нарезку» спрашивает по неотмеченным: заготовлена или нет в наличии.";
     }
     if (route.tab === "production" && route.seg === "pack") {
       return "Сборка: пакеты по составу, форматы можно выключить. «Собрано» пишет в таблицу. «Пропечатка пакетов» — ручная отметка «пропечатано без лакомств», тот же запрос, что раньше. Отдельного сервера печати нет.";
@@ -713,10 +780,8 @@
     var hadCache = !!(cachedAccess && cachedAccess.role && cachedAccess.role !== "none" && cachedAccess.role !== "pending" && cachedAccess.role !== "denied");
     if (hadCache) {
       access = ax().normalize(cachedAccess);
-      var nav0 = ax().navItems(access);
-      route.tab = (nav0[0] && nav0[0].id) || "orders";
-      ensureSeg();
-      render();
+      settleRoute();
+      paintSameOrRender();
     } else if (!access) {
       sh().main(sh().skeleton(4));
     }
@@ -767,24 +832,8 @@
       return;
     }
     sh().hideGate();
-    var nav = ax().navItems(access);
-    route.tab = (nav[0] && nav[0].id) || "orders";
-    route.seg = "";
-    ensureSeg();
-    if (q().get("tab")) route.tab = q().get("tab");
-    if (q().get("seg")) route.seg = q().get("seg");
-    if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
-    if (q().get("view") === "templates") { route.tab = "more"; moreView = "templates"; }
-    if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
-    if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
-    if (q().get("view") === "partners") { route.tab = "more"; moreView = "partners"; }
-    if (access.role === "partner" && !q().get("tab")) { route.tab = "more"; moreView = "partners"; }
-    if (route.seg === "calc" || route.seg === "pick") {
-      priceView = route.seg;
-      if (!priceFrom) priceFrom = { tab: "orders", seg: "new", moreView: "" };
-    }
-    ensureSeg();
-    render();
+    settleRoute();
+    paintSameOrRender();
     if (access.role === "owner" && expensesMod()) {
       expensesMod().bind(access);
     }

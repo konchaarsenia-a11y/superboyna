@@ -25,6 +25,8 @@
   var depotAddr = "Белецкого 10к2";
   var depotName = "Склад";
   var depotId = "";
+  var depotLat = null;
+  var depotLon = null;
   var warehouses = [];
   var couriersN = 1;
 
@@ -276,6 +278,7 @@
     if (it.done && it.laid) cls += " nx-dim";
     var html = '<article class="' + cls + '" style="margin-top:12px" data-cut="' + esc(key) + '">';
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
+    if (!readonly) html += '<button type="button" class="b-chip nx-mini-bang' + (Number(it.surplus) ? " b-chip--on" : "") + '" data-act="pr-surplus-open" data-k="' + esc(key) + '" aria-label="Излишек">!</button>';
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
     html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? ", излишек " + esc(String(it.surplus)) : "") + "</p>";
     html += cutNote(it);
@@ -283,8 +286,6 @@
     if (!readonly) {
       html += '<button type="button" class="b-btn nx-cut-btn ' + (it.laid ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-laid" data-key="' + esc(key) + '">Выложено</button>';
       html += '<button type="button" class="b-btn nx-cut-btn ' + (it.done ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-done" data-key="' + esc(key) + '">Нарезано</button>';
-      html += '<label class="b-field" style="margin-top:8px"><span class="b-note">Излишек</span><input class="b-field__input" id="surplus_' + esc(key) + '" inputmode="decimal" value="' + esc(String(it.surplus || 0)) + '"></label>';
-      html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-surplus" data-k="' + esc(key) + '" style="margin-top:8px">Сохранить излишек</button>';
     } else {
       var badges = [];
       if (it.laid) badges.push("выложено");
@@ -925,6 +926,27 @@
     return hint ? hint[1] : "";
   }
 
+  function clientTypeLabel(c) {
+    var seg = String((c && (c.segment || c.source || c.orderType || c.type)) || "").trim().toLowerCase();
+    if (seg === "partner" || seg === "партнёр" || seg === "партнер") return "партнёр";
+    if (seg === "bp" || seg === "бп" || seg.indexOf("бп") === 0) return "БП";
+    if (seg === "retail" || seg === "розница" || seg.indexOf("розн") === 0) return "розница";
+    if (seg === "pp" || seg === "пп" || seg.indexOf("пп") === 0 || seg === "subscription") return "ПП";
+    var slot = slotLabel(c);
+    if (/^ПП/.test(String(slot || ""))) return "ПП";
+    return "";
+  }
+
+  function addrBits(raw) {
+    var p = eng() && eng().parseDeliveryAddress ? eng().parseDeliveryAddress(raw) : null;
+    if (!p) return { street: String(raw || "").trim(), details: "" };
+    var bits = [];
+    if (p.entrance) bits.push("подъезд " + p.entrance);
+    if (p.floor) bits.push("этаж " + p.floor);
+    if (p.flat) bits.push("кв " + p.flat);
+    return { street: p.street || String(raw || "").trim(), details: bits.join(", ") };
+  }
+
   function slotLabel(c) {
     var frac = fracSlot(c && c.ppSlot) || fracSlot(c && c.deliverySlot);
     if (frac) return "ПП" + frac;
@@ -998,7 +1020,9 @@
     var day = dayOf("route");
     var html = segBar() + dayField("nxCourDay", day);
     html += '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--sec" data-act="pr-cour-reload">Обновить список</button></div>';
-    html += '<p class="b-lbl">Точка выезда</p><article class="b-card nx-depot"><p class="b-li__title" style="margin:0">' + esc(depotName || "Склад") + '</p><p class="b-note">' + esc(depotAddr || "Белецкого 10к2") + '</p>' +
+    var depotGeoLine = depotHasCoords() ? (depotLat + ", " + depotLon) : "";
+    html += '<p class="b-lbl">Точка выезда</p><article class="b-card nx-depot"><p class="b-li__title" style="margin:0">' + esc(depotName || "Склад") + '</p><p class="b-note">' + esc(depotAddr || "Белецкого 10к2") + "</p>" +
+      (depotGeoLine ? '<p class="b-note">' + esc(depotGeoLine) + "</p>" : "") +
       '<button type="button" class="b-btn b-btn--sec" data-act="pr-dep-open" style="margin-top:8px">Сменить точку</button></article>';
     html += '<div class="nx-actions" style="margin-top:8px">' +
       '<button type="button" class="b-btn ' + (couriersN === 1 ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-cn" data-n="1">Курьеров 1</button>' +
@@ -1025,27 +1049,37 @@
     }
     if (!list.length) html += '<p class="b-note">Нет клиентов на день</p>';
     list.forEach(function (c, idx) {
-      var addr = publicAddr(c.address || "");
-      var priv = privateAddr(c.address || "");
+      var addr = addrBits(c.address || "");
       var note = noteFor(c.note || "", "cour");
       var tel = phoneOf(c);
       var who = String(c.name || "").split(/\s*[·•]\s*/);
       var dog = who[0] || "";
       var nick = who[1] || who[0] || c.name || "Клиент";
+      var kind = clientTypeLabel(c);
       var slot = slotLabel(c);
       var when = windowLabel(c);
       var due = stopMoney(c);
       var price = due != null ? moneyText(due) : "";
-      var accent = [slot, price].filter(Boolean).join(", ");
+      var accentBits = [];
+      if (slot && slot !== kind && /^ПП/.test(slot)) accentBits.push(slot);
+      if (price) accentBits.push(price);
+      var accent = accentBits.join(", ");
       var basket = basketLinesHtml(c.basket);
       var telHtml = tel
         ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>"
         : '<p class="b-note">нет телефона</p>';
+      var details = "";
+      if (addr.details) {
+        details = '<button type="button" class="nx-link" data-act="pr-open" data-i="' + idx + '">' +
+          (courOpen[idx] ? "Скрыть детали адреса" : "Этаж и квартира") + "</button>" +
+          (courOpen[idx] ? '<p class="b-note">' + esc(addr.details) + "</p>" : "");
+      }
       html += '<article class="b-card' + (c.delivered ? " nx-dim" : "") + '" style="margin-top:12px">' +
-        '<div class="nx-nickbox">' + esc(nick) + "</div>" +
+        '<div class="nx-nickrow"><div class="nx-nickbox">' + esc(nick) + "</div>" +
+        (kind ? '<span class="nx-type">' + esc(kind) + "</span>" : "") + "</div>" +
         (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
-        '<p class="nx-addr">' + esc(addr || "Адрес не указан") + "</p>" +
-        '<p class="b-note">' + esc(priv || "Этаж и квартира не указаны") + "</p>" +
+        '<p class="nx-addr">' + esc(addr.street || "Адрес не указан") + "</p>" +
+        details +
         (note ? '<p class="b-note">' + esc(note) + "</p>" : "") +
         telHtml +
         (when ? '<p class="nx-accent">' + esc(when) + "</p>" : "") +
@@ -1137,10 +1171,19 @@
       depotAddr = String(dep.address);
       depotName = String(dep.name || "Склад");
       depotId = dep.id != null ? String(dep.id) : depotId;
+      depotLat = dep.lat != null && dep.lat !== "" ? Number(dep.lat) : null;
+      depotLon = dep.lon != null && dep.lon !== "" ? Number(dep.lon) : null;
+      if (!isFinite(depotLat) || !isFinite(depotLon)) { depotLat = null; depotLon = null; }
       return;
     }
     depotAddr = "Белецкого 10к2";
     depotName = "Склад";
+    depotLat = null;
+    depotLon = null;
+  }
+
+  function depotHasCoords() {
+    return depotLat != null && depotLon != null && isFinite(depotLat) && isFinite(depotLon);
   }
 
   function openDepot() {
@@ -1195,7 +1238,9 @@
     planHtml = '<p class="b-note">Считаю точки…</p>';
     paintRoute();
     var route = rt();
-    var depotGeo = await route.geocodeAddress(route.normalizeAddressForMaps(depotAddr), true);
+    var depotGeo = depotHasCoords()
+      ? { lat: depotLat, lon: depotLon }
+      : await route.geocodeAddress(route.normalizeAddressForMaps(depotAddr), true);
     route.state.depot = depotGeo || { lat: route.MINSK_CENTER.lat, lon: route.MINSK_CENTER.lon };
     var stops = [];
     for (var i = 0; i < withAddr.length; i++) {
@@ -1493,10 +1538,11 @@
     if (!list.length) { sh().toast("Нет адресов"); return; }
     var route = rt();
     var depotGeo = route.state.depot;
-    if (!depotGeo || depotGeo.lat == null) {
+    if (depotHasCoords()) depotGeo = { lat: depotLat, lon: depotLon };
+    else if (!depotGeo || depotGeo.lat == null) {
       depotGeo = await route.geocodeAddress(route.normalizeAddressForMaps(depotAddr), true);
-      route.state.depot = depotGeo || { lat: route.MINSK_CENTER.lat, lon: route.MINSK_CENTER.lon };
     }
+    route.state.depot = depotGeo || { lat: route.MINSK_CENTER.lat, lon: route.MINSK_CENTER.lon };
     var points = [{ lat: route.state.depot.lat, lon: route.state.depot.lon }];
     list.forEach(function (c) {
       if (c.geo && c.geo.lat != null) points.push({ lat: Number(c.geo.lat), lon: Number(c.geo.lon), address: c.address });
@@ -1600,6 +1646,17 @@
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
     if (act === "pr-cut-back") { cutDetail = false; paintCut(); return true; }
+    if (act === "pr-surplus-open") {
+      var sk = node.getAttribute("data-k");
+      var srow = findCut(sk);
+      if (!srow) return true;
+      sh().openSheet({
+        title: srow.name || "Позиция",
+        html: '<label class="b-field"><span class="b-note">Излишек</span><input class="b-field__input" id="surplus_' + esc(sk) + '" inputmode="decimal" value="' + esc(String(srow.surplus || 0)) + '"></label>',
+        foot: '<button type="button" class="b-btn b-btn--main" data-act="pr-surplus" data-k="' + esc(sk) + '">Сохранить излишек</button>'
+      });
+      return true;
+    }
     if (act === "pr-bang") {
       var it = findCut(node.getAttribute("data-k"));
       if (!it) return true;
@@ -1629,7 +1686,7 @@
       if (row) row.surplus = surplus;
       paintCut();
       persistCut(row || { row: key }, { surplus: surplus }).then(function (ok) {
-        if (ok) sh().toast("Излишек сохранён");
+        if (ok) { sh().closeTop("ok"); sh().toast("Излишек сохранён"); }
         else if (row) { row.surplus = prevSurplus; paintCut(); }
       });
       return true;
@@ -1698,6 +1755,8 @@
     onAct: onAct,
     seg: function () { return seg; },
     slotLabel: slotLabel,
+    clientTypeLabel: clientTypeLabel,
+    depotHasCoords: depotHasCoords,
     windowLabel: windowLabel,
     pauseBackground: pauseBackground,
     resumeBackground: resumeBackground
