@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71122300";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71122400";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -13289,12 +13289,18 @@
     window.applyDepotPreset = applyDepotPreset;
 
     function parseGeoFromNote(note) {
+      var peeled = peelServiceCoords_(note);
+      if (peeled && peeled.geo && peeled.geo.lat != null && peeled.geo.lon != null) {
+        return { lat: Number(peeled.geo.lat), lon: Number(peeled.geo.lon) };
+      }
       const m = String(note || "").match(/\[GEO:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]/i);
       if (!m) return null;
       return { lat: Number(m[1]), lon: Number(m[2]) };
     }
 
     function parseYandexUrlFromNote(note) {
+      var peeled = peelServiceCoords_(note);
+      if (peeled && peeled.geo && peeled.geo.yandexUrl) return peeled.geo.yandexUrl;
       const m = String(note || "").match(/\[YMAPS:(https:\/\/[^\]]+)\]/i);
       return m ? m[1] : "";
     }

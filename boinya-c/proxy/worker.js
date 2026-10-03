@@ -2526,11 +2526,13 @@ function clientFromRow_(r) {
           : segNorm === "ПАРТНЁР"
             ? "partner"
             : "");
+  const noteRaw = r.note || meta.note || "";
+  const peeledNote = peelServiceCoords_(noteRaw);
   const out = Object.assign({}, meta, {
     name: r.client,
     matchKey: r.match_key,
     address: r.address || meta.address || "",
-    note: r.note || meta.note || "",
+    note: peeledNote.text,
     phone: r.phone || meta.phone || "",
     basket: basket,
     segment: segNorm,
@@ -2539,12 +2541,18 @@ function clientFromRow_(r) {
     updatedAt: r.updated_at,
     dateIso: r.date_iso || "",
     day: r.day_name || "",
-    noCut: !!meta.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(r.note || meta.note || ""))
+    noCut: !!meta.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(noteRaw))
   });
   out.ppSlot = sanitizePpSlotLabel_(out.ppSlot || meta.ppSlot || meta.deliverySlot);
   if (out.ppHint && /GMT|Standard Time|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(String(out.ppHint))) {
     out.ppHint = out.ppSlot ? ("ПП " + out.ppSlot) : "";
   }
+  if (out.permanentNote) {
+    const peeledPerm = peelServiceCoords_(out.permanentNote);
+    out.permanentNote = peeledPerm.text;
+    if (!out.geo && peeledPerm.geo) out.geo = peeledPerm.geo;
+  }
+  if (!out.geo && peeledNote.geo) out.geo = peeledNote.geo;
   return out;
 }
 
@@ -6934,6 +6942,50 @@ async function repairFutureWeekDupes_(env, opts) {
   return result;
 }
 
+async function attachStoredServiceGeo_(env, clients) {
+  if (!env || !env.DB || !clients || !clients.length) return clients;
+  const need = [];
+  const seen = Object.create(null);
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i];
+    if (!c || c.geo) continue;
+    const nick = String(c.name || c.matchKey || "").trim();
+    const key = nick.toLowerCase();
+    if (!nick || seen[key]) continue;
+    seen[key] = true;
+    need.push(nick);
+  }
+  if (!need.length) return clients;
+  try {
+    await ensureClientServiceGeo_(env);
+    const stmt = env.DB.prepare(
+      "SELECT nick, lat, lon, yandex_url FROM client_service_geo WHERE lower(nick) IN (" +
+        need.map(function () { return "?"; }).join(",") +
+        ")"
+    );
+    const q = await stmt.bind.apply(stmt, need.map(function (n) { return n.toLowerCase(); })).all();
+    const rows = (q && q.results) || [];
+    const byNick = Object.create(null);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row.nick) continue;
+      byNick[String(row.nick).trim().toLowerCase()] = row;
+    }
+    for (let i = 0; i < clients.length; i++) {
+      const c = clients[i];
+      if (!c || c.geo) continue;
+      const nick = String(c.name || c.matchKey || "").trim().toLowerCase();
+      const row = byNick[nick];
+      if (!row) continue;
+      const lat = Number(row.lat);
+      const lon = Number(row.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      c.geo = { lat: lat, lon: lon, yandexUrl: row.yandex_url || peelMapUrl_(lat, lon) };
+    }
+  } catch (eAtt) {}
+  return clients;
+}
+
 async function getClients_(params, env) {
   await ensureMetaColumn_(env);
   const day = String(params.day || "");
@@ -7097,6 +7149,9 @@ async function getClients_(params, env) {
       clientsOut = await filterTombstonedClients_(env, day, clientsOut, { skipMoveEpoch: true });
     } catch (eTombG) {}
   }
+  try {
+    clientsOut = await attachStoredServiceGeo_(env, clientsOut);
+  } catch (eGeoAtt) {}
   return {
     status: "success",
     sandbox: true,
@@ -10172,6 +10227,11 @@ async function saveOrder_(params, env, asBooking) {
     } catch (eCalDup) {}
   }
 
+  const peeledOrderNote = peelServiceCoords_(params.note || "");
+  if (peeledOrderNote.geo) {
+    if (!meta.geo) meta.geo = peeledOrderNote.geo;
+    await rememberClientServiceGeo_(env, client, peeledOrderNote.geo);
+  }
   await upsertOrderRow_(env, {
     id: id,
     date_iso: dateIso || (day ? (await dayDateInfo_(env, day)).iso : ""),
@@ -10179,7 +10239,7 @@ async function saveOrder_(params, env, asBooking) {
     client: client,
     match_key: matchKey,
     address: String(params.address || ""),
-    note: applyNoCutNoteD1_(params.note || "", !!meta.noCut),
+    note: applyNoCutNoteD1_(peeledOrderNote.text, !!meta.noCut),
     phone: String(params.phone || ""),
     basket_json: basket,
     segment: segSave,
@@ -20404,6 +20464,14 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
   );
   if (identDetail.nick) merged.nick = identDetail.nick;
   if (identDetail.label) merged.label = identDetail.label;
+  if (merged.wishes) {
+    const peeledDetail = peelServiceCoords_(merged.wishes);
+    merged.wishes = peeledDetail.text;
+    if (peeledDetail.geo) {
+      merged.serviceGeo = peeledDetail.geo;
+      await rememberClientServiceGeo_(env, merged.nick, peeledDetail.geo);
+    }
+  }
   if (idx >= 0) arr[idx] = merged;
   else arr.push(merged);
   const collapsedDetail = collapseSubscriptionList_(arr);
@@ -20502,6 +20570,7 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
     if (idx >= 0) {
       const old = arr[idx] || {};
       const identInc = preferSubscriptionIdentity_(inc.nick, inc.label, old.nick, old.label);
+      const peeledWish = peelServiceCoords_(inc.wishes || old.wishes || "");
       const patched = Object.assign({}, old, {
         nick: identInc.nick || old.nick,
         label: identInc.label || old.label || identInc.nick || old.nick,
@@ -20520,22 +20589,37 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
             ? inc.statedCost
             : old.statedCost,
         subId: subId || old.subId || "",
-        wishes: peelServiceCoords_(inc.wishes || old.wishes || "").text,
+        wishes: peeledWish.text,
         _listMergedAt: Date.now()
       });
+      if (peeledWish.geo) {
+        patched.serviceGeo = peeledWish.geo;
+        await rememberClientServiceGeo_(env, identInc.nick || old.nick || inc.nick, peeledWish.geo);
+      }
       // Сохранить basket/address/packs из D1, если GAS list их не прислал
       const preserved = enrichSubsPreserveDetail_([old], [patched])[0] || patched;
+      if (peeledWish.geo || peeledWish.text !== String(inc.wishes || old.wishes || "").trim()) {
+        preserved.wishes = peeledWish.text;
+        if (peeledWish.geo) preserved.serviceGeo = peeledWish.geo;
+      }
       arr[idx] = preserved;
       if (old._d1Detail && subscriptionLocalHasCrmDetail_(Object.assign({ found: true }, preserved))) {
         arr[idx]._d1Detail = true;
       }
     } else {
-      arr.push(
-        Object.assign({}, inc, {
-          sheet: inc.sheet || sheet || "ПП",
-          _listMergedAt: Date.now()
-        })
-      );
+      const fresh = Object.assign({}, inc, {
+        sheet: inc.sheet || sheet || "ПП",
+        _listMergedAt: Date.now()
+      });
+      if (fresh.wishes) {
+        const peeledNew = peelServiceCoords_(fresh.wishes);
+        fresh.wishes = peeledNew.text;
+        if (peeledNew.geo) {
+          fresh.serviceGeo = peeledNew.geo;
+          await rememberClientServiceGeo_(env, fresh.nick || fresh.label, peeledNew.geo);
+        }
+      }
+      arr.push(fresh);
     }
   }
   // убрать из D1 тех, кто в tomb (на случай гонки)

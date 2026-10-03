@@ -32849,6 +32849,8 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     basket = mergeBasketItemsForPp_(basket);
   }
 
+  var peeledEnrollWish = peelServiceCoords_(wishes);
+  wishes = peeledEnrollWish.text;
   // новое зачисление в ПП: схема по cutoff (с 2026-08-31 — RAW26), если не передали явно
   var enrollScheme = resolvePpScheme_({
     scheme: json.scheme,
@@ -32900,6 +32902,11 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, noPp) : jsonp(callback, noPp);
   }
   var headers = pp.getRange(1, 1, 1, pp.getLastColumn()).getValues()[0];
+  if (peeledEnrollWish.geo) {
+    try {
+      upsertClientGeo_(crmSs, "CARD", nick, peeledEnrollWish.geo.lat, peeledEnrollWish.geo.lon, peeledEnrollWish.geo.yandexUrl || "");
+    } catch (eGeoEn) {}
+  }
   var rowVals = writePpBasketToRowValues_(headers, basket, nick, json.subId || "", deliveriesN, json.ppStatus || "ПП1", wishes, factCost);
 
   if (!String(rowVals[1] || "").trim()) {

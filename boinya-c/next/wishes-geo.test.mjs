@@ -58,5 +58,11 @@ test("карточка и заказ не пишут координаты обр
   assert.match(worker, /function peelServiceCoords_/);
   assert.match(worker, /client_service_geo/);
   assert.match(worker, /stripCoordsFromWishes/);
+  assert.match(worker, /peelServiceCoords_\(noteRaw\)/);
+  assert.match(worker, /attachStoredServiceGeo_/);
+  assert.match(worker, /patched\.serviceGeo = peeledWish\.geo/);
+  assert.match(worker, /merged\.wishes = peeledDetail\.text/);
+  assert.match(app, /peelServiceCoords_\(note\)/);
+  assert.match(gs, /peeledEnrollWish/);
   assert.doesNotMatch(app, /\[GEO:" \+ geo\.lat/);
 });
