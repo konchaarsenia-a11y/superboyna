@@ -302,6 +302,18 @@ export function assess(ctx, gs, d1Rows, gasReport) {
   const skip = d1Changes.some((c) => c.op === "skip") || gasChanges.some((c) => c.op === "skip");
   if (skip) reasons.push("andrei_skip");
   if (!outcomeOk(ctx, plan.subscriptions || [])) reasons.push("d1_outcome");
+  function otherKey(r) {
+    if (d1Nick(ctx, r)) return "";
+    return [
+      ctx.subscriptionSheetKey_(r),
+      String(r.subId || r.id || ""),
+      String(ctx.subscriptionIgFromRow_(r) || ""),
+      ctx.ppAfkNormName_(r.nick || r.label || "")
+    ].join("|");
+  }
+  const beforeOthers = (d1Rows || []).map(otherKey).filter(Boolean).sort();
+  const afterOthers = (plan.subscriptions || []).map(otherKey).filter(Boolean).sort();
+  if (beforeOthers.join("\n") !== afterOthers.join("\n")) reasons.push("other_rows");
   if (gasReport && !sheetOutcomeFrom(gs, gasBefore, gasChanges)) reasons.push("sheet_outcome");
   const d1Counts = {};
   const trio = (d1Rows || []).filter((r) => d1Nick(ctx, r));
