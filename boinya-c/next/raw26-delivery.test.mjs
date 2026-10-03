@@ -83,6 +83,6 @@ test("quotePp: лишняя доставка +9, LEGACY без изменени�
 test("текст оффера больше не срезает цену до 92% розницы", () => {
   assert.equal(P.capOfferSubToDisplayedRetail_(178.94, 171.2), 178.94);
   const msg = P.composePpClientMessage([], 2, "", 171.2, 178.94, "RAW26", {});
-  assert.match(msg, /Доставка - 18 рублей/);
+  assert.doesNotMatch(msg, /Доставка -/);
   assert.match(msg, /стоимость выходит - 179 рублей/);
 });
