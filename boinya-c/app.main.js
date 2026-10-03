@@ -21267,9 +21267,10 @@
         }
       } catch (eEst) { monthly = 0; }
       if (!(monthly > 0)) {
-        monthly = Math.round((Number(retail.total) || 0) * 0.92 * 100) / 100;
+        var capRateEst = typeof PP_RAW26_RETAIL_CAP === "number" ? PP_RAW26_RETAIL_CAP : 0.92;
+        goods = Math.round((Number(retail.goods) || 0) * capRateEst * 100) / 100;
         fixed = (typeof PP_RAW26_DELIVERY_PER === "number" ? PP_RAW26_DELIVERY_PER : 9) * nDel;
-        goods = Math.max(0, monthly - fixed);
+        monthly = Math.round((goods + fixed) * 100) / 100;
         approx = true;
       }
       monthly = capOfferSubToDisplayedRetail_(monthly, retail.total) || monthly;
@@ -21297,7 +21298,7 @@
 
     /**
      * Локальная оценка месячной ПП без запроса: от последнего живого calcPrice (anchor) вычитаем
-     * снятое сырьё × coef + recover + наценку фракций; потолок 92% розницы — точно по локальному прайсу.
+     * снятое сырьё × coef + recover + наценку фракций; потолок 92% розницы товара, 9×N сверху.
      * Упаковку не моделируем — итог всегда подтверждаем живым calcPrice.
      */
     function pricePickLocalMonthly_(list, anchorList, anchor) {
@@ -21305,7 +21306,7 @@
       var monthA = pricePickMonthlyItems_(anchorList);
       var retail = calcRetailBasketTotal(month, { deliveriesN: PRICE_PICK_MONTH_DELIVERIES });
       var capRate = typeof PP_RAW26_RETAIL_CAP === "number" ? PP_RAW26_RETAIL_CAP : 0.92;
-      var capAt = Math.round((Number(retail.total) || 0) * capRate * 100) / 100;
+      var goodsCap = Math.round((Number(retail.goods) || 0) * capRate * 100) / 100;
       var m = anchor && anchor.model;
       var monthly, goods;
       if (m) {
@@ -21336,7 +21337,11 @@
         monthly = ((anchor && anchor.monthly) || 0) * ratio;
         goods = ((anchor && anchor.goods) || 0) * ratio;
       }
-      if (capAt > 0 && monthly > capAt) monthly = capAt;
+      if (goodsCap > 0 && goods > goodsCap + 0.001) {
+        var fixedPart = (Number(monthly) || 0) - (Number(goods) || 0);
+        goods = goodsCap;
+        monthly = goods + fixedPart;
+      }
       return {
         monthly: Math.round(monthly * 100) / 100,
         goods: Math.round(Math.max(0, goods) * 100) / 100
@@ -23931,14 +23936,14 @@
       }
     }
 
+    /** База капа товара = R. 9×N в кап не входит. */
     function raw26RetailCapBase_(retailGoods, deliveriesN) {
       var r = Number(retailGoods);
       if (!isFinite(r) || r <= 0) return 0;
-      var n = Math.max(1, Number(deliveriesN) || 1);
-      var extra = r < PP_RAW26_RETAIL_FREE_FROM ? PP_RAW26_DELIVERY_PER * n : 0;
-      return Math.round((r + extra) * 100) / 100;
+      return Math.round(r * 100) / 100;
     }
 
+    /** Кап только товара: min(товар, 0.92×R), не ниже сырьё+recover. 9×N, F и пакеты сверху. */
     function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
       var g = Math.round((Number(goods) || 0) * 100) / 100;
       var d = Math.round((Number(delivery) || 0) * 100) / 100;
@@ -23947,29 +23952,19 @@
       var cap = Math.round((Number(capAt) || 0) * 100) / 100;
       var floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
       if (floor < 0) floor = 0;
-      var full = Math.round((g + d + p + f) * 100) / 100;
-      var capped = cap > 0 && full > cap;
+      var capped = cap > 0 && g > cap + 0.001;
       if (capped) {
-        var excess = Math.round((full - cap) * 100) / 100;
-        if (f > 0 && excess > 0) {
-          var cutF = Math.min(f, excess);
-          f = Math.round((f - cutF) * 100) / 100;
-          excess = Math.round((excess - cutF) * 100) / 100;
-        }
-        if (excess > 0) {
-          var room = Math.max(0, Math.round((g - floor) * 100) / 100);
-          var cutG = Math.min(room, excess);
-          g = Math.round((g - cutG) * 100) / 100;
-        }
+        var next = cap < floor ? floor : cap;
+        g = Math.round(next * 100) / 100;
       }
       var factAlloc = Math.round((g + d + p + f) * 100) / 100;
-      var uncappedFloor = !!(capped && cap > 0 && factAlloc > cap + 0.001);
+      var uncappedFloor = !!(capped && g > cap + 0.001);
       return {
         goods: g,
         delivery: d,
         packagesByn: p,
         fractionMarkup: f,
-        factCost: Math.round((g + d + p + f) * 100) / 100,
+        factCost: factAlloc,
         retailCapped: !!capped,
         retailCapAt: cap,
         uncappedFloor: uncappedFloor
@@ -24103,7 +24098,9 @@
           factAfterCap: total,
           factCost: total,
           capCutByn: Math.round((factBeforeLocal - total) * 100) / 100,
-          capCutFrom: allocLocal.retailCapped ? "фракции" : "",
+          capCutFrom: allocLocal.goods < goodsLocal - 0.001
+            ? (allocLocal.uncappedFloor ? "товар+пол" : "товар")
+            : "",
           cleanBeforeCap: raw26OfferCleanByn_(factBeforeLocal, costSum, recover, packsBefore, n),
           cleanAfterCap: raw26OfferCleanByn_(total, costSum, recover, packagesByn, n),
           retailCapped: allocLocal.retailCapped,
@@ -25619,7 +25616,7 @@
         subTotal = capOfferSubToDisplayedRetail_(subTotal, retail.total);
         formulaHint = "сырьё " + costSum + " × " + coef +
           " + recover " + recover +
-          (capped ? (" (итог ≤92% розн. " + Math.round(localFactRaw26 * 100) / 100 + ")") : "") +
+          (capped ? (" (товар ≤92% розн. " + Math.round(allocUi.goods * 100) / 100 + ")") : "") +
           " + 9×" + deliveriesN + "(" + deliveryByn + ")" +
           (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
           (fracMark.total ? (" + фракции " + fracMark.total) : "");
@@ -25957,16 +25954,9 @@
       return (Math.abs(x - Math.round(x)) < 0.001) ? String(Math.round(x)) : x.toFixed(2);
     }
 
-    /** Оффер: ПП ≤ 0.92× показанной розницы и ≤ самой розницы. */
+    /** Кап уже сидит на товаре. Здесь цену не режем: 9×N, F и пакеты остаются. */
     function capOfferSubToDisplayedRetail_(subTotal, retailTotal) {
-      var r = money2_(retailTotal);
-      var s = money2_(subTotal);
-      if (r > 0) {
-        var capAt = money2_(r * (typeof PP_RAW26_RETAIL_CAP === "number" ? PP_RAW26_RETAIL_CAP : 0.92));
-        if (s > capAt) s = capAt;
-        if (s > r) s = r;
-      }
-      return s;
+      return money2_(subTotal);
     }
 
     function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal, scheme, opts) {

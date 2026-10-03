@@ -87,14 +87,14 @@ test("без пакетов цена и текст совпадают с main д
   }
 });
 
-test("кап срезает пакеты внутри потолка, сверху они прибавляются целиком", () => {
+test("пакеты сидят сверху капа товара и остаются в тексте", () => {
   const costSum = 2.12;
   const packagesByn = Math.round(8 * P.PRICE_PACK_UNIT.small * 100) / 100;
   assert.equal(packagesByn, 2.72);
   const bare = nextOffer(2.6, costSum, 40, 0);
   const withPacks = nextOffer(2.6, costSum, 40, packagesByn);
   const cappedTogether = P.capOfferSubToDisplayedRetail_(bare.sub + packagesByn, retailOf(2).total);
-  assert.equal(cappedTogether, bare.sub);
+  assert.equal(cappedTogether, Math.round((bare.sub + packagesByn) * 100) / 100);
   assert.equal(Math.round((withPacks.sub - bare.sub) * 100) / 100, packagesByn);
   assert.notEqual(withPacks.message, bare.message);
   const shown = withPacks.message.match(/стоимость выходит - (\S+)/)[1];
@@ -107,7 +107,7 @@ test("кап срезает пакеты внутри потолка, сверх
     retailTotal: retailOf(2).total,
     subTotal: withPacks.sub
   }).match(/стоимость выходит - (\S+)/)[1];
-  assert.notEqual(shown, eaten);
+  assert.equal(shown, eaten);
   assert.equal(shown, String(Math.round(withPacks.sub)));
 });
 
