@@ -10447,28 +10447,7 @@ function nudgeSegIsPp_(seg) {
   return false;
 }
 
-function nudgeBpStageFromIndex_(crmIndex, nick, name, matchKey) {
-  var stages = (crmIndex && crmIndex.bpStage) || {};
-  var nicks = (crmIndex && (crmIndex.bp || crmIndex.bp1)) || {};
-  var keys = [];
-  var kNick = clientMatchKey_(nick) || "";
-  var kRow = matchKey || clientMatchKey_(name) || "";
-  if (kNick) keys.push(kNick);
-  if (kRow && keys.indexOf(kRow) < 0) keys.push(kRow);
-  var i;
-  for (i = 0; i < keys.length; i++) {
-    if (stages[keys[i]]) return normalizeBpStage_(stages[keys[i]]);
-  }
-  var all = Object.keys(nicks);
-  for (i = 0; i < all.length; i++) {
-    if (nicksMatch_(nicks[all[i]], nick) || nicksMatch_(nicks[all[i]], name) || nicksMatch_(all[i], name) || nicksMatch_(all[i], matchKey)) {
-      if (stages[all[i]]) return normalizeBpStage_(stages[all[i]]);
-    }
-  }
-  return "БП1";
-}
-
-/** Вчерашние доставленные: ПП (ПП1 и ПП2) и БП (БП1, БП2, ФИНАЛ, в том числе на 1 неделю). Розница и АФК не входят. */
+/** Вчерашние доставленные: ПП (ПП1 и ПП2) и только БП1. Розница и АФК не входят. */
 function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   var tz = "Europe/Minsk";
@@ -10636,7 +10615,7 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
     if (!meta.name) meta.name = row.name;
     if (meta.kind === "retail" || meta.segment === "Р") continue;
     if (meta.kind === "pp") pp.push(meta);
-    else if (meta.kind === "bp" || meta.kind === "bp1") bp1.push(meta);
+    else if (meta.kind === "bp1") bp1.push(meta);
   }
   return {
     dateText: dateText,
@@ -10648,9 +10627,9 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   };
 }
 
-/** Индекс CRM для подбития дат: ПП, АФК, все этапы БП + розница (Р) — один проход по листам. */
+/** Индекс CRM для подбития дат: ПП, АФК, только БП1 + розница (Р) — один проход по листам. */
 function loadCrmNudgeIndex_(crmSs) {
-  var idx = { pp: {}, afk: {}, bp: {}, bp1: {}, bpStage: {}, retail: {} };
+  var idx = { pp: {}, afk: {}, bp1: {}, retail: {} };
   function put_(map, cell) {
     var nick = String(cell || "").trim();
     if (!nick) return;
@@ -10680,10 +10659,7 @@ function loadCrmNudgeIndex_(crmSs) {
       else if (specs[s].kind === "afk") put_(idx.afk, cell);
       else if (specs[s].kind === "bp") {
         var stage0 = normalizeBpStage_(String(data[r][3] || "БП1"));
-        put_(idx.bp, cell);
-        put_(idx.bp1, cell);
-        var bk = clientMatchKey_(cell) || String(cell).toUpperCase();
-        if (bk) idx.bpStage[bk] = stage0;
+        if (stage0 === "БП1") put_(idx.bp1, cell);
       }
     }
   }
@@ -10727,7 +10703,7 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
     var retNick = crmIndexHit_(crmIndex.retail, name, row.matchKey);
     var ppNick = crmIndexHit_(crmIndex.pp, name, row.matchKey);
     var afkNick = crmIndexHit_(crmIndex.afk, name, row.matchKey);
-    var bpNick = crmIndexHit_(crmIndex.bp || crmIndex.bp1, name, row.matchKey);
+    var bpNick = crmIndexHit_(crmIndex.bp1, name, row.matchKey);
     if (retNick && !ppNick) {
       kind = "retail";
       seg = "Р";
@@ -10741,9 +10717,9 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
       seg = "АФК";
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(afkNick) || afkNick;
     } else if (bpNick) {
-      kind = "bp";
+      kind = "bp1";
       seg = "БП";
-      stage = nudgeBpStageFromIndex_(crmIndex, bpNick, name, row.matchKey);
+      stage = "БП1";
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(bpNick) || bpNick;
     }
   }
@@ -10762,9 +10738,9 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
       seg = "АФК";
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
     } else if (crmCell && crmCell.sheet === "БП") {
-      kind = "bp";
       seg = "БП";
-      stage = normalizeBpStage_(crmCell.stage || "БП1");
+      stage = crmCell.stage || "БП1";
+      if (normalizeBpStage_(stage) === "БП1") kind = "bp1";
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
     } else {
       var foundPp = findSubscriberBasket_(crmSs, name, "ПП");
@@ -10781,9 +10757,9 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
           if (bpSh) {
             var idx = findSubscriptionRowIndex_(bpSh, name, "");
             if (idx >= 0) {
-              kind = "bp";
               seg = "БП";
               stage = normalizeBpStage_(String(bpSh.getRange(idx + 1, 4).getValue() || "БП1"));
+              if (stage === "БП1") kind = "bp1";
             }
           }
         }
@@ -10794,8 +10770,8 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
   if (!kind) {
     if (nudgeSegIsPp_(seg)) kind = "pp";
     else if (seg === "БП" || seg === "BP") {
-      kind = "bp";
-      stage = normalizeBpStage_(stage || "БП1");
+      if (!stage) stage = "БП1";
+      if (normalizeBpStage_(stage) === "БП1") kind = "bp1";
     }
   }
   if (kind === "pp") seg = "ПП";
@@ -10810,7 +10786,7 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
     kind: kind,
     name: name,
     matchKey: row.matchKey || clientMatchKey_(name) || "",
-    segment: seg || (kind === "pp" ? "ПП" : ((kind === "bp" || kind === "bp1") ? "БП" : "")),
+    segment: seg || (kind === "pp" ? "ПП" : (kind === "bp1" ? "БП" : "")),
     stage: stage,
     basket: row.basket || [],
     address: row.address || "",
@@ -10822,7 +10798,7 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
   var when = String(slot || "") === "19" ? "19:00" : "11:00";
   var lines = [];
   lines.push("📅 Подбейте даты доставок");
-  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП:");
+  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП1:");
   lines.push("");
   var bpRows = (pack.bp && pack.bp.length) ? pack.bp : (pack.bp1 || []);
   var ppRows = pack.pp || [];
@@ -10840,12 +10816,11 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
       lines.push("");
     }
     if (bpRows.length) {
-      lines.push("БП (" + bpRows.length + "):");
+      lines.push("БП1 (" + bpRows.length + "):");
       for (var j = 0; j < bpRows.length; j++) {
         var bn = String(bpRows[j].name || "").trim();
         if (!bn) continue;
-        var st = String(bpRows[j].stage || "").trim();
-        lines.push("• " + bn + (st ? (" — " + st) : ""));
+        lines.push("• " + bn);
       }
       lines.push("");
     }
@@ -10856,7 +10831,7 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
   return lines.join("\n");
 }
 
-/** Нет записей для подбития: ни ПП, ни БП (розница и АФК в pack не попадают). */
+/** Нет записей для подбития: ни ПП, ни БП1 (розница и АФК в pack не попадают). */
 function deliveryDatesNudgeIsEmpty_(pack) {
   if (!pack) return true;
   var ppN = (pack.pp && pack.pp.length) ? pack.pp.length : 0;

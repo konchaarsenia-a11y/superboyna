@@ -141,7 +141,7 @@ assert(httpSrc.indexOf("listYesterdayDeliveredForNudge_") > 0, "dry still builds
 
 const listSrc = sliceFn("listYesterdayDeliveredForNudge_");
 assert(listSrc.indexOf('meta.kind === "pp"') > 0, "pp inclusion unchanged");
-assert(listSrc.indexOf('meta.kind === "bp" || meta.kind === "bp1"') > 0, "every BP stage stays in the nudge list");
+assert(listSrc.indexOf('meta.kind === "bp1"') > 0, "only БП1 stays in the nudge list");
 assert(listSrc.indexOf('meta.kind === "retail"') > 0, "retail still excluded from the nudge list");
 
 if (failed) {
