@@ -11,9 +11,7 @@
  * лишь этих троих так, как задано: evgenia только ПП, Маргарита Сергеевна
  * только АФК, дубль «Андрей» в ПП сливается в andreiprigunov и снимается.
  */
-import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
@@ -367,71 +365,62 @@ function unwrap(text) {
   try { return JSON.parse(s.slice(start, end + 1)); } catch (e) { return null; }
 }
 
-function wranglerEnv() {
-  const env = Object.assign({}, process.env);
-  if (!String(env.CLOUDFLARE_ACCOUNT_ID || "").trim()) delete env.CLOUDFLARE_ACCOUNT_ID;
-  return env;
+const D1_ID = "8ab3668c-a654-432c-9ebd-a1ac5c4db800";
+
+function cfErr(json) {
+  const err = json && json.errors && json.errors[0];
+  if (!err) return "none";
+  const msg = String(err.message || "").replace(/[A-Za-z0-9_\-]{24,}/g, "[redacted]").replace(/\s+/g, " ").slice(0, 100);
+  return "code=" + (err.code || 0) + " message=" + msg;
 }
 
-function runWrangler(args) {
-  return new Promise((resolve) => {
-    const child = spawn("npx", ["wrangler@4"].concat(args), {
-      cwd: path.join(root, "boinya-c/proxy"),
-      env: wranglerEnv(),
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (d) => { out += d; });
-    child.stderr.on("data", (d) => { err += d; });
-    child.on("close", (code) => resolve({ code, out, err }));
+async function cfJson(urlPath, body) {
+  const token = String(process.env.CLOUDFLARE_API_TOKEN || "");
+  const res = await fetch("https://api.cloudflare.com/client/v4" + urlPath, {
+    method: body ? "POST" : "GET",
+    headers: {
+      Authorization: "Bearer " + token,
+      "Content-Type": "application/json"
+    },
+    body: body ? JSON.stringify(body) : undefined
   });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch (e) { json = null; }
+  return { http: res.status, json, bytes: text.length };
 }
 
-function parseWranglerJson(text) {
-  const s = String(text || "");
-  const start = s.search(/[\[{]/);
-  if (start < 0) return null;
-  try { return JSON.parse(s.slice(start)); } catch (e) { return null; }
+async function accountIds() {
+  const one = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  if (one) return { ids: [one], http: 0, err: "", count: 1 };
+  const got = await cfJson("/accounts?per_page=20");
+  const list = (got.json && got.json.result) || [];
+  return {
+    ids: list.map((a) => a && a.id).filter(Boolean),
+    http: got.http,
+    err: cfErr(got.json),
+    count: list.length
+  };
 }
 
-function wranglerRows(text) {
-  const parsed = parseWranglerJson(text);
-  if (!parsed) return [];
-  const bags = Array.isArray(parsed) ? parsed : [parsed];
-  const rows = [];
-  for (let i = 0; i < bags.length; i++) {
-    const rs = bags[i].results || bags[i].result || [];
-    if (Array.isArray(rs)) for (let j = 0; j < rs.length; j++) rows.push(rs[j]);
+async function d1Query(sql, params) {
+  const acc = await accountIds();
+  if (!acc.ids.length) return { ok: false, reason: "no_account http=" + acc.http + " " + acc.err, rows: [] };
+  let last = "no_try";
+  for (let i = 0; i < acc.ids.length; i++) {
+    const got = await cfJson("/accounts/" + acc.ids[i] + "/d1/database/" + D1_ID + "/query", {
+      sql: sql,
+      params: params || []
+    });
+    const result = got.json && got.json.result && got.json.result[0];
+    if (got.json && got.json.success && result) return { ok: true, rows: result.results || [] };
+    last = "http=" + got.http + " " + cfErr(got.json);
   }
-  return rows;
+  return { ok: false, reason: last, rows: [] };
 }
 
 async function d1Select(cacheKey) {
-  const got = await runWrangler([
-    "d1", "execute", "boinya-c", "--remote", "--json",
-    "--command", "SELECT payload FROM snap_cache WHERE cache_key = '" + cacheKey + "'"
-  ]);
-  if (got.code !== 0) {
-    return { ok: false, bytes: got.err.length, rows: [] };
-  }
-  const rows = wranglerRows(got.out);
-  return { ok: true, rows };
-}
-
-async function d1ExecFile(sql) {
-  const file = path.join(os.tmpdir(), "pp-afk-repair-" + Date.now() + ".sql");
-  fs.writeFileSync(file, sql, { mode: 0o600 });
-  try {
-    const got = await runWrangler(["d1", "execute", "boinya-c", "--remote", "--json", "--file", file]);
-    return { ok: got.code === 0, code: got.code, errBytes: got.err.length };
-  } finally {
-    try { fs.unlinkSync(file); } catch (e) {}
-  }
-}
-
-function hexLiteral(text) {
-  return "X'" + Buffer.from(String(text), "utf8").toString("hex") + "'";
+  return d1Query("SELECT payload FROM snap_cache WHERE cache_key = ?1", [cacheKey]);
 }
 
 async function gasCall(secret, params) {
@@ -466,10 +455,10 @@ async function writeD1(ctx, list, plan) {
   const payload = JSON.stringify(next);
   if (payload.length > 700000) return { ok: false, reason: "payload_too_large", bytes: payload.length };
   const now = new Date().toISOString();
-  const sql =
-    "UPDATE snap_cache SET payload = CAST(" + hexLiteral(payload) + " AS TEXT), updated_at = '" + now +
-    "' WHERE cache_key = 'listSubscriptions';\n";
-  const wrote = await d1ExecFile(sql);
+  const wrote = await d1Query(
+    "UPDATE snap_cache SET payload = ?1, updated_at = ?2 WHERE cache_key = 'listSubscriptions'",
+    [payload, now]
+  );
   if (!wrote.ok) return { ok: false, reason: "d1_update_failed" };
   const tombRead = await d1Select("subDeleteTombstones");
   let bag = { items: [] };
@@ -495,11 +484,10 @@ async function writeD1(ctx, list, plan) {
   }
   if (items.length > 200) items = items.slice(-200);
   const tombPayload = JSON.stringify({ items, updatedAt: nowMs });
-  const tombSql =
-    "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES ('subDeleteTombstones', CAST(" +
-    hexLiteral(tombPayload) + " AS TEXT), '" + now +
-    "') ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at;\n";
-  const tombWrote = await d1ExecFile(tombSql);
+  const tombWrote = await d1Query(
+    "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES ('subDeleteTombstones', ?1, ?2) ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+    [tombPayload, now]
+  );
   return tombWrote.ok ? { ok: true, removed: removed.length } : { ok: false, reason: "tomb_update_failed" };
 }
 
@@ -571,7 +559,7 @@ async function main() {
 
   const snap = await d1Select("listSubscriptions");
   if (!snap.ok) {
-    say("d1_read_failed", secret);
+    say("d1_read_failed " + String(snap.reason || "").slice(0, 160), secret);
     process.exitCode = 4;
     return;
   }
