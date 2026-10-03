@@ -86,16 +86,28 @@
   }
 
   function parseGeoFromNote(note) {
+    try {
+      var wishGeo = (typeof globalThis !== "undefined" && globalThis.BoinyaWishesGeo) || null;
+      if (wishGeo && wishGeo.peel) {
+        var hit = wishGeo.peel(note);
+        if (hit && hit.geo) return hit.geo;
+      }
+    } catch (eWishGeo) {}
     const m = String(note || "").match(/\[GEO:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]/i);
     if (!m) return null;
     return { lat: Number(m[1]), lon: Number(m[2]) };
   }
 
   function stripMetaFromNote(note) {
-    return String(note || "")
+    var base = String(note || "")
       .replace(/\[(?:ЕВРОПОЧТА|БЕЛПОЧТА|КУРЬЕР|ОТДЕЛЕНИЕ:[^\]]*|GEO:[^\]]*|YMAPS:[^\]]*|TEL:[^\]]*|ЦЕНА:[^\]]*|TO:[^\]]*|NOTE:[^\]]*)\]/gi, "")
       .replace(/\s{2,}/g, " ")
       .trim();
+    try {
+      var wishGeo = (typeof globalThis !== "undefined" && globalThis.BoinyaWishesGeo) || null;
+      if (wishGeo && wishGeo.peel) return wishGeo.peel(base).text;
+    } catch (eWishGeo) {}
+    return base;
   }
 
   const POST_OFFICES = {

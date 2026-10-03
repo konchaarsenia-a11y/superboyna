@@ -117,6 +117,10 @@
       clientNote = eng.stripOfficeTag(clientNote);
     }
     clientNote = eng.stripGeoTags(clientNote);
+    try {
+      var wishGeo = (typeof globalThis !== "undefined" && globalThis.BoinyaWishesGeo) || null;
+      if (wishGeo && wishGeo.peel) clientNote = wishGeo.peel(clientNote).text;
+    } catch (eWishGeo) {}
     clientNote = String(clientNote || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
     var tagBits = [];
     String(clientNote || "").replace(/\[(ЕВРОПОЧТА|БЕЛПОЧТА|КУРЬЕР|ОТДЕЛЕНИЕ:[^\]]*|НЕ РЕЗАТЬ|РЕЗАТЬ)\]/gi, function (x) {
