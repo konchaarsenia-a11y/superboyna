@@ -2160,9 +2160,42 @@ var ASM_CHEW_PER_BIG = 4;
       return money2_(subTotal);
     }
 
+    /** Месячное N. «2», «2/мес», «2 доставки» → 2. Слот «1/2» → знаменатель 2, не 1. */
+    function monthDeliveriesN_(raw) {
+      if (typeof raw === "number" && isFinite(raw) && raw >= 1) return Math.max(1, Math.round(raw));
+      var s = String(raw == null ? "" : raw).trim().replace(",", ".");
+      if (!s) return 1;
+      if (/^\d+(?:\.\d+)?$/.test(s)) {
+        var plain = Math.round(Number(s));
+        return plain >= 1 ? plain : 1;
+      }
+      var slash = s.match(/(\d+)\s*\/\s*(\d+)/);
+      if (slash) {
+        var den = Number(slash[2]);
+        if (den >= 1) return den;
+      }
+      var lead = s.match(/(\d+)/);
+      if (lead) {
+        var nLead = Number(lead[1]);
+        if (nLead >= 1) return nLead;
+      }
+      return 1;
+    }
+
+    /** API-факт годится, только если его N и доставка совпали с выбранным месячным N. */
+    function raw26ApiFactUsable_(res, deliveriesN) {
+      if (!res || res.factCost == null || !isFinite(Number(res.factCost))) return false;
+      var n = monthDeliveriesN_(deliveriesN);
+      if (String(res.scheme || res.ppScheme || "").toUpperCase() === "LEGACY") return true;
+      if (res.deliveriesN != null && res.deliveriesN !== "" && monthDeliveriesN_(res.deliveriesN) !== n) return false;
+      var del = Number(res.deliveryByn);
+      if (isFinite(del) && del >= 0 && Math.abs(del - PP_RAW26_DELIVERY_PER * n) > 0.05) return false;
+      return true;
+    }
+
     function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal, scheme, opts) {
       opts = opts || {};
-      var n = Math.max(1, Number(deliveriesN) || 1);
+      var n = monthDeliveriesN_(deliveriesN);
       var blocks = buildPriceCompositionForMessage(list);
       var note = String(clientNote || "").trim();
       var sch = String(scheme || "").toUpperCase();
@@ -2176,6 +2209,7 @@ var ASM_CHEW_PER_BIG = 4;
       var sShow = String(roundRub(sExact));
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
+      if (sch === "RAW26") msg += "\n\nДоставка - " + (PP_RAW26_DELIVERY_PER * n) + " рублей";
       if (note) msg += "\n\n" + note;
       msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " рублей";
       msg += "\n\nВ подписке с учётом доставок, поддержки 24/7 и партнёрской программы со скидками для наших клиентов\n" +
@@ -2214,7 +2248,7 @@ var ASM_CHEW_PER_BIG = 4;
       costSum = Number(costSum) || 0;
       var scheme = subDetailSchemeValue_();
       coef = Number(coef) || (scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
-      n = Math.max(1, Number(n) || 1);
+      n = monthDeliveriesN_(n);
       packagesByn = Number(packagesByn) || 0;
       fracTotal = Number(fracTotal) || 0;
       var total;
@@ -2505,6 +2539,8 @@ var ASM_CHEW_PER_BIG = 4;
     recoverBynFromBasketLocal_: recoverBynFromBasketLocal_,
     capOfferSubToDisplayedRetail_: capOfferSubToDisplayedRetail_,
     composePpClientMessage: composePpClientMessage,
+    monthDeliveriesN_: monthDeliveriesN_,
+    raw26ApiFactUsable_: raw26ApiFactUsable_,
     composeRetailClientMessage: composeRetailClientMessage,
     stampPpCoefIntoWishes_: stampPpCoefIntoWishes_,
     stampPpSchemeIntoWishes_: stampPpSchemeIntoWishes_,

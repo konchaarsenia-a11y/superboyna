@@ -213,6 +213,20 @@
     return order.map(function (k) { return byNick[k]; });
   }
 
+  function monthN(raw) {
+    return P() && P().monthDeliveriesN_ ? P().monthDeliveriesN_(raw) : Math.max(1, Number(raw) || 1);
+  }
+
+  function delivLine(raw) {
+    var n = monthN(raw);
+    return "Доставка 9×" + n + " = " + (9 * n) + " р";
+  }
+
+  function paintDelivLine(raw) {
+    var line = document.getElementById("cxDelivLine");
+    if (line) line.textContent = delivLine(raw);
+  }
+
   function field(id, value, placeholder, extra) {
     return '<label class="b-field"><input class="b-field__input" id="' + id + '" data-k="' + id + '" value="' + esc(value || "") + '" placeholder="' + esc(placeholder || "") + '" ' + (extra || "") + "></label>";
   }
@@ -651,6 +665,7 @@
     var subFields = '<p class="b-lbl">Лист</p><p class="b-note">' + esc(c.sheet || "ПП") + "</p>" +
       '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус") +
       '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
+      (c.sheet === "ПП" ? '<p class="b-note" id="cxDelivLine">' + esc(delivLine(c.deliveries)) + "</p>" : "") +
       '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
     if (c.sheet === "БП") {
       var wkLab = W() ? W().statusLabel(c.bpWeeks, c.bpOutcome) : "";
@@ -763,6 +778,7 @@
     html += field("cxDogName", price.dogNames[price.activeDog] || "", "Кличка");
     if (price.mode !== "retail") {
       html += '<p class="b-lbl">N доставок</p>' + field("cxDelN", price.deliveriesN, "2", 'inputmode="numeric"');
+      html += '<p class="b-note" id="cxDelivLine">' + esc(delivLine(price.deliveriesN)) + "</p>";
       if (Number(price.deliveriesN) >= 2) {
         html += '<p class="b-lbl">Слот</p><div class="b-seg">' +
           '<button type="button" class="b-seg__item' + (price.slot === 1 ? " b-seg__item--on" : "") + '" data-act="cl-pslot" data-n="1">1</button>' +
@@ -888,7 +904,7 @@
     if (k === "cxBreed" && card) card.dogBreed = v;
     if (k === "cxWeight" && card) card.dogWeight = v;
     if (k === "cxSubId" && card) card.subId = v;
-    if (k === "cxN" && card) card.deliveries = v;
+    if (k === "cxN" && card) { card.deliveries = v; paintDelivLine(v); }
     if (k === "cxStatus" && card) card.status = v;
     if (k === "cxWishes" && card) card.wishes = v;
     if (k === "cxAddress" && card) { card.addrStreet = v; joinAddr(); }
@@ -901,7 +917,7 @@
     if (k === "cxSvF" && card) card.surveyFinalDue = v;
     if (k === "cxOwner" && card) card.ownerTelegramId = v;
     if (k === "cxDogName") price.dogNames[price.activeDog] = v;
-    if (k === "cxDelN") { price.deliveriesN = Number(v) || 1; schedulePpMessage(); }
+    if (k === "cxDelN") { price.deliveriesN = monthN(v); paintDelivLine(v); schedulePpMessage(); }
     if (k === "cxNote") { price.note = v; schedulePpMessage(); }
     if (k === "cxIg") price.ig = v;
     if (k === "cxAnketa") pick.anketa = v;
@@ -952,7 +968,7 @@
     var slim = list.map(function (it) { return eng().serializeBasketItem_(it); });
     var scheme = extra.scheme || price.scheme || P().defaultPpSchemeForNewLocal_();
     var coef = extra.coef != null ? extra.coef : price.coef;
-    var deliveriesN = Math.max(1, Number(extra.deliveriesN) || Number(price.deliveriesN) || 1);
+    var deliveriesN = monthN(extra.deliveriesN != null && extra.deliveriesN !== "" ? extra.deliveriesN : price.deliveriesN);
     var forNew = extra.forNew !== 0;
     var payload = {
       action: "calcPrice",
@@ -995,13 +1011,15 @@
   }
 
   async function buildPpOffer(list) {
-    var res = await liveCalc(list, { scheme: price.scheme, coef: price.coef, deliveriesN: price.deliveriesN, forNew: 1 });
+    var nOffer = monthN(price.deliveriesN);
+    price.deliveriesN = nOffer;
+    var res = await liveCalc(list, { scheme: price.scheme, coef: price.coef, deliveriesN: nOffer, forNew: 1 });
     var cost = res ? P().recalcPpCostSum(res, list) : 0;
     var packagesByn = packagesBynNow();
     var quote = P().quotePp({
       scheme: price.scheme,
       coef: price.coef,
-      deliveriesN: price.deliveriesN,
+      deliveriesN: nOffer,
       costSum: cost,
       list: list,
       packagesByn: 0,
@@ -1010,8 +1028,9 @@
       fracRates: fracRates(),
       note: price.note
     });
-    var retail = eng().calcRetailBasketTotal(list, { deliveriesN: price.deliveriesN });
-    var fact = res ? P().raw26ApiFactPrice_(res) : 0;
+    var retail = eng().calcRetailBasketTotal(list, { deliveriesN: nOffer });
+    var apiOk = price.scheme !== "RAW26" || (P().raw26ApiFactUsable_ && P().raw26ApiFactUsable_(res, nOffer));
+    var fact = apiOk && res ? P().raw26ApiFactPrice_(res) : 0;
     var sub = fact > 0 ? fact : quote.total;
     if (price.scheme === "RAW26") sub = P().capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
     if (packagesByn) sub = Math.round((sub + packagesByn) * 100) / 100;
@@ -1654,10 +1673,12 @@
 
   async function clientMessage() {
     if (!card) return;
-    var list = (card.basket || []).concat(Number(card.deliveries) >= 2 ? (card.basket2 || []) : []);
-    var retail = eng().calcRetailBasketTotal(list, { deliveriesN: Number(card.deliveries) || 1 });
+    var nCard = monthN((document.getElementById("cxN") || {}).value || card.deliveries);
+    card.deliveries = nCard;
+    var list = (card.basket || []).concat(nCard >= 2 ? (card.basket2 || []) : []);
+    var retail = eng().calcRetailBasketTotal(list, { deliveriesN: nCard });
     var sub = Number(String(card.statedCost || card.calcFactCost || "").replace(",", ".")) || 0;
-    var msg = P().composePpClientMessage(list, card.deliveries, card.wishes, retail.total, sub, card.scheme || "RAW26", { statedTouched: card.statedTouched });
+    var msg = P().composePpClientMessage(list, nCard, card.wishes, retail.total, sub, card.scheme || "RAW26", { statedTouched: card.statedTouched });
     sh().openSheet({
       title: "Сообщение клиенту",
       html: '<article class="b-card" style="white-space:pre-wrap">' + esc(msg) + "</article>" +
@@ -1674,12 +1695,14 @@
 
   async function econ() {
     if (!card) return;
+    var nCard = monthN((document.getElementById("cxN") || {}).value || card.deliveries);
+    card.deliveries = nCard;
     var list = card.basket || [];
-    var res = await liveCalc(list, { scheme: card.scheme, coef: card.coef, deliveriesN: card.deliveries, forNew: 0 });
+    var res = await liveCalc(list, { scheme: card.scheme, coef: card.coef, deliveriesN: nCard, forNew: 0 });
     var cost = res ? P().recalcPpCostSum(res, list) : 0;
     var pc = card.packCounts || {};
     var packagesByn = P().packagesBynFromUCountsLocal_(pc);
-    var q = P().quotePp({ scheme: card.scheme || "RAW26", coef: card.coef, deliveriesN: card.deliveries, costSum: cost, list: list, packagesByn: packagesByn, fracRates: card.fracs || fracRates() });
+    var q = P().quotePp({ scheme: card.scheme || "RAW26", coef: card.coef, deliveriesN: nCard, costSum: cost, list: list, packagesByn: packagesByn, fracRates: card.fracs || fracRates() });
     card.calcFactCost = q.total;
     card.econ = q.fact;
     var f = q.fact || {};
