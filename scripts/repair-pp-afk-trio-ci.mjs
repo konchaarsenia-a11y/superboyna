@@ -82,7 +82,7 @@ const W_NAMES = [
 
 const GS_NAMES = ["extractInstagramNick_", "clientMatchKey_", "normalizeClientKey_"];
 
-function loadPlanners() {
+export function loadPlanners() {
   const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
   const gsSrc = fs.readFileSync(path.join(root, "Code.gs"), "utf8");
   const ctx = vm.createContext({
@@ -443,7 +443,7 @@ async function gasCall(secret, params) {
       redirect: "follow",
       signal: ctrl.signal,
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(Object.assign({ action: "repairPpAfkTrio" }, params, { _wk: secret }))
+      body: JSON.stringify(Object.assign({ action: "repairPpAfkTrio" }, params, secret ? { _wk: secret } : {}))
     });
     const text = await res.text();
     return { http: res.status, json: unwrap(text), bytes: text.length };
@@ -560,11 +560,7 @@ async function main() {
   }
 
   const secret = String(process.env.GAS_SHARED_SECRET || "").trim();
-  if (!secret) {
-    say("secret_missing", "");
-    process.exitCode = 3;
-    return;
-  }
+  say("gas_secret=" + (secret ? "set" : "absent"), secret);
   if (!process.env.CLOUDFLARE_API_TOKEN) {
     say("token_missing", secret);
     process.exitCode = 3;
