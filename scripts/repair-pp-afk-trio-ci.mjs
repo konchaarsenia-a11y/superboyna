@@ -496,6 +496,10 @@ async function startHelper() {
   const env = wranglerEnv();
   const deployed = await runCmd("npx", ["wrangler@4", "deploy"], { cwd: dir, env: env });
   const blob = deployed.out + "\n" + deployed.err;
+  const printed = [];
+  const anyRe = /https:\/\/([a-z0-9.-]+\.workers\.dev)/g;
+  let am;
+  while ((am = anyRe.exec(blob))) if (printed.indexOf(am[1]) < 0) printed.push(am[1]);
   const hosts = [];
   const hostRe = /https:\/\/([a-z0-9.-]*boinya-c-repair-tmp[a-z0-9.-]*\.workers\.dev)/g;
   let hm;
@@ -514,7 +518,18 @@ async function startHelper() {
   if (secretPut.code !== 0) {
     return { ok: false, reason: "secret " + scrub(secretPut.err || secretPut.out, key), key: key, dir: dir, hosts: hosts };
   }
-  return { ok: true, reason: "", key: key, dir: dir, hosts: hosts };
+  const note = (/Deployed/.test(blob) ? "deployed" : "not_deployed") +
+    (/Current Version ID/.test(blob) ? " version_set" : " no_version");
+  return {
+    ok: true,
+    reason: "",
+    key: key,
+    dir: dir,
+    hosts: hosts,
+    printed: printed,
+    note: note,
+    head: scrub(blob, key).slice(0, 180)
+  };
 }
 
 async function helperSession() {
@@ -579,7 +594,16 @@ async function d1Select(cacheKey) {
   if (api.ok) return api;
   const via = await helperGet(cacheKey);
   if (via.ok) return via;
-  return { ok: false, reason: "api " + api.reason + " helper " + via.reason, rows: [] };
+  const session = await helperSession();
+  return {
+    ok: false,
+    reason: via.reason,
+    api: api.reason,
+    note: session.note || session.reason || "",
+    head: session.head || "",
+    printed: (session.printed || []).join(","),
+    rows: []
+  };
 }
 
 async function d1Put(cacheKey, payload) {
@@ -725,7 +749,11 @@ async function main() {
     /* helper stays up until the process ends so a later write can reuse it */
   }
   if (!snap.ok) {
-    say("d1_read_failed " + String(snap.reason || "").slice(0, 160), secret);
+    say("d1_api " + String(snap.api || "").slice(0, 180), secret);
+    say("d1_helper " + String(snap.reason || "").slice(0, 220), secret);
+    say("d1_note " + String(snap.note || "").slice(0, 80), secret);
+    say("d1_head " + String(snap.head || "").slice(0, 180), secret);
+    say("d1_hosts " + String(snap.printed || "-").slice(0, 220), secret);
     process.exitCode = 4;
     return;
   }
