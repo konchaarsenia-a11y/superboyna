@@ -1459,8 +1459,14 @@
       return;
     }
     clearDraft();
+    var goneDate = when;
+    var goneName = name;
+    var goneKey = state.editOriginalMatchKey || "";
     state = blank();
     sh().toast(res && res.sheetsVerified ? "Точно отменено" : "Отменяю…");
+    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) {
+      root.BoinyaWeek.noteMonth({ op: "remove", date: goneDate, client: { name: goneName, matchKey: goneKey } });
+    }
     if (root.__nxOpenWeek) root.__nxOpenWeek();
   }
 
@@ -1609,6 +1615,25 @@
     var whDate = state.deliveryDate || "";
     var whBasket = [];
     try { whBasket = eng().buildOrderSaveBasket_() || []; } catch (eWh) {}
+    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) {
+      root.BoinyaWeek.noteMonth({
+        op: "save",
+        date: whDate,
+        oldDate: state.isEdit ? (state.editOriginalDate || "") : "",
+        oldClient: state.isEdit ? (state.editOriginalClient || "") : "",
+        oldMatchKey: state.isEdit ? (state.editOriginalMatchKey || "") : "",
+        client: {
+          name: whClient,
+          matchKey: state.isEdit ? (state.editOriginalMatchKey || "") : "",
+          address: street,
+          phone: state.phone || "",
+          orderType: state.orderType,
+          orderPrice: priceShow,
+          day: whDay,
+          basket: whBasket
+        }
+      });
+    }
     remember();
     clearDraft();
     var keepDate = state.deliveryDate;
@@ -2149,7 +2174,8 @@
     loadDeferred: loadDeferred,
     syncProfiles: syncProfiles,
     rankCatalogName: rankCatalogName,
-    catalogSearchRows: catalogSearchRows
+    catalogSearchRows: catalogSearchRows,
+    monthStore: function () { return { overview: monthMap, people: {} }; }
   };
   try {
     root.addEventListener("pagehide", persistDraft);
