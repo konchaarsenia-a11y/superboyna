@@ -271,6 +271,14 @@
     return '<label class="b-field"><input class="b-field__input" id="' + id + '" data-k="' + id + '" value="' + esc(value || "") + '" placeholder="' + esc(placeholder || "") + '" ' + (extra || "") + "></label>";
   }
 
+  function dayLoadCls(n, kind) {
+    var L = root.BoinyaWeekLogic;
+    var mark = L && L.dayLoadMark ? L.dayLoadMark(n) : "";
+    if (!mark) return "";
+    if (kind === "cell") return " cell--load-" + mark;
+    return " nx-day-load--" + mark;
+  }
+
   function dayMeta(dayName) {
     var it = weekItem(dayName);
     var num = it && isFinite(Number(it.count)) ? Number(it.count) : null;
@@ -314,13 +322,13 @@
     WEEK.forEach(function (d) {
       var m = dayMeta(d.day);
       var on = state.day === d.day ? ' aria-pressed="true"' : "";
-      html += '<button type="button" class="sheet-act" data-act="day" data-day="' + esc(d.day) + '"' + on + ">" +
+      html += '<button type="button" class="sheet-act' + dayLoadCls(m.num) + '" data-act="day" data-day="' + esc(d.day) + '"' + on + ">" +
         "<span>" + esc(d.day) + (d.off ? " вых" : "") + "</span>" +
         '<span class="num">' + (m.num == null ? "" : esc(String(m.num))) + "</span></button>";
     });
     var fut = weekItem("Будущая неделя");
     var futN = fut && isFinite(Number(fut.count)) ? String(fut.count) : "";
-    html += '<button type="button" class="sheet-act" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
+    html += '<button type="button" class="sheet-act' + dayLoadCls(fut && fut.count) + '" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
     html += '<button type="button" class="sheet-act" data-act="cal">Другая дата</button>';
     html += '<p class="b-note">Полный день от ' + FULL_FROM + " человек</p>";
     return html;
@@ -415,7 +423,7 @@
     var html = "";
     if (state.orderType === "pp") {
       html += '<button type="button" class="nx-link" data-act="from-pp">Из подписки ПП</button>';
-      html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="b-seg">' +
+      html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="nx-pp-toggle" role="group" aria-label="Слот ПП">' +
         segBtn("pp1", "ПП1", state.ppSlotManual === 1) +
         segBtn("pp2", "ПП2", state.ppSlotManual === 2) + "</div>";
       html += '<p class="b-lbl">Цена ПП, BYN</p>' + field("priceInput", state.priceInput, "из листа ПП", 'inputmode="decimal"');
@@ -463,7 +471,7 @@
 
   function noteSummary() {
     var notes = (state.notes || []).filter(function (n) { return n && String(n.text || "").trim(); });
-    if (!notes.length) return "Примечание";
+    if (!notes.length) return "Доп информация";
     return notes.map(function (n) {
       var who = [];
       if (n.roles && n.roles.cour) who.push("курьеру");
@@ -892,7 +900,7 @@
     if (segs["ПАРТНЁР"]) dots += '<i class="dot dot-p"></i>';
     var cls = "cell";
     if (n > 0) cls += " cell--busy";
-    if (n >= FULL_FROM) cls += " is-full";
+    cls += dayLoadCls(n, "cell");
     if (iso === state.deliveryDate) cls += " is-on";
     var label = d + " " + MONTHS_FULL[Number(iso.slice(5, 7)) - 1] + (n ? ", " + n + " чел." : ", никого");
     return '<button type="button" class="' + cls + '" data-act="cal-day" data-iso="' + iso + '" aria-label="' + esc(label) + '"' +
@@ -948,7 +956,7 @@
       return state.notes.map(function (n, i) {
         var r = n.roles || {};
         return '<div class="b-card" style="margin-bottom:8px;padding:12px">' +
-          '<label class="b-field b-field--area"><textarea class="b-field__input" data-act="note-text" data-i="' + i + '">' + esc(n.text || "") + "</textarea></label>" +
+          '<label class="b-field b-field--area"><span class="b-note">Доп информация</span><textarea class="b-field__input nx-extra-info" data-act="note-text" data-i="' + i + '">' + esc(n.text || "") + "</textarea></label>" +
           '<div class="b-chips" style="margin-top:8px">' +
           roleChip(i, "cour", "Курьеру", r.cour) + roleChip(i, "mgr", "Менеджеру", r.mgr) + roleChip(i, "cut", "Нарезчику", r.cut) +
           "</div><div class=\"b-seg\" style=\"margin-top:8px\">" +
@@ -960,7 +968,7 @@
         '<button class="b-btn b-btn--main" type="button" data-act="note-done" style="margin-top:8px">Готово</button>';
     }
     picker._notes = html;
-    sh().openSheet({ title: "Примечание", html: html(), id: "notes" });
+    sh().openSheet({ title: "Доп информация", html: html(), id: "notes" });
   }
 
   function roleChip(i, role, label, on) {

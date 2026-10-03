@@ -574,6 +574,14 @@
     return "записей";
   }
 
+  function dayLoadMark(count) {
+    var n = Number(count);
+    if (!isFinite(n) || n < 4) return "";
+    if (n >= 8) return "bad";
+    if (n >= 6) return "warn";
+    return "ok";
+  }
+
   function fullDayPrompt(count) {
     var n = Number(count);
     if (!isFinite(n) || n < FULL_FROM) return "";
@@ -698,6 +706,7 @@
   return {
     WEEK: WEEK,
     FULL_FROM: FULL_FROM,
+    dayLoadMark: dayLoadMark,
     fullDayPrompt: fullDayPrompt,
     countFromMonth: countFromMonth,
     monthPeopleReady: monthPeopleReady,

@@ -1175,7 +1175,7 @@
         (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
         '<p class="nx-addr">' + esc(addr || "Адрес не указан") + "</p>" +
         '<p class="b-note">' + esc(priv || "Этаж и квартира не указаны") + "</p>" +
-        (note ? '<p class="b-note">' + esc(note) + "</p>" : "") +
+        (note ? '<p class="b-lbl">Доп информация</p><p class="nx-extra-info">' + esc(note) + "</p>" : "") +
         telHtml +
         (when ? '<p class="nx-accent">' + esc(when) + "</p>" : "") +
         (accent ? '<p class="nx-accent">' + esc(accent) + "</p>" : "") +
