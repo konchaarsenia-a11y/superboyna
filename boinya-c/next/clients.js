@@ -781,15 +781,17 @@
     html += basketBlock();
     html += '<p class="b-lbl">Чеклист Instagram</p>' + area("cxIg", price.ig, "Вставь список из Direct");
     html += actions('<button type="button" class="b-btn b-btn--sec" data-act="cl-ig">В состав</button><button type="button" class="b-btn b-btn--sec" data-act="cl-ig-clear">Очистить</button>');
-    html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-manual" style="margin-top:8px">Ручной ввод</button>';
-    if (price.message) {
-      html += '<article class="b-card" style="margin-top:12px;white-space:pre-wrap">' + esc(price.message) + "</article>";
-      html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-copy" style="margin-top:8px">Копировать сообщение</button>';
+    if (price.mode === "retail") {
+      html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-manual" style="margin-top:8px">Ручной ввод</button>';
     }
-    html += actions(
+    if (price.message) {
+      html += '<article class="b-card" id="cxMsg" style="margin-top:12px;white-space:pre-wrap">' + esc(price.message) + "</article>";
+      html += '<button type="button" class="b-btn b-btn--sec" id="cxMsgCopy" data-act="cl-copy" style="margin-top:8px">Копировать сообщение</button>';
+    }
+    html += '<div id="cxCalcTail">' + actions(
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-defer">В отложенное</button>' +
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-open">Внести в ПП</button>'
-    );
+    ) + "</div>";
     if (enroll) {
       sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-compose">Собрать сообщение</button>' +
         '<button type="button" class="b-btn b-btn--main" data-act="cl-enroll-go">Внести в лист ПП</button></div>');
@@ -899,8 +901,8 @@
     if (k === "cxSvF" && card) card.surveyFinalDue = v;
     if (k === "cxOwner" && card) card.ownerTelegramId = v;
     if (k === "cxDogName") price.dogNames[price.activeDog] = v;
-    if (k === "cxDelN") price.deliveriesN = Number(v) || 1;
-    if (k === "cxNote") price.note = v;
+    if (k === "cxDelN") { price.deliveriesN = Number(v) || 1; schedulePpMessage(); }
+    if (k === "cxNote") { price.note = v; schedulePpMessage(); }
     if (k === "cxIg") price.ig = v;
     if (k === "cxAnketa") pick.anketa = v;
     if (k === "cxEnName" && enroll) enroll.displayName = v;
@@ -910,11 +912,16 @@
     if (k === "cxEnPhone" && enroll) enroll.phone = v;
     if (k === "cxEnN" && enroll) enroll.deliveriesN = v;
     if (k === "cxEnFact" && enroll) enroll.fact = v;
-    if (k.indexOf("cxP") === 0) price.packs[k.slice(3)] = Number(v) || 0;
+    if (k.indexOf("cxP") === 0) {
+      price.packs[k.slice(3)] = Number(v) || 0;
+      price.packsManual = true;
+      schedulePpMessage();
+    }
     if (k.indexOf("cxF") === 0) {
       var fk = k.slice(3);
       price.fracs[fk] = Number(v);
       if (card) { card.fracs = card.fracs || Object.assign({}, price.fracs); card.fracs[fk] = Number(v); }
+      schedulePpMessage();
     }
     if (k.indexOf("cxU") === 0 && card) card.packCounts[k.slice(3)] = Number(v) || 0;
     return k.indexOf("cx") === 0 || k.indexOf("svOwn") === 0;
@@ -978,31 +985,26 @@
     return res;
   }
 
-  async function compose() {
-    var list = allItems();
-    if (!list.length) { sh().toast("Сначала набери состав"); return; }
-    if (price.mode === "retail") {
-      var local = eng().calcRetailBasketTotal(list, { deliveriesN: 1 });
-      price.message = P().composeRetailClientMessage(list, local.total, price.note);
-      paint();
-      return;
-    }
-    sh().toast("Считаю…");
+  function packagesBynNow() {
+    var units = P().PRICE_PACK_UNIT || {};
+    var sum = 0;
+    ["small", "medium", "large", "legs"].forEach(function (k) {
+      sum += (Number(price.packs[k]) || 0) * (Number(units[k]) || 0);
+    });
+    return Math.round(sum * 100) / 100;
+  }
+
+  async function buildPpOffer(list) {
     var res = await liveCalc(list, { scheme: price.scheme, coef: price.coef, deliveriesN: price.deliveriesN, forNew: 1 });
     var cost = res ? P().recalcPpCostSum(res, list) : 0;
-    var packs = P().recountPacks ? null : null;
-    var packagesByn = 0;
-    ["small", "medium", "large", "legs"].forEach(function (k) {
-      packagesByn += (Number(price.packs[k]) || 0) * (Number(P().PRICE_PACK_UNIT[k]) || 0);
-    });
-    packagesByn = Math.round(packagesByn * 100) / 100;
+    var packagesByn = packagesBynNow();
     var quote = P().quotePp({
       scheme: price.scheme,
       coef: price.coef,
       deliveriesN: price.deliveriesN,
       costSum: cost,
       list: list,
-      packagesByn: packagesByn,
+      packagesByn: 0,
       dogCount: price.dogCount,
       dogNames: price.dogNames,
       fracRates: fracRates(),
@@ -1012,8 +1014,8 @@
     var fact = res ? P().raw26ApiFactPrice_(res) : 0;
     var sub = fact > 0 ? fact : quote.total;
     if (price.scheme === "RAW26") sub = P().capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
-    price.fact = sub;
-    price.message = P().offerMessage({
+    if (packagesByn) sub = Math.round((sub + packagesByn) * 100) / 100;
+    var messageOpts = {
       scheme: price.scheme,
       mode: "pp",
       list: list,
@@ -1023,8 +1025,80 @@
       subTotal: sub,
       dogCount: price.dogCount,
       dogNames: price.dogNames
-    });
-    if (enroll && (enroll.fact === "" || enroll.fact == null)) enroll.fact = sub;
+    };
+    if (packagesByn) messageOpts.asEntered = true;
+    var message = P().offerMessage(messageOpts);
+    return { sub: sub, message: message, packagesByn: packagesByn, cost: cost, fact: fact };
+  }
+
+  var ppMsgTimer = 0;
+  var ppMsgSeq = 0;
+
+  function schedulePpMessage() {
+    if (seg !== "calc" || price.mode === "retail") return;
+    clearTimeout(ppMsgTimer);
+    ppMsgTimer = setTimeout(function () { refreshLiveMessage(); }, 250);
+  }
+
+  function paintMessage(text) {
+    var box = document.getElementById("cxMsg");
+    if (box) {
+      box.textContent = text;
+      return;
+    }
+    var main = document.getElementById("nxMain");
+    if (!main) return;
+    var art = document.createElement("article");
+    art.className = "b-card";
+    art.id = "cxMsg";
+    art.style.marginTop = "12px";
+    art.style.whiteSpace = "pre-wrap";
+    art.textContent = text;
+    var tail = document.getElementById("cxCalcTail");
+    if (tail && tail.parentNode) tail.parentNode.insertBefore(art, tail);
+    else main.appendChild(art);
+    if (!document.getElementById("cxMsgCopy")) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "b-btn b-btn--sec";
+      btn.id = "cxMsgCopy";
+      btn.setAttribute("data-act", "cl-copy");
+      btn.style.marginTop = "8px";
+      btn.textContent = "Копировать сообщение";
+      art.insertAdjacentElement("afterend", btn);
+    }
+  }
+
+  async function refreshLiveMessage() {
+    if (seg !== "calc" || price.mode === "retail") return;
+    var list = allItems();
+    if (!list.length) return;
+    var seq = ++ppMsgSeq;
+    var built = await buildPpOffer(list);
+    if (seq !== ppMsgSeq || seg !== "calc" || price.mode === "retail") return;
+    if (!(built.cost > 0) && !(built.fact > 0) && !(built.packagesByn > 0)) return;
+    price.fact = built.sub;
+    price.message = built.message;
+    if (enroll && (enroll.fact === "" || enroll.fact == null)) enroll.fact = built.sub;
+    paintMessage(built.message);
+  }
+
+  async function compose() {
+    var list = allItems();
+    if (!list.length) { sh().toast("Сначала набери состав"); return; }
+    if (price.mode === "retail") {
+      var local = eng().calcRetailBasketTotal(list, { deliveriesN: 1 });
+      price.message = P().composeRetailClientMessage(list, local.total, price.note);
+      paint();
+      return;
+    }
+    clearTimeout(ppMsgTimer);
+    ppMsgSeq++;
+    sh().toast("Считаю…");
+    var built = await buildPpOffer(list);
+    price.fact = built.sub;
+    price.message = built.message;
+    if (enroll && (enroll.fact === "" || enroll.fact == null)) enroll.fact = built.sub;
     paint();
   }
 
@@ -1357,6 +1431,7 @@
       price.scheme = cv === "2.6" ? "RAW26" : price.scheme;
       if (card) { card.coef = cv; if (cv === "2.6") card.scheme = "RAW26"; }
       paint();
+      schedulePpMessage();
       return true;
     }
     if (act === "cl-migrate") { migrateRaw(); return true; }
@@ -1368,6 +1443,7 @@
       list.splice(Number(node.getAttribute("data-i")), 1);
       setActiveBasket(list);
       paint();
+      schedulePpMessage();
       return true;
     }
     if (act === "cl-clear") { setActiveBasket([]); paint(); return true; }
@@ -1380,15 +1456,16 @@
     if (act === "cl-to-pp") { toPp(); return true; }
     if (act === "cl-touch") { touchBp(); return true; }
     if (act === "cl-mode") { price.mode = node.getAttribute("data-m") === "retail" ? "retail" : "pp"; paint(); return true; }
-    if (act === "cl-dogs") { price.dogCount = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; if (price.dogCount < 2) price.activeDog = 1; paint(); return true; }
-    if (act === "cl-dog") { price.activeDog = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; paint(); return true; }
-    if (act === "cl-pslot") { price.slot = Number(node.getAttribute("data-n")) || 1; paint(); return true; }
+    if (act === "cl-dogs") { price.dogCount = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; if (price.dogCount < 2) price.activeDog = 1; paint(); schedulePpMessage(); return true; }
+    if (act === "cl-dog") { price.activeDog = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; paint(); schedulePpMessage(); return true; }
+    if (act === "cl-pslot") { price.slot = Number(node.getAttribute("data-n")) || 1; paint(); schedulePpMessage(); return true; }
     if (act === "cl-repack") {
       var rec = P().recountPacks(allItems());
       price.packs = rec.counts;
       price.packsManual = false;
       sh().toast("Пакеты пересчитаны из состава");
       paint();
+      schedulePpMessage();
       return true;
     }
     if (act === "cl-ig") { applyIg(); return true; }
@@ -1522,6 +1599,7 @@
     setActiveBasket(list);
     sh().closeTop("ok");
     paint();
+    schedulePpMessage();
   }
 
   async function delCard() {
@@ -1709,6 +1787,7 @@
     setActiveBasket(list);
     sh().toast("В состав: " + items.length);
     paint();
+    schedulePpMessage();
   }
 
   async function deferCalc() {
