@@ -17323,7 +17323,8 @@
         showToast("БП → ПП…");
         var res = await apiGet({
           action: "moveSubscription",
-          nick: label || nick,
+          nick: nick,
+          label: label || nick,
           subId: subId,
           fromSheet: "БП",
           toSheet: "ПП",
@@ -24951,7 +24952,8 @@
         showToast("Переношу…");
         var res = await apiGet({
           action: "moveSubscription",
-          nick: label || nick,
+          nick: nick,
+          label: label || nick,
           subId: subId,
           fromSheet: fromSheet,
           toSheet: toSheet,
@@ -25006,7 +25008,8 @@
         showToast("Удаляю…");
         var res = await apiGet({
           action: "deleteSubscription",
-          nick: label || nick,
+          nick: nick,
+          label: label || nick,
           subId: subId,
           sheet: sheet,
           segment: sheet,
