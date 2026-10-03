@@ -10409,7 +10409,66 @@ function crmNickCellForNudge_(crmSs, name) {
   return null;
 }
 
-/** Вчерашние доставленные: только ПП (любые) и БП1. */
+/**
+ * Подпись слота для «Подбейте даты»: «ПП1» или «ПП2».
+ * Sheets часто превращает текст «1/2» и «2/2» в 1 и 2 февраля — это тот же слот.
+ */
+function nudgePpSlotTag_(raw) {
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    var febDay = 0;
+    try {
+      var md = Utilities.formatDate(raw, "Europe/Minsk", "M-d").split("-");
+      if (md[0] === "2" && (md[1] === "1" || md[1] === "2")) febDay = Number(md[1]);
+    } catch (eMd) { febDay = 0; }
+    if (!febDay) {
+      var shifted = new Date(raw.getTime() + 3 * 60 * 60 * 1000);
+      if (shifted.getUTCMonth() === 1 && (shifted.getUTCDate() === 1 || shifted.getUTCDate() === 2)) {
+        febDay = shifted.getUTCDate();
+      }
+    }
+    return febDay ? ("ПП" + febDay) : "";
+  }
+  var s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  var feb = s.match(/\bFeb\s+0?([12])\b/i);
+  if (feb && /GMT|Standard Time|Moscow/i.test(s)) return "ПП" + feb[1];
+  var frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (frac && (frac[1] === "1" || frac[1] === "2")) return "ПП" + frac[1];
+  if (s === "1" || s === "2") return "ПП" + s;
+  var word = s.match(/пп\s*([12])/i);
+  if (word) return "ПП" + word[1];
+  return "";
+}
+
+function nudgeSegIsPp_(seg) {
+  var s = String(seg || "").trim().toUpperCase();
+  if (s === "ПП" || s === "PP" || s === "SUBSCRIPTION") return true;
+  if (/^ПП\s*[12]$/.test(s) || /^PP\s*[12]$/.test(s)) return true;
+  return false;
+}
+
+function nudgeBpStageFromIndex_(crmIndex, nick, name, matchKey) {
+  var stages = (crmIndex && crmIndex.bpStage) || {};
+  var nicks = (crmIndex && (crmIndex.bp || crmIndex.bp1)) || {};
+  var keys = [];
+  var kNick = clientMatchKey_(nick) || "";
+  var kRow = matchKey || clientMatchKey_(name) || "";
+  if (kNick) keys.push(kNick);
+  if (kRow && keys.indexOf(kRow) < 0) keys.push(kRow);
+  var i;
+  for (i = 0; i < keys.length; i++) {
+    if (stages[keys[i]]) return normalizeBpStage_(stages[keys[i]]);
+  }
+  var all = Object.keys(nicks);
+  for (i = 0; i < all.length; i++) {
+    if (nicksMatch_(nicks[all[i]], nick) || nicksMatch_(nicks[all[i]], name) || nicksMatch_(all[i], name) || nicksMatch_(all[i], matchKey)) {
+      if (stages[all[i]]) return normalizeBpStage_(stages[all[i]]);
+    }
+  }
+  return "БП1";
+}
+
+/** Вчерашние доставленные: ПП (ПП1 и ПП2) и БП (БП1, БП2, ФИНАЛ, в том числе на 1 неделю). Розница и АФК не входят. */
 function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   var tz = "Europe/Minsk";
@@ -10433,12 +10492,59 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
     deliveredNames.push(n);
   }
 
+  var slotByKey = {};
+  function rememberSlot_(name, tag) {
+    tag = nudgePpSlotTag_(tag) || ((tag === "ПП1" || tag === "ПП2") ? tag : "");
+    if (!name || !tag) return;
+    var sk = clientMatchKey_(name) || String(name).toUpperCase();
+    if (sk) slotByKey[sk] = tag;
+    var up = String(name).trim().toUpperCase();
+    if (up) slotByKey[up] = tag;
+  }
+  function explicitlyUndelivered_(name) {
+    if (!mem) return false;
+    var keys = [clientMatchKey_(name) || "", String(name || "").trim().toUpperCase()];
+    for (var ui = 0; ui < keys.length; ui++) {
+      if (!keys[ui] || !Object.prototype.hasOwnProperty.call(mem, keys[ui])) continue;
+      var entU = mem[keys[ui]];
+      if (entU === false) return true;
+      if (entU && typeof entU === "object" && entU.delivered === false) return true;
+    }
+    return false;
+  }
+
   for (var mk in mem) {
     if (!Object.prototype.hasOwnProperty.call(mem, mk)) continue;
     if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(mk)) continue;
     if (!normalizeMemDelivered_(mem[mk])) continue;
     addName_(memoryLabel_(mem[mk], mk));
   }
+
+  // ПП2 часто лежит только в PP_CYCLE (slot2), дневной обход эти ключи пропускает
+  try {
+    if (memory) {
+      var cycleStore = getPpMonthCycleStore_(memory, ppMonthCycleKey_(yday, tz), tz);
+      for (var ck in cycleStore) {
+        if (!Object.prototype.hasOwnProperty.call(cycleStore, ck)) continue;
+        if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(ck)) continue;
+        var cent = cycleStore[ck];
+        if (!cent || typeof cent !== "object") continue;
+        var tagC = "";
+        var d2 = cent.slot2 && cent.slot2.date;
+        var d1 = cent.slot1 && cent.slot1.date;
+        if (d2 && (d2 === dateText || d2 === dateIso)) tagC = "ПП2";
+        else if (d1 && (d1 === dateText || d1 === dateIso)) tagC = "ПП1";
+        if (!tagC) continue;
+        var shownC = "";
+        if (tagC === "ПП2" && cent.slot2 && cent.slot2.client) shownC = String(cent.slot2.client).trim();
+        if (!shownC && cent.client) shownC = String(cent.client).trim();
+        if (!shownC) shownC = ck;
+        rememberSlot_(shownC, tagC);
+        rememberSlot_(ck, tagC);
+        if (!explicitlyUndelivered_(shownC) && !explicitlyUndelivered_(ck)) addName_(shownC);
+      }
+    }
+  } catch (eCycleN) {}
 
   // лист «Доставки», если A1 = вчера
   try {
@@ -10504,13 +10610,21 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
     var k2 = clientMatchKey_(display) || clientMatchKey_(raw) || display.toUpperCase();
     if (seen2[k2]) continue;
     seen2[k2] = true;
+    var segHit = hit ? String(hit.segment || "").trim() : "";
+    var rawSlot = "";
+    if (hit) {
+      if (hit.ppSlotRaw != null && hit.ppSlotRaw !== "") rawSlot = hit.ppSlotRaw;
+      else rawSlot = hit.ppSlot || "";
+    }
+    var slotTag = nudgePpSlotTag_(rawSlot) || nudgePpSlotTag_(segHit) ||
+      slotByKey[k2] || slotByKey[clientMatchKey_(raw) || ""] || slotByKey[String(raw || "").toUpperCase()] || "";
     resolved.push({
       name: display,
       matchKey: k2,
-      segment: hit ? String(hit.segment || "").trim() : "",
+      segment: segHit,
       basket: hit && hit.basket ? hit.basket : [],
       address: hit ? (hit.address || "") : "",
-      ppSlot: hit ? (hit.ppSlot || "") : ""
+      ppSlot: slotTag
     });
   }
 
@@ -10522,20 +10636,21 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
     if (!meta.name) meta.name = row.name;
     if (meta.kind === "retail" || meta.segment === "Р") continue;
     if (meta.kind === "pp") pp.push(meta);
-    else if (meta.kind === "bp1") bp1.push(meta);
+    else if (meta.kind === "bp" || meta.kind === "bp1") bp1.push(meta);
   }
   return {
     dateText: dateText,
     dateIso: dateIso,
     pp: pp,
+    bp: bp1,
     bp1: bp1,
     total: pp.length + bp1.length
   };
 }
 
-/** Индекс CRM для подбития дат: полный набор ПП/АФК/БП1 + розница (Р) — один проход по листам. */
+/** Индекс CRM для подбития дат: ПП, АФК, все этапы БП + розница (Р) — один проход по листам. */
 function loadCrmNudgeIndex_(crmSs) {
-  var idx = { pp: {}, afk: {}, bp1: {}, retail: {} };
+  var idx = { pp: {}, afk: {}, bp: {}, bp1: {}, bpStage: {}, retail: {} };
   function put_(map, cell) {
     var nick = String(cell || "").trim();
     if (!nick) return;
@@ -10565,7 +10680,10 @@ function loadCrmNudgeIndex_(crmSs) {
       else if (specs[s].kind === "afk") put_(idx.afk, cell);
       else if (specs[s].kind === "bp") {
         var stage0 = normalizeBpStage_(String(data[r][3] || "БП1"));
-        if (stage0 === "БП1") put_(idx.bp1, cell);
+        put_(idx.bp, cell);
+        put_(idx.bp1, cell);
+        var bk = clientMatchKey_(cell) || String(cell).toUpperCase();
+        if (bk) idx.bpStage[bk] = stage0;
       }
     }
   }
@@ -10609,7 +10727,7 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
     var retNick = crmIndexHit_(crmIndex.retail, name, row.matchKey);
     var ppNick = crmIndexHit_(crmIndex.pp, name, row.matchKey);
     var afkNick = crmIndexHit_(crmIndex.afk, name, row.matchKey);
-    var bpNick = crmIndexHit_(crmIndex.bp1, name, row.matchKey);
+    var bpNick = crmIndexHit_(crmIndex.bp || crmIndex.bp1, name, row.matchKey);
     if (retNick && !ppNick) {
       kind = "retail";
       seg = "Р";
@@ -10623,9 +10741,9 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
       seg = "АФК";
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(afkNick) || afkNick;
     } else if (bpNick) {
-      kind = "bp1";
+      kind = "bp";
       seg = "БП";
-      stage = "БП1";
+      stage = nudgeBpStageFromIndex_(crmIndex, bpNick, name, row.matchKey);
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(bpNick) || bpNick;
     }
   }
@@ -10644,9 +10762,9 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
       seg = "АФК";
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
     } else if (crmCell && crmCell.sheet === "БП") {
+      kind = "bp";
       seg = "БП";
-      stage = crmCell.stage || "БП1";
-      if (normalizeBpStage_(stage) === "БП1") kind = "bp1";
+      stage = normalizeBpStage_(crmCell.stage || "БП1");
       if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
     } else {
       var foundPp = findSubscriberBasket_(crmSs, name, "ПП");
@@ -10663,9 +10781,9 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
           if (bpSh) {
             var idx = findSubscriptionRowIndex_(bpSh, name, "");
             if (idx >= 0) {
+              kind = "bp";
               seg = "БП";
               stage = normalizeBpStage_(String(bpSh.getRange(idx + 1, 4).getValue() || "БП1"));
-              if (stage === "БП1") kind = "bp1";
             }
           }
         }
@@ -10674,22 +10792,29 @@ function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
   } catch (eCrm) {}
 
   if (!kind) {
-    if (seg === "ПП" || seg === "PP") kind = "pp";
+    if (nudgeSegIsPp_(seg)) kind = "pp";
     else if (seg === "БП" || seg === "BP") {
-      if (!stage) stage = "БП1";
-      if (normalizeBpStage_(stage) === "БП1") kind = "bp1";
+      kind = "bp";
+      stage = normalizeBpStage_(stage || "БП1");
     }
+  }
+  if (kind === "pp") seg = "ПП";
+
+  var ppSlot = row.ppSlot || "";
+  if (kind === "pp") {
+    var tagged = nudgePpSlotTag_(ppSlot) || nudgePpSlotTag_(row.segment);
+    if (tagged) ppSlot = tagged;
   }
 
   return {
     kind: kind,
     name: name,
     matchKey: row.matchKey || clientMatchKey_(name) || "",
-    segment: seg || (kind === "pp" ? "ПП" : (kind === "bp1" ? "БП" : "")),
+    segment: seg || (kind === "pp" ? "ПП" : ((kind === "bp" || kind === "bp1") ? "БП" : "")),
     stage: stage,
     basket: row.basket || [],
     address: row.address || "",
-    ppSlot: row.ppSlot || ""
+    ppSlot: ppSlot
   };
 }
 
@@ -10697,26 +10822,30 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
   var when = String(slot || "") === "19" ? "19:00" : "11:00";
   var lines = [];
   lines.push("📅 Подбейте даты доставок");
-  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП1:");
+  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП:");
   lines.push("");
-  if (!pack.total) {
+  var bpRows = (pack.bp && pack.bp.length) ? pack.bp : (pack.bp1 || []);
+  var ppRows = pack.pp || [];
+  if (!ppRows.length && !bpRows.length) {
     lines.push("Нет таких клиентов за вчера.");
   } else {
-    if (pack.pp.length) {
-      lines.push("ПП (" + pack.pp.length + "):");
-      for (var i = 0; i < pack.pp.length; i++) {
-        var pn = String(pack.pp[i].name || "").trim();
+    if (ppRows.length) {
+      lines.push("ПП (" + ppRows.length + "):");
+      for (var i = 0; i < ppRows.length; i++) {
+        var pn = String(ppRows[i].name || "").trim();
         if (!pn) continue;
-        lines.push("· " + pn + (pack.pp[i].ppSlot ? (" · " + pack.pp[i].ppSlot) : ""));
+        var tag = nudgePpSlotTag_(ppRows[i].ppSlot);
+        lines.push("· " + pn + (tag ? (" · " + tag) : ""));
       }
       lines.push("");
     }
-    if (pack.bp1.length) {
-      lines.push("БП1 (" + pack.bp1.length + "):");
-      for (var j = 0; j < pack.bp1.length; j++) {
-        var bn = String(pack.bp1[j].name || "").trim();
+    if (bpRows.length) {
+      lines.push("БП (" + bpRows.length + "):");
+      for (var j = 0; j < bpRows.length; j++) {
+        var bn = String(bpRows[j].name || "").trim();
         if (!bn) continue;
-        lines.push("· " + bn);
+        var st = String(bpRows[j].stage || "").trim();
+        lines.push("· " + bn + (st ? (" · " + st) : ""));
       }
       lines.push("");
     }
@@ -10727,11 +10856,12 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
   return lines.join("\n");
 }
 
-/** Нет записей для подбития: ни ПП, ни БП1 (розница в pack не попадает). */
+/** Нет записей для подбития: ни ПП, ни БП (розница и АФК в pack не попадают). */
 function deliveryDatesNudgeIsEmpty_(pack) {
   if (!pack) return true;
   var ppN = (pack.pp && pack.pp.length) ? pack.pp.length : 0;
-  var bpN = (pack.bp1 && pack.bp1.length) ? pack.bp1.length : 0;
+  var bpSrc = (pack.bp && pack.bp.length) ? pack.bp : (pack.bp1 || []);
+  var bpN = bpSrc && bpSrc.length ? bpSrc.length : 0;
   return (ppN + bpN) === 0;
 }
 
@@ -11446,6 +11576,7 @@ function readAllCalendarRows_() {
       legacyRef: String(data[r][15] || ""),
       orderPrice: orderPrice,
       ppSlot: sanitizePpSlotLabel_(data[r][17]),
+      ppSlotRaw: data[r][17],
       deliveryAfter: normalizeTimeHm_(data[r][18]),
       deliveryBefore: normalizeTimeHm_(data[r][19]),
       ppPartner: String(data[r][20] != null ? data[r][20] : "").trim(),

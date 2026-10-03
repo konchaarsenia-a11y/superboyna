@@ -112,8 +112,8 @@ assert(off.reason === "not_slot" && off.marked === false, "outside 11/19 does no
 
 const sendSrc = sliceFn("sendDeliveryDatesNudge_");
 const emptyAt = sendSrc.indexOf("deliveryDatesNudgeIsEmpty_");
-const staffAt = sendSrc.indexOf("collectStaffTelegramIds_");
-const chatAt = sendSrc.indexOf("TELEGRAM_CHAT_ID");
+const staffAt = sendSrc.indexOf('notifyRecipients_("date_nudge")');
+const chatAt = sendSrc.indexOf("notifyChatId_");
 const textAt = sendSrc.indexOf("telegramSendText_");
 const markupAt = sendSrc.indexOf("telegramSendMarkup_");
 assert(emptyAt > 0 && staffAt > emptyAt && chatAt > emptyAt, "empty guard is before staff and chat sends");
@@ -141,7 +141,7 @@ assert(httpSrc.indexOf("listYesterdayDeliveredForNudge_") > 0, "dry still builds
 
 const listSrc = sliceFn("listYesterdayDeliveredForNudge_");
 assert(listSrc.indexOf('meta.kind === "pp"') > 0, "pp inclusion unchanged");
-assert(listSrc.indexOf('meta.kind === "bp1"') > 0, "bp1 inclusion unchanged");
+assert(listSrc.indexOf('meta.kind === "bp" || meta.kind === "bp1"') > 0, "every BP stage stays in the nudge list");
 assert(listSrc.indexOf('meta.kind === "retail"') > 0, "retail still excluded from the nudge list");
 
 if (failed) {
