@@ -11,8 +11,11 @@
  * лишь этих троих так, как задано: evgenia только ПП, Маргарита Сергеевна
  * только АФК, дубль «Андрей» в ПП сливается в andreiprigunov и снимается.
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
@@ -403,7 +406,7 @@ async function accountIds() {
   };
 }
 
-async function d1Query(sql, params) {
+async function d1QueryApi(sql, params) {
   const acc = await accountIds();
   if (!acc.ids.length) return { ok: false, reason: "no_account http=" + acc.http + " " + acc.err, rows: [] };
   let last = "no_try";
@@ -419,8 +422,148 @@ async function d1Query(sql, params) {
   return { ok: false, reason: last, rows: [] };
 }
 
+function runCmd(cmd, args, opts) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      cwd: opts.cwd,
+      env: opts.env,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (opts.input != null) child.stdin.end(opts.input);
+    else child.stdin.end();
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("close", (code) => resolve({ code, out, err }));
+  });
+}
+
+function scrub(text, key) {
+  let t = String(text || "");
+  if (key) t = t.split(key).join("[redacted]");
+  t = t.replace(/[A-Za-z0-9_\-]{24,}/g, "[redacted]");
+  return t.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+let helperPromise = null;
+
+function wranglerEnv() {
+  const env = Object.assign({}, process.env, { WRANGLER_SEND_METRICS: "false", CI: "true" });
+  if (!String(env.CLOUDFLARE_ACCOUNT_ID || "").trim()) delete env.CLOUDFLARE_ACCOUNT_ID;
+  return env;
+}
+
+async function startHelper() {
+  const key = crypto.randomBytes(24).toString("hex");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "repair-"));
+  const worker = [
+    "const ALLOW = { listSubscriptions: 1, subDeleteTombstones: 1 };",
+    "export default {",
+    "  async fetch(req, env) {",
+    "    if (!env.REPAIR_KEY || req.headers.get('x-repair-key') !== env.REPAIR_KEY) return new Response('denied', { status: 403 });",
+    "    if (req.method === 'GET') {",
+    "      const key = new URL(req.url).searchParams.get('key') || '';",
+    "      if (!ALLOW[key]) return new Response('bad', { status: 400 });",
+    "      const row = await env.DB.prepare('SELECT payload FROM snap_cache WHERE cache_key = ?').bind(key).first();",
+    "      return new Response(row && row.payload ? String(row.payload) : 'null');",
+    "    }",
+    "    if (req.method === 'POST') {",
+    "      let body = {};",
+    "      try { body = await req.json(); } catch (e) { return new Response('bad', { status: 400 }); }",
+    "      const cacheKey = String(body.cacheKey || '');",
+    "      const payload = String(body.payload || '');",
+    "      if (!ALLOW[cacheKey] || payload.length > 700000 || payload.charAt(0) !== '{') return new Response('bad', { status: 400 });",
+    "      await env.DB.prepare('INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES (?, ?, ?) ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at').bind(cacheKey, payload, new Date().toISOString()).run();",
+    "      return new Response('ok');",
+    "    }",
+    "    return new Response('no', { status: 405 });",
+    "  }",
+    "};",
+    ""
+  ].join("\n");
+  fs.writeFileSync(path.join(dir, "repair-tmp.js"), worker, { mode: 0o600 });
+  fs.writeFileSync(path.join(dir, "wrangler.toml"), [
+    'name = "boinya-c-repair-tmp"',
+    'main = "repair-tmp.js"',
+    'compatibility_date = "2024-11-01"',
+    "[[d1_databases]]",
+    'binding = "DB"',
+    'database_name = "boinya-c"',
+    'database_id = "' + D1_ID + '"',
+    ""
+  ].join("\n"), { mode: 0o600 });
+  const env = wranglerEnv();
+  const deployed = await runCmd("npx", ["wrangler@4", "deploy"], { cwd: dir, env: env });
+  const urlMatch = (deployed.out + "\n" + deployed.err).match(/https:\/\/[a-z0-9.-]+\.workers\.dev/);
+  if (deployed.code !== 0 || !urlMatch) {
+    return { ok: false, reason: "deploy " + scrub(deployed.err || deployed.out, key), key: key, dir: dir, url: "" };
+  }
+  const secretPut = await runCmd("npx", ["wrangler@4", "secret", "put", "REPAIR_KEY"], {
+    cwd: dir,
+    env: env,
+    input: key
+  });
+  if (secretPut.code !== 0) {
+    return { ok: false, reason: "secret " + scrub(secretPut.err || secretPut.out, key), key: key, dir: dir, url: urlMatch[0] };
+  }
+  return { ok: true, reason: "", key: key, dir: dir, url: urlMatch[0] };
+}
+
+async function helperSession() {
+  if (!helperPromise) helperPromise = startHelper();
+  return helperPromise;
+}
+
+async function closeHelper() {
+  if (!helperPromise) return;
+  const session = await helperPromise.catch(() => null);
+  helperPromise = null;
+  if (!session || !session.dir) return;
+  await runCmd("npx", ["wrangler@4", "delete", "--force"], { cwd: session.dir, env: wranglerEnv() });
+  try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch (e) {}
+}
+
+async function helperGet(cacheKey) {
+  const session = await helperSession();
+  if (!session.ok) return { ok: false, reason: session.reason, rows: [] };
+  const res = await fetch(session.url + "/?key=" + encodeURIComponent(cacheKey), {
+    headers: { "x-repair-key": session.key }
+  });
+  const text = await res.text();
+  if (!res.ok) return { ok: false, reason: "fetch http=" + res.status + " bytes=" + text.length, rows: [] };
+  if (text === "null") return { ok: true, rows: [] };
+  return { ok: true, rows: [{ payload: text }] };
+}
+
+async function helperPut(cacheKey, payload) {
+  const session = await helperSession();
+  if (!session.ok) return { ok: false, reason: session.reason, rows: [] };
+  const res = await fetch(session.url + "/", {
+    method: "POST",
+    headers: { "x-repair-key": session.key, "content-type": "application/json" },
+    body: JSON.stringify({ cacheKey: cacheKey, payload: payload })
+  });
+  const text = await res.text();
+  if (!res.ok || text !== "ok") return { ok: false, reason: "put http=" + res.status + " bytes=" + text.length, rows: [] };
+  return { ok: true, rows: [] };
+}
+
 async function d1Select(cacheKey) {
-  return d1Query("SELECT payload FROM snap_cache WHERE cache_key = ?1", [cacheKey]);
+  const api = await d1QueryApi("SELECT payload FROM snap_cache WHERE cache_key = ?1", [cacheKey]);
+  if (api.ok) return api;
+  const via = await helperGet(cacheKey);
+  if (via.ok) return via;
+  return { ok: false, reason: "api " + api.reason + " helper " + via.reason, rows: [] };
+}
+
+async function d1Put(cacheKey, payload) {
+  const api = await d1QueryApi(
+    "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+    [cacheKey, payload, new Date().toISOString()]
+  );
+  if (api.ok) return api;
+  return helperPut(cacheKey, payload);
 }
 
 async function gasCall(secret, params) {
@@ -454,11 +597,7 @@ async function writeD1(ctx, list, plan) {
   next.status = "success";
   const payload = JSON.stringify(next);
   if (payload.length > 700000) return { ok: false, reason: "payload_too_large", bytes: payload.length };
-  const now = new Date().toISOString();
-  const wrote = await d1Query(
-    "UPDATE snap_cache SET payload = ?1, updated_at = ?2 WHERE cache_key = 'listSubscriptions'",
-    [payload, now]
-  );
+  const wrote = await d1Put("listSubscriptions", payload);
   if (!wrote.ok) return { ok: false, reason: "d1_update_failed" };
   const tombRead = await d1Select("subDeleteTombstones");
   let bag = { items: [] };
@@ -484,10 +623,7 @@ async function writeD1(ctx, list, plan) {
   }
   if (items.length > 200) items = items.slice(-200);
   const tombPayload = JSON.stringify({ items, updatedAt: nowMs });
-  const tombWrote = await d1Query(
-    "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES ('subDeleteTombstones', ?1, ?2) ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
-    [tombPayload, now]
-  );
+  const tombWrote = await d1Put("subDeleteTombstones", tombPayload);
   return tombWrote.ok ? { ok: true, removed: removed.length } : { ok: false, reason: "tomb_update_failed" };
 }
 
@@ -557,7 +693,12 @@ async function main() {
   const confirm = String(process.env.REPAIR_CONFIRM || "") === CONFIRM;
   say("mode=" + (confirm ? "confirm" : "dry"), secret);
 
-  const snap = await d1Select("listSubscriptions");
+  let snap;
+  try {
+    snap = await d1Select("listSubscriptions");
+  } finally {
+    /* helper stays up until the process ends so a later write can reuse it */
+  }
   if (!snap.ok) {
     say("d1_read_failed " + String(snap.reason || "").slice(0, 160), secret);
     process.exitCode = 4;
@@ -634,5 +775,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const msg = String((e && e.message) || "error").slice(0, 80);
     console.log("failed: " + msg);
     process.exitCode = 1;
-  });
+  }).finally(() => closeHelper());
 }
