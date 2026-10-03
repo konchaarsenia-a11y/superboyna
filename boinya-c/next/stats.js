@@ -255,6 +255,14 @@
       '<p class="b-note">Чистые = выручка минус себестоимость всех отвезено доставок перешедшего, за месяц и за всё время. Окупаемость = чистые минус БП тех, кто не перешёл.</p>' +
       bpBlock(monthTitle, monthBp || legacy.bpMonth) +
       bpBlock("За всё время", lifeBp || legacy.bpLife);
+    var bpInfo = periodRes.bp || {};
+    var weekMarked = (Number(bpInfo.oneWeek) || 0) + (Number(bpInfo.extended) || 0) + (Number(bpInfo.toPp) || 0) + (Number(bpInfo.doneWeek) || 0);
+    if (weekMarked > 0) {
+      html += line("1 нед", String(bpInfo.oneWeek || 0));
+      html += line("Продлён", String(bpInfo.extended || 0));
+      html += line("Перешёл в ПП", String(bpInfo.toPp || 0));
+      html += line("Завершён", String(bpInfo.doneWeek || 0));
+    }
     if (econ && econ.note) html += '<p class="b-note">' + esc(econ.note) + "</p>";
     else html += '<p class="b-note">Чистые и окупаемость появятся, когда бэкенд пришлёт состав доставок. Пока их нет, это не ноль.</p>';
     html += "</article>";

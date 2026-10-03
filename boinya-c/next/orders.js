@@ -91,7 +91,8 @@
       editOriginalDate: "",
       editOriginalMatchKey: "",
       survey: null,
-      deferredId: ""
+      deferredId: "",
+      bpWeeks: 2
     };
   }
 
@@ -270,6 +271,14 @@
     return '<label class="b-field"><input class="b-field__input" id="' + id + '" data-k="' + id + '" value="' + esc(value || "") + '" placeholder="' + esc(placeholder || "") + '" ' + (extra || "") + "></label>";
   }
 
+  function dayLoadCls(n, kind) {
+    var L = root.BoinyaWeekLogic;
+    var mark = L && L.dayLoadMark ? L.dayLoadMark(n) : "";
+    if (!mark) return "";
+    if (kind === "cell") return " cell--load-" + mark;
+    return " nx-day-load--" + mark;
+  }
+
   function dayMeta(dayName) {
     var it = weekItem(dayName);
     var num = it && isFinite(Number(it.count)) ? Number(it.count) : null;
@@ -313,13 +322,13 @@
     WEEK.forEach(function (d) {
       var m = dayMeta(d.day);
       var on = state.day === d.day ? ' aria-pressed="true"' : "";
-      html += '<button type="button" class="sheet-act" data-act="day" data-day="' + esc(d.day) + '"' + on + ">" +
+      html += '<button type="button" class="sheet-act' + dayLoadCls(m.num) + '" data-act="day" data-day="' + esc(d.day) + '"' + on + ">" +
         "<span>" + esc(d.day) + (d.off ? " вых" : "") + "</span>" +
         '<span class="num">' + (m.num == null ? "" : esc(String(m.num))) + "</span></button>";
     });
     var fut = weekItem("Будущая неделя");
     var futN = fut && isFinite(Number(fut.count)) ? String(fut.count) : "";
-    html += '<button type="button" class="sheet-act" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
+    html += '<button type="button" class="sheet-act' + dayLoadCls(fut && fut.count) + '" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
     html += '<button type="button" class="sheet-act" data-act="cal">Другая дата</button>';
     html += '<p class="b-note">Полный день от ' + FULL_FROM + " человек</p>";
     return html;
@@ -414,7 +423,7 @@
     var html = "";
     if (state.orderType === "pp") {
       html += '<button type="button" class="nx-link" data-act="from-pp">Из подписки ПП</button>';
-      html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="b-seg">' +
+      html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="nx-pp-toggle" role="group" aria-label="Слот ПП">' +
         segBtn("pp1", "ПП1", state.ppSlotManual === 1) +
         segBtn("pp2", "ПП2", state.ppSlotManual === 2) + "</div>";
       html += '<p class="b-lbl">Цена ПП, BYN</p>' + field("priceInput", state.priceInput, "из листа ПП", 'inputmode="decimal"');
@@ -424,6 +433,9 @@
       }
     }
     if (state.orderType === "bp") {
+      html += '<p class="b-lbl">Срок БП</p><div class="b-seg">' +
+        segBtn("bpw1", "1 неделя", Number(state.bpWeeks) === 1) +
+        segBtn("bpw2", "2 недели", Number(state.bpWeeks) !== 1) + "</div>";
       html += '<p class="b-lbl">Кто привёл</p><label class="b-field"><select class="b-field__input" id="ppPartner" data-k="ppPartner">' +
         '<option value="">— выберите партнёра —</option>' +
         partners.map(function (p) {
@@ -459,7 +471,7 @@
 
   function noteSummary() {
     var notes = (state.notes || []).filter(function (n) { return n && String(n.text || "").trim(); });
-    if (!notes.length) return "Примечание";
+    if (!notes.length) return "Доп информация";
     return notes.map(function (n) {
       var who = [];
       if (n.roles && n.roles.cour) who.push("курьеру");
@@ -888,7 +900,7 @@
     if (segs["ПАРТНЁР"]) dots += '<i class="dot dot-p"></i>';
     var cls = "cell";
     if (n > 0) cls += " cell--busy";
-    if (n >= FULL_FROM) cls += " is-full";
+    cls += dayLoadCls(n, "cell");
     if (iso === state.deliveryDate) cls += " is-on";
     var label = d + " " + MONTHS_FULL[Number(iso.slice(5, 7)) - 1] + (n ? ", " + n + " чел." : ", никого");
     return '<button type="button" class="' + cls + '" data-act="cal-day" data-iso="' + iso + '" aria-label="' + esc(label) + '"' +
@@ -944,7 +956,7 @@
       return state.notes.map(function (n, i) {
         var r = n.roles || {};
         return '<div class="b-card" style="margin-bottom:8px;padding:12px">' +
-          '<label class="b-field b-field--area"><textarea class="b-field__input" data-act="note-text" data-i="' + i + '">' + esc(n.text || "") + "</textarea></label>" +
+          '<label class="b-field b-field--area"><span class="b-note">Доп информация</span><textarea class="b-field__input nx-extra-info" data-act="note-text" data-i="' + i + '">' + esc(n.text || "") + "</textarea></label>" +
           '<div class="b-chips" style="margin-top:8px">' +
           roleChip(i, "cour", "Курьеру", r.cour) + roleChip(i, "mgr", "Менеджеру", r.mgr) + roleChip(i, "cut", "Нарезчику", r.cut) +
           "</div><div class=\"b-seg\" style=\"margin-top:8px\">" +
@@ -956,7 +968,7 @@
         '<button class="b-btn b-btn--main" type="button" data-act="note-done" style="margin-top:8px">Готово</button>';
     }
     picker._notes = html;
-    sh().openSheet({ title: "Примечание", html: html(), id: "notes" });
+    sh().openSheet({ title: "Доп информация", html: html(), id: "notes" });
   }
 
   function roleChip(i, role, label, on) {
@@ -1349,38 +1361,55 @@
       return { telegramId: pick, name: name };
     }
     var due = ymdPlus(state.deliveryDate || "", 4);
+    var BW = root.BoinyaBpWeeks;
+    var weeksPick = BW ? BW.weeksOf(state.bpWeeks) : (Number(state.bpWeeks) === 1 ? 1 : 2);
     if (!existing) {
       var createBp = await sh().confirm({
         title: "Карточка БП",
-        text: "«" + clientName + "» ещё нет в БП.\nСоздать карточку БП1 (1-я доставка)?\nОпросник — через 4 дня после получения.",
+        text: "«" + clientName + "» ещё нет в БП.\nСоздать карточку БП1 на " + (weeksPick === 1 ? "1 неделю" : "2 недели") + "?\nОпросник — через 4 дня после получения.",
         ok: "Создать"
       });
       if (!createBp) return null;
       var ownNew = await ensureOwner(null);
       if (!ownNew || !ownNew.telegramId) { sh().toast("Нужен ответственный менеджер"); return false; }
-      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownNew.telegramId, ownerName: ownNew.name, subId: "", advance: "new" };
+      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownNew.telegramId, ownerName: ownNew.name, subId: "", advance: "new", bpWeeks: weeksPick };
     }
+    var storedWeeks = BW ? BW.weeksOf(existing.bpWeeks) : (Number(existing.bpWeeks) === 1 ? 1 : 2);
+    var storedOut = BW ? BW.outcomeOf(existing.bpOutcome) : "";
     var st = bpStage(existing.ppStatus || existing.status || existing.stage || "БП1");
     var seed = { telegramId: existing.ownerTelegramId || "", name: existing.ownerName || "" };
+    if (storedWeeks === 1 && storedOut !== "extend") {
+      if (storedOut === "done") { sh().toast("БП на 1 неделю уже завершён"); return null; }
+      if (storedOut === "pp") { sh().toast("Клиент уже переведён в ПП"); return null; }
+      var stay1 = await sh().confirm({
+        title: "БП на 1 неделю",
+        text: "«" + clientName + "» на 1 неделе.\nВторая неделя не ставится, пока не отметите продление в карточке.\nОбновить состав 1-й доставки и опросник на " + due + "?",
+        ok: "Обновить 1 неделю"
+      });
+      if (!stay1) return null;
+      var ownStay = await ensureOwner(seed);
+      if (!ownStay || !ownStay.telegramId) return false;
+      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownStay.telegramId, ownerName: ownStay.name, subId: existing.subId || "", advance: "refresh_first", bpWeeks: 1 };
+    }
     if (st === "ФИНАЛ") {
       var upd = await sh().confirm({ title: "Финал БП", text: "«" + clientName + "» уже в Финале БП.\nОбновить состав 2-й доставки и дату финального опросника на " + due + "?", ok: "Обновить" });
       if (!upd) return null;
       var ownFin = await ensureOwner(seed);
       if (!ownFin || !ownFin.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: ownFin.telegramId, ownerName: ownFin.name, subId: existing.subId || "", advance: "refresh_final" };
+      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: ownFin.telegramId, ownerName: ownFin.name, subId: existing.subId || "", advance: "refresh_final", bpWeeks: storedWeeks };
     }
     var go2 = await sh().confirm({ title: "Вторая доставка?", text: "«" + clientName + "» уже в БП (" + st + ").\nЭто 2-я доставка?\n→ Финал + финальный опросник на " + due + ".", ok: "Да, финал", alt: "Нет" });
     if (go2 === true) {
       var own2 = await ensureOwner(seed);
       if (!own2 || !own2.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: own2.telegramId, ownerName: own2.name, subId: existing.subId || "", advance: "to_final" };
+      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: own2.telegramId, ownerName: own2.name, subId: existing.subId || "", advance: "to_final", bpWeeks: storedWeeks };
     }
     if (go2 === false) return null;
     var stay = await sh().confirm({ title: "Оставить этап", text: "Оставить этап " + st + " и обновить состав 1-й доставки?\nОпросник после 1-й → " + due + ".", ok: "Оставить" });
     if (!stay) return null;
     var own1 = await ensureOwner(seed);
     if (!own1 || !own1.telegramId) return false;
-    return { createCard: true, needSurvey: true, status: st === "БП2" ? "БП2" : "БП1", stage: st === "БП2" ? "БП2" : "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: own1.telegramId, ownerName: own1.name, subId: existing.subId || "", advance: "refresh_first" };
+    return { createCard: true, needSurvey: true, status: st === "БП2" ? "БП2" : "БП1", stage: st === "БП2" ? "БП2" : "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: own1.telegramId, ownerName: own1.name, subId: existing.subId || "", advance: "refresh_first", bpWeeks: storedWeeks };
   }
 
   function saveMessage(res) {
@@ -1564,11 +1593,15 @@
       }
     }
     var book = pay().buildSaveBookingParams(state, eng(), weekDay);
+    var savedSurvey = state.survey;
     var res = await api().apiPost(book);
     sh().closeLoader();
     var msgOut = saveMessage(res);
     saving = false;
     if (!msgOut.ok) { sh().toast(msgOut.text); paint(); return; }
+    if (savedSurvey && root.BoinyaBpWeeks && root.BoinyaBpWeeks.weeksOf(savedSurvey.bpWeeks) === 1 && savedSurvey.advance !== "to_final" && savedSurvey.advance !== "refresh_final" && savedSurvey.status !== "ФИНАЛ") {
+      try { await api().apiPost(root.BoinyaBpWeeks.remindBody(clientName, savedSurvey.ownerTelegramId || telegramId())); } catch (eRm) {}
+    }
     if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено");
     else sh().toast(msgOut.text);
     var whClient = clientName;
@@ -1896,6 +1929,8 @@
     if (id === "del1") { state.retailPaidDelivery = true; if (!state.retailPriceManual) syncRetail(); paint(); return true; }
     if (id === "cup0") { state.partnerCouponsEnabled = false; paint(); return true; }
     if (id === "cup1") { state.partnerCouponsEnabled = true; paint(); return true; }
+    if (id === "bpw1") { state.bpWeeks = 1; paint(); return true; }
+    if (id === "bpw2") { state.bpWeeks = 2; paint(); return true; }
     return false;
   }
 
