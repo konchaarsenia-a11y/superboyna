@@ -168,6 +168,8 @@
     if (priceView === "pick") return "Подбор";
     if (q().get("shot") === "states") return "Состояния";
     if (route.tab === "goals") return "Цели";
+    if (route.tab === "more" && (moreView === "staff" || moreView === "people")) return "Сотрудники";
+    if (route.tab === "more" && moreView === "settings") return "Настройки";
     if (route.tab === "more") return ax().NAV_LABELS.more || "Ещё";
     if (ax().isSimple(access)) return ax().SIMPLE[access.role] || "Бойня";
     var map = ax().NAV_LABELS;
@@ -218,7 +220,7 @@
       { id: "subsScreen", label: "Подписки", roles: "owner,all", go: function () { route.tab = "clients"; route.seg = "pp"; moreView = ""; } },
       { id: "statsScreen", label: "Статистика", roles: "owner,all", go: function () { route.tab = "more"; moreView = "stats"; } },
       { id: "retailPriceScreen", label: "Прайс", roles: "owner,all", go: function () { route.tab = "more"; moreView = "price"; } },
-      { id: "peopleScreen", label: "Доступы", roles: "owner,all", go: function () { route.tab = "more"; moreView = "people"; } }
+      { id: "peopleScreen", label: "Сотрудники", roles: "owner,all", go: function () { route.tab = "more"; moreView = "staff"; } }
     ];
     return items.filter(function (it) {
       if (!ax().tabHas(access, it.id)) return false;
@@ -373,7 +375,8 @@
     priceFrom = null;
     if (q().get("tab")) route.tab = q().get("tab");
     if (q().get("seg")) route.seg = q().get("seg");
-    if (q().get("view") === "people") { route.tab = "more"; moreView = "people"; }
+    if (q().get("view") === "people" || q().get("view") === "staff") { route.tab = "more"; moreView = "staff"; }
+    if (q().get("view") === "settings") { route.tab = "more"; moreView = "settings"; }
     if (q().get("view") === "templates") { route.tab = "more"; moreView = "templates"; }
     if (q().get("view") === "price") { route.tab = "more"; moreView = "price"; }
     if (q().get("view") === "stats") { route.tab = "more"; moreView = "stats"; }
@@ -468,10 +471,15 @@
       goalsMod().show();
       return;
     }
-    if (route.tab === "more" && moreView === "people" && ax().tabHas(access, "peopleScreen")) {
+    if (route.tab === "more" && (moreView === "people" || moreView === "staff") && ax().tabHas(access, "peopleScreen")) {
       paintChrome();
       wk().setRole(access.role);
-      people().show();
+      people().show({ view: "staff" });
+      return;
+    }
+    if (route.tab === "more" && moreView === "settings" && ax().tabHas(access, "peopleScreen")) {
+      paintChrome();
+      people().show({ view: "settings" });
       return;
     }
     if (route.tab === "more" && moreView === "templates" && ax().tabHas(access, "templatesScreen")) {
@@ -503,7 +511,8 @@
     sh().dock("");
     var more = "";
     if (ax().tabHas(access, "peopleScreen")) {
-      more += '<button type="button" class="b-li" data-act="more-people"><span class="b-li__body"><span class="b-li__title">Доступы</span><span class="b-li__sub">Роли, вкладки, уведомления</span></span><span class="b-li__chev">›</span></button>';
+      more += '<button type="button" class="b-li" data-act="more-staff"><span class="b-li__body"><span class="b-li__title">Сотрудники</span><span class="b-li__sub">Роли, зарплата, сообщение складу</span></span><span class="b-li__chev">›</span></button>';
+      more += '<button type="button" class="b-li" data-act="more-settings"><span class="b-li__body"><span class="b-li__title">Настройки</span><span class="b-li__sub">Склады и точка выезда</span></span><span class="b-li__chev">›</span></button>';
     }
     if (ax().tabHas(access, "templatesScreen")) {
       more += '<button type="button" class="b-li" data-act="more-templates"><span class="b-li__body"><span class="b-li__title">Шаблоны</span><span class="b-li__sub">Тексты и карточки лакомств</span></span><span class="b-li__chev">›</span></button>';
@@ -535,8 +544,11 @@
     if (route.tab === "orders" && route.seg === "month") {
       return "Месяц: люди на дне крупно, дата мелко, точки ПП, БП, розница и партнёр. Под сеткой заказы этого дня. Тап по строке — править, перенести, удалить. «Завершить неделю» подтягивает месяц сама и не копирует понедельник на будущую неделю.";
     }
-    if (route.tab === "more" && moreView === "people") {
-      return "Доступы: заявки, роль, пояс, дерево вкладок, уведомления. «Сохранить» пишет в таблицу. «Отмена» ничего не пишет. ⏰ — список напоминаний, опросников и дефицитов, без переключателей. Подтянуть из месяца и синхронизация с листом — в меню. Закрытие недели — баннер в Месяце. Склады: название, адрес и одна точка выезда. Остатки склада не делятся.";
+    if (route.tab === "more" && (moreView === "people" || moreView === "staff")) {
+      return "Сотрудники: заявки, роль и зарплата за выбранный месяц. Месяц сразу показывает назначения и сумму. Сумму считает статистика. Сообщение складу — список сырья на ближайшую нарезку и комментарий, задача для роли склада. Карточка человека: пояс, вкладки, уведомления. Подтянуть из месяца и синхронизация с листом — в меню.";
+    }
+    if (route.tab === "more" && moreView === "settings") {
+      return "Настройки: склады и точка выезда. Название, адрес, координаты и какая точка выезд. Остатки склада не делятся.";
     }
     if (route.tab === "goals") return "Цели: свои задачи и блок Общие. При создании выберите Мне, Общая или сотрудника. Владелец видит задачи каждого, показатели с деньгами и журнал «Расходы». Процент — сколько отмечено на этом горизонте. Личное в проект не входит.";
     if (route.tab === "clients" && (route.seg === "pp" || route.seg === "afk" || route.seg === "bp" || route.seg === "survey")) {
@@ -590,7 +602,7 @@
   function openMenu() {
     var screen = route.tab + "/" + route.seg;
     var weekTools = "";
-    if (route.tab === "more" && moreView === "people" && access && access.role === "owner") {
+    if (route.tab === "more" && (moreView === "staff" || moreView === "people") && access && access.role === "owner") {
       weekTools = '<button class="sheet-act" type="button" data-act="wpull">Подтянуть из месяца</button>' +
         '<button class="sheet-act" type="button" data-act="p-resync">Синхронизировать с листом</button>';
     }
@@ -658,7 +670,8 @@
       render();
       return;
     }
-    if (act === "more-people") { moreView = "people"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-people" || act === "more-staff") { moreView = "staff"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-settings") { moreView = "settings"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-templates") { moreView = "templates"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-price") { moreView = "price"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-stats") { moreView = "stats"; route.tab = "more"; sh().resetScroll(); render(); return; }

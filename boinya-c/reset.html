@@ -55,12 +55,12 @@
       } catch (e4) {}
       say("Готово. Открываю приложение…");
       setTimeout(function () {
-        var dest = "./next.html?cutover=1&v=71121800&_reset=" + Date.now();
+        var dest = "./next.html?cutover=1&v=71121900&_reset=" + Date.now();
         try {
           var u = new URL(location.href);
           var q = new URLSearchParams(u.search);
           if (q.get("legacy") !== "1" && q.get("sandbox") !== "1" && q.get("cutover") !== "0") q.set("cutover", "1");
-          if (!q.get("v")) q.set("v", "71121800");
+          if (!q.get("v")) q.set("v", "71121900");
           q.set("_reset", String(Date.now()));
           dest = (q.get("legacy") === "1" ? "./app.html?" : "./next.html?") + q.toString() + (u.hash || "");
         } catch (e5) {}
