@@ -555,10 +555,23 @@
     }).join("");
   }
 
+  function pinOrderDock() {
+    var d = document.getElementById("nxDock");
+    var main = document.getElementById("nxMain");
+    if (!d || d.hidden || !main) return;
+    d.classList.add("nx-dock--order");
+    var h = d.offsetHeight || 0;
+    if (h > 0) {
+      main.style.paddingBottom = h + "px";
+      main.setAttribute("data-order-dock", "1");
+    }
+  }
+
   function paint() {
     restoreDraft();
     sh().main(view());
     sh().dock(dock());
+    pinOrderDock();
     paintSuggest();
     paintAddr();
     if (root.__nxAfterOrderPaint) root.__nxAfterOrderPaint();
@@ -1002,41 +1015,146 @@
     return '<button class="b-btn b-btn--main" type="button" data-act="padd">' + esc(btn) + "</button>";
   }
 
-  function addHtml() {
+  function foldQuery_(s) {
+    return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  }
+
+  function rankCatalogName(query, name) {
+    var q = foldQuery_(query);
+    if (!q) return 0;
+    var n = foldQuery_(name);
+    if (!n) return -1;
+    if (n.indexOf(q) === 0) return 0;
+    var parts = n.split(/[\s\-–—\/]+/);
+    var i;
+    for (i = 0; i < parts.length; i++) {
+      if (parts[i] && parts[i].indexOf(q) === 0) return 1;
+    }
+    return -1;
+  }
+
+  function bestNameRank_(query, raw, pretty) {
+    var a = rankCatalogName(query, pretty);
+    var b = rankCatalogName(query, raw);
+    if (a < 0) return b;
+    if (b < 0) return a;
+    return a < b ? a : b;
+  }
+
+  function catalogSearchRows(engine, query) {
+    engine = engine || eng();
+    if (!engine || !foldQuery_(query)) return [];
+    var cats = ["dressura", "chew", "other", "veg"];
+    var hits = [];
+    cats.forEach(function (cat) {
+      (engine.catalogItemsForUi_(cat) || []).forEach(function (name) {
+        var pretty = engine.prettyProductName(name);
+        var rank = bestNameRank_(query, name, pretty);
+        if (rank < 0) return;
+        hits.push({ cat: cat, name: name, pretty: pretty, rank: rank });
+      });
+    });
+    hits.sort(function (a, b) {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      var ap = foldQuery_(a.pretty);
+      var bp = foldQuery_(b.pretty);
+      if (ap < bp) return -1;
+      if (ap > bp) return 1;
+      return 0;
+    });
+    var rows = [];
+    hits.forEach(function (hit) {
+      var fr = fractionsWithoutCrumb_(engine.catalogFractionsForUi_(hit.cat, hit.name));
+      if (!fr.length) {
+        rows.push({ cat: hit.cat, name: hit.name, pretty: hit.pretty, frac: "", label: hit.pretty, rank: hit.rank });
+        return;
+      }
+      fr.forEach(function (f) {
+        var human = engine.humanFraction(hit.name, f) || String(f).toLowerCase();
+        rows.push({
+          cat: hit.cat,
+          name: hit.name,
+          pretty: hit.pretty,
+          frac: f,
+          label: hit.pretty + " " + human,
+          rank: hit.rank
+        });
+      });
+    });
+    return rows;
+  }
+
+  function qtyHtml(e) {
+    var unit = extraUnit_(picker.cat, picker.name) || e.unitForItem(picker.cat, picker.name);
+    return '<p class="b-lbl">Количество</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
+      '<span class="b-step__val">' + esc(picker.qty) + " " + esc(unit) + "</span>" +
+      '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
+  }
+
+  function browseListHtml(e) {
+    var items = e.catalogItemsForUi_(picker.cat) || [];
+    var body = items.map(function (name) {
+      var on = picker.name === name ? " b-chip--on" : "";
+      return '<button type="button" class="b-li' + on + '" data-act="pname" data-name="' + esc(name) + '"><span class="b-grow">' + esc(e.prettyProductName(name)) +
+        '</span><span class="b-note">' + esc(extraUnit_(picker.cat, name) || e.unitForItem(picker.cat, name)) + "</span></button>";
+    }).join("");
+    if (picker.name) {
+      var fr = fractionsWithoutCrumb_(e.catalogFractionsForUi_(picker.cat, picker.name));
+      if (fr.length) {
+        body += '<p class="b-lbl">' + esc(e.prettyProductName(picker.name)) + " фракция</p><div class=\"b-chips\">" +
+          fr.map(function (f) {
+            return '<button type="button" class="b-chip' + (picker.sub === f ? " b-chip--on" : "") + '" data-act="pfrac" data-frac="' + esc(f) + '">' + esc(e.humanFraction(picker.name, f)) + "</button>";
+          }).join("") + "</div>";
+      }
+      body += qtyHtml(e);
+    }
+    return body;
+  }
+
+  function searchListHtml(e) {
+    var rows = catalogSearchRows(e, picker.q);
+    var html = rows.map(function (row) {
+      var on = picker.cat === row.cat && picker.name === row.name && (picker.sub || "") === (row.frac || "");
+      return '<button type="button" class="b-li' + (on ? " b-chip--on" : "") + '" data-act="phit" data-cat="' + esc(row.cat) + '" data-name="' + esc(row.name) + '" data-frac="' + esc(row.frac) + '"' + (on ? ' aria-pressed="true"' : "") + '><span class="b-grow">' + esc(row.label) + "</span></button>";
+    }).join("");
+    if (!html) html = '<p class="b-note">Ничего не найдено</p>';
+    if (picker.name && rows.some(function (row) {
+      return row.cat === picker.cat && row.name === picker.name && (row.frac || "") === (picker.sub || "");
+    })) html += qtyHtml(e);
+    return html;
+  }
+
+  function pickListHtml() {
     var e = eng();
+    if (foldQuery_(picker.q)) return searchListHtml(e);
+    return browseListHtml(e);
+  }
+
+  function patchPickList(keepScroll) {
+    var list = document.getElementById("nxPickList");
+    if (!list) return false;
+    var body = list.closest(".nx-sheet__body");
+    var top = body ? body.scrollTop : 0;
+    list.innerHTML = pickListHtml();
+    if (body) body.scrollTop = keepScroll ? top : 0;
+    return true;
+  }
+
+  function patchPick() {
+    if (!patchPickList(true)) { rebuildAdd(null); return; }
+    var foot = document.querySelector(".nx-sheet__foot");
+    if (foot) foot.innerHTML = addFoot();
+  }
+
+  function addHtml() {
     var chips = CATS.map(function (c) {
       return '<button type="button" class="b-chip' + (picker.cat === c.id ? " b-chip--on" : "") + '" data-act="pcat" data-cat="' + c.id + '">' + esc(c.label) + "</button>";
     }).join("");
-    var body = "";
-    if (picker.cat === "crumb") body = crumbHtml();
-    else {
-      var items = e.catalogItemsForUi_(picker.cat).filter(function (name) {
-        if (!picker.q) return true;
-        return String(name).toUpperCase().indexOf(String(picker.q).toUpperCase()) >= 0;
-      });
-      body = items.map(function (name) {
-        var on = picker.name === name ? " b-chip--on" : "";
-        return '<button type="button" class="b-li" data-act="pname" data-name="' + esc(name) + '"><span class="b-grow">' + esc(e.prettyProductName(name)) +
-          '</span><span class="b-note">' + esc(extraUnit_(picker.cat, name) || e.unitForItem(picker.cat, name)) + "</span></button>";
-      }).join("");
-      if (picker.name) {
-        var fr = fractionsWithoutCrumb_(e.catalogFractionsForUi_(picker.cat, picker.name));
-        if (fr.length) {
-          body += '<p class="b-lbl">' + esc(e.prettyProductName(picker.name)) + " фракция</p><div class=\"b-chips\">" +
-            fr.map(function (f) {
-              return '<button type="button" class="b-chip' + (picker.sub === f ? " b-chip--on" : "") + '" data-act="pfrac" data-frac="' + esc(f) + '">' + esc(e.humanFraction(picker.name, f)) + "</button>";
-            }).join("") + "</div>";
-        }
-        var unit = extraUnit_(picker.cat, picker.name) || e.unitForItem(picker.cat, picker.name);
-        body += '<p class="b-lbl">Количество</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
-          '<span class="b-step__val">' + esc(picker.qty) + " " + esc(unit) + "</span>" +
-          '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
-      }
-    }
+    var body = picker.cat === "crumb" ? crumbHtml() : pickListHtml();
     return '<label class="b-field">' + sh().ico("search", "b-ico b-ico--20") +
-      '<input class="b-field__input" id="pq" data-k="pq" value="' + esc(picker.q) + '" placeholder="Найти позицию"></label>' +
+      '<input class="b-field__input" id="pq" data-k="pq" value="' + esc(picker.q) + '" placeholder="Найти позицию" autocomplete="off"></label>' +
       '<div class="b-chips" style="margin-top:12px">' + chips + "</div>" +
-      '<div class="b-list" style="margin-top:12px">' + body + "</div>";
+      '<div class="b-list" id="nxPickList" style="margin-top:12px">' + body + "</div>";
   }
 
   function crumbHtml() {
@@ -1587,7 +1705,7 @@
       if (node && node.getAttribute && node.getAttribute("data-k")) readField(node);
       if (node && node.id === "pq") {
         picker.q = node.value;
-        rebuildAdd(node.selectionStart);
+        if (picker.cat !== "crumb") patchPickList(false);
       }
       if (node && node.getAttribute && node.getAttribute("data-act") === "note-text") {
         state.notes[Number(node.getAttribute("data-i"))].text = node.value;
@@ -1669,14 +1787,29 @@
       picker.name = node.getAttribute("data-name");
       picker.sub = "";
       picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : 200;
-      rebuildAdd(null);
+      patchPick();
       return true;
     }
-    if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); rebuildAdd(null); return true; }
+    if (act === "phit") {
+      var nextCat = node.getAttribute("data-cat") || picker.cat;
+      var nextName = node.getAttribute("data-name") || "";
+      var nextSub = node.getAttribute("data-frac") || "";
+      var sameHit = picker.cat === nextCat && picker.name === nextName && (picker.sub || "") === nextSub;
+      picker.cat = nextCat;
+      picker.name = nextName;
+      picker.sub = nextSub;
+      if (!sameHit) {
+        picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : 200;
+      }
+      patchPick();
+      return true;
+    }
+    if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); patchPick(); return true; }
     if (act === "pqty") {
       var step = (picker.cat === "chew" || (picker.name && (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт")) ? 1 : 50;
       picker.qty = Math.max(step, Number(picker.qty) + Number(node.getAttribute("data-dir")) * step);
-      rebuildAdd(null);
+      if (picker.cat === "crumb") rebuildAdd(null);
+      else patchPick();
       return true;
     }
     if (act === "ckind") { picker.kind = node.getAttribute("data-kind"); picker.sources = []; picker.grams = []; rebuildAdd(null); return true; }
@@ -1979,7 +2112,9 @@
     blank: blank,
     loadFromClient: loadFromClient,
     loadDeferred: loadDeferred,
-    syncProfiles: syncProfiles
+    syncProfiles: syncProfiles,
+    rankCatalogName: rankCatalogName,
+    catalogSearchRows: catalogSearchRows
   };
   try {
     root.addEventListener("pagehide", persistDraft);

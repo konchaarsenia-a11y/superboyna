@@ -632,3 +632,69 @@ button.nx-count {
   font-weight: 700;
   line-height: 1;
 }
+
+#nxDock.nx-dock--order {
+  padding: 4px 8px;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}
+
+#nxDock.nx-dock--order .b-dock__act {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+}
+
+#nxDock.nx-dock--order .b-sum {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  gap: 6px;
+}
+
+#nxDock.nx-dock--order .b-sum__k,
+#nxDock.nx-dock--order .b-sum__v {
+  font-size: var(--b-f12);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+#nxDock.nx-dock--order .b-sum__k {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+#nxDock.nx-dock--order .b-sum__v {
+  font-family: inherit;
+  letter-spacing: 0;
+  flex: none;
+}
+
+#nxDock.nx-dock--order .nx-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin: 0;
+}
+
+#nxDock.nx-dock--order .nx-actions > .b-btn,
+#nxDock.nx-dock--order .b-btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 8px;
+  font-size: var(--b-f12);
+  line-height: 1;
+  white-space: nowrap;
+  border-radius: 10px;
+}
+
+body.nx-kb #nxMain[data-order-dock] {
+  padding-bottom: 12px !important;
+}
