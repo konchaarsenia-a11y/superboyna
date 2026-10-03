@@ -1004,7 +1004,7 @@
       deliveriesN: price.deliveriesN,
       costSum: cost,
       list: list,
-      packagesByn: packagesByn,
+      packagesByn: 0,
       dogCount: price.dogCount,
       dogNames: price.dogNames,
       fracRates: fracRates(),
@@ -1012,9 +1012,10 @@
     });
     var retail = eng().calcRetailBasketTotal(list, { deliveriesN: price.deliveriesN });
     var fact = res ? P().raw26ApiFactPrice_(res) : 0;
-    var sub = Number(quote.total) || 0;
-    if (!(cost > 0) && fact > 0) sub = fact;
-    var message = P().offerMessage({
+    var sub = fact > 0 ? fact : quote.total;
+    if (price.scheme === "RAW26") sub = P().capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
+    if (packagesByn) sub = Math.round((sub + packagesByn) * 100) / 100;
+    var messageOpts = {
       scheme: price.scheme,
       mode: "pp",
       list: list,
@@ -1023,9 +1024,10 @@
       retailTotal: retail.total,
       subTotal: sub,
       dogCount: price.dogCount,
-      dogNames: price.dogNames,
-      asEntered: true
-    });
+      dogNames: price.dogNames
+    };
+    if (packagesByn) messageOpts.asEntered = true;
+    var message = P().offerMessage(messageOpts);
     return { sub: sub, message: message, packagesByn: packagesByn, cost: cost, fact: fact };
   }
 

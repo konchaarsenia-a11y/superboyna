@@ -13,53 +13,114 @@ const clients = fs.readFileSync(path.join(here, "clients.js"), "utf8");
 
 const list = [{ cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 50, value: 50 }];
 const fracs = { slices: 0, strips: 1, large: 1, medium: 2, small: 3, extraSmall: 4 };
-const line = eng.retailLineCost("ЛЁГКОЕ", "Среднее", 50, "dressura", {});
-const costSum = Math.round((line.cost / 2.6) * 100) / 100;
+const note = "домофон 12";
 
-function quote(packagesByn) {
+function retailOf(deliveriesN) {
+  return eng.calcRetailBasketTotal(list, { deliveriesN: deliveriesN });
+}
+
+function quoteOf(coef, costSum, packagesByn) {
   return P.quotePp({
     scheme: "RAW26",
-    coef: 2.6,
+    coef: coef,
     deliveriesN: 2,
     costSum: costSum,
     list: list,
     packagesByn: packagesByn,
-    fracRates: fracs
+    fracRates: fracs,
+    note: note
   });
 }
 
-function offerLine(sub) {
-  const retail = eng.calcRetailBasketTotal(list, { deliveriesN: 2 });
-  const msg = P.offerMessage({
+/** Цена и текст как в compose на main e78a2738: факт сервера, иначе quote с пакетами, затем кап RAW26. */
+function mainOffer(coef, costSum, fact, packagesByn) {
+  const quote = quoteOf(coef, costSum, packagesByn);
+  const retail = retailOf(2);
+  let sub = fact > 0 ? fact : quote.total;
+  sub = P.capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
+  const message = P.offerMessage({
     scheme: "RAW26",
     mode: "pp",
     list: list,
     deliveriesN: 2,
+    note: note,
     retailTotal: retail.total,
     subTotal: sub,
-    asEntered: true
+    dogCount: 1,
+    dogNames: { 1: "", 2: "" }
   });
-  const m = msg.match(/стоимость выходит - (\S+)/);
-  return m ? m[1] : "";
+  return { sub: sub, message: message };
 }
 
-test("пакеты меняют итог подписки по прайсу пакетов", () => {
-  const none = quote(0);
-  const fourSmall = quote(4 * P.PRICE_PACK_UNIT.small);
-  assert.equal(Math.round(4 * P.PRICE_PACK_UNIT.small * 100) / 100, 1.36);
-  assert.ok(fourSmall.total > none.total + 0.5, none.total + " → " + fourSmall.total);
-  assert.notEqual(offerLine(none.total), offerLine(fourSmall.total));
+/** Как buildPpOffer: кап только на состав, сумма пакетов сверху. */
+function nextOffer(coef, costSum, fact, packagesByn) {
+  const quote = quoteOf(coef, costSum, 0);
+  const retail = retailOf(2);
+  let sub = fact > 0 ? fact : quote.total;
+  sub = P.capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
+  if (packagesByn) sub = Math.round((sub + packagesByn) * 100) / 100;
+  const messageOpts = {
+    scheme: "RAW26",
+    mode: "pp",
+    list: list,
+    deliveriesN: 2,
+    note: note,
+    retailTotal: retail.total,
+    subTotal: sub,
+    dogCount: 1,
+    dogNames: { 1: "", 2: "" }
+  };
+  if (packagesByn) messageOpts.asEntered = true;
+  return { sub: sub, message: P.offerMessage(messageOpts) };
+}
+
+test("без пакетов цена и текст совпадают с main для коэффициентов RAW26", () => {
+  const costSum = 2.12;
+  const facts = [0, 40];
+  for (const coef of [2.0, 2.3, 2.5, 2.6]) {
+    for (const fact of facts) {
+      const old = mainOffer(coef, costSum, fact, 0);
+      const now = nextOffer(coef, costSum, fact, 0);
+      assert.equal(now.sub, old.sub, "coef " + coef + " fact " + fact);
+      assert.equal(now.message, old.message, "coef " + coef + " fact " + fact);
+    }
+  }
 });
 
-test("расчёт подписки читает пакеты в цену и обновляет текст на месте", () => {
+test("кап срезает пакеты внутри потолка, сверху они прибавляются целиком", () => {
+  const costSum = 2.12;
+  const packagesByn = Math.round(8 * P.PRICE_PACK_UNIT.small * 100) / 100;
+  assert.equal(packagesByn, 2.72);
+  const bare = nextOffer(2.6, costSum, 40, 0);
+  const withPacks = nextOffer(2.6, costSum, 40, packagesByn);
+  const cappedTogether = P.capOfferSubToDisplayedRetail_(bare.sub + packagesByn, retailOf(2).total);
+  assert.equal(cappedTogether, bare.sub);
+  assert.equal(Math.round((withPacks.sub - bare.sub) * 100) / 100, packagesByn);
+  assert.notEqual(withPacks.message, bare.message);
+  const shown = withPacks.message.match(/стоимость выходит - (\S+)/)[1];
+  const eaten = P.offerMessage({
+    scheme: "RAW26",
+    mode: "pp",
+    list: list,
+    deliveriesN: 2,
+    note: note,
+    retailTotal: retailOf(2).total,
+    subTotal: withPacks.sub
+  }).match(/стоимость выходит - (\S+)/)[1];
+  assert.notEqual(shown, eaten);
+  assert.equal(shown, String(Math.round(withPacks.sub)));
+});
+
+test("расчёт подписки читает пакеты после капа и обновляет текст на месте", () => {
   const calc = clients.slice(clients.indexOf("function paintCalc"), clients.indexOf("function paintPick"));
+  const offer = clients.slice(clients.indexOf("async function buildPpOffer"), clients.indexOf("var ppMsgTimer"));
   assert.equal((calc.match(/cl-manual/g) || []).length, 1);
   assert.match(calc, /if \(price\.mode === "retail"\) \{[^}]*cl-manual/);
   assert.match(calc, /id="cxMsg"/);
   assert.match(clients, /setTimeout\(function \(\) \{ refreshLiveMessage\(\); \}, 250\)/);
-  assert.match(clients, /var sub = Number\(quote\.total\)/);
-  assert.match(clients, /asEntered: true/);
-  assert.match(clients, /packagesBynNow/);
-  assert.match(clients, /PRICE_PACK_UNIT/);
-  assert.doesNotMatch(clients, /fact > 0 \? fact : quote\.total/);
+  assert.match(offer, /packagesByn: 0/);
+  assert.match(offer, /var sub = fact > 0 \? fact : quote\.total/);
+  assert.match(offer, /if \(price\.scheme === "RAW26"\) sub = P\(\)\.capOfferSubToDisplayedRetail_\(sub, retail\.total\) \|\| sub/);
+  assert.match(offer, /if \(packagesByn\) sub = Math\.round\(\(sub \+ packagesByn\) \* 100\) \/ 100/);
+  assert.match(offer, /if \(packagesByn\) messageOpts\.asEntered = true/);
 });
