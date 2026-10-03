@@ -52,13 +52,12 @@
     showInto();
   }
 
-  async function pull(month) {
+  async function pull(month, force) {
     try {
       return await api().apiGet({
         action: "listOwnerExpenses",
-        month: month,
-        _: String(Date.now())
-      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        month: month
+      }, { timeoutMs: 20000, cacheTtlMs: force ? 0 : 60000 });
     } catch (e) { return null; }
   }
 
@@ -135,18 +134,50 @@
       '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Сверка с себесом</p>' + recon + "</article>";
   }
 
+  var lastHtml = "";
+  var pullFlight = null;
+  var pullFlightMonth = "";
+
   function paint() {
     var box = document.getElementById("expRoot");
     if (!box) return;
-    box.innerHTML = html();
+    var next = html();
+    var month = ensureMonth();
+    if (next === lastHtml && box.getAttribute("data-month") === month) return;
+    var main = document.getElementById("nxMain");
+    var y = main ? main.scrollTop : 0;
+    box.innerHTML = next;
+    box.setAttribute("data-month", month);
+    lastHtml = next;
+    if (main && y) main.scrollTop = y;
   }
 
-  async function showInto() {
+  async function showInto(opts) {
+    opts = opts || {};
     ensureMonth();
+    var month = ensureMonth();
     var box = document.getElementById("expRoot");
-    if (box) box.innerHTML = '<p class="b-note">Считаю расходы…</p>';
-    pack = await pull(ensureMonth());
-    roll = await pullRoll(ensureMonth());
+    var same = box && box.getAttribute("data-month") === month && pack && !opts.force;
+    if (box && !same && !pack) {
+      box.innerHTML = '<p class="b-note">Считаю расходы…</p>';
+      lastHtml = "";
+    }
+    if (pack && box && !opts.force) paint();
+    if (pullFlight && pullFlightMonth === month && !opts.force) {
+      await pullFlight;
+    } else {
+      pullFlightMonth = month;
+      var job = (async function () {
+        var nextPack = await pull(month, !!opts.force);
+        var nextRoll = await pullRoll(month);
+        if (nextPack) pack = nextPack;
+        if (nextRoll) roll = nextRoll;
+      })();
+      pullFlight = job;
+      try { await job; } finally {
+        if (pullFlight === job) pullFlight = null;
+      }
+    }
     if (!document.getElementById("expRoot")) return;
     paint();
   }
@@ -218,7 +249,8 @@
     sh().closeAll();
     monthKey = draft.date.slice(0, 7);
     pack = res;
-    showInto();
+    lastHtml = "";
+    showInto({ force: true });
     sh().toast(personal ? "Личное записано" : "Расход записан");
   }
 
@@ -269,20 +301,7 @@
   }
 
   async function refreshLightCard() {
-    if (!access || access.role !== "owner") return;
-    paintLightCard();
-    if (lightMonth !== null && Date.now() - lightAt < 60000) return;
-    var month = prevMonthKey(new Date());
-    var res = await pull(month);
-    var rows = (res && res.expenses) || [];
-    var has = false;
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      if (rows[i].category === "light" && !rows[i].personal) has = true;
-    }
-    lightMonth = has ? "" : month;
-    lightAt = Date.now();
-    paintLightCard();
+    return;
   }
 
   async function remindLight() {

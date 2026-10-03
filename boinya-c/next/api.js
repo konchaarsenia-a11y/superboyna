@@ -6,6 +6,7 @@
 
   var ORIGIN = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var mem = Object.create(null);
+  var inflight = Object.create(null);
   var busyN = 0;
   var busyTimer = null;
   var busyAt = 0;
@@ -15,22 +16,96 @@
     return String(root.__BOINYA_C_PROXY__ || root.__BOINYA_FAST_PROXY__ || ORIGIN);
   }
 
-  function initData() {
+  var INIT_KEY = "nx_tg_init_v1";
+
+  function liveInitData() {
     try {
       var tg = root.Telegram && root.Telegram.WebApp;
-      return (tg && tg.initData) || "";
+      return String((tg && tg.initData) || "");
     } catch (e) {
       return "";
+    }
+  }
+
+  function hashInitData() {
+    try {
+      var h = String((root.location && root.location.hash) || "");
+      if (h.charAt(0) === "#") h = h.slice(1);
+      var m = h.match(/(?:^|&)tgWebAppData=([^&]*)/);
+      return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : "";
+    } catch (e2) {
+      return "";
+    }
+  }
+
+  function rememberedInit() {
+    try {
+      return String((root.sessionStorage && root.sessionStorage.getItem(INIT_KEY)) || "");
+    } catch (e3) {
+      return "";
+    }
+  }
+
+  function rememberInit(raw) {
+    if (!raw) return;
+    try {
+      if (root.sessionStorage) root.sessionStorage.setItem(INIT_KEY, raw);
+    } catch (e4) {}
+  }
+
+  function initData() {
+    var live = liveInitData();
+    if (live) {
+      rememberInit(live);
+      return live;
+    }
+    var hashed = hashInitData();
+    if (hashed) {
+      rememberInit(hashed);
+      return hashed;
+    }
+    return rememberedInit();
+  }
+
+  function waitForInitData(maxMs) {
+    var limit = maxMs == null ? 1600 : maxMs;
+    var started = Date.now();
+    return new Promise(function (resolve) {
+      function tick() {
+        var live = liveInitData();
+        if (live) {
+          rememberInit(live);
+          resolve(live);
+          return;
+        }
+        if (Date.now() - started >= limit) {
+          resolve(initData());
+          return;
+        }
+        setTimeout(tick, 50);
+      }
+      tick();
+    });
+  }
+
+  function userFromInit(raw) {
+    var m = String(raw || "").match(/(?:^|&)user=([^&]*)/);
+    if (!m) return null;
+    try {
+      var ju = JSON.parse(decodeURIComponent(m[1].replace(/\+/g, " ")));
+      return ju && ju.id ? ju : null;
+    } catch (e5) {
+      return null;
     }
   }
 
   function telegramUser() {
     try {
       var tg = root.Telegram && root.Telegram.WebApp;
-      return (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
-    } catch (e) {
-      return {};
-    }
+      var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+      if (u && u.id) return u;
+    } catch (e) {}
+    return userFromInit(liveInitData()) || userFromInit(hashInitData()) || userFromInit(rememberedInit()) || {};
   }
 
   function stamp(params) {
@@ -182,6 +257,48 @@
 
   var WRITE = /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveSubscription|saveDeferred|setDeferredReminder|requestAccess|reportBug|notifyMissedDelivery|placeTransferTask)$/i;
 
+  function remember(key, ttl, res) {
+    if (!(ttl > 0) || !key || !res) return;
+    if (res.status && res.status !== "success") return;
+    var now = Date.now();
+    mem[key] = {
+      exp: now + ttl,
+      staleUntil: now + Math.max(ttl * 4, 120000),
+      res: res
+    };
+  }
+
+  function network(params, opts) {
+    var action = String(params.action || "");
+    return WRITE.test(action) ? postWrite(params, opts.timeoutMs || 22000) : jsonp(params, opts.timeoutMs || 28000);
+  }
+
+  function bounded(promise, ms) {
+    return new Promise(function (resolve) {
+      var timer = setTimeout(function () {
+        resolve({ status: "error", message: "timeout", timedOut: true });
+      }, ms);
+      promise.then(function (res) {
+        clearTimeout(timer);
+        resolve(res == null ? { status: "error", message: "empty" } : res);
+      }, function () {
+        clearTimeout(timer);
+        resolve({ status: "error", message: "timeout", timedOut: true });
+      });
+    });
+  }
+
+  function refresh(params, opts, key, ttl) {
+    if (key && inflight[key]) return;
+    var p = network(params, opts).then(function (res) {
+      remember(key, ttl, res);
+      return res;
+    }).finally(function () {
+      if (key && inflight[key] === p) delete inflight[key];
+    });
+    if (key) inflight[key] = p;
+  }
+
   function apiGet(params, opts) {
     opts = opts || {};
     params = stamp(params);
@@ -190,18 +307,35 @@
         return res == null ? { status: "error", message: "empty" } : res;
       });
     }
-    var action = String(params.action || "");
     var ttl = opts.cacheTtlMs != null ? opts.cacheTtlMs : 0;
     var key = cacheKey(params);
-    if (!opts.bypassMem && ttl > 0 && key && mem[key] && mem[key].exp > Date.now()) {
-      return Promise.resolve(mem[key].res);
+    var now = Date.now();
+    var hit = !opts.bypassMem && key ? mem[key] : null;
+    if (ttl > 0 && hit && hit.exp > now) return Promise.resolve(hit.res);
+    if (ttl > 0 && hit && hit.staleUntil > now) {
+      refresh(params, opts, key, ttl);
+      return Promise.resolve(hit.res);
+    }
+    if (key && inflight[key]) return inflight[key];
+    var retries = Math.max(0, Number(opts.retries) || 0);
+    var timeoutMs = (opts.timeoutMs || 28000) + 500;
+    function runChain(left) {
+      return bounded(network(params, opts), timeoutMs).then(function (res) {
+        var bad = !res || res.status === "error" || res.timedOut;
+        if (bad && left > 0) return runChain(left - 1);
+        return res;
+      });
     }
     trackStart();
-    var run = WRITE.test(action) ? postWrite(params, opts.timeoutMs || 22000) : jsonp(params, opts.timeoutMs || 28000);
-    return run.then(function (res) {
-      if (ttl > 0 && key && res) mem[key] = { exp: Date.now() + ttl, res: res };
+    var p = runChain(retries).then(function (res) {
+      remember(key, ttl, res);
       return res;
-    }).finally(trackEnd);
+    }).finally(function () {
+      if (key && inflight[key] === p) delete inflight[key];
+      trackEnd();
+    });
+    if (key) inflight[key] = p;
+    return p;
   }
 
   function apiPost(payload) {
@@ -219,6 +353,8 @@
     apiGet: apiGet,
     apiPost: apiPost,
     initData: initData,
+    liveInitData: liveInitData,
+    waitForInitData: waitForInitData,
     telegramUser: telegramUser,
     webhook: webhook
   };

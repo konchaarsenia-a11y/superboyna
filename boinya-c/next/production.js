@@ -769,6 +769,19 @@
     }
   }
 
+  function pauseBackground() {
+    stopCourAsmPoll();
+    if (cutSession.timer) {
+      clearInterval(cutSession.timer);
+      cutSession.timer = null;
+    }
+  }
+
+  function resumeBackground() {
+    if (seg === "route") startCourAsmPoll();
+    if (seg === "cut" && cutSession.active) tickCut();
+  }
+
   function startCourAsmPoll() {
     if (courAsmPoll) return;
     courAsmPoll = setInterval(function () {
@@ -1685,6 +1698,8 @@
     onAct: onAct,
     seg: function () { return seg; },
     slotLabel: slotLabel,
-    windowLabel: windowLabel
+    windowLabel: windowLabel,
+    pauseBackground: pauseBackground,
+    resumeBackground: resumeBackground
   };
 })(typeof window !== "undefined" ? window : globalThis);

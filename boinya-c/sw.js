@@ -3,9 +3,9 @@
  * ВАЖНО: app.main.js / app.html / bridge / config — network-first.
  * Старый cache-first + ignoreSearch залипал на мёртвом JS → delete/move «не работают».
  */
-const SW_VER = "boinya-c-sw-v12-71115896";
-const SHELL = "boinya-c-shell-v12";
-const API_CACHE = "boinya-c-api-v12";
+const SW_VER = "boinya-c-sw-v13-71121200";
+const SHELL = "boinya-c-shell-v13";
+const API_CACHE = "boinya-c-api-v13";
 
 const PRECACHE = [
   "./",
@@ -69,7 +69,8 @@ function isAppShellPath_(path) {
 /** JS/HTML приложения — всегда сначала сеть, иначе TG вечно на старом delete/move. */
 function isCriticalAppAsset_(path) {
   return (
-    /\/boinya-c\/(index|app)\.html$/.test(path) ||
+    /\/boinya-c\/(index|app|next)\.html$/.test(path) ||
+    /\/boinya-c\/next\//.test(path) ||
     /\/boinya-c\/(app\.main|bridge|seed-inline|sw)\.js$/.test(path) ||
     /\/boinya-c\/client\/config\.js$/.test(path)
   );
@@ -136,6 +137,9 @@ self.addEventListener("fetch", function (event) {
     );
     return;
   }
+
+  // JSONP: кэш со старым callback вешает boot, колбэк нового запроса не вызывается.
+  if (/[?&]callback=/.test(url.search)) return;
 
   // GAS: НЕ кэшировать getClients/getViewCompare — иначе удалённые «возвращаются»
   if (url.href.indexOf("script.google.com/macros") !== -1) {

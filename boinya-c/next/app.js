@@ -8,6 +8,8 @@
   var access = null;
   var tasksN = 0;
   var booting = false;
+  var bootGen = 0;
+  var watchTimer = null;
   var moreView = "";
   var partnersOpen = "";
   var suppressNav = false;
@@ -345,6 +347,7 @@
   }
 
   function render() {
+    if (route.tab !== "production" && prod() && prod().pauseBackground) prod().pauseBackground();
     if (route.tab !== "goals" && goalsMod() && goalsMod().leave) goalsMod().leave();
     if (!access) return;
     if (q().get("shot") === "states") { paintStates(); return; }
@@ -677,49 +680,81 @@
     sh().toast("Заявка отправлена");
   }
 
+  function keepCached(text) {
+    sh().hideGate();
+    if (text) sh().toast(text);
+  }
+
+  function watchTelegram() {
+    if (root.__NEXT_API_HOOK__ || watchTimer) return;
+    var tries = 0;
+    watchTimer = setInterval(function () {
+      tries += 1;
+      var live = api().liveInitData ? api().liveInitData() : "";
+      if (live) {
+        clearInterval(watchTimer);
+        watchTimer = null;
+        boot();
+        return;
+      }
+      if (tries >= 20) {
+        clearInterval(watchTimer);
+        watchTimer = null;
+      }
+    }, 400);
+  }
+
   async function boot() {
-    if (booting) return;
+    var ticket = ++bootGen;
     booting = true;
     sh().hideGate();
     var cachedAccess = null;
     try { cachedAccess = JSON.parse(localStorage.getItem("nx_access_v1") || "null"); } catch (eC) { cachedAccess = null; }
-    if (cachedAccess && cachedAccess.role && cachedAccess.role !== "none" && cachedAccess.role !== "pending" && cachedAccess.role !== "denied") {
+    var hadCache = !!(cachedAccess && cachedAccess.role && cachedAccess.role !== "none" && cachedAccess.role !== "pending" && cachedAccess.role !== "denied");
+    if (hadCache) {
       access = ax().normalize(cachedAccess);
       var nav0 = ax().navItems(access);
       route.tab = (nav0[0] && nav0[0].id) || "orders";
       ensureSeg();
       render();
-    } else {
+    } else if (!access) {
       sh().main(sh().skeleton(4));
     }
-    var init = api().initData();
-    if (!init && !root.__NEXT_API_HOOK__) {
-      booting = false;
-      showFail("Откройте через Telegram", "Бойня работает только внутри Telegram (кнопка бота). Вне Telegram доступа нет.",
-        '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
-      return;
-    }
-    var u = api().telegramUser() || {};
-    var res = null;
     try {
-      res = await api().apiGet({
-        action: "getMyAccess",
-        telegramId: String(u.id || ""),
-        name: String((u.first_name || "") + (u.last_name ? " " + u.last_name : "")),
-        username: String(u.username || "")
-      }, { timeoutMs: 12000, retries: 1, cacheTtlMs: 0 });
-    } catch (e) { res = null; }
-    booting = false;
-    if (!res || res.status !== "success") {
-      showFail("Нет связи", "Не удалось проверить доступ. Проверьте интернет и нажмите «Повторить».",
-        '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
-      return;
-    }
-    if (res.authRequired) {
-      showFail("Нужен Telegram", "Подпись Telegram не прошла проверку. Закройте и откройте мини-апп заново из бота.",
-        '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
-      return;
-    }
+      var init = root.__NEXT_API_HOOK__ ? "hook" : await api().waitForInitData(1600);
+      if (ticket !== bootGen) return;
+      if (!init) {
+        if (hadCache) keepCached("Telegram ещё не ответил, показываю как было");
+        else showFail("Откройте через Telegram", "Бойня работает только внутри Telegram (кнопка бота). Вне Telegram доступа нет.",
+          '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
+        watchTelegram();
+        return;
+      }
+      var u = api().telegramUser() || {};
+      var res = null;
+      try {
+        res = await api().apiGet({
+          action: "getMyAccess",
+          telegramId: String(u.id || ""),
+          name: String((u.first_name || "") + (u.last_name ? " " + u.last_name : "")),
+          username: String(u.username || "")
+        }, { timeoutMs: 8000, retries: 1, cacheTtlMs: 0 });
+      } catch (e) { res = null; }
+      if (ticket !== bootGen) return;
+      if (!res || res.status !== "success" || res.authRequired) {
+        if (hadCache) {
+          keepCached(res && res.authRequired ? "Подпись Telegram устарела, показываю как было" : "Не обновилось, показываю как было");
+          return;
+        }
+        if (res && res.authRequired) {
+          showFail("Нужен Telegram", "Подпись Telegram не прошла проверку. Нажмите «Повторить» или откройте мини-апп из бота.",
+            '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
+        } else {
+          showFail("Нет связи", "Не удалось проверить доступ. Проверьте интернет и нажмите «Повторить».",
+            '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
+        }
+        return;
+      }
     access = ax().normalize(res);
     try { localStorage.setItem("nx_access_v1", JSON.stringify({ role: access.role, tabs: access.tabs, name: access.name, telegramId: access.telegramId })); } catch (eSave) {}
     if (u.first_name) access.name = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
@@ -758,6 +793,9 @@
       ord().loadDays();
       ord().bootPrices();
       ord().syncProfiles();
+    }
+    } finally {
+      if (ticket === bootGen) booting = false;
     }
   }
 
@@ -858,6 +896,11 @@
       }
       if (root.__boinyaApplyScheme) root.__boinyaApplyScheme();
     } catch (e) {}
+    document.addEventListener("visibilitychange", function () {
+      if (!prod() || !prod().pauseBackground) return;
+      if (document.hidden) prod().pauseBackground();
+      else if (route.tab === "production" && prod().resumeBackground) prod().resumeBackground();
+    });
     boot();
   }
 
