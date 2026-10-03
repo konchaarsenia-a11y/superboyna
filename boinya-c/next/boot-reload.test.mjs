@@ -20,6 +20,8 @@ function loadApi(setup) {
     location: { hash: "" },
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
     Date,
     URLSearchParams,
     encodeURIComponent,
@@ -71,6 +73,23 @@ test("waitForInitData дожидается позднего initData и не в�
   assert.equal(none, "");
 });
 
+test("apiGet отдаёт успешный JSONP и не падает", async () => {
+  const box = loadApi((s) => {
+    s.document = {
+      createElement() { return {}; },
+      head: {
+        appendChild(node) {
+          const m = String(node.src).match(/[?&]callback=([^&]+)/);
+          s[decodeURIComponent(m[1])]({ status: "success", role: "owner", tabs: ["orderScreen"] });
+        }
+      }
+    };
+  });
+  const res = await box.BoinyaApi.apiGet({ action: "getMyAccess" }, { timeoutMs: 1000, retries: 0, cacheTtlMs: 0 });
+  assert.equal(res.status, "success");
+  assert.equal(res.role, "owner");
+});
+
 test("перезагрузка: кэш остаётся, запрос доступа с таймаутом", () => {
   assert.equal(appSrc.includes("if (booting) return"), false);
   assert.match(appSrc, /waitForInitData\(1600\)/);
@@ -80,5 +99,6 @@ test("перезагрузка: кэш остаётся, запрос досту
   assert.match(apiSrc, /tgWebAppData/);
   assert.match(swSrc, /callback=/);
   assert.match(swSrc, /boinya-c\\\/next\\/);
-  assert.match(swSrc, /boinya-c-sw-v15-71122800/);
+  assert.match(swSrc, /boinya-c-sw-v15-71123000/);
+  assert.match(apiSrc, /function apiGet\(params, opts\) \{[\s\S]*var action = String\(params\.action \|\| ""\);[\s\S]*WRITE\.test\(action\)/);
 });
