@@ -717,9 +717,10 @@
   }
 
   async function loadDays() {
-    week.loading = true;
+    var had = (week.items || []).length > 0;
+    week.loading = !had;
     week.error = "";
-    if (orderVisible()) paint();
+    if (orderVisible() && !had) paint();
     var res = await api().apiGet({ action: "getWeekDayCounts" }, { timeoutMs: 18000, cacheTtlMs: 20000 });
     week.loading = false;
     if (!res || (res.status && res.status !== "success" && !res.items)) {

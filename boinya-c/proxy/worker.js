@@ -3056,7 +3056,7 @@ async function setDepartureWarehouse_(params, env) {
 /**
  * Цели (Бойня C). Отдельная таблица D1, лист «Прием заказов» и Code.gs не меняются.
  * Задачи: личные (owner_tg_id) и общие (пустой scope). Показатели с деньгами — только владелец.
- * Синхронизация — listGoals / saveGoal / deleteGoal. Колонки scope и owner_tg_id добавляются ALTER, без пересоздания таблицы.
+ * Синхронизация — listGoals / saveGoal / deleteGoal. Колонки scope, owner_tg_id и parent_id добавляются ALTER, без пересоздания таблицы.
  *
  * Telegram при закрытии показателя выключен.
  * Включить позже: секрет Worker GOALS_TG_NOTIFY со значением ровно 1.
@@ -3106,6 +3106,7 @@ async function ensureGoals_(env) {
       "date_to TEXT NOT NULL DEFAULT '', " +
       "scope TEXT NOT NULL DEFAULT '', " +
       "owner_tg_id TEXT NOT NULL DEFAULT '', " +
+      "parent_id TEXT NOT NULL DEFAULT '', " +
       "created_at TEXT NOT NULL, " +
       "updated_at TEXT NOT NULL" +
     ")"
@@ -3118,6 +3119,11 @@ async function ensureGoals_(env) {
   try {
     await env.DB.prepare("ALTER TABLE goals ADD COLUMN owner_tg_id TEXT NOT NULL DEFAULT ''").run();
   } catch (eOwner) {
+    /* column exists */
+  }
+  try {
+    await env.DB.prepare("ALTER TABLE goals ADD COLUMN parent_id TEXT NOT NULL DEFAULT ''").run();
+  } catch (eParent) {
     /* column exists */
   }
   env.__goalsReady = true;
@@ -3200,6 +3206,7 @@ function shapeGoal_(row) {
     dateTo: String(row.date_to || ""),
     scope: sc.scope,
     ownerTgId: sc.ownerTgId,
+    parentId: String((row && (row.parent_id != null ? row.parent_id : row.parentId)) || ""),
     createdAt: String(row.created_at || ""),
     updatedAt: String(row.updated_at || "")
   };
@@ -3258,17 +3265,25 @@ async function saveGoal_(params, env, actor) {
   if (!assigned.ok) return { status: "error", message: assigned.message || "Нет доступа" };
   const scope = assigned.scope;
   const ownerTgId = assigned.ownerTgId;
+  let parentId = params.parentId != null ? String(params.parentId || "").trim().slice(0, 64) : String((prev && prev.parent_id) || "");
+  if (parentId === id) return { status: "error", message: "Некорректный родитель" };
+  if (parentId) {
+    const parent = await env.DB.prepare("SELECT * FROM goals WHERE id = ?").bind(parentId).first();
+    if (!parent) return { status: "error", message: "Родитель не найден" };
+    if (!goalRowVisible_(parent, actor)) return { status: "error", message: "Чужая задача" };
+    if (String(parent.parent_id || "") === id) return { status: "error", message: "Некорректный родитель" };
+  }
   const created = prev ? String(prev.created_at || now) : now;
   const wasDone = !!(prev && Number(prev.done) === 1);
   await env.DB.prepare(
-    "INSERT INTO goals (id, kind, horizon, title, done, done_at, metric_id, target, period, date_from, date_to, scope, owner_tg_id, created_at, updated_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+    "INSERT INTO goals (id, kind, horizon, title, done, done_at, metric_id, target, period, date_from, date_to, scope, owner_tg_id, parent_id, created_at, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
       "ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, horizon = excluded.horizon, title = excluded.title, " +
       "done = excluded.done, done_at = excluded.done_at, metric_id = excluded.metric_id, target = excluded.target, " +
       "period = excluded.period, date_from = excluded.date_from, date_to = excluded.date_to, " +
-      "scope = excluded.scope, owner_tg_id = excluded.owner_tg_id, updated_at = excluded.updated_at"
+      "scope = excluded.scope, owner_tg_id = excluded.owner_tg_id, parent_id = excluded.parent_id, updated_at = excluded.updated_at"
   )
-    .bind(id, kind, horizon, title, done ? 1 : 0, doneAt, metricId, target, period, dateFrom, dateTo, scope, ownerTgId, created, now)
+    .bind(id, kind, horizon, title, done ? 1 : 0, doneAt, metricId, target, period, dateFrom, dateTo, scope, ownerTgId, parentId, created, now)
     .run();
   const goal = shapeGoal_({
     id: id,
@@ -3284,6 +3299,7 @@ async function saveGoal_(params, env, actor) {
     date_to: dateTo,
     scope: scope,
     owner_tg_id: ownerTgId,
+    parent_id: parentId,
     created_at: created,
     updated_at: now
   });
@@ -3298,8 +3314,15 @@ async function deleteGoal_(params, env, actor) {
   if (!id) return { status: "error", message: "Некорректный id" };
   const prev = await env.DB.prepare("SELECT * FROM goals WHERE id = ?").bind(id).first();
   if (prev && !goalRowVisible_(prev, actor)) return { status: "error", message: "Чужая задача" };
-  await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
+  await deleteGoalBranch_(env, id);
   return { status: "success", id: id };
+}
+
+async function deleteGoalBranch_(env, id) {
+  const kids = await env.DB.prepare("SELECT id FROM goals WHERE parent_id = ?").bind(id).all();
+  const rows = (kids && kids.results) || [];
+  for (let i = 0; i < rows.length; i++) await deleteGoalBranch_(env, String(rows[i].id || ""));
+  await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
 }
 
 async function ensureMetaColumn_(env) {

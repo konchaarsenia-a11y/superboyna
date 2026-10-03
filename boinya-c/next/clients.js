@@ -291,7 +291,7 @@
   async function loadPeople() {
     if (people.length) return;
     try {
-      var res = await api().apiGet({ action: "listAccess", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      var res = await api().apiGet({ action: "listAccess" }, { timeoutMs: 15000, cacheTtlMs: 60000 });
       people = (res && (res.people || res.items)) || [];
     } catch (e) { people = []; }
   }

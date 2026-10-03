@@ -227,3 +227,41 @@ test("задачи личные и общие, показатели только
   assert.equal(ui.includes("·"), false);
   assert.match(ui, /if \(!isOwner\(\)\) return ""/);
 });
+
+test("месяц делится на недели и дни, сумма по копейкам", () => {
+  const weeks = goals.monthWeeks("2026-10-01", "2026-10-31");
+  assert.equal(weeks.length, 5);
+  assert.deepEqual(weeks[0], { from: "2026-10-01", to: "2026-10-04" });
+  assert.deepEqual(weeks[4], { from: "2026-10-26", to: "2026-10-31" });
+  assert.equal(goals.daysOf("2026-10-05", "2026-10-11").length, 7);
+  assert.deepEqual(goals.splitAmount(100, 3), [33.33, 33.33, 33.34]);
+  assert.equal(goals.splitAmount(100, 5).reduce((a, b) => a + b, 0), 100);
+  assert.equal(goals.sliceLabel("2026-10-01", "2026-10-04"), "01.10-04.10");
+  assert.equal(goals.sliceLabel("2026-10-01", "2026-10-04").includes("·"), false);
+});
+
+test("карточки света нет, разбиение месяца в целях, parent_id только добавлением", () => {
+  assert.equal(ui.includes("·"), false);
+  assert.equal(ui.includes("Внести свет"), false);
+  assert.equal(ui.includes("refreshLightCard"), false);
+  assert.match(ui, /Разбить на недели/);
+  assert.match(ui, /Разбить на дни/);
+  assert.match(ui, /parentId/);
+  const ensure = extractFn(worker, "ensureGoals_");
+  assert.match(ensure, /ALTER TABLE goals ADD COLUMN parent_id TEXT NOT NULL DEFAULT ''/);
+  assert.match(ensure, /catch \(eParent\)/);
+  const save = extractFn(worker, "saveGoal_");
+  assert.match(save, /parent_id/);
+  assert.match(save, /Некорректный родитель/);
+  const del = extractFn(worker, "deleteGoal_");
+  assert.match(del, /deleteGoalBranch_/);
+  const branch = extractFn(worker, "deleteGoalBranch_");
+  assert.match(branch, /parent_id = \?/);
+  const schema = fs.readFileSync(path.resolve(here, "../proxy/schema.sql"), "utf8");
+  assert.match(schema, /parent_id TEXT NOT NULL DEFAULT ''/);
+  const api = fs.readFileSync(path.resolve(here, "api.js"), "utf8");
+  assert.match(api, /inflight/);
+  assert.match(api, /staleUntil/);
+  const refresh = extractFn(api, "refresh");
+  assert.equal(refresh.includes("trackStart"), false);
+});

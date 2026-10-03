@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS goals (
   date_to TEXT NOT NULL DEFAULT '',
   scope TEXT NOT NULL DEFAULT '',
   owner_tg_id TEXT NOT NULL DEFAULT '',
+  parent_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

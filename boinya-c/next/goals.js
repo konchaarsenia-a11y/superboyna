@@ -57,7 +57,11 @@
       ".nx-goals__stack{display:flex;flex-direction:column;gap:12px}",
       ".nx-goals__group{margin-top:8px}",
       ".nx-goals__filters{margin:0 0 12px}",
-      ".nx-goals .b-lbl{margin-top:20px}"
+      ".nx-goals .b-lbl{margin-top:20px}",
+      ".nx-goals__slice{margin-top:8px;padding:12px;border-radius:16px;background:var(--b-surface-2)}",
+      ".nx-goals__slice .nx-goals__slice{background:var(--b-surface)}",
+      ".nx-goals__target{display:flex;gap:8px;align-items:center;margin-top:8px}",
+      ".nx-goals__target .b-field{flex:1;margin:0}"
     ].join("");
     document.head.appendChild(s);
   }
@@ -83,7 +87,7 @@
 
   function tasksOf(id) {
     return goals.filter(function (g) {
-      return g && g.kind === "task" && g.horizon === id;
+      return g && g.kind === "task" && g.horizon === id && !g.parentId;
     });
   }
 
@@ -184,12 +188,14 @@
 
   function taskRow(t) {
     var done = !!t.done;
-    return '<div class="nx-goals__row">' +
+    var row = '<div class="nx-goals__row">' +
       '<button type="button" class="b-check' + (done ? " b-check--on" : "") + '" data-act="gl-check" data-id="' + esc(t.id) + '" aria-pressed="' + (done ? "true" : "false") + '" aria-label="' + (done ? "Снять отметку" : "Отметить") + '">' +
       (done ? checkSvg() : "") + "</button>" +
       '<button type="button" class="nx-goals__text' + (done ? " nx-goals__text--done" : "") + '" data-act="gl-edit" data-id="' + esc(t.id) + '">' + esc(t.title) + "</button>" +
       '<button type="button" class="nx-goals__link" data-act="gl-del" data-id="' + esc(t.id) + '">Удалить</button>' +
       "</div>";
+    var extra = splitTree(t);
+    return extra ? row + extra : row;
   }
 
   function rowsHtml(list) {
@@ -298,7 +304,69 @@
       '<div class="nx-goals__bar" aria-hidden="true"><span style="width:' + bar + '%"></span></div>' +
       doneLine +
       '<button type="button" class="nx-goals__link" data-act="gl-del" data-id="' + esc(goal.id) + '">Удалить</button>' +
+      splitTree(goal) +
       "</article>";
+  }
+
+  function kidsOf(id, horizonId) {
+    return goals.filter(function (g) {
+      if (!g || String(g.parentId || "") !== String(id)) return false;
+      if (horizonId && g.horizon !== horizonId) return false;
+      return true;
+    });
+  }
+
+  function progressLine(goal) {
+    if (!goal) return "";
+    if (goal.kind === "task") {
+      var days = kidsOf(goal.id, "day");
+      var list = days.length ? days : [goal];
+      var pct = logic().taskPct(list);
+      if (!pct.total) return "нет задач";
+      return pct.done + " из " + pct.total;
+    }
+    if (!factsReady) return "Считаю";
+    var reading = readingFor(goal);
+    if (!reading || reading.status !== "ok") return "нет данных";
+    return fmtNum(goal.metricId, reading.current) + " из " + fmtNum(goal.metricId, goal.target);
+  }
+
+  function targetEditor(goal) {
+    if (!goal || goal.kind !== "metric") return "";
+    var value = goal.target == null ? "" : String(goal.target);
+    return '<div class="nx-goals__target">' +
+      '<label class="b-field"><input class="b-field__input" data-act="gl-target" data-id="' + esc(goal.id) + '" inputmode="decimal" value="' + esc(value) + '"></label>' +
+      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="gl-target-save" data-id="' + esc(goal.id) + '">Сохранить</button>' +
+      "</div>";
+  }
+
+  function daySlice(day) {
+    var label = logic().sliceLabel(day.dateFrom, day.dateTo);
+    if (day.kind === "task") return '<div class="nx-goals__slice">' + taskRow(day) + "</div>";
+    return '<div class="nx-goals__slice"><p class="b-lbl" style="margin-top:0">День ' + esc(label) + "</p>" +
+      '<p class="nx-goals__cap">' + esc(progressLine(day)) + "</p>" + targetEditor(day) + "</div>";
+  }
+
+  function weekSlice(week) {
+    var label = logic().sliceLabel(week.dateFrom, week.dateTo);
+    var days = kidsOf(week.id, "day");
+    var inner = days.length
+      ? days.map(daySlice).join("")
+      : '<button type="button" class="b-btn b-btn--sec b-btn--sm" style="margin-top:8px" data-act="gl-split-days" data-id="' + esc(week.id) + '">Разбить на дни</button>';
+    var head = week.kind === "task"
+      ? taskRow(week) + '<p class="nx-goals__cap">' + esc(progressLine(week)) + "</p>"
+      : '<p class="b-lbl" style="margin-top:0">Неделя ' + esc(label) + "</p>" +
+        '<p class="nx-goals__cap">' + esc(progressLine(week)) + "</p>" + targetEditor(week);
+    return '<div class="nx-goals__slice">' + head + inner + "</div>";
+  }
+
+  function splitTree(parent) {
+    if (horizon !== "month" || !parent || parent.parentId) return "";
+    var weeks = kidsOf(parent.id, "week");
+    if (!weeks.length) {
+      return '<button type="button" class="b-btn b-btn--sec" style="margin-top:12px" data-act="gl-split-weeks" data-id="' + esc(parent.id) + '">Разбить на недели</button>';
+    }
+    return '<div class="nx-goals__stack" style="margin-top:12px">' + weeks.map(weekSlice).join("") + "</div>";
   }
 
   function reportBlock() {
@@ -314,7 +382,7 @@
 
   function metricBlock() {
     if (!isOwner()) return "";
-    var list = goals.filter(function (g) { return g && g.kind === "metric"; });
+    var list = goals.filter(function (g) { return g && g.kind === "metric" && !g.parentId; });
     var html = '<section class="nx-goals__group"><p class="b-lbl">Показатели</p>';
     if (!list.length) html += '<p class="b-note">Показателей пока нет</p>';
     else html += '<div class="nx-goals__stack">' + list.map(metricCard).join("") + "</div>";
@@ -322,42 +390,39 @@
     return html;
   }
 
-  function lightSlot() {
-    if (!isOwner()) return "";
-    return '<div id="nxLightCard"></div>';
-  }
+  var lastHtml = "";
 
-  function paintLight() {
-    if (!isOwner() || !root.BoinyaExpenses || !root.BoinyaExpenses.refreshLightCard) return;
-    root.BoinyaExpenses.bind(access);
-    root.BoinyaExpenses.refreshLightCard();
-  }
-
-  function paint() {
+  function paint(keepScroll) {
     ensureCss();
     sh().dock("");
     if (horizon === "spend" && isOwner()) {
-      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() + '<div id="expRoot"></div></div>');
-      paintLight();
+      var held = document.getElementById("goalsRoot") && document.getElementById("expRoot");
+      if (held) {
+        var seg = document.querySelector("#goalsRoot .b-seg");
+        var nextSeg = segBar();
+        if (seg && seg.outerHTML !== nextSeg) seg.outerHTML = nextSeg;
+        return;
+      }
+      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + '<div id="expRoot"></div></div>');
       if (root.BoinyaExpenses) {
         root.BoinyaExpenses.bind(access);
         root.BoinyaExpenses.showInto();
       }
       return;
     }
-    if (!loaded && !loadError) {
-      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() + sh().skeleton(4) + "</div>");
-      paintLight();
-      return;
+    var body = "";
+    if (!loaded && !loadError) body = sh().skeleton(4);
+    else if (loadError && !goals.length) {
+      body = sh().errorBox({ title: "Не удалось загрузить цели", text: loadError, act: "gl-retry" });
+    } else body = filterBar() + taskBlock() + metricBlock() + reportBlock();
+    var html = '<div class="nx-goals" id="goalsRoot">' + segBar() + body + "</div>";
+    if (keepScroll && html === lastHtml && document.getElementById("goalsRoot")) return;
+    lastHtml = html;
+    if (keepScroll) {
+      var y = sh().scrollTop();
+      if (y) sh().restoreScrollTo(y);
     }
-    if (loadError && !goals.length) {
-      sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() +
-        sh().errorBox({ title: "Не удалось загрузить цели", text: loadError, act: "gl-retry" }) + "</div>");
-      paintLight();
-      return;
-    }
-    sh().main('<div class="nx-goals" id="goalsRoot">' + segBar() + lightSlot() + filterBar() + taskBlock() + metricBlock() + reportBlock() + "</div>");
-    paintLight();
+    sh().main(html);
   }
 
   function findGoal(id) {
@@ -393,7 +458,8 @@
       dateFrom: goal.dateFrom || "",
       dateTo: goal.dateTo || "",
       scope: goal.kind === "metric" ? "" : (goal.scope || "shared"),
-      ownerTgId: goal.kind === "metric" ? "" : (goal.ownerTgId || "")
+      ownerTgId: goal.kind === "metric" ? "" : (goal.ownerTgId || ""),
+      parentId: goal.parentId || ""
     });
     if (!res || res.status !== "success" || !res.goal) return null;
     return res.goal;
@@ -433,12 +499,12 @@
     if (!res || res.status !== "success" || !Array.isArray(res.goals)) {
       loadError = (res && res.message) || "Нет связи с сервером";
       loaded = true;
-      paint();
+      paint(true);
       return;
     }
     goals = res.goals;
     loaded = true;
-    paint();
+    paint(true);
     await loadFacts(ticket, force);
   }
 
@@ -496,7 +562,7 @@
       goals[idx] = next.goal;
       pending.push(next.goal);
     });
-    paint();
+    paint(true);
     var closed = 0;
     for (var p = 0; p < pending.length; p++) {
       var saved = await persist(pending[p]);
@@ -507,14 +573,15 @@
       }
     }
     if (closed) {
-      paint();
+      paint(true);
       sh().toast(closed > 1 ? "Цели закрыты" : "Цель закрыта");
     }
   }
 
   function show() {
     if (!canOpen()) return;
-    filter = "all";
+    var staying = loaded && document.getElementById("goalsRoot");
+    if (!staying) filter = "all";
     ensureCss();
     var ticket = ++gen;
     loadError = "";
@@ -644,7 +711,7 @@
     }
     sh().closeTop("ok");
     replaceLocal(saved);
-    paint();
+    paint(true);
     sh().toast("Задача добавлена");
   }
 
@@ -686,7 +753,7 @@
     sh().closeTop("ok");
     replaceLocal(saved);
     factsReady = false;
-    paint();
+    paint(true);
     var ticket = gen;
     await loadFacts(ticket);
   }
@@ -707,7 +774,7 @@
       return;
     }
     replaceLocal(saved);
-    paint();
+    paint(true);
   }
 
   async function editTask(id) {
@@ -731,7 +798,21 @@
       return;
     }
     replaceLocal(saved);
-    paint();
+    paint(true);
+  }
+
+  function idsUnder(id) {
+    var out = {};
+    var stack = [id];
+    while (stack.length) {
+      var cur = stack.pop();
+      if (!cur || out[cur]) continue;
+      out[cur] = 1;
+      goals.forEach(function (g) {
+        if (g && String(g.parentId || "") === String(cur)) stack.push(g.id);
+      });
+    }
+    return out;
   }
 
   async function removeGoal(id) {
@@ -749,13 +830,144 @@
       sh().toast("Не удалось удалить");
       return;
     }
-    goals = goals.filter(function (g) { return g.id !== id; });
-    paint();
+    var drop = idsUnder(id);
+    goals = goals.filter(function (g) { return !drop[g.id]; });
+    paint(true);
     sh().toast("Удалено");
   }
 
+  function newId(suffix) {
+    return "g" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36) + String(suffix || "");
+  }
+
+  async function persistMany(list) {
+    var saved = [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      var row = await persist(list[i]);
+      if (!row) return null;
+      saved.push(row);
+    }
+    return saved;
+  }
+
+  function childGoal(parent, slice, horizonId, target, suffix) {
+    var label = logic().sliceLabel(slice.from, slice.to);
+    var prefix = horizonId === "day" ? "День " : "Неделя ";
+    return {
+      id: newId(suffix),
+      kind: parent.kind,
+      horizon: horizonId,
+      title: parent.kind === "task" ? (prefix + label) : (parent.title || ""),
+      done: false,
+      doneAt: "",
+      metricId: parent.metricId || "",
+      target: parent.kind === "metric" ? target : null,
+      period: "custom",
+      dateFrom: slice.from,
+      dateTo: slice.to,
+      scope: parent.kind === "metric" ? "" : (parent.scope || "shared"),
+      ownerTgId: parent.kind === "metric" ? "" : (parent.ownerTgId || ""),
+      parentId: parent.id
+    };
+  }
+
+  async function splitWeeks(id) {
+    var parent = findGoal(id);
+    if (!parent || kidsOf(id, "week").length || saving) return;
+    var bounds = parent.kind === "metric" ? boundsFor(parent) : logic().periodBounds("month", new Date());
+    if (!bounds.ok) {
+      sh().toast("Нет дат месяца");
+      return;
+    }
+    var slices = logic().monthWeeks(bounds.from, bounds.to);
+    if (!slices.length) return;
+    var amounts = parent.kind === "metric" ? logic().splitAmount(parent.target, slices.length) : [];
+    var batch = slices.map(function (slice, i) {
+      return childGoal(parent, slice, "week", amounts[i], "w" + i);
+    });
+    saving = true;
+    sh().toast("Сохраняю");
+    var saved = await persistMany(batch);
+    saving = false;
+    if (!saved) {
+      sh().toast("Не удалось сохранить");
+      return;
+    }
+    saved.forEach(replaceLocal);
+    paint(true);
+    if (parent.kind === "metric") await loadFacts(gen, false);
+  }
+
+  async function splitDays(id) {
+    var parent = findGoal(id);
+    if (!parent || kidsOf(id, "day").length || saving) return;
+    var bounds = boundsFor(parent);
+    if (!bounds.ok) {
+      sh().toast("Нет дат недели");
+      return;
+    }
+    var slices = logic().daysOf(bounds.from, bounds.to);
+    if (!slices.length) return;
+    var amounts = parent.kind === "metric" ? logic().splitAmount(parent.target, slices.length) : [];
+    var batch = slices.map(function (slice, i) {
+      return childGoal(parent, slice, "day", amounts[i], "d" + i);
+    });
+    saving = true;
+    sh().toast("Сохраняю");
+    var saved = await persistMany(batch);
+    saving = false;
+    if (!saved) {
+      sh().toast("Не удалось сохранить");
+      return;
+    }
+    saved.forEach(replaceLocal);
+    paint(true);
+    if (parent.kind === "metric") await loadFacts(gen, false);
+  }
+
+  async function saveTarget(id, raw) {
+    var goal = findGoal(id);
+    if (!goal || goal.kind !== "metric" || saving) return;
+    var target = Number(String(raw == null ? "" : raw).replace(",", ".").trim());
+    if (!(target > 0)) {
+      sh().toast("Укажите цель больше нуля");
+      return;
+    }
+    if (Number(goal.target) === target) return;
+    saving = true;
+    var saved = await persist(Object.assign({}, goal, { target: target }));
+    saving = false;
+    if (!saved) {
+      sh().toast("Не удалось сохранить");
+      return;
+    }
+    replaceLocal(saved);
+    paint(true);
+  }
+
   function onAct(act, node) {
+    if (act === "change") {
+      if (!node || !node.getAttribute || node.getAttribute("data-act") !== "gl-target") return false;
+      saveTarget(node.getAttribute("data-id"), node.value);
+      return true;
+    }
     if (!act || act.indexOf("gl-") !== 0) return false;
+    if (act === "gl-split-weeks") {
+      splitWeeks(node.getAttribute("data-id"));
+      return true;
+    }
+    if (act === "gl-split-days") {
+      splitDays(node.getAttribute("data-id"));
+      return true;
+    }
+    if (act === "gl-target-save") {
+      var id = node.getAttribute("data-id");
+      var card = node.closest ? node.closest(".nx-goals__slice, .b-card") : null;
+      var input = card ? card.querySelector('[data-act="gl-target"][data-id="' + id + '"]') : null;
+      saveTarget(id, input ? input.value : "");
+      return true;
+    }
     if (act === "gl-horizon") {
       horizon = node.getAttribute("data-h") || "day";
       sh().resetScroll();

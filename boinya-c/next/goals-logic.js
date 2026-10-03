@@ -288,6 +288,77 @@
     return out;
   }
 
+  function parseIso_(iso) {
+    var p = String(iso || "").slice(0, 10).split("-");
+    if (p.length < 3 || p[0].length !== 4) return null;
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12, 0, 0, 0);
+    if (!isFinite(d.getTime())) return null;
+    return d;
+  }
+
+  function monthWeeks(from, to) {
+    var start = parseIso_(from);
+    var end = parseIso_(to);
+    if (!start || !end || start > end) return [];
+    var weeks = [];
+    var cursor = new Date(start.getTime());
+    while (cursor <= end && weeks.length < 8) {
+      var dayN = cursor.getDay();
+      var toSunday = dayN === 0 ? 0 : 7 - dayN;
+      var weekEnd = new Date(cursor.getTime());
+      weekEnd.setDate(cursor.getDate() + toSunday);
+      if (weekEnd > end) weekEnd = new Date(end.getTime());
+      weeks.push({ from: isoDate_(cursor), to: isoDate_(weekEnd) });
+      var next = new Date(weekEnd.getTime());
+      next.setDate(weekEnd.getDate() + 1);
+      cursor = next;
+    }
+    return weeks;
+  }
+
+  function daysOf(from, to) {
+    var start = parseIso_(from);
+    var end = parseIso_(to);
+    if (!start || !end || start > end) return [];
+    var days = [];
+    var cursor = new Date(start.getTime());
+    while (cursor <= end && days.length < 40) {
+      var iso = isoDate_(cursor);
+      days.push({ from: iso, to: iso });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+  }
+
+  function splitAmount(total, n) {
+    var count = Math.floor(Number(n));
+    if (!(count > 0)) return [];
+    var cents = Math.round(Number(total) * 100);
+    if (!isFinite(cents)) cents = 0;
+    var base = Math.trunc(cents / count);
+    var rem = cents - base * count;
+    var out = [];
+    var i;
+    for (i = 0; i < count; i++) {
+      var c = base + (i === count - 1 ? rem : 0);
+      out.push(c / 100);
+    }
+    return out;
+  }
+
+  function sliceLabel(from, to) {
+    function short(iso) {
+      var p = String(iso || "").slice(0, 10).split("-");
+      if (p.length < 3 || p[0].length !== 4) return "";
+      return p[2] + "." + p[1];
+    }
+    var a = short(from);
+    var b = short(to);
+    if (!a) return "";
+    if (!b || a === b) return a;
+    return a + "-" + b;
+  }
+
   function applyAutoComplete(goal, reading, todayIso) {
     if (!goal || goal.kind !== "metric") return { goal: goal, changed: false };
     if (goal.done) return { goal: goal, changed: false };
@@ -308,6 +379,10 @@
     metricById: metricById,
     evaluateMetric: evaluateMetric,
     unavailableReport: unavailableReport,
-    applyAutoComplete: applyAutoComplete
+    applyAutoComplete: applyAutoComplete,
+    monthWeeks: monthWeeks,
+    daysOf: daysOf,
+    splitAmount: splitAmount,
+    sliceLabel: sliceLabel
   };
 });
