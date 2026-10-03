@@ -609,11 +609,11 @@ button.nx-count {
   padding: 4px 0 0;
   border: 0;
   border-radius: 0;
-  text-align: center;
+  text-align: left;
 }
 
 .nx-pack-grp .nx-grp {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .nx-pack-grp .nx-grp::after {
