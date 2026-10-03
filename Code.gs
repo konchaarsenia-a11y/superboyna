@@ -22537,7 +22537,6 @@ function formulaPpPayRow_(cycle) {
   var i;
   for (i = 0; i < cycle.length; i++) {
     var row = cycle[i];
-    if (row.missingBasket) continue;
     var paid = String(row.paid || "");
     if (paid === "yes") yes.push(row);
     else if (paid !== "no") {
@@ -22556,10 +22555,31 @@ function formulaPpPayRow_(cycle) {
   return pool.length ? pool[0] : null;
 }
 
+/** Строка, чья цена входит в запрошенный месяц. Слот 2 без «оплатил» цену не открывает. */
+function formulaPpMonthCarrier_(cycle, from, to) {
+  function inn(iso) {
+    iso = String(iso || "").slice(0, 10);
+    return (!from || iso >= from) && (!to || iso <= to);
+  }
+  var pay = formulaPpPayRow_(cycle);
+  if (pay && inn(pay.iso)) return pay;
+  var pick = null;
+  var i;
+  for (i = 0; i < (cycle || []).length; i++) {
+    var row = cycle[i];
+    if (!row.delivered || !inn(row.iso)) continue;
+    var slot = formulaPpSlot_(row);
+    if (slot >= 2 && String(row.paid || "") !== "yes") continue;
+    if (!pick || String(row.iso) < String(pick.iso)) pick = row;
+  }
+  return pick;
+}
+
 /**
  * Сводка строк. Зеркало boinya-c/next/formulas.js formulaRollup_.
- * ПП: цена один раз на слоте оплаты цикла. Слот 2 без «оплатил» цену не открывает.
- * Одинаковый состав цикла не суммируется второй раз. Без состава в оборот не входит.
+ * ПП: цена один раз на слоте оплаты внутри месяца. Слот 2 без «оплатил» цену не открывает.
+ * Одинаковый состав внутри месяца не суммируется второй раз.
+ * Без состава остаётся в обороте по своей цене, себес только по известному составу.
  */
 function formulaRollupRows_(rows, opts) {
   opts = opts || {};
@@ -22619,11 +22639,7 @@ function formulaRollupRows_(rows, opts) {
   for (i = 0; i < rest.length; i++) {
     var one = rest[i];
     var price = Number(one.price) || 0;
-    if (one.missingBasket) {
-      if (one.delivered) out.missingBasket++;
-      else out.pending.N += 1;
-      continue;
-    }
+    if (one.delivered && one.missingBasket) out.missingBasket++;
     if (one.delivered) {
       addU(out, one.S, one.G, one.P, 1);
       if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
@@ -22650,21 +22666,14 @@ function formulaRollupRows_(rows, opts) {
     var ci;
     for (ci = 0; ci < cycles.length; ci++) {
       var cycle = cycles[ci];
-      var pay = formulaPpPayRow_(cycle);
+      var pay = formulaPpMonthCarrier_(cycle, from, to);
       var seen = {};
       var ri;
       for (ri = 0; ri < cycle.length; ri++) {
         var slotRow = cycle[ri];
         var slotIso = String(slotRow.iso || "").slice(0, 10);
-        if (!inside(slotIso)) {
-          if (slotRow.delivered && slotRow.sig) seen[String(slotRow.sig)] = true;
-          continue;
-        }
-        if (slotRow.missingBasket) {
-          if (slotRow.delivered) out.missingBasket++;
-          else out.pending.N += 1;
-          continue;
-        }
+        if (!inside(slotIso)) continue;
+        if (slotRow.delivered && slotRow.missingBasket) out.missingBasket++;
         if (slotRow.delivered) {
           var sig = String(slotRow.sig || "");
           if (!(sig && seen[sig])) {
@@ -27233,6 +27242,7 @@ function invalidateStatsCache_() {
       keys.push("STATS25:" + mk);
       keys.push("STATS26:" + mk);
       keys.push("STATS27:" + mk);
+      keys.push("STATS28:" + mk);
       keys.push("STATS23:" + mk);
       keys.push("STATS22:" + mk);
       keys.push("STATS21:" + mk);
@@ -27470,7 +27480,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS27:" + monthKey;
+  var cacheKey = "STATS28:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {

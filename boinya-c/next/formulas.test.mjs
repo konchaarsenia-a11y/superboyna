@@ -284,14 +284,14 @@ test("сентябрь: граница месяца, отвёз, пустой с
     { ck: "P", iso: "2026-09-05", src: "partner", delivered: true, price: 0, S: 1, G: 0, P: 0 }
   ];
   const s = F.formulaRollup_(rows, { monthKey: "2026-09" });
-  eq(s.ppRevenue, 90, "пп один раз на новом слоте 1");
-  eq(s.retailRevenue, 0, "розница без цены");
-  eq(s.revenue, 90, "оборот");
-  eq(s.N, 4, "четыре отвезено");
-  eq(s.S, 11, "состав цикла не удвоен");
+  eq(s.ppRevenue, 195 + 90, "пустой слот месяца один раз, слот 2 нет, новый слот 1 да");
+  eq(s.retailRevenue, 40, "розница без состава со своей ценой");
+  eq(s.revenue, 195 + 90 + 40, "оборот");
+  eq(s.N, 5, "пять отвезено, включая без состава");
+  eq(s.S, 10 + 8 + 9 + 2, "себес известных составов, слот 2 того же месяца не удвоен");
   eq(s.pp.N, 3, "пп доставки");
-  eq(s.pp.S, 9, "сырьё пп");
-  eq(s.missingBasket, 1, "без состава");
+  eq(s.pp.S, 10 + 8 + 9, "сырьё пп");
+  eq(s.missingBasket, 1, "без состава отмечен, но в обороте");
   eq(s.missingPrice, 1, "без цены");
   eq(s.pending.N, 1, "без отвёз");
   eq(s.pending.revenue, 13, "ожидается");
@@ -301,6 +301,41 @@ test("сентябрь: граница месяца, отвёз, пустой с
   const aug = F.formulaRollup_(rows, { monthKey: "2026-08" });
   eq(aug.ppRevenue, 195 + 88, "август забирает первую оплату");
   eq(aug.N, 2, "две августовские");
+});
+
+test("август и сентябрь без состава и без слота не пустые", () => {
+  const rows = [
+    { ck: "K", iso: "2026-07-28", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-08-04", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-08-11", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-08-18", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-08-25", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "R", iso: "2026-08-10", src: "retail", price: 50, delivered: true, missingBasket: true, S: 0, G: 0, P: 0 },
+    { ck: "K", iso: "2026-09-01", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-09-08", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-09-15", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "K", iso: "2026-09-22", src: "pp", slot: 0, paid: "", price: 100, delivered: true, missingBasket: true, S: 0, G: 0, P: 0, sig: "" },
+    { ck: "R", iso: "2026-09-12", src: "retail", price: 30, delivered: true, missingBasket: true, S: 0, G: 0, P: 0 }
+  ];
+  const aug = F.formulaRollup_(rows, { monthKey: "2026-08" });
+  eq(aug.ppRevenue, 100, "август: цена ПП один раз, не ноль из-за июля");
+  eq(aug.retailRevenue, 50, "август розница без состава");
+  eq(aug.revenue, 150, "август не пустой");
+  eq(aug.N, 5, "четыре ПП и розница");
+  eq(aug.missingBasket, 5, "флаг без состава");
+  eq(aug.S, 0, "себес только по известному");
+  const sep = F.formulaRollup_(rows, { monthKey: "2026-09" });
+  eq(sep.ppRevenue, 100, "сентябрь: своя одна цена, не цена июля");
+  eq(sep.retailRevenue, 30, "сентябрь розница");
+  eq(sep.revenue, 130, "сентябрь не пустой");
+  eq(sep.N, 5, "доставки сентября");
+  eq(sep.missingBasket, 5, "флаг сентября");
+  const slot2 = F.formulaRollup_([
+    { ck: "A", iso: "2026-08-20", src: "pp", slot: 1, paid: "yes", price: 88, delivered: true, S: 8, G: 0, P: 0, sig: "maria" },
+    { ck: "A", iso: "2026-09-03", src: "pp", slot: 2, paid: "no", price: 88, delivered: true, S: 8, G: 0, P: 0, sig: "maria" }
+  ], { monthKey: "2026-09" });
+  eq(slot2.ppRevenue, 0, "слот 2 без оплатил не открывает вторую цену");
+  eq(slot2.N, 1, "доставка слота 2 на месте");
 });
 
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {
@@ -317,7 +352,8 @@ test("код: формула только по отвезено, прежний 
   assert.match(gs, /ppPartner/);
   assert.match(gs, /formulaEconomy/);
   const worker = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
-  assert.match(gs, /STATS27:/);
+  assert.match(gs, /STATS28:/);
+  assert.match(worker, /getStats28:/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_month_money/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_role_assign/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS owner_expenses/);
