@@ -13590,11 +13590,6 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
         });
       } catch (eCalM) {}
       try { markPullPpSlotAnchor_(ss, name, req.ppSlot, deliveryDate); } catch (eMkM) {}
-      if (note) {
-        try {
-          writeBasketToDayColumn_(ss, dayName, name, address, note, basket || [], { overwriteMeta: true });
-        } catch (ePullNote) {}
-      }
       continue;
     }
 
