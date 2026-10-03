@@ -495,9 +495,16 @@ async function startHelper() {
   ].join("\n"), { mode: 0o600 });
   const env = wranglerEnv();
   const deployed = await runCmd("npx", ["wrangler@4", "deploy"], { cwd: dir, env: env });
-  const urlMatch = (deployed.out + "\n" + deployed.err).match(/https:\/\/[a-z0-9.-]+\.workers\.dev/);
-  if (deployed.code !== 0 || !urlMatch) {
-    return { ok: false, reason: "deploy " + scrub(deployed.err || deployed.out, key), key: key, dir: dir, url: "" };
+  const blob = deployed.out + "\n" + deployed.err;
+  const hosts = [];
+  const hostRe = /https:\/\/([a-z0-9.-]*boinya-c-repair-tmp[a-z0-9.-]*\.workers\.dev)/g;
+  let hm;
+  while ((hm = hostRe.exec(blob))) if (hosts.indexOf(hm[1]) < 0) hosts.push(hm[1]);
+  if (hosts.indexOf("boinya-c-repair-tmp.konchaarsenia.workers.dev") < 0) {
+    hosts.push("boinya-c-repair-tmp.konchaarsenia.workers.dev");
+  }
+  if (deployed.code !== 0) {
+    return { ok: false, reason: "deploy " + scrub(deployed.err || deployed.out, key), key: key, dir: dir, hosts: hosts };
   }
   const secretPut = await runCmd("npx", ["wrangler@4", "secret", "put", "REPAIR_KEY"], {
     cwd: dir,
@@ -505,9 +512,9 @@ async function startHelper() {
     input: key
   });
   if (secretPut.code !== 0) {
-    return { ok: false, reason: "secret " + scrub(secretPut.err || secretPut.out, key), key: key, dir: dir, url: urlMatch[0] };
+    return { ok: false, reason: "secret " + scrub(secretPut.err || secretPut.out, key), key: key, dir: dir, hosts: hosts };
   }
-  return { ok: true, reason: "", key: key, dir: dir, url: urlMatch[0] };
+  return { ok: true, reason: "", key: key, dir: dir, hosts: hosts };
 }
 
 async function helperSession() {
@@ -524,28 +531,46 @@ async function closeHelper() {
   try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch (e) {}
 }
 
+async function helperFetch(session, method, cacheKey, payload) {
+  const hosts = session.hosts || [];
+  let last = "no_host";
+  for (let h = 0; h < hosts.length; h++) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const url = method === "GET"
+        ? "https://" + hosts[h] + "/?key=" + encodeURIComponent(cacheKey)
+        : "https://" + hosts[h] + "/";
+      const res = await fetch(url, {
+        method: method,
+        headers: Object.assign(
+          { "x-repair-key": session.key },
+          method === "POST" ? { "content-type": "application/json" } : {}
+        ),
+        body: method === "POST" ? JSON.stringify({ cacheKey: cacheKey, payload: payload }) : undefined
+      });
+      const text = await res.text();
+      last = "host=" + hosts[h] + " http=" + res.status + " bytes=" + text.length;
+      if (res.ok && (method === "GET" || text === "ok")) return { ok: true, text: text, reason: last };
+      if (res.status !== 404) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  return { ok: false, text: "", reason: last };
+}
+
 async function helperGet(cacheKey) {
   const session = await helperSession();
   if (!session.ok) return { ok: false, reason: session.reason, rows: [] };
-  const res = await fetch(session.url + "/?key=" + encodeURIComponent(cacheKey), {
-    headers: { "x-repair-key": session.key }
-  });
-  const text = await res.text();
-  if (!res.ok) return { ok: false, reason: "fetch http=" + res.status + " bytes=" + text.length, rows: [] };
-  if (text === "null") return { ok: true, rows: [] };
-  return { ok: true, rows: [{ payload: text }] };
+  const got = await helperFetch(session, "GET", cacheKey, "");
+  if (!got.ok) return { ok: false, reason: got.reason, rows: [] };
+  if (got.text === "null") return { ok: true, rows: [] };
+  return { ok: true, rows: [{ payload: got.text }] };
 }
 
 async function helperPut(cacheKey, payload) {
   const session = await helperSession();
   if (!session.ok) return { ok: false, reason: session.reason, rows: [] };
-  const res = await fetch(session.url + "/", {
-    method: "POST",
-    headers: { "x-repair-key": session.key, "content-type": "application/json" },
-    body: JSON.stringify({ cacheKey: cacheKey, payload: payload })
-  });
-  const text = await res.text();
-  if (!res.ok || text !== "ok") return { ok: false, reason: "put http=" + res.status + " bytes=" + text.length, rows: [] };
+  const got = await helperFetch(session, "POST", cacheKey, payload);
+  if (!got.ok) return { ok: false, reason: got.reason, rows: [] };
   return { ok: true, rows: [] };
 }
 
