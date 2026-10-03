@@ -39,17 +39,29 @@ test("формулы вырезаны из app.main.js без переписыв
   });
 });
 
-test("кап 92%: сначала фракция, потом товар до пола", () => {
-  const cutFrac = P.applyRaw26RetailCapAlloc_(40, 18, 0, 6, 50, 30);
-  assert.equal(cutFrac.fractionMarkup, 0);
-  assert.equal(cutFrac.goods, 32);
-  assert.equal(cutFrac.factCost, 50);
-  assert.equal(cutFrac.uncappedFloor, false);
-  const floor = P.applyRaw26RetailCapAlloc_(40, 18, 0.56, 4, 50, 38);
-  assert.equal(floor.fractionMarkup, 0);
-  assert.equal(floor.goods, 38);
+test("кап 92% только на товар, доставка и фракция сверху", () => {
+  const n1 = P.applyRaw26RetailCapAlloc_(100, 9, 1.4, 8, 92, 40);
+  assert.equal(n1.goods, 92);
+  assert.equal(n1.fractionMarkup, 8);
+  assert.equal(n1.packagesByn, 1.4);
+  assert.equal(n1.delivery, 9);
+  assert.equal(n1.factCost, 110.4);
+  assert.equal(n1.uncappedFloor, false);
+  const n2 = P.applyRaw26RetailCapAlloc_(100, 18, 1.4, 8, 92, 40);
+  const n4 = P.applyRaw26RetailCapAlloc_(100, 36, 1.4, 8, 92, 40);
+  assert.equal(n2.factCost, 119.4);
+  assert.equal(n4.factCost, 137.4);
+  assert.equal(Math.round((n2.factCost - n1.factCost) * 100) / 100, 9);
+  const floor = P.applyRaw26RetailCapAlloc_(100, 9, 0.56, 4, 50, 60);
+  assert.equal(floor.fractionMarkup, 4);
+  assert.equal(floor.goods, 60);
   assert.equal(floor.uncappedFloor, true);
-  assert.ok(floor.factCost > 50);
+  assert.equal(floor.factCost, 73.56);
+  const open = P.applyRaw26RetailCapAlloc_(50, 18, 0, 3, 92, 20);
+  assert.equal(open.retailCapped, false);
+  assert.equal(open.goods, 50);
+  assert.equal(open.fractionMarkup, 3);
+  assert.equal(open.factCost, 71);
 });
 
 test("локальный RAW26 совпадает с applyLocalPpFact_", () => {
@@ -57,7 +69,7 @@ test("локальный RAW26 совпадает с applyLocalPpFact_", () => {
   const q = P.quotePp({ scheme: "RAW26", coef: 2.6, deliveriesN: 2, costSum: 10, list: list, packagesByn: 0, fracTotal: 0 });
   assert.equal(q.total, 35.8);
   assert.equal(q.fact.recoverByn, 7.8);
-  assert.equal(q.fact.retailCapAt, 33.12);
+  assert.equal(q.fact.retailCapAt, 16.56);
   assert.equal(q.fact.uncappedFloor, true);
   assert.equal(q.fact.deliveryByn, 18);
   const legacy = P.quotePp({ scheme: "LEGACY", coef: 2.3, deliveriesN: 2, costSum: 10, list: list, packagesByn: 0, fracTotal: 0 });

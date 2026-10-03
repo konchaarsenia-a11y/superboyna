@@ -23323,40 +23323,29 @@ function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliverie
   );
 }
 
-/** capBase = R>=80 ? R : R+9×N. R=0/нет → 0 (кап не применять). */
+/** База капа товара = R. 9×N в кап не входит. R=0/нет → 0 (кап не применять). */
 function raw26RetailCapBaseD1_(retailGoods, deliveriesN) {
   const r = Number(retailGoods);
   if (!isFinite(r) || r <= 0) return 0;
-  const n = Math.max(1, Number(deliveriesN) || 1);
-  const extra = r < PP_RAW26_RETAIL_FREE_FROM_D1_ ? PP_RAW26_DELIVERY_PER_D1_ * n : 0;
-  return Math.round((r + extra) * 100) / 100;
+  return Math.round(r * 100) / 100;
 }
 
+/** Кап только товара: min(товар, 0.92×R), не ниже сырьё+recover. 9×N, F и пакеты сверху. */
 function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   let g = Math.round((Number(goods) || 0) * 100) / 100;
   const d = Math.round((Number(delivery) || 0) * 100) / 100;
   const p = Math.round((Number(packagesByn) || 0) * 100) / 100;
-  let f = Math.round((Number(fracMark) || 0) * 100) / 100;
+  const f = Math.round((Number(fracMark) || 0) * 100) / 100;
   const cap = Math.round((Number(capAt) || 0) * 100) / 100;
   let floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
   if (floor < 0) floor = 0;
-  const full = Math.round((g + d + p + f) * 100) / 100;
-  const capped = cap > 0 && full > cap;
+  const capped = cap > 0 && g > cap + 0.001;
   if (capped) {
-    let excess = Math.round((full - cap) * 100) / 100;
-    if (f > 0 && excess > 0) {
-      const cutF = Math.min(f, excess);
-      f = Math.round((f - cutF) * 100) / 100;
-      excess = Math.round((excess - cutF) * 100) / 100;
-    }
-    if (excess > 0) {
-      const room = Math.max(0, Math.round((g - floor) * 100) / 100);
-      const cutG = Math.min(room, excess);
-      g = Math.round((g - cutG) * 100) / 100;
-    }
+    const next = cap < floor ? floor : cap;
+    g = Math.round(next * 100) / 100;
   }
   const fact = Math.round((g + d + p + f) * 100) / 100;
-  const uncappedFloor = !!(capped && cap > 0 && fact > cap + 0.001);
+  const uncappedFloor = !!(capped && g > cap + 0.001);
   return {
     goods: g,
     delivery: d,
@@ -23433,8 +23422,7 @@ function computePpFactFromCostD1_(
       goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
       retailCapBase: retailCapBase,
-      retailCapIncludesDelivery: isFinite(retailGoods) && retailGoods > 0 &&
-        retailGoods < PP_RAW26_RETAIL_FREE_FROM_D1_,
+      retailCapIncludesDelivery: false,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
       uncappedFloor: !!alloc.uncappedFloor,

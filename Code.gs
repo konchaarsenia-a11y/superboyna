@@ -20428,13 +20428,12 @@ function packagesBynFromUCounts_(pc) {
 
 /* ----- Схемы цены ПП -----
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
- * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
+ * RAW26:  товар = сырьё×coef + recover; товар = min(товар, 0.92×R), не ниже сырьё+recover
+ *   цена = товар + 9×N + фракции + пакеты
  *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   финальный кап: R = Σрозница (крошка = миксер 15/17/20 как вкладка Розница);
- *   capBase = R>=80 ? R : R+9×N  (розница от 80 — доставка бесплатна, в базу капа не кладём);
- *   режем только фракции, затем наценку товара до пола сырьё+recover;
- *   пакеты, сырьё и 9×N не режем. Если пол+пакеты+доставка > 0.92×capBase —
- *   fact остаётся на полу, флаг uncappedFloor.
+ *   R = Σрозница товара (крошка = миксер 15/17/20 как вкладка Розница).
+ *   Кап только на товар. 9×N, F и пакеты всегда сверху и не режутся.
+ *   Если пол сырьё+recover выше 0.92×R — товар остаётся на полу, флаг uncappedFloor.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
@@ -20444,7 +20443,7 @@ var PP_RAW26_RECOVER_100_ = 3.90;
 var PP_RAW26_RECOVER_PIECE_ = 0.50;
 var PP_RAW26_DELIVERY_PER_ = 9; // клиентский тариф; в getStats в затратах только STATS_DELIVERY_FUEL_PER_
 var PP_RAW26_RETAIL_CAP_ = 0.92;
-var PP_RAW26_RETAIL_FREE_FROM_ = 80; // розница ≥80 — доставка бесплатна, 9×N не в базе капа
+var PP_RAW26_RETAIL_FREE_FROM_ = 80; // исторический порог розницы; в кап товара больше не входит
 var PP_LEGACY_COEF_DEFAULT_ = 2.3;
 var PP_LEGACY_FIXED_ = 11;
 var PP_LEGACY_DELIVERY_PER_ = 6;
@@ -20636,13 +20635,11 @@ function retailGoodsBynFromBasket_(basket) {
   return Math.round(sum * 100) / 100;
 }
 
-/** capBase = R>=80 ? R : R+9×N. R=0/нет → 0 (кап не применять). */
+/** База капа товара = R. 9×N в кап не входит. R=0/нет → 0 (кап не применять). */
 function raw26RetailCapBase_(retailGoods, deliveriesN) {
   var r = Number(retailGoods);
   if (!isFinite(r) || r <= 0) return 0;
-  var n = Math.max(1, Number(deliveriesN) || 1);
-  var extra = r < PP_RAW26_RETAIL_FREE_FROM_ ? PP_RAW26_DELIVERY_PER_ * n : 0;
-  return Math.round((r + extra) * 100) / 100;
+  return Math.round(r * 100) / 100;
 }
 /**
  * Чистые оффера RAW26 = цена клиенту − сырьё − recover − пакеты − топливо 4×N.
@@ -20658,9 +20655,8 @@ function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN
 }
 
 /**
- * RAW26: если полная > cap, режем фракции, затем наценку товара до raw+recover.
- * Пакеты, сырьё и 9×N не трогаем. Если после пола всё ещё > cap — fact = пол+пакеты+доставка,
- * флаг uncappedFloor (не форсируем цену под кап).
+ * Кап только товара: min(товар, 0.92×R), не ниже сырьё+recover.
+ * 9×N, F и пакеты не трогаем. Если пол выше капа — товар на полу, uncappedFloor.
  */
 function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   var g = Math.round((Number(goods) || 0) * 100) / 100;
@@ -20670,23 +20666,13 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
   var cap = Math.round((Number(capAt) || 0) * 100) / 100;
   var floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
   if (floor < 0) floor = 0;
-  var full = Math.round((g + d + p + f) * 100) / 100;
-  var capped = cap > 0 && full > cap;
+  var capped = cap > 0 && g > cap + 0.001;
   if (capped) {
-    var excess = Math.round((full - cap) * 100) / 100;
-    if (f > 0 && excess > 0) {
-      var cutF = Math.min(f, excess);
-      f = Math.round((f - cutF) * 100) / 100;
-      excess = Math.round((excess - cutF) * 100) / 100;
-    }
-    if (excess > 0) {
-      var room = Math.max(0, Math.round((g - floor) * 100) / 100);
-      var cutG = Math.min(room, excess);
-      g = Math.round((g - cutG) * 100) / 100;
-    }
+    var next = cap < floor ? floor : cap;
+    g = Math.round(next * 100) / 100;
   }
   var fact = Math.round((g + d + p + f) * 100) / 100;
-  var uncappedFloor = !!(capped && cap > 0 && fact > cap + 0.001);
+  var uncappedFloor = !!(capped && g > cap + 0.001);
   return {
     goods: g,
     delivery: d,
@@ -20756,8 +20742,7 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
       goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
       retailCapBase: retailCapBase,
-      retailCapIncludesDelivery: isFinite(retailGoods) && retailGoods > 0 &&
-        retailGoods < PP_RAW26_RETAIL_FREE_FROM_,
+      retailCapIncludesDelivery: false,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
       uncappedFloor: !!alloc.uncappedFloor,

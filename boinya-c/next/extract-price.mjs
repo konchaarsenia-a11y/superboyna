@@ -411,7 +411,7 @@ if (isMain) {
   }
   const P = require(dest);
   const alloc = P.applyRaw26RetailCapAlloc_(40, 18, 0.56, 4, 50, 30);
-  if (!(alloc.factCost <= 50.001)) throw new Error("cap " + JSON.stringify(alloc));
+  if (Math.abs(alloc.factCost - 62.56) > 0.001) throw new Error("cap " + JSON.stringify(alloc));
   const msg = P.composePpClientMessage(
     [{ cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Ломтики", val: 200 }],
     2, "", 80, 70, "RAW26", {}
