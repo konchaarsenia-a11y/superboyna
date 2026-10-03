@@ -91,7 +91,8 @@
       editOriginalDate: "",
       editOriginalMatchKey: "",
       survey: null,
-      deferredId: ""
+      deferredId: "",
+      bpWeeks: 2
     };
   }
 
@@ -432,6 +433,9 @@
       }
     }
     if (state.orderType === "bp") {
+      html += '<p class="b-lbl">Срок БП</p><div class="b-seg">' +
+        segBtn("bpw1", "1 неделя", Number(state.bpWeeks) === 1) +
+        segBtn("bpw2", "2 недели", Number(state.bpWeeks) !== 1) + "</div>";
       html += '<p class="b-lbl">Кто привёл</p><label class="b-field"><select class="b-field__input" id="ppPartner" data-k="ppPartner">' +
         '<option value="">— выберите партнёра —</option>' +
         partners.map(function (p) {
@@ -1357,38 +1361,55 @@
       return { telegramId: pick, name: name };
     }
     var due = ymdPlus(state.deliveryDate || "", 4);
+    var BW = root.BoinyaBpWeeks;
+    var weeksPick = BW ? BW.weeksOf(state.bpWeeks) : (Number(state.bpWeeks) === 1 ? 1 : 2);
     if (!existing) {
       var createBp = await sh().confirm({
         title: "Карточка БП",
-        text: "«" + clientName + "» ещё нет в БП.\nСоздать карточку БП1 (1-я доставка)?\nОпросник — через 4 дня после получения.",
+        text: "«" + clientName + "» ещё нет в БП.\nСоздать карточку БП1 на " + (weeksPick === 1 ? "1 неделю" : "2 недели") + "?\nОпросник — через 4 дня после получения.",
         ok: "Создать"
       });
       if (!createBp) return null;
       var ownNew = await ensureOwner(null);
       if (!ownNew || !ownNew.telegramId) { sh().toast("Нужен ответственный менеджер"); return false; }
-      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownNew.telegramId, ownerName: ownNew.name, subId: "", advance: "new" };
+      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownNew.telegramId, ownerName: ownNew.name, subId: "", advance: "new", bpWeeks: weeksPick };
     }
+    var storedWeeks = BW ? BW.weeksOf(existing.bpWeeks) : (Number(existing.bpWeeks) === 1 ? 1 : 2);
+    var storedOut = BW ? BW.outcomeOf(existing.bpOutcome) : "";
     var st = bpStage(existing.ppStatus || existing.status || existing.stage || "БП1");
     var seed = { telegramId: existing.ownerTelegramId || "", name: existing.ownerName || "" };
+    if (storedWeeks === 1 && storedOut !== "extend") {
+      if (storedOut === "done") { sh().toast("БП на 1 неделю уже завершён"); return null; }
+      if (storedOut === "pp") { sh().toast("Клиент уже переведён в ПП"); return null; }
+      var stay1 = await sh().confirm({
+        title: "БП на 1 неделю",
+        text: "«" + clientName + "» на 1 неделе.\nВторая неделя не ставится, пока не отметите продление в карточке.\nОбновить состав 1-й доставки и опросник на " + due + "?",
+        ok: "Обновить 1 неделю"
+      });
+      if (!stay1) return null;
+      var ownStay = await ensureOwner(seed);
+      if (!ownStay || !ownStay.telegramId) return false;
+      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownStay.telegramId, ownerName: ownStay.name, subId: existing.subId || "", advance: "refresh_first", bpWeeks: 1 };
+    }
     if (st === "ФИНАЛ") {
       var upd = await sh().confirm({ title: "Финал БП", text: "«" + clientName + "» уже в Финале БП.\nОбновить состав 2-й доставки и дату финального опросника на " + due + "?", ok: "Обновить" });
       if (!upd) return null;
       var ownFin = await ensureOwner(seed);
       if (!ownFin || !ownFin.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: ownFin.telegramId, ownerName: ownFin.name, subId: existing.subId || "", advance: "refresh_final" };
+      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: ownFin.telegramId, ownerName: ownFin.name, subId: existing.subId || "", advance: "refresh_final", bpWeeks: storedWeeks };
     }
     var go2 = await sh().confirm({ title: "Вторая доставка?", text: "«" + clientName + "» уже в БП (" + st + ").\nЭто 2-я доставка?\n→ Финал + финальный опросник на " + due + ".", ok: "Да, финал", alt: "Нет" });
     if (go2 === true) {
       var own2 = await ensureOwner(seed);
       if (!own2 || !own2.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: own2.telegramId, ownerName: own2.name, subId: existing.subId || "", advance: "to_final" };
+      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: own2.telegramId, ownerName: own2.name, subId: existing.subId || "", advance: "to_final", bpWeeks: storedWeeks };
     }
     if (go2 === false) return null;
     var stay = await sh().confirm({ title: "Оставить этап", text: "Оставить этап " + st + " и обновить состав 1-й доставки?\nОпросник после 1-й → " + due + ".", ok: "Оставить" });
     if (!stay) return null;
     var own1 = await ensureOwner(seed);
     if (!own1 || !own1.telegramId) return false;
-    return { createCard: true, needSurvey: true, status: st === "БП2" ? "БП2" : "БП1", stage: st === "БП2" ? "БП2" : "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: own1.telegramId, ownerName: own1.name, subId: existing.subId || "", advance: "refresh_first" };
+    return { createCard: true, needSurvey: true, status: st === "БП2" ? "БП2" : "БП1", stage: st === "БП2" ? "БП2" : "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: own1.telegramId, ownerName: own1.name, subId: existing.subId || "", advance: "refresh_first", bpWeeks: storedWeeks };
   }
 
   function saveMessage(res) {
@@ -1572,11 +1593,15 @@
       }
     }
     var book = pay().buildSaveBookingParams(state, eng(), weekDay);
+    var savedSurvey = state.survey;
     var res = await api().apiPost(book);
     sh().closeLoader();
     var msgOut = saveMessage(res);
     saving = false;
     if (!msgOut.ok) { sh().toast(msgOut.text); paint(); return; }
+    if (savedSurvey && root.BoinyaBpWeeks && root.BoinyaBpWeeks.weeksOf(savedSurvey.bpWeeks) === 1 && savedSurvey.advance !== "to_final" && savedSurvey.advance !== "refresh_final" && savedSurvey.status !== "ФИНАЛ") {
+      try { await api().apiPost(root.BoinyaBpWeeks.remindBody(clientName, savedSurvey.ownerTelegramId || telegramId())); } catch (eRm) {}
+    }
     if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено");
     else sh().toast(msgOut.text);
     var whClient = clientName;
@@ -1904,6 +1929,8 @@
     if (id === "del1") { state.retailPaidDelivery = true; if (!state.retailPriceManual) syncRetail(); paint(); return true; }
     if (id === "cup0") { state.partnerCouponsEnabled = false; paint(); return true; }
     if (id === "cup1") { state.partnerCouponsEnabled = true; paint(); return true; }
+    if (id === "bpw1") { state.bpWeeks = 1; paint(); return true; }
+    if (id === "bpw2") { state.bpWeeks = 2; paint(); return true; }
     return false;
   }
 

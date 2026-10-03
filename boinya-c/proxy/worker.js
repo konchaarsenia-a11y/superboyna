@@ -703,7 +703,8 @@ const AUTH_TAB_RULES = [
   { re: /^(saveDeferred|cancelDeferred)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen"]) },
   { re: /^setDeferredReminder$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.remind"]) },
   { re: /^(placeTransferTask|notifyMissedDelivery)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.xfer"]) },
-  { re: /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume)$/i, tabs: ["cuttingScreen"] },
+  { re: /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume|listCuttingStaff|saveCuttingCutter)$/i, tabs: ["cuttingScreen"] },
+  { re: /^listCuttingWages$/i, tabs: ["cuttingScreen", "statsScreen"] },
   { re: /^(setDelivered|sendCourierRoute|prepareCourierRoute|registerCourier)$/i, tabs: ["courierScreen.route"] },
   { re: /^(setAssembled|setPrinted)$/i, tabs: ["courierScreen.assembly"] },
   { re: /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|sendDeficit)$/i, tabs: ["warehouseScreen", "cuttingScreen"] },
@@ -1243,6 +1244,9 @@ async function handleAction_(action, params, env, url, ctx) {
   }
   if (a === "unlockSubs") return unlockSubs_(params, actor, env);
   if (a === "getStatsMonthSetup") return getStatsMonthSetup_(params, env);
+  if (a === "listCuttingStaff") return listCuttingStaff_(params, env);
+  if (a === "saveCuttingCutter") return saveCuttingCutter_(params, env, ctx);
+  if (a === "listCuttingWages") return listCuttingWages_(params, env);
   if (a === "saveStatsMonthMoney") return saveStatsMonthMoney_(params, env);
   if (a === "saveStatsRoles") return saveStatsRoles_(params, env);
   if (a === "listOwnerExpenses") return listOwnerExpenses_(params, env, actor);
@@ -2798,6 +2802,145 @@ async function saveStatsRoles_(params, env) {
   await put("cutter", params && params.cutterTgId, params && params.cutterName);
   await put("courier", params && params.courierTgId, params && params.courierName);
   return getStatsMonthSetup_({ month: month }, env);
+}
+
+function cutterDayWage_(G, P, N) {
+  const g = Number(G) || 0;
+  const p = Number(P) || 0;
+  const n = Number(N) || 0;
+  return Math.round((2.5 * (g / 100) + 0.5 * p + 3 * n) * 100) / 100;
+}
+
+async function ensureCuttingWage_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__cuttingWageReady) return true;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS cutting_day_wage (" +
+      "iso TEXT PRIMARY KEY, day_name TEXT NOT NULL DEFAULT '', cutter_id TEXT NOT NULL DEFAULT '', " +
+      "cutter_name TEXT NOT NULL DEFAULT '', g REAL NOT NULL DEFAULT 0, p REAL NOT NULL DEFAULT 0, " +
+      "n REAL NOT NULL DEFAULT 0, wage REAL NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  env.__cuttingWageReady = true;
+  return true;
+}
+
+async function listCuttingStaff_(params, env) {
+  let snap = null;
+  try { snap = await getSnapRaw_(env, "listAccess"); } catch (eSnap) { snap = null; }
+  const people = [];
+  ((snap && snap.people) || []).forEach(function (p) {
+    const role = String((p && p.role) || "").toLowerCase();
+    const id = String((p && p.telegramId) || "").trim();
+    if (!id) return;
+    if (role === "pending" || role === "denied" || role === "none" || role === "") return;
+    people.push({ id: id, name: String(p.name || id), role: role });
+  });
+  const month = String((params && params.month) || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  let def = { tgId: "", name: "" };
+  try {
+    const setup = await getStatsMonthSetup_({ month: month }, env);
+    if (setup && setup.cutter) def = setup.cutter;
+  } catch (eDef) {}
+  return {
+    status: "success",
+    month: month,
+    people: people,
+    defaultCutter: { id: String(def.tgId || ""), name: String(def.name || "") }
+  };
+}
+
+async function saveCuttingCutter_(params, env, ctx) {
+  if (!(await ensureCuttingWage_(env))) return { status: "error", message: "нет базы" };
+  const day = String((params && params.day) || "").trim();
+  let iso = String((params && params.iso) || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) && day) {
+    try {
+      const info = await dayDateInfo_(env, day);
+      iso = String((info && info.iso) || "").slice(0, 10);
+    } catch (eIso) { iso = ""; }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { status: "error", message: "need_date" };
+  const id = String((params && (params.cutterId || params.id)) || "").trim();
+  const name = String((params && (params.cutterName || params.name)) || "").trim();
+  if (!id && !name) return { status: "error", message: "need_cutter" };
+  const G = Number(params && params.G) || 0;
+  const P = Number(params && params.P) || 0;
+  const N = Number(params && params.N) || 0;
+  const wage = cutterDayWage_(G, P, N);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO cutting_day_wage (iso, day_name, cutter_id, cutter_name, g, p, n, wage, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(iso) DO UPDATE SET day_name = excluded.day_name, cutter_id = excluded.cutter_id, cutter_name = excluded.cutter_name, " +
+      "g = excluded.g, p = excluded.p, n = excluded.n, wage = excluded.wage, updated_at = excluded.updated_at"
+  ).bind(iso, day, id, name, G, P, N, wage, now).run();
+  if (day) {
+    const cut = (await getSnapRaw_(env, "cutting:" + day)) || { status: "success", day: day, items: [] };
+    cut.cutter = { id: id, name: name, iso: iso, G: G, P: P, N: N, wage: wage };
+    await putSnap_(env, "cutting:" + day, cut);
+  }
+  const ok = {
+    status: "success",
+    iso: iso,
+    day: day,
+    cutter: { id: id, name: name },
+    G: G,
+    P: P,
+    N: N,
+    wage: wage,
+    countsInCost: true,
+    countsInProfit: false
+  };
+  const gasParams = Object.assign({}, params || {}, { iso: iso, day: day, cutterId: id, cutterName: name, G: G, P: P, N: N, wage: wage });
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(gasProxy_("saveCuttingCutter", gasParams, env, { write: true }).catch(function () { return null; }));
+  } else {
+    try { await gasProxy_("saveCuttingCutter", gasParams, env, { write: true }); } catch (eGas) {}
+  }
+  return ok;
+}
+
+async function listCuttingWages_(params, env) {
+  if (!(await ensureCuttingWage_(env))) return { status: "error", message: "нет базы" };
+  const month = String((params && (params.month || params.monthKey)) || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return { status: "error", message: "month" };
+  const q = await env.DB.prepare(
+    "SELECT iso, day_name, cutter_id, cutter_name, g, p, n, wage FROM cutting_day_wage WHERE iso >= ? AND iso <= ? ORDER BY iso"
+  ).bind(month + "-01", month + "-31").all();
+  const list = (q && q.results) || [];
+  const by = {};
+  list.forEach(function (r) {
+    const key = String(r.cutter_id || r.cutter_name || "");
+    if (!by[key]) {
+      by[key] = { id: String(r.cutter_id || ""), name: String(r.cutter_name || ""), wage: 0, days: 0, G: 0, P: 0, N: 0 };
+    }
+    by[key].wage = Math.round((by[key].wage + (Number(r.wage) || 0)) * 100) / 100;
+    by[key].days += 1;
+    by[key].G += Number(r.g) || 0;
+    by[key].P += Number(r.p) || 0;
+    by[key].N += Number(r.n) || 0;
+    if (r.cutter_name) by[key].name = String(r.cutter_name);
+  });
+  return {
+    status: "success",
+    month: month,
+    formula: "2.50×G/100 + 0.50×P + 3.00×N",
+    countsInCost: true,
+    countsInProfit: false,
+    note: "ЗП дня уже внутри себестоимости. В чистую прибыль отдельно не прибавляется.",
+    staff: Object.keys(by).map(function (k) { return by[k]; }),
+    days: list.map(function (r) {
+      return {
+        iso: String(r.iso || ""),
+        day: String(r.day_name || ""),
+        cutterId: String(r.cutter_id || ""),
+        cutterName: String(r.cutter_name || ""),
+        G: Number(r.g) || 0,
+        P: Number(r.p) || 0,
+        N: Number(r.n) || 0,
+        wage: Number(r.wage) || 0
+      };
+    })
+  };
 }
 
 const OWNER_EXPENSE_CATS_ = {
@@ -9364,6 +9507,7 @@ async function rebuildCuttingDay_(env, day) {
     dateIso: info.iso || "",
     items: normalizeCuttingItems_(items),
     session: sameDate ? (prev && prev.session) || {} : {},
+    cutter: sameDate ? (prev && prev.cutter) || null : null,
     completion: sameDate ? (prev && prev.completion) || null : null,
     transferOnly: transferOnly,
     sandbox: true,
@@ -17367,7 +17511,8 @@ async function cutoverStoreRead_(a, params, env, payload) {
       fromOrders: false,
       fromCalendar: false,
       cachedAt: new Date().toISOString(),
-      flagsTouchedAt: (prev && prev.flagsTouchedAt) || 0
+      flagsTouchedAt: (prev && prev.flagsTouchedAt) || 0,
+      cutter: sameDate ? (prev && prev.cutter) || null : null
     });
     await putSnap_(env, "cutting:" + params.day, body);
     try {
