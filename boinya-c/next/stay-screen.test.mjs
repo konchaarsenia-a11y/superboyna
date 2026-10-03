@@ -48,7 +48,9 @@ test("курьер: стикер типа, излишек за второй кн
   const rowEnd = prodSrc.indexOf("function paintCut(", rowStart);
   const row = prodSrc.slice(rowStart, rowEnd);
   assert.doesNotMatch(row, /<span class="b-note">Излишек<\/span>/);
-  assert.match(css, /\.nx-pack-grp \{[^}]*text-align: center/s);
+  assert.match(css, /\.nx-pack-grp \{[^}]*text-align: left/s);
+  assert.match(css, /\.nx-pack-grp \.nx-grp \{[^}]*justify-content: flex-start/s);
+  assert.doesNotMatch(css, /\.nx-pack-grp \{[^}]*text-align:\s*center/s);
   assert.match(css, /\.nx-pack-grp > div \+ div,\s*\.nx-pack-grp > \.mix \{[^}]*border-top: 0/s);
   assert.match(css, /\.nx-type \{/);
 });
