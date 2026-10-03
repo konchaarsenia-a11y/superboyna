@@ -1470,6 +1470,14 @@
     if (root.__nxOpenWeek) root.__nxOpenWeek();
   }
 
+  function flushOrderNotes() {
+    var areas = document.querySelectorAll("textarea[data-act='note-text']");
+    for (var i = 0; i < areas.length; i++) {
+      var idx = Number(areas[i].getAttribute("data-i"));
+      if (state.notes[idx]) state.notes[idx].text = areas[i].value;
+    }
+  }
+
   async function save() {
     if (saving) return;
     var clientName = String(state.client || "").trim();
@@ -1519,6 +1527,7 @@
         return;
       }
     }
+    flushOrderNotes();
     var badNote = (state.notes || []).some(function (n) {
       if (!String(n.text || "").trim()) return false;
       var r = n.roles || {};
@@ -1630,7 +1639,8 @@
           orderType: state.orderType,
           orderPrice: priceShow,
           day: whDay,
-          basket: whBasket
+          basket: whBasket,
+          note: book.note || ""
         }
       });
     }
@@ -1831,7 +1841,7 @@
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
-    if (act === "note-done") { sh().closeTop("ok"); paint(); return true; }
+    if (act === "note-done") { flushOrderNotes(); sh().closeTop("ok"); paint(); return true; }
     if (act === "add") { openAdd(); return true; }
     if (act === "pcat") {
       picker.cat = node.getAttribute("data-cat");
@@ -2105,7 +2115,10 @@
     } else {
       next.baskets[1] = basket;
     }
-    if (client.notes) next.notes = client.notes;
+    if (Array.isArray(client.notes) && client.notes.length) next.notes = client.notes;
+    else if (String(client.note || "").trim()) {
+      try { next.notes = eng().parseOrderNotes(client.note) || []; } catch (eNote) { next.notes = []; }
+    }
     if (client.geo) next.geo = client.geo;
     state = next;
     eng().applyState(state);

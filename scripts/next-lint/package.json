@@ -1,0 +1,9 @@
+{
+  "name": "next-undef",
+  "private": true,
+  "description": "eslint no-undef for boinya-c/next/*.js",
+  "dependencies": {
+    "eslint": "9.39.1",
+    "globals": "15.15.0"
+  }
+}

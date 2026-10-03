@@ -1,0 +1,33 @@
+name: next-undef
+
+on:
+  pull_request:
+    paths:
+      - "boinya-c/next/**"
+      - "scripts/check-next-undef.mjs"
+      - "scripts/next-lint/**"
+      - ".github/workflows/next-undef.yml"
+  push:
+    branches: [main]
+    paths:
+      - "boinya-c/next/**"
+      - "scripts/check-next-undef.mjs"
+      - "scripts/next-lint/**"
+      - ".github/workflows/next-undef.yml"
+
+jobs:
+  undef:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install eslint
+        run: npm ci --prefix scripts/next-lint
+      - name: no-undef in next/*.js
+        run: node scripts/check-next-undef.mjs
+      - name: apiGet ping smoke
+        run: node boinya-c/next/boot-reload.test.mjs
+      - name: notes roundtrip
+        run: node boinya-c/next/notes-save.test.mjs

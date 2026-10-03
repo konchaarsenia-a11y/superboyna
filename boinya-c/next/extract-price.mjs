@@ -256,6 +256,7 @@ ${asmCaps}
   function allPriceItems() { return _list || []; }
   function renderPricePackCounters() {}
   var priceMode = "pp";
+  var PRICE_PICK_EX_KEY_ = "boinya_c_pick_examples_v1";
 
   var priceDogCount = 1;
   var priceDogNames = { 1: "", 2: "" };
