@@ -674,8 +674,8 @@ button.nx-count {
 }
 
 #nxDock.nx-dock--order {
-  padding: 4px 8px;
-  padding-bottom: max(4px, env(safe-area-inset-bottom));
+  padding: 5px 10px;
+  padding-bottom: max(5px, env(safe-area-inset-bottom));
 }
 
 #nxDock.nx-dock--order .b-dock__act {
@@ -695,7 +695,7 @@ button.nx-count {
 
 #nxDock.nx-dock--order .b-sum__k,
 #nxDock.nx-dock--order .b-sum__v {
-  font-size: var(--b-f12);
+  font-size: var(--b-f14);
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -725,16 +725,91 @@ button.nx-count {
   flex: 0 0 auto;
   width: auto;
   min-width: 0;
-  height: 30px;
-  min-height: 30px;
+  height: 44px;
+  min-height: 44px;
   margin: 0;
-  padding: 0 8px;
-  font-size: var(--b-f12);
+  padding: 0 12px;
+  font-size: var(--b-f14);
   line-height: 1;
   white-space: nowrap;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 
 body.nx-kb #nxMain[data-order-dock] {
   padding-bottom: 12px !important;
+}
+
+.nx-pp-toggle {
+  display: flex;
+  width: 100%;
+  margin-top: 8px;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 12px;
+  background: var(--b-surface-2);
+}
+
+.nx-pp-toggle > button {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  min-height: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--b-text-2);
+  font-size: var(--b-f14);
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.nx-pp-toggle > button.b-seg__item--on,
+.nx-pp-toggle > button.nx-pp-toggle__btn--on {
+  background: var(--b-bg);
+  color: var(--b-text);
+  border-color: transparent;
+  box-shadow: 0 1px 2px color-mix(in srgb, black 28%, transparent);
+}
+
+.cell.cell--load-ok,
+.sheet-act.nx-day-load--ok,
+.b-day.b-day--load-ok:not(.b-day--on) {
+  background: color-mix(in srgb, var(--b-ok) 34%, var(--b-bg));
+}
+
+.cell.cell--load-warn,
+.sheet-act.nx-day-load--warn,
+.b-day.b-day--load-warn:not(.b-day--on) {
+  background: color-mix(in srgb, var(--b-warn) 42%, var(--b-bg));
+}
+
+.cell.cell--load-bad,
+.sheet-act.nx-day-load--bad,
+.b-day.b-day--load-bad:not(.b-day--on) {
+  background: color-mix(in srgb, var(--b-bad) 40%, var(--b-bg));
+}
+
+.nx-load-key {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: var(--b-f12);
+  font-weight: 650;
+}
+
+.nx-load-key--ok { background: color-mix(in srgb, var(--b-ok) 34%, var(--b-bg)); }
+.nx-load-key--warn { background: color-mix(in srgb, var(--b-warn) 42%, var(--b-bg)); }
+.nx-load-key--bad { background: color-mix(in srgb, var(--b-bad) 40%, var(--b-bg)); }
+
+.nx-extra-info,
+textarea.b-field__input.nx-extra-info {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
 }

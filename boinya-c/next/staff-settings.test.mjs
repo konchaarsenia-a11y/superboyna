@@ -22,7 +22,9 @@ test("Ещё: Сотрудники и Настройки, доступы не о
   assert.match(appSrc, /people\(\)\.show\(\{ view: "settings" \}\)/);
 });
 
-test("зарплата берётся из formulaParts_, кнопку месяца нет", () => {
+test("зарплата из listCuttingWages, иначе formulaParts_, кнопку месяца нет", () => {
+  assert.match(peopleSrc, /action: "listCuttingWages"/);
+  assert.match(peopleSrc, /wageMode === "days"/);
   assert.match(peopleSrc, /formulaParts_\(\{ S: roll\.S, G: roll\.G, P: roll\.P, N: roll\.N \}\)/);
   assert.doesNotMatch(peopleSrc, /2\.5\s*\*/);
   assert.doesNotMatch(peopleSrc, /2,50/);

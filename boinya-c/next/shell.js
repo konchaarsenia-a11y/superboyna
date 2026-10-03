@@ -691,7 +691,6 @@
   function pickDate(opts) {
     opts = opts || {};
     var weekLogic = root.BoinyaWeekLogic;
-    var FULL = weekLogic && weekLogic.FULL_FROM ? weekLogic.FULL_FROM : 8;
     var MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
     var selected = isoDate(opts.value);
     var cursor = { y: Number(selected.slice(0, 4)), m: Number(selected.slice(5, 7)) - 1 };
@@ -737,7 +736,8 @@
           if (segs["ПАРТНЁР"] || segs["П"]) dots += '<i class="dot dot-p"></i>';
           var cls = "cell";
           if (n > 0) cls += " cell--busy";
-          if (n >= FULL) cls += " is-full";
+          var loadMark = weekLogic && weekLogic.dayLoadMark ? weekLogic.dayLoadMark(n) : "";
+          if (loadMark) cls += " cell--load-" + loadMark;
           if (iso === selected) cls += " is-on";
           var label = d + " " + MONTHS[m] + (n ? ", " + n + " чел." : "");
           cells += '<button type="button" class="' + cls + '" data-act="date-day" data-iso="' + iso + '" aria-label="' + esc(label) + '"' +

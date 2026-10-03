@@ -16,6 +16,8 @@
   var screen = "staff";
   var wageKnown = false;
   var wageAmount = null;
+  var wageById = {};
+  var wageMode = "";
   var wageSeq = 0;
   var roleSeq = 0;
   var cutPrep = { day: "", lines: [], tried: false };
@@ -184,6 +186,10 @@
 
   function personWage(p) {
     if (!wageKnown) return "нет данных";
+    if (wageMode === "days") {
+      var row = wageById[String(p.telegramId)];
+      return sh().money(row ? row.wage : 0) + " BYN";
+    }
     var cutterId = roleSetup && roleSetup.cutter && roleSetup.cutter.tgId;
     if (cutterId && String(p.telegramId) === String(cutterId)) return sh().money(wageAmount) + " BYN";
     return sh().money(0) + " BYN";
@@ -268,13 +274,16 @@
     var cutter = s.cutter && s.cutter.tgId ? s.cutter.tgId : "";
     var courier = s.courier && s.courier.tgId ? s.courier.tgId : "";
     var wageText = wageKnown ? (sh().money(wageAmount) + " BYN") : "нет данных";
+    var wageNote = wageMode === "days"
+      ? "Сумма по дням нарезки, каждому кто резал."
+      : "Отдельной ЗП курьера в формуле нет. Сумма месяца у нарезчика-сборщика.";
     return '<p class="b-lbl">Зарплата на производстве</p><article class="b-card">' +
       '<p class="b-note">Кто режет и собирает, и кто курьер. Месяц сразу показывает назначения и сумму.</p>' +
       '<p class="b-lbl">Месяц</p><label class="b-field"><input class="b-field__input" id="nxRoleMonth" type="month" value="' + esc(month) + '"></label>' +
       '<p class="b-lbl">Нарезчик-сборщик</p><label class="b-field"><select class="b-field__input" id="nxRoleCutter">' + opts(cutter) + "</select></label>" +
       '<p class="b-lbl">Курьер</p><label class="b-field"><select class="b-field__input" id="nxRoleCourier">' + opts(courier) + "</select></label>" +
       '<p class="b-lbl">ЗП за месяц</p><p class="b-note" id="nxWageSum" style="color:var(--b-text)">' + esc(wageText) + "</p>" +
-      '<p class="b-note">Отдельной ЗП курьера в формуле нет. Сумма месяца у нарезчика-сборщика.</p>' +
+      '<p class="b-note">' + esc(wageNote) + "</p>" +
       '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--main" data-act="p-roles">Сохранить</button></div></article>';
   }
 
@@ -295,11 +304,52 @@
     return name + ": " + sh().money(kg) + " кг";
   }
 
+  function applyDayWages(res) {
+    var days = res && Array.isArray(res.days) ? res.days : [];
+    var staff = res && Array.isArray(res.staff) ? res.staff : [];
+    if (!days.length && !staff.length) return false;
+    wageById = {};
+    var sum = 0;
+    if (staff.length) {
+      staff.forEach(function (row) {
+        if (!row) return;
+        var id = String(row.id || "");
+        var wage = Number(row.wage) || 0;
+        if (id) wageById[id] = { wage: wage, name: row.name || "" };
+        sum += wage;
+      });
+    } else {
+      days.forEach(function (d) {
+        var id = String((d && d.cutterId) || "");
+        if (!id) return;
+        if (!wageById[id]) wageById[id] = { wage: 0, name: (d && d.cutterName) || "" };
+        wageById[id].wage = Math.round((wageById[id].wage + (Number(d.wage) || 0)) * 100) / 100;
+        sum += Number(d.wage) || 0;
+      });
+    }
+    wageAmount = Math.round(sum * 100) / 100;
+    wageMode = "days";
+    wageKnown = true;
+    return true;
+  }
+
   async function loadWage(month) {
     month = month || currentMonthKey();
     var seq = ++wageSeq;
     wageKnown = false;
     wageAmount = null;
+    wageById = {};
+    wageMode = "";
+    var listed = null;
+    try {
+      listed = await api().apiGet({
+        action: "listCuttingWages",
+        month: month,
+        _: String(Date.now())
+      }, { timeoutMs: 12000, cacheTtlMs: 0 });
+    } catch (eList) { listed = null; }
+    if (seq !== wageSeq) return;
+    if (listed && listed.status === "success" && applyDayWages(listed)) return;
     var res = null;
     try {
       res = await api().apiGet({
@@ -316,6 +366,7 @@
     var parts = F.formulaParts_({ S: roll.S, G: roll.G, P: roll.P, N: roll.N });
     wageAmount = parts ? parts.wage : null;
     wageKnown = wageAmount != null && isFinite(Number(wageAmount));
+    if (wageKnown) wageMode = "formula";
   }
 
   async function loadCutPrep() {

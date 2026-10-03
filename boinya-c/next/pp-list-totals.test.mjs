@@ -9,9 +9,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = fs.readFileSync(path.resolve(here, "clients.js"), "utf8");
 const gs = fs.readFileSync(path.resolve(here, "../../Code.gs"), "utf8");
 
+const statsSrc = fs.readFileSync(path.resolve(here, "stats-logic.js"), "utf8");
 const sandbox = { window: {} };
+vm.runInNewContext(statsSrc, sandbox);
+sandbox.window.BoinyaStatsLogic = sandbox.BoinyaStatsLogic;
 vm.runInNewContext(ui, sandbox);
 const totals = sandbox.window.BoinyaClients.ppListTotals_;
+const fromStats = sandbox.window.BoinyaClients.ppMoneyFromStats_;
 
 test("итог ПП: цена один раз на клиента, слоты не умножают", () => {
   const sum = totals([
@@ -39,13 +43,36 @@ test("себес без ячейки не выдумывается", () => {
 test("счётчики карточки убраны, итог стоит над списком ПП", () => {
   assert.equal(ui.includes("cardMetricRow"), false);
   assert.equal(ui.includes("refreshCardMetrics"), false);
-  assert.ok(ui.includes("Все клиенты ПП, цена один раз"));
+  assert.ok(ui.includes("цена один раз на слоте с оплатой"));
+  assert.equal(ui.includes("Все клиенты ПП, цена один раз"), false);
   assert.ok(ui.includes("function ppTotalsHtml"));
   const listAt = ui.indexOf("function paintList");
   const cardAt = ui.indexOf("function paintCard");
   assert.ok(ui.indexOf("ppTotalsHtml()", listAt) > listAt);
   assert.ok(ui.indexOf("ppTotalsHtml()", listAt) < cardAt);
   assert.equal(ui.slice(cardAt, cardAt + 800).includes(">Оборот<"), false);
+});
+
+test("сводка ПП равна статистике, а не сумме колонок листа", () => {
+  const sheet = totals([
+    { sheet: "ПП", subId: "a", turnover: 100, cost: 40 },
+    { sheet: "ПП", subId: "b", turnover: 55, cost: 20 }
+  ]);
+  assert.equal(sheet.turnover, 155);
+  const snap = fromStats({
+    status: "success",
+    monthKey: "2026-10",
+    fact: {
+      ppRevenue: 2480,
+      revenue: 3000,
+      cost: 1400,
+      costBySource: { pp: 910 }
+    }
+  });
+  assert.equal(snap.turnover, 2480);
+  assert.equal(snap.cost, 910);
+  assert.equal(snap.income, 1570);
+  assert.notEqual(snap.turnover, sheet.turnover);
 });
 
 test("лист ПП отдаёт цену строки, не умножая слоты", () => {

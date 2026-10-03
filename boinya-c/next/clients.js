@@ -20,6 +20,7 @@
   var card = null;
   var deep = false;
   var showBpForm = false;
+  var bpFormWeeks = 2;
   var showSurveyForm = false;
   var enroll = null;
   var editingId = "";
@@ -66,7 +67,8 @@
       coef: "2.6", scheme: "RAW26", dogName: "", dogBreed: "", dogWeight: "",
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
       surveyBp2Due: "", surveyFinalDue: "", ownerTelegramId: "", ownerName: "",
-      basketBp1: [], basketBp2: [], bpTab: 1, slot: 1, econ: null
+      basketBp1: [], basketBp2: [], bpTab: 1, slot: 1, econ: null,
+      bpWeeks: 2, bpOutcome: "", extendPrice: null
     };
   }
 
@@ -114,6 +116,8 @@
     if (id === "bp") return "БП";
     return "ПП";
   }
+
+  function W() { return root.BoinyaBpWeeks; }
 
   function tid() {
     try {
@@ -197,6 +201,8 @@
         if (s.surveyFinalDue) cur.surveyFinalDue = s.surveyFinalDue;
         if (s.ownerTelegramId) cur.ownerTelegramId = s.ownerTelegramId;
         if (s.ownerName) cur.ownerName = s.ownerName;
+        if (Number(s.bpWeeks) === 1) cur.bpWeeks = 1;
+        if (s.bpOutcome) cur.bpOutcome = s.bpOutcome;
         if (s.wishes) cur.wishes = (cur.wishes ? cur.wishes + "\n" : "") + s.wishes;
         var rankIn = /ФИНАЛ/i.test(st) ? 3 : (/БП2/.test(st) ? 2 : (/БП1/.test(st) ? 1 : 0));
         var rankCur = /ФИНАЛ/i.test(String(cur.status || "")) ? 3 : (/БП2/.test(String(cur.status || "")) ? 2 : (/БП1/.test(String(cur.status || "")) ? 1 : 0));
@@ -392,7 +398,12 @@
         (nick ? '<span class="sub">' + esc(nick) + "</span>" : "") +
         (s.phone ? '<span class="sub">' + esc(s.phone) + "</span>" : "") +
         "</span>" +
-        (s.status ? '<span class="pill pill--ok">' + esc(s.status) + "</span>" : "") +
+        (function () {
+          var pill = s.status || "";
+          var extra = W() ? W().statusLabel(s.bpWeeks, s.bpOutcome) : "";
+          if (extra) pill = pill ? (pill + ", " + extra) : extra;
+          return pill ? '<span class="pill pill--ok">' + esc(pill) + "</span>" : "";
+        })() +
         mark + "</button>";
     });
     html += "</div>";
@@ -411,6 +422,9 @@
     return '<article class="b-card" style="margin-top:12px">' +
       '<p class="b-lbl">Новый клиент БП</p>' +
       field("cxBpNick", "", "Ник") +
+      '<p class="b-lbl">Срок</p><div class="b-seg">' +
+      '<button type="button" class="b-seg__item' + (bpFormWeeks !== 1 ? " b-seg__item--on" : "") + '" data-act="cl-bpw" data-n="2">2 недели</button>' +
+      '<button type="button" class="b-seg__item' + (bpFormWeeks === 1 ? " b-seg__item--on" : "") + '" data-act="cl-bpw" data-n="1">1 неделя</button></div>' +
       '<p class="b-lbl">Этап</p><label class="b-field"><select class="b-field__input" id="cxBpStage" data-k="cxBpStage"><option>БП1</option><option>БП2</option><option>ФИНАЛ</option></select></label>' +
       '<p class="b-lbl">Дата опросника</p>' + field("cxBpDate", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
       '<p class="b-lbl">Менеджер</p><label class="b-field"><select class="b-field__input" id="cxBpOwner" data-k="cxBpOwner">' + ownerOptions("") + "</select></label>" +
@@ -547,24 +561,72 @@
     };
   }
 
+  var ppMoney = null;
+  var ppMoneyState = "";
+
   function moneyFixed(v) {
     if (v == null) return "нет данных";
     return sh().money(v) + " BYN";
   }
 
+  /** Сводка ПП = тот же срез, что экран статистики (цена один раз на оплаченном слоте). */
+  function ppMoneyFromStats_(res) {
+    var lib = root.BoinyaStatsLogic;
+    if (!lib || !lib.statsScreen_) return null;
+    var screen = lib.statsScreen_(res || {}, null);
+    var pp = screen && screen.pp;
+    if (!pp) return null;
+    var turn = pp.turnover;
+    if (turn == null || !isFinite(Number(turn))) {
+      return { turnover: null, income: null, cost: null, month: String((res && res.monthKey) || "") };
+    }
+    var income = pp.profit == null || !isFinite(Number(pp.profit)) ? null : Number(pp.profit);
+    var cost = income == null ? null : Math.round((Number(turn) - income) * 100) / 100;
+    return {
+      turnover: Number(turn),
+      income: income,
+      cost: cost,
+      month: String((res && res.monthKey) || "")
+    };
+  }
+
+  async function loadPpMoney() {
+    var lib = root.BoinyaStatsLogic;
+    if (!lib || !lib.currentStatsMonthKey_) return;
+    var mk = lib.currentStatsMonthKey_();
+    if (ppMoney && ppMoney.month === mk && ppMoneyState === "ok") return;
+    ppMoneyState = "load";
+    try {
+      var res = await api().apiGet(
+        { action: "getStats", period: "month", month: mk },
+        { timeoutMs: 28000, cacheTtlMs: 20000 }
+      );
+      if (!res || res.status !== "success") throw new Error("stats");
+      var got = String(res.monthKey || "");
+      if (got && got !== mk) throw new Error("month");
+      ppMoney = ppMoneyFromStats_(res);
+      ppMoneyState = ppMoney ? "ok" : "err";
+    } catch (e) {
+      ppMoney = null;
+      ppMoneyState = "err";
+    }
+  }
+
   function ppTotalsHtml() {
     if (seg !== "pp") return "";
     var all = (subs || []).filter(function (s) { return String(s.sheet || "") === "ПП"; });
-    if (!all.length) return "";
-    var hasMoney = all.some(function (s) { return s.turnover != null || s.cost != null; });
-    if (!hasMoney) return "";
-    var t = ppListTotals_(subs);
+    if (!all.length && ppMoneyState !== "ok") return "";
+    var t = ppMoneyState === "ok" ? ppMoney : null;
+    var turn = t ? t.turnover : null;
+    var income = t ? t.income : null;
+    var cost = t ? t.cost : null;
+    var wait = ppMoneyState !== "ok" && ppMoneyState !== "err";
     return '<div class="nx-counters nx-pp-totals" style="margin:8px 0 12px">' +
-      '<div class="nx-count"><b>' + esc(moneyFixed(t.turnover)) + "</b><span>Оборот</span></div>" +
-      '<div class="nx-count"><b>' + esc(moneyFixed(t.income)) + "</b><span>Приход</span></div>" +
-      '<div class="nx-count"><b>' + esc(moneyFixed(t.cost)) + "</b><span>Себес</span></div>" +
+      '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(turn)) + "</b><span>Оборот</span></div>" +
+      '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(income)) + "</b><span>Приход</span></div>" +
+      '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(cost)) + "</b><span>Себес</span></div>" +
       "</div>" +
-      '<p class="b-note">Все клиенты ПП, цена один раз</p>';
+      '<p class="b-note">Этот месяц, цена один раз на слоте с оплатой, и только если эта доставка отвезена</p>';
   }
 
   function paintCard() {
@@ -591,6 +653,13 @@
       '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
       '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
     if (c.sheet === "БП") {
+      var wkLab = W() ? W().statusLabel(c.bpWeeks, c.bpOutcome) : "";
+      subFields += '<p class="b-lbl">Срок</p><p class="b-note">' + esc(wkLab || "2 недели") + "</p>";
+      if (W() && W().weeksOf(c.bpWeeks) === 1 && W().outcomeOf(c.bpOutcome) !== "done" && W().outcomeOf(c.bpOutcome) !== "pp") {
+        var ep = c.extendPrice;
+        var epText = (ep != null && ep !== "" && isFinite(Number(ep))) ? (sh().money(ep) + " BYN") : "нет состава";
+        subFields += '<p class="b-lbl">Цена за продление</p><p class="b-note">' + esc(epText) + "</p>";
+      }
       subFields += '<p class="b-lbl">Опросник БП2</p>' + field("cxSv2", c.surveyBp2Due, "", 'type="date"') +
         '<p class="b-lbl">Финал</p>' + field("cxSvF", c.surveyFinalDue, "", 'type="date"');
     }
@@ -633,10 +702,13 @@
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-delete">Удалить</button>'
     );
     if (c.sheet === "БП") {
-      html += actions(
-        '<button type="button" class="b-btn b-btn--main" data-act="cl-to-pp">Переход → расчёт ПП</button>' +
-        '<button type="button" class="b-btn b-btn--sec" data-act="cl-touch">Отметить контакт</button>'
-      );
+      var oneOpen = W() && W().weeksOf(c.bpWeeks) === 1 && !W().outcomeOf(c.bpOutcome);
+      var bpActs = "";
+      if (oneOpen) bpActs += '<button type="button" class="b-btn b-btn--main" data-act="cl-bp-extend">Продлить</button>';
+      bpActs += '<button type="button" class="b-btn b-btn--main" data-act="cl-to-pp">Переход → расчёт ПП</button>';
+      if (oneOpen) bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-bp-done">Завершён</button>';
+      bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-touch">Отметить контакт</button>';
+      html += actions(bpActs);
     }
     sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-save">Сохранить</button>');
     sh().main(html);
@@ -781,6 +853,11 @@
     paint();
     if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list") {
       loadPeople().catch(function () {});
+      if (seg === "pp") {
+        loadPpMoney().then(function () {
+          if (view === "list" && seg === "pp") paint();
+        });
+      }
       loadSubs(false).then(function () {
         if (view === "list" && (seg === "pp" || seg === "afk" || seg === "bp")) paint();
       });
@@ -1001,7 +1078,10 @@
     card.scheme = P().parsePpSchemeFromWishes_(res.wishes || "") || res.ppScheme || res.scheme || (card.sheet === "ПП" ? "LEGACY" : "");
     var coef = P().parsePpCoefFromWishes_(res.wishes || "");
     if (coef) card.coef = String(coef);
-    card.wishes = P().stripPpMetaFromWishes_(res.wishes || "");
+    card.wishes = W() ? W().strip(P().stripPpMetaFromWishes_(res.wishes || "")) : P().stripPpMetaFromWishes_(res.wishes || "");
+    if (res.bpWeeks != null && res.bpWeeks !== "") card.bpWeeks = res.bpWeeks;
+    if (res.bpOutcome != null) card.bpOutcome = res.bpOutcome;
+    if (res.extendPrice != null && res.extendPrice !== "") card.extendPrice = res.extendPrice;
     var addr = splitAddr(card.address || "");
     card.addrStreet = addr.street;
     card.addrEntrance = addr.entrance;
@@ -1064,9 +1144,11 @@
       body.ownerName = ownerName;
       body.basketBp1 = card.basketBp1;
       body.basketBp2 = card.basketBp2;
+      body.bpWeeks = String(W() ? W().weeksOf(card.bpWeeks) : (Number(card.bpWeeks) === 1 ? 1 : 2));
+      body.bpOutcome = card.bpOutcome || "";
     }
     var res = await api().apiPost(body);
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "ошибка записи"); return; }
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "ошибка записи"); return false; }
     sh().toast("Сохранено");
     subs.forEach(function (s) {
       var same = (card.subId && String(s.subId) === String(card.subId)) || String(s.nick || "") === String(card.nick || "");
@@ -1080,6 +1162,7 @@
     loadSubs(true).then(function () {
       if (view === "list") paint();
     });
+    return true;
   }
 
   async function enrollGo() {
@@ -1221,9 +1304,18 @@
       if (root.__nxOpenNew) root.__nxOpenNew();
       return true;
     }
-    if (act === "cl-refresh") { loadSubs(true).then(paint); return true; }
+    if (act === "cl-refresh") {
+      ppMoney = null;
+      ppMoneyState = "";
+      if (seg === "pp") loadPpMoney().then(function () { if (view === "list" && seg === "pp") paint(); });
+      loadSubs(true).then(paint);
+      return true;
+    }
     if (act === "cl-bp-filter") { bpFilter = node.getAttribute("data-f"); paint(); return true; }
-    if (act === "cl-bp-add") { showBpForm = true; loadPeople().then(paint); return true; }
+    if (act === "cl-bp-add") { showBpForm = true; bpFormWeeks = 2; loadPeople().then(paint); return true; }
+    if (act === "cl-bpw") { bpFormWeeks = Number(node.getAttribute("data-n")) === 1 ? 1 : 2; paint(); return true; }
+    if (act === "cl-bp-extend") { extendBp(); return true; }
+    if (act === "cl-bp-done") { doneBp(); return true; }
     if (act === "cl-bp-cancel") { showBpForm = false; paint(); return true; }
     if (act === "cl-bp-save") { saveBp(); return true; }
     if (act === "cl-edit-mode") { editMode = !editMode; if (!editMode) picked = {}; paint(); return true; }
@@ -1371,11 +1463,15 @@
       phone: (document.getElementById("cxBpPhone") || {}).value || "",
       ownerTelegramId: ownerId,
       ownerName: ownerName,
-      basket: "[]"
+      basket: "[]",
+      bpWeeks: String(bpFormWeeks === 1 ? 1 : 2)
     };
     var res = await api().apiGet(payload, { timeoutMs: 60000, cacheTtlMs: 0 });
     if (!res || res.status !== "success") { sh().toast("Не создалось: " + ((res && res.message) || "Deploy")); return; }
-    sh().toast("БП · " + status);
+    if (bpFormWeeks === 1 && status === "БП1" && W()) {
+      try { await api().apiPost(W().remindBody(nick, ownerId)); } catch (eRm) {}
+    }
+    sh().toast("БП, " + status);
     showBpForm = false;
     await loadSubs(true);
     paint();
@@ -1513,10 +1609,53 @@
     return compose();
   }
 
+  async function markBpOutcome(outcome, title, text, toast) {
+    if (!card) return;
+    var ok = await sh().confirm({ title: title, text: text, ok: title, cancel: "Отмена" });
+    if (!ok) return;
+    card.bpOutcome = outcome;
+    var saved = await saveCard();
+    if (saved) sh().toast(toast);
+  }
+
+  async function extendBp() {
+    if (!card) return;
+    var price = card.extendPrice;
+    var text = "Отметить, что клиент оплатил цену за продление";
+    if (price != null && price !== "" && isFinite(Number(price))) text += " (" + sh().money(price) + " BYN)";
+    text += "?\nДальше БП идёт второй неделей, до БП2 и финала.";
+    await markBpOutcome("extend", "Продлить", text, "Продление отмечено");
+  }
+
+  async function doneBp() {
+    if (!card) return;
+    await markBpOutcome("done", "Завершён", "Завершить БП на 1 неделе? Вторая неделя не ставится.", "БП завершён");
+  }
+
   async function toPp() {
     if (!card) return;
     var ok = await sh().confirm({ title: "БП → ПП", text: "Перевести «" + (card.label || card.nick) + "» с БП в ПП?\nПопадёт в статистику «стало ПП», затем откроется расчёт.", ok: "Перевести", cancel: "Отмена" });
     if (!ok) return;
+    if (card.sheet === "БП" && W() && W().weeksOf(card.bpWeeks) === 1) {
+      card.bpOutcome = "pp";
+      try {
+        await api().apiPost({
+          action: "saveSubscription",
+          nick: card.nick || card.label,
+          label: card.label || card.nick,
+          subId: card.subId || "",
+          sheet: "БП",
+          segment: "БП",
+          ppStatus: card.status || "БП1",
+          wishes: card.wishes || "",
+          bpWeeks: "1",
+          bpOutcome: "pp",
+          ownerTelegramId: card.ownerTelegramId || "",
+          surveyBp2Due: card.surveyBp2Due || "",
+          surveyFinalDue: card.surveyFinalDue || ""
+        });
+      } catch (eOut) {}
+    }
     var res = await api().apiGet({
       action: "moveSubscription",
       nick: card.label || card.nick,
@@ -1743,6 +1882,7 @@
     armEdit: armEdit,
     setSearch: setSearch,
     currentSeg: currentSeg,
-    ppListTotals_: ppListTotals_
+    ppListTotals_: ppListTotals_,
+    ppMoneyFromStats_: ppMoneyFromStats_
   };
 })(window);

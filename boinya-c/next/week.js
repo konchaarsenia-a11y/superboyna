@@ -77,7 +77,8 @@
       var num = it ? Number(it.count) : null;
       var cls = "b-day";
       if (view.day === name && view.seg === "week") cls += " b-day--on";
-      if (num != null && num >= logic().FULL_FROM) cls += " b-day--full";
+      var loadMark = logic().dayLoadMark ? logic().dayLoadMark(num) : "";
+      if (loadMark) cls += " b-day--load-" + loadMark;
       var date = it && it.date ? String(it.date) : "";
       var numTxt = date ? String(parseInt(date, 10) || date.split(".")[0]) : "";
       var meta = num == null ? "" : String(num);
@@ -143,9 +144,9 @@
     if (otRow === "pp" || String(c.segment || "") === "ПП") {
       slotNote = '<p class="b-note">' + (slotNow === 1 || slotNow === 2 ? ("Сейчас ПП" + slotNow) : "Слот ПП не отмечен") + "</p>";
       slotBtns =
-        '<div class="nx-actions" style="margin-top:8px">' +
-        '<button type="button" class="b-btn' + (slotNow === 1 ? " b-btn--main" : " b-btn--sec") + '" data-act="wslot" data-slot="1" data-i="' + index + '" data-src="' + source + '">ПП1</button>' +
-        '<button type="button" class="b-btn' + (slotNow === 2 ? " b-btn--main" : " b-btn--sec") + '" data-act="wslot" data-slot="2" data-i="' + index + '" data-src="' + source + '">ПП2</button>' +
+        '<div class="nx-pp-toggle" role="group" aria-label="Слот ПП">' +
+        '<button type="button" class="nx-pp-toggle__btn' + (slotNow === 1 ? " nx-pp-toggle__btn--on" : "") + '" data-act="wslot" data-slot="1" data-i="' + index + '" data-src="' + source + '">ПП1</button>' +
+        '<button type="button" class="nx-pp-toggle__btn' + (slotNow === 2 ? " nx-pp-toggle__btn--on" : "") + '" data-act="wslot" data-slot="2" data-i="' + index + '" data-src="' + source + '">ПП2</button>' +
         "</div>";
     }
     var html = (who.nick ? '<p class="sheet-lead">' + esc(who.nick) + "</p>" : "") +
@@ -205,7 +206,8 @@
       if (n && segs["БП"]) dots += '<i class="dot dot-bp"></i>';
       if (n && segs["Р"]) dots += '<i class="dot dot-r"></i>';
       if (n && segs["ПАРТНЁР"]) dots += '<i class="dot dot-p"></i>';
-      var cls = "cell" + (n ? " cell--busy" : "") + (n >= logic().FULL_FROM ? " is-full" : "") + (cur === view.date ? " is-on" : "");
+      var loadMark = logic().dayLoadMark ? logic().dayLoadMark(n) : "";
+      var cls = "cell" + (n ? " cell--busy" : "") + (loadMark ? " cell--load-" + loadMark : "") + (cur === view.date ? " is-on" : "");
       var label = d + " " + monthNames[m] + (n ? ", " + n + " чел." : ", никого") + (n >= logic().FULL_FROM ? ", полный день" : "");
       html += '<button type="button" class="' + cls + '" data-act="wcal" data-date="' + cur + '" aria-label="' + esc(label) + '"' +
         (cur === view.date ? ' aria-pressed="true"' : "") + ">" +
@@ -215,7 +217,7 @@
     }
     html += "</div>";
     html += '<div class="legend"><span><i class="dot dot-pp"></i>ПП</span><span><i class="dot dot-bp"></i>БП</span><span><i class="dot dot-r"></i>розница</span><span><i class="dot dot-p"></i>партнёр</span>' +
-      '<span class="b-note">черта сверху — полный день, от ' + logic().FULL_FROM + " человек</span></div>";
+      '<span class="nx-load-key nx-load-key--ok">от 4</span><span class="nx-load-key nx-load-key--warn">от 6</span><span class="nx-load-key nx-load-key--bad">от 8</span></div>';
     html += summaryHtml();
     return html;
   }

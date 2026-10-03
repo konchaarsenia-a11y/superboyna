@@ -174,6 +174,10 @@
     } else if (sub === "orders") {
       buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-resume" data-id="' + esc(id) + '">Открыть</button>';
     }
+    if (sub === "remind" && /Предложить продление/.test(String(it.title || ""))) {
+      var bpNick = it.clientNick || it.nick || it.client || (pl && pl.client) || "";
+      buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-bp" data-nick="' + esc(bpNick) + '">Открыть БП</button>';
+    }
     if (mode === "bp_idle" || String(id).indexOf("bpidle:") === 0) {
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-bp" data-nick="' + esc(it.nick || it.client || "") + '">Открыть БП</button>';
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-hide-idle" data-id="' + esc(id) + '" style="margin-top:8px">Скрыть</button>';
