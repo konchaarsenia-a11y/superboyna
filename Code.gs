@@ -9535,6 +9535,126 @@ function peelServiceCoords_(text) {
   return { text: peelTidy_(s), geo: geos[0] || null, geos: geos };
 }
 
+function wishesColFromHeaders_(headers) {
+  var col = 4;
+  for (var c = 0; c < (headers || []).length; c++) {
+    var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
+    if (/ПОЖЕЛАН|WISH/.test(h)) return c;
+  }
+  return col;
+}
+
+/**
+ * Снимает только служебные координаты из пожеланий ПП/АФК/БП и заметки профиля.
+ * confirm!=1 — сухой прогон. confirm=1 пишет бэкап «Пожелания_гео_бэкап», затем ячейку.
+ * marker wishes-geo-h1
+ */
+function handleStripCoordsFromWishes(json, callback, fromPost) {
+  json = json || {};
+  var confirm = String(json.confirm || "") === "1" && String(json.dryRun || "") !== "1";
+  var crmSs = getCrmSpreadsheet_();
+  var names = ["ПП", "АФК", "БП"];
+  var changes = [];
+  var scanned = 0;
+  var si, r, sh, data, headers, wCol, before, peeled, nick;
+  for (si = 0; si < names.length; si++) {
+    sh = findSheetByBaseName_(crmSs, names[si]);
+    if (!sh || sh.getLastRow() < 2) continue;
+    data = sh.getDataRange().getValues();
+    headers = data[0] || [];
+    wCol = wishesColFromHeaders_(headers);
+    for (r = 1; r < data.length; r++) {
+      before = String(data[r][wCol] != null ? data[r][wCol] : "");
+      if (!before.trim()) continue;
+      scanned++;
+      peeled = peelServiceCoords_(before);
+      if (peeled.text === before.trim()) continue;
+      nick = String(data[r][0] || "").trim();
+      changes.push({
+        nick: nick,
+        sheet: names[si],
+        row: r + 1,
+        col: wCol + 1,
+        before: before,
+        after: peeled.text,
+        lat: peeled.geo ? peeled.geo.lat : "",
+        lon: peeled.geo ? peeled.geo.lon : ""
+      });
+    }
+  }
+  try {
+    var prof = getClientsProfilesSheet_();
+    var pdata = prof.getDataRange().getValues();
+    for (r = 1; r < pdata.length; r++) {
+      before = String(pdata[r][3] || "");
+      if (!before.trim()) continue;
+      scanned++;
+      peeled = peelServiceCoords_(before);
+      if (peeled.text === before.trim()) continue;
+      changes.push({
+        nick: String(pdata[r][0] || "").trim(),
+        sheet: "Клиенты",
+        row: r + 1,
+        col: 4,
+        before: before,
+        after: peeled.text,
+        lat: peeled.geo ? peeled.geo.lat : "",
+        lon: peeled.geo ? peeled.geo.lon : ""
+      });
+    }
+  } catch (eProf) {}
+  var written = 0;
+  if (confirm && changes.length) {
+    var backup = crmSs.getSheetByName("Пожелания_гео_бэкап");
+    if (!backup) {
+      backup = crmSs.insertSheet("Пожелания_гео_бэкап");
+      backup.getRange(1, 1, 1, 6).setValues([["nick", "sheet", "before", "after", "lat", "lon"]]);
+    }
+    var rows = [];
+    for (var i = 0; i < changes.length; i++) {
+      var ch = changes[i];
+      rows.push([ch.nick, ch.sheet, ch.before, ch.after, ch.lat, ch.lon]);
+      var target = ch.sheet === "Клиенты" ? getClientsProfilesSheet_() : findSheetByBaseName_(crmSs, ch.sheet);
+      if (!target) continue;
+      target.getRange(ch.row, ch.col).setValue(ch.after);
+      written++;
+      if (ch.lat !== "" && ch.lon !== "" && ch.nick) {
+        try { upsertClientGeo_(getDataSpreadsheet_(), "CARD", ch.nick, ch.lat, ch.lon, ""); } catch (eGeo) {}
+      }
+    }
+    if (rows.length) {
+      backup.getRange(backup.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+    }
+    try { SpreadsheetApp.flush(); } catch (eFl) {}
+    try {
+      clearCrmSheetCache_("ПП");
+      clearCrmSheetCache_("АФК");
+      clearCrmSheetCache_("БП");
+    } catch (eC) {}
+  }
+  var sample = [];
+  for (var s = 0; s < changes.length && s < 40; s++) {
+    sample.push({
+      nick: changes[s].nick,
+      sheet: changes[s].sheet,
+      before: changes[s].before,
+      after: changes[s].after,
+      lat: changes[s].lat,
+      lon: changes[s].lon
+    });
+  }
+  var ok = {
+    status: "success",
+    dryRun: !confirm,
+    confirm: confirm ? 1 : 0,
+    scanned: scanned,
+    changed: changes.length,
+    written: written,
+    sample: sample
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 /** Книга «данных» мини-аппа: гео, память нарезки/доставок, итоги. Чистовик = active (склад, люди, неделя). */
 function getDataSpreadsheet_() {
   var id = PropertiesService.getScriptProperties().getProperty("DATA_SPREADSHEET_ID");
