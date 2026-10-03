@@ -133,12 +133,24 @@
     paintSheet();
   }
 
+  function taskText(it) {
+    var pl = it && it.payload;
+    if (typeof pl === "string") {
+      try { pl = JSON.parse(pl); } catch (ePl) { pl = {}; }
+    }
+    if (!pl || typeof pl !== "object") pl = {};
+    return pl.text || pl.note || (it && (it.note || it.client)) || "";
+  }
+
   async function actions(id) {
     var it = null;
     for (var i = 0; i < items.length; i++) if (String(items[i].id) === String(id)) it = items[i];
     if (!it) return;
     var sub = L().tasksSub(it);
     var pl = it.payload || {};
+    if (typeof pl === "string") {
+      try { pl = JSON.parse(pl); } catch (ePl) { pl = {}; }
+    }
     var buttons = "";
     var mode = L().deferredMode(it);
     if (sub === "xfer") {
@@ -183,7 +195,7 @@
     }
     sh().openSheet({
       title: it.title || "Задача",
-      html: '<p class="b-note" style="margin-top:0">' + esc(it.note || it.client || "") + "</p>" + buttons
+      html: '<p class="b-note" style="margin-top:0;white-space:pre-wrap">' + esc(taskText(it)) + "</p>" + buttons
     });
   }
 

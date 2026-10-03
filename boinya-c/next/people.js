@@ -13,6 +13,14 @@
   var whSuggest = [];
   var whAddrTimer = 0;
   var whAddrSeq = 0;
+  var screen = "staff";
+  var wageKnown = false;
+  var wageAmount = null;
+  var wageSeq = 0;
+  var roleSeq = 0;
+  var cutPrep = { day: "", lines: [], tried: false };
+  var whMsg = "";
+  var DAY_NAMES = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -161,16 +169,34 @@
   }
 
   function paint() {
-    if (!people.length) {
-      sh().main(sh().empty({ icon: "doc", title: "Список пуст", text: "Доступы видит владелец.", action: '<button class="b-btn b-btn--sec" type="button" data-act="p-reload">Обновить список</button>' }));
-      return;
-    }
+    rememberWhMsg();
+    if (screen === "settings") { paintSettings(); return; }
+    paintStaff();
+  }
+
+  function backHtml() {
+    return '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>';
+  }
+
+  function paintSettings() {
+    sh().main(backHtml() + warehousesHtml());
+  }
+
+  function personWage(p) {
+    if (!wageKnown) return "нет данных";
+    var cutterId = roleSetup && roleSetup.cutter && roleSetup.cutter.tgId;
+    if (cutterId && String(p.telegramId) === String(cutterId)) return sh().money(wageAmount) + " BYN";
+    return sh().money(0) + " BYN";
+  }
+
+  function paintStaff() {
     var pending = people.filter(function (p) { return String(p.role) === "pending" || String(p.role) === "none"; });
     var rest = people.filter(function (p) { return pending.indexOf(p) < 0; });
-    var html = '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>';
+    var html = backHtml();
     html += '<button type="button" class="b-btn b-btn--sec" data-act="p-reload">Обновить список</button>';
     html += '<p class="b-lbl">Заявки</p>';
-    if (!pending.length) html += '<p class="b-note">Заявок нет.</p>';
+    if (!people.length) html += '<p class="b-note">Список пуст. Доступы видит владелец.</p>';
+    else if (!pending.length) html += '<p class="b-note">Заявок нет.</p>';
     pending.forEach(function (p) {
       var opts = APPROVE_ROLES.map(function (r) {
         return '<option value="' + r + '"' + (r === "manager" ? " selected" : "") + ">" + esc(RU[r]) + "</option>";
@@ -181,15 +207,19 @@
         '<div class="nx-actions"><button type="button" class="b-btn b-btn--main b-btn--sm" data-act="p-approve" data-id="' + esc(p.telegramId) + '">Одобрить</button>' +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="p-deny" data-id="' + esc(p.telegramId) + '">Отклонить</button></div></article>';
     });
-    html += '<p class="b-lbl">Сотрудники</p><div class="b-list">';
-    rest.forEach(function (p) {
-      html += '<button type="button" class="b-li" data-act="p-open" data-id="' + esc(p.telegramId) + '"><span class="b-li__body">' +
-        '<span class="b-li__title">' + esc(p.name || p.telegramId) + "</span>" +
-        '<span class="b-li__sub">' + esc(RU[p.role] || p.role || "") + '</span></span><span class="b-li__chev">›</span></button>';
-    });
-    html += "</div>";
-    html += warehousesHtml();
+    html += '<p class="b-lbl">Сотрудники</p>';
+    if (!rest.length) html += '<p class="b-note">Сотрудников нет.</p>';
+    else {
+      html += '<div class="b-list">';
+      rest.forEach(function (p) {
+        html += '<button type="button" class="b-li" data-act="p-open" data-id="' + esc(p.telegramId) + '"><span class="b-li__body">' +
+          '<span class="b-li__title">' + esc(p.name || p.telegramId) + "</span>" +
+          '<span class="b-li__sub">' + esc((RU[p.role] || p.role || "") + " " + personWage(p)) + '</span></span><span class="b-li__chev">›</span></button>';
+      });
+      html += "</div>";
+    }
     html += rolesHtml();
+    html += whMsgHtml();
     sh().main(html);
   }
 
@@ -237,21 +267,127 @@
     }
     var cutter = s.cutter && s.cutter.tgId ? s.cutter.tgId : "";
     var courier = s.courier && s.courier.tgId ? s.courier.tgId : "";
+    var wageText = wageKnown ? (sh().money(wageAmount) + " BYN") : "нет данных";
     return '<p class="b-lbl">Зарплата на производстве</p><article class="b-card">' +
-      '<p class="b-note">Кто режет и собирает, и кто курьер. Действует с выбранного месяца. Сумму считает статистика.</p>' +
-      '<p class="b-lbl">С месяца</p><label class="b-field"><input class="b-field__input" id="nxRoleMonth" type="month" value="' + esc(month) + '"></label>' +
+      '<p class="b-note">Кто режет и собирает, и кто курьер. Месяц сразу показывает назначения и сумму.</p>' +
+      '<p class="b-lbl">Месяц</p><label class="b-field"><input class="b-field__input" id="nxRoleMonth" type="month" value="' + esc(month) + '"></label>' +
       '<p class="b-lbl">Нарезчик-сборщик</p><label class="b-field"><select class="b-field__input" id="nxRoleCutter">' + opts(cutter) + "</select></label>" +
       '<p class="b-lbl">Курьер</p><label class="b-field"><select class="b-field__input" id="nxRoleCourier">' + opts(courier) + "</select></label>" +
-      '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--sec" data-act="p-roles-load">Показать месяц</button>' +
-      '<button type="button" class="b-btn b-btn--main" data-act="p-roles">Сохранить</button></div></article>';
+      '<p class="b-lbl">ЗП за месяц</p><p class="b-note" id="nxWageSum" style="color:var(--b-text)">' + esc(wageText) + "</p>" +
+      '<p class="b-note">Отдельной ЗП курьера в формуле нет. Сумма месяца у нарезчика-сборщика.</p>' +
+      '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--main" data-act="p-roles">Сохранить</button></div></article>';
+  }
+
+  function rememberWhMsg() {
+    var ta = document.getElementById("nxWhMsg");
+    if (ta) whMsg = String(ta.value || "");
+  }
+
+  function prepLine(it) {
+    var name = String((it && it.name) || "").trim();
+    if (!name) return "";
+    if (it.unit === "шт") {
+      var n = it.raw != null ? it.raw : it.dry;
+      return name + ": " + String(n) + " шт";
+    }
+    var kg = Number(it.raw);
+    if (!isFinite(kg)) return "";
+    return name + ": " + sh().money(kg) + " кг";
+  }
+
+  async function loadWage(month) {
+    month = month || currentMonthKey();
+    var seq = ++wageSeq;
+    wageKnown = false;
+    wageAmount = null;
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "getStats",
+        period: "month",
+        month: month,
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    } catch (eWage) { res = null; }
+    if (seq !== wageSeq) return;
+    var roll = res && (res.formula || (res.fact && res.fact.formula));
+    var F = root.BoinyaFormulas;
+    if (!res || res.status !== "success" || !roll || roll.ok === false || !F || !F.formulaParts_) return;
+    var parts = F.formulaParts_({ S: roll.S, G: roll.G, P: roll.P, N: roll.N });
+    wageAmount = parts ? parts.wage : null;
+    wageKnown = wageAmount != null && isFinite(Number(wageAmount));
+  }
+
+  async function loadCutPrep() {
+    var start = new Date().getDay();
+    var i;
+    for (i = 0; i < 8; i++) {
+      var day = DAY_NAMES[(start + i) % 7];
+      var res = null;
+      try {
+        res = await api().apiGet({ action: "getCutting", day: day, _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+      } catch (eCut) { res = null; }
+      var lines = [];
+      ((res && res.items) || []).forEach(function (it) {
+        var line = prepLine(it);
+        if (line) lines.push(line);
+      });
+      if (lines.length) {
+        cutPrep = { day: day, lines: lines, tried: true };
+        return;
+      }
+    }
+    cutPrep = { day: "", lines: [], tried: true };
+  }
+
+  function whMsgHtml() {
+    var html = '<p class="b-lbl">Сообщение складу</p><article class="b-card">';
+    html += '<p class="b-note">Что подготовить к ближайшей нарезке. Уходит задачей роли склада, без Telegram.</p>';
+    if (!cutPrep.tried) html += '<p class="b-note">Считаю ближайшую нарезку…</p>';
+    else if (!cutPrep.lines.length) html += '<p class="b-note">На ближайшие дни нарезки нет</p>';
+    else {
+      html += '<p class="b-note">Ближайшая нарезка ' + esc(cutPrep.day) + "</p>";
+      cutPrep.lines.forEach(function (line) {
+        html += '<p class="b-note" style="color:var(--b-text)">' + esc(line) + "</p>";
+      });
+    }
+    html += '<p class="b-lbl">Комментарий</p><label class="b-field"><textarea class="b-field__input" id="nxWhMsg" rows="3">' + esc(whMsg) + "</textarea></label>";
+    html += '<button type="button" class="b-btn b-btn--main" data-act="p-wh-send" style="margin-top:8px">Отправить складу</button></article>';
+    return html;
+  }
+
+  async function sendWhMsg() {
+    rememberWhMsg();
+    if (!cutPrep.lines.length) { sh().toast("На ближайшие дни нарезки нет"); return; }
+    var body = cutPrep.lines.join("\n");
+    var comment = String(whMsg || "").trim();
+    if (comment) body += "\n" + comment;
+    var title = "Складу: " + cutPrep.day;
+    var res = null;
+    try {
+      res = await api().apiPost({
+        action: "saveDeferred",
+        telegramId: tid(),
+        id: "whmsg_" + Date.now().toString(36),
+        mode: "remind",
+        title: title,
+        status: "open",
+        payload: JSON.stringify({ mode: "remind", forRole: "logistics", title: title, text: body })
+      });
+    } catch (eSend) { res = null; }
+    sh().toast(res && res.status === "success" ? "Складу отправлено" : "Не отправилось");
   }
 
   async function loadRoles(month) {
     month = month || currentMonthKey();
+    var seq = ++roleSeq;
+    var res = null;
     try {
-      roleSetup = await api().apiGet({ action: "getStatsMonthSetup", month: month, _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
-    } catch (eRole) { roleSetup = null; }
-    if (!roleSetup || roleSetup.status !== "success") roleSetup = { month: month, cutter: {}, courier: {} };
+      res = await api().apiGet({ action: "getStatsMonthSetup", month: month, _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+    } catch (eRole) { res = null; }
+    if (seq !== roleSeq) return;
+    if (!res || res.status !== "success") res = { month: month, cutter: {}, courier: {} };
+    roleSetup = res;
     roleSetup.month = month;
   }
 
@@ -405,10 +541,22 @@
     paint();
   }
 
-  async function show(opts) {
-    opts = opts || {};
-    var force = !!opts.force;
-    var gen = ++showGen;
+  function pickScreen(opts) {
+    var view = opts && opts.view;
+    if (view === "settings") screen = "settings";
+    else if (view === "staff" || view === "people") screen = "staff";
+  }
+
+  async function showSettings(force, gen) {
+    sh().dock("");
+    if (!warehouses.length) sh().main(sh().skeleton(4));
+    else paintSettings();
+    try { await loadWarehouses(force); } catch (eWh) {}
+    if (gen !== showGen) return;
+    paintSettings();
+  }
+
+  async function showStaff(force, gen) {
     sh().dock("");
     var painted = false;
     if (!force) {
@@ -418,38 +566,50 @@
         if (cached.timezones && cached.timezones.length) timezones = cached.timezones;
         warehouses = cached.warehouses || [];
         whDeparture = cached.departure || whDeparture;
-        paint();
+        paintStaff();
         painted = true;
       }
     }
     if (!painted) sh().main(sh().skeleton(6));
     var packed = null;
-    try {
-      packed = await Promise.all([fetchAccess(force), loadWarehouses(force)]);
-    } catch (e) {
-      packed = [null, null];
-    }
+    try { packed = await fetchAccess(force); } catch (e) { packed = null; }
     if (gen !== showGen) return;
-    var got = packed[0];
-    var res = got && got.res ? got.res : got;
-    var background = !!(got && got.background);
+    var res = packed && packed.res ? packed.res : packed;
+    var background = !!(packed && packed.background);
     if (force) background = false;
     if (!applyPeople(res)) {
       if (!painted) {
-        sh().main(sh().errorBox({ title: "Доступы", text: "Только владелец. Если это вы — нажмите «Повторить».", act: "p-reload" }));
+        sh().main(backHtml() + sh().errorBox({ title: "Сотрудники", text: "Только владелец. Если это вы — нажмите «Повторить».", act: "p-reload" }));
       } else sh().toast("Список не обновился");
       return;
     }
     writeScreenCache();
-    try { await loadRoles(currentMonthKey()); } catch (eRoles) {}
+    var month = (roleSetup && roleSetup.month) || currentMonthKey();
+    try { await loadRoles(month); } catch (eRoles) {}
+    try { await loadWage(month); } catch (eWage) {}
     if (gen !== showGen) return;
-    paint();
+    paintStaff();
+    var prepGen = gen;
+    loadCutPrep().then(function () {
+      if (prepGen !== showGen || screen !== "staff") return;
+      rememberWhMsg();
+      paintStaff();
+    }).catch(function () {});
     if (!background) return;
     api().apiGet({ action: "listAccess", telegramId: tid() }, { timeoutMs: 20000, cacheTtlMs: 60000 }).then(function (full) {
-      if (gen !== showGen || !applyPeople(full)) return;
+      if (gen !== showGen || screen !== "staff" || !applyPeople(full)) return;
       writeScreenCache();
-      paint();
+      rememberWhMsg();
+      paintStaff();
     }).catch(function () {});
+  }
+
+  async function show(opts) {
+    opts = opts || {};
+    pickScreen(opts);
+    var gen = ++showGen;
+    if (screen === "settings") return showSettings(!!opts.force, gen);
+    return showStaff(!!opts.force, gen);
   }
 
   function personById(id) {
@@ -586,17 +746,39 @@
     paint();
   }
 
+  function monthPicked(node) {
+    if (!node || node.id !== "nxRoleMonth") return false;
+    var month = String(node.value || "");
+    if (!/^\d{4}-\d{2}$/.test(month)) return true;
+    if (roleSetup && roleSetup.month === month && wageKnown) return true;
+    rememberWhMsg();
+    Promise.all([loadRoles(month), loadWage(month)]).then(function () {
+      if (screen !== "staff") return;
+      paintStaff();
+    });
+    return true;
+  }
+
   function onAct(act, node) {
     if (act === "input") {
       if (node && node.id === "whAddr") { scheduleWhAddr(node.value); return true; }
+      if (node && node.id === "nxWhMsg") { whMsg = String(node.value || ""); return true; }
+      if (monthPicked(node)) return true;
+      return false;
+    }
+    if (act === "change") {
+      if (monthPicked(node)) return true;
       return false;
     }
     if (act === "p-reload") { show({ force: true }); return true; }
     if (act === "p-roles-load") {
       var monthEl = document.getElementById("nxRoleMonth");
-      loadRoles(monthEl && monthEl.value ? monthEl.value : currentMonthKey()).then(paint);
+      var month = monthEl && monthEl.value ? monthEl.value : currentMonthKey();
+      rememberWhMsg();
+      Promise.all([loadRoles(month), loadWage(month)]).then(function () { if (screen === "staff") paintStaff(); });
       return true;
     }
+    if (act === "p-wh-send") { sendWhMsg(); return true; }
     if (act === "p-roles") { saveRoles(); return true; }
     if (act === "wh-add") { openNewWarehouse(); return true; }
     if (act === "wh-save") { saveWarehouse(); return true; }
