@@ -15637,26 +15637,16 @@ async function handleCutover_(a, params, env, ctx) {
       const bgPull = (async function () {
         try {
           if (!(dayPull && env && env.DB)) return;
-          try {
-            const fresh = await gasProxy_("getClients", { day: dayPull, force: "1" }, env, {
-              write: false
-            });
-            if (fresh && fresh.status === "success") {
-              await sanitizeGasClientsPayload_(env, dayPull, fresh);
-              await upsertMissingClientsFromGas_(env, dayPull, fresh.clients || []);
-              try {
-                await putSnap_(env, "clients:" + dayPull, fresh);
-              } catch (eS) {}
-            }
-          } catch (eFresh) {}
-          try {
-            await patchPulledNotes_(
-              env,
-              dayPull,
-              coerceDateIso_(String((proxiedPull && proxiedPull.date) || (params && params.date) || "")) || "",
-              params
-            );
-          } catch (ePullNote) {}
+          const fresh = await gasProxy_("getClients", { day: dayPull, force: "1" }, env, {
+            write: false
+          });
+          if (fresh && fresh.status === "success") {
+            await sanitizeGasClientsPayload_(env, dayPull, fresh);
+            await upsertMissingClientsFromGas_(env, dayPull, fresh.clients || []);
+            try {
+              await putSnap_(env, "clients:" + dayPull, fresh);
+            } catch (eS) {}
+          }
           if (isCuttingStructD1PrimaryCanon_(env) || isOpsD1PrimaryCanon_(env)) {
             try {
               await rebuildCuttingDay_(env, dayPull);
@@ -17860,47 +17850,6 @@ async function cutoverStoreRead_(a, params, env, payload) {
   ) {
     await putSnap_(env, a, payload);
   }
-}
-
-/** Примечание из черновика недели пишется и в уже существующую строку D1. Пустое не затирает. */
-async function patchPulledNotes_(env, day, dateIso, params) {
-  if (!env || !env.DB) return 0;
-  day = String(day || "").trim();
-  dateIso = String(dateIso || "").trim();
-  if (!day && !dateIso) return 0;
-  let list = params && params.clients;
-  if (typeof list === "string") {
-    try { list = JSON.parse(list); } catch (eList) { list = []; }
-  }
-  if (!Array.isArray(list) || !list.length) return 0;
-  const now = new Date().toISOString();
-  let n = 0;
-  for (let i = 0; i < list.length; i++) {
-    const c = list[i] || {};
-    const note = String(c.note || "").trim();
-    const name = String(c.client || c.name || c.nick || "").trim();
-    if (!note || !name) continue;
-    const mk = normalizeMatchKey_(c.matchKey || name);
-    try {
-      let sql =
-        "UPDATE orders SET note = ?, updated_at = ? WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)";
-      const binds = [note, now, mk, name.toLowerCase()];
-      if (day && dateIso) {
-        sql += " AND (day_name = ? OR date_iso = ?)";
-        binds.push(day, dateIso);
-      } else if (day) {
-        sql += " AND day_name = ?";
-        binds.push(day);
-      } else {
-        sql += " AND date_iso = ?";
-        binds.push(dateIso);
-      }
-      const res = await env.DB.prepare(sql).bind(...binds).run();
-      if (res && res.meta && Number(res.meta.changes) > 0) n += Number(res.meta.changes);
-      else n += 1;
-    } catch (ePatch) {}
-  }
-  return n;
 }
 
 /** Добавить в D1 только тех, кого нет (и нет tombstone). Не трогает уже активных. */

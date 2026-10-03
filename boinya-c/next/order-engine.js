@@ -1434,42 +1434,6 @@
       return parts.join(" || ");
     }
 
-    /** Строка из листа / D1 → те же карточки, что в форме заказа. */
-    function parseOrderNotes(raw) {
-      var s = String(raw || "").trim();
-      if (!s) return [];
-      var blocks = [];
-      var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
-      var m;
-      while ((m = re.exec(s))) {
-        var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
-        var text = String(m[4] || "").trim();
-        if (!text) continue;
-        blocks.push({
-          text: text,
-          roles: {
-            mgr: rolesArr.indexOf("mgr") >= 0,
-            cut: rolesArr.indexOf("cut") >= 0,
-            cour: rolesArr.indexOf("cour") >= 0
-          },
-          permanent: m[2] === "perm",
-          itemKey: String(m[3] || "").trim()
-        });
-      }
-      if (blocks.length) return blocks;
-      var plain = s
-        .replace(/\[[^\]]*\]/g, " ")
-        .replace(/\s{2,}/g, " ")
-        .trim();
-      if (!plain) return [];
-      return [{
-        text: plain,
-        roles: { mgr: false, cut: false, cour: true },
-        permanent: false,
-        itemKey: ""
-      }];
-    }
-
     function stripDeliveryTags(note) {
       return String(note || "")
         .replace(/\[ЕВРОПОЧТА\]/gi, "")
@@ -1666,7 +1630,6 @@
     buildOrderSaveBasket_: buildOrderSaveBasket_,
     serializeBasketItem_: serializeBasketItem_,
     serializeOrderNotes: serializeOrderNotes,
-    parseOrderNotes: parseOrderNotes,
     composeDeliveryAddress: composeDeliveryAddress,
     formatStreetHouse: formatStreetHouse,
     parseDeliveryAddress: parseDeliveryAddress,

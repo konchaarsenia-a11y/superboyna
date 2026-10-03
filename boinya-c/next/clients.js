@@ -918,29 +918,12 @@
     if (k === "cxOwner" && card) card.ownerTelegramId = v;
     if (k === "cxDogName") price.dogNames[price.activeDog] = v;
     if (k === "cxDelN") { price.deliveriesN = monthN(v); paintDelivLine(v); schedulePpMessage(); }
-    if (k === "cxNote") {
-      var prevNote = price.note;
-      price.note = v;
-      if (enroll && String(enroll.note || "") === String(prevNote || "")) {
-        enroll.note = v;
-        var enMirror = document.getElementById("cxEnNote");
-        if (enMirror && enMirror !== node) enMirror.value = v;
-      }
-      schedulePpMessage();
-    }
+    if (k === "cxNote") { price.note = v; schedulePpMessage(); }
     if (k === "cxIg") price.ig = v;
     if (k === "cxAnketa") pick.anketa = v;
     if (k === "cxEnName" && enroll) enroll.displayName = v;
     if (k === "cxEnNick" && enroll) enroll.nick = v;
-    if (k === "cxEnNote" && enroll) {
-      var prevEn = enroll.note;
-      enroll.note = v;
-      if (String(price.note || "") === String(prevEn || "")) {
-        price.note = v;
-        var cxMirror = document.getElementById("cxNote");
-        if (cxMirror && cxMirror !== node) cxMirror.value = v;
-      }
-    }
+    if (k === "cxEnNote" && enroll) enroll.note = v;
     if (k === "cxEnAddr" && enroll) enroll.address = v;
     if (k === "cxEnPhone" && enroll) enroll.phone = v;
     if (k === "cxEnN" && enroll) enroll.deliveriesN = v;
@@ -1217,18 +1200,7 @@
     }
   }
 
-  function flushClientNotes() {
-    var wishesEl = document.getElementById("cxWishes");
-    if (wishesEl && card) card.wishes = wishesEl.value;
-    var noteEl = document.getElementById("cxNote");
-    if (noteEl) price.note = noteEl.value;
-    var enEl = document.getElementById("cxEnNote");
-    if (enEl && enroll) enroll.note = enEl.value;
-    if (enroll && !String(enroll.note || "").trim() && String(price.note || "").trim()) enroll.note = price.note;
-  }
-
   async function saveCard() {
-    flushClientNotes();
     if (!card) return;
     var wishes = card.wishes || "";
     if (card.sheet === "ПП") {
@@ -1292,7 +1264,6 @@
   }
 
   async function enrollGo() {
-    flushClientNotes();
     if (!enroll) return;
     var nick = String(enroll.nick || "").replace(/^@+/, "").trim();
     if (!nick) { sh().toast("Укажи ник Instagram"); return; }
@@ -1848,7 +1819,6 @@
   }
 
   async function deferCalc() {
-    flushClientNotes();
     var list = allItems();
     if (!list.length) { sh().toast("Сначала набери состав"); return; }
     var nick = await sh().prompt({ title: "Ник клиента", text: "Можно пусто", ok: "Дальше" });
