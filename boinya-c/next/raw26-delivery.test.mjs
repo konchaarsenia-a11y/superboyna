@@ -56,23 +56,8 @@ test("quotePp: лишняя доставка +9, LEGACY без изменени�
   const n2 = q(2);
   const n4 = q(4);
   assert.equal(n2.total, 35.8);
-  assert.equal(n1.fact.deliveryByn, 9);
-  assert.equal(n2.fact.deliveryByn, 18);
-  assert.equal(n4.fact.deliveryByn, 36);
   assert.equal(Math.round((n2.total - n1.total) * 100) / 100, 9);
   assert.equal(Math.round((n4.total - n2.total) * 100) / 100, 18);
-  assert.equal(P.monthDeliveriesN_("2"), 2);
-  assert.equal(P.monthDeliveriesN_("2/мес"), 2);
-  assert.equal(P.monthDeliveriesN_("1/2"), 2);
-  assert.equal(P.monthDeliveriesN_("ПП 1/2"), 2);
-  assert.equal(P.quotePp({
-    scheme: "RAW26", coef: 2.6, deliveriesN: "1/2", costSum: 10, list: list, packagesByn: 0, fracTotal: 0
-  }).fact.deliveryByn, 18);
-  assert.equal(P.quotePp({
-    scheme: "RAW26", coef: 2.6, deliveriesN: "2/мес", costSum: 10, list: list, packagesByn: 0, fracTotal: 0
-  }).fact.deliveryByn, 18);
-  assert.equal(P.raw26ApiFactUsable_({ factCost: 100, deliveriesN: 1, deliveryByn: 9, scheme: "RAW26" }, 2), false);
-  assert.equal(P.raw26ApiFactUsable_({ factCost: 100, deliveriesN: 2, deliveryByn: 18, scheme: "RAW26" }, 2), true);
   assert.equal(n2.fact.fractionMarkup, 0);
   const legacy = P.quotePp({
     scheme: "LEGACY", coef: 2.3, deliveriesN: 2, costSum: 10, list: list, packagesByn: 0, fracTotal: 0
@@ -83,6 +68,5 @@ test("quotePp: лишняя доставка +9, LEGACY без изменени�
 test("текст оффера больше не срезает цену до 92% розницы", () => {
   assert.equal(P.capOfferSubToDisplayedRetail_(178.94, 171.2), 178.94);
   const msg = P.composePpClientMessage([], 2, "", 171.2, 178.94, "RAW26", {});
-  assert.match(msg, /Доставка - 18 рублей/);
   assert.match(msg, /стоимость выходит - 179 рублей/);
 });

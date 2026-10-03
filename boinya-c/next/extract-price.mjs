@@ -342,8 +342,6 @@ ${body}
     recoverBynFromBasketLocal_: recoverBynFromBasketLocal_,
     capOfferSubToDisplayedRetail_: capOfferSubToDisplayedRetail_,
     composePpClientMessage: composePpClientMessage,
-    monthDeliveriesN_: monthDeliveriesN_,
-    raw26ApiFactUsable_: raw26ApiFactUsable_,
     composeRetailClientMessage: composeRetailClientMessage,
     stampPpCoefIntoWishes_: stampPpCoefIntoWishes_,
     stampPpSchemeIntoWishes_: stampPpSchemeIntoWishes_,

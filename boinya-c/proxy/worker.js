@@ -23826,28 +23826,6 @@ function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, cap
   };
 }
 
-/** Месячное N. «2», «2/мес» → 2. Слот «1/2» → знаменатель 2, не 1. */
-function monthDeliveriesN_(raw) {
-  if (typeof raw === "number" && isFinite(raw) && raw >= 1) return Math.max(1, Math.round(raw));
-  const s = String(raw == null ? "" : raw).trim().replace(",", ".");
-  if (!s) return 1;
-  if (/^\d+(?:\.\d+)?$/.test(s)) {
-    const plain = Math.round(Number(s));
-    return plain >= 1 ? plain : 1;
-  }
-  const slash = s.match(/(\d+)\s*\/\s*(\d+)/);
-  if (slash) {
-    const den = Number(slash[2]);
-    if (den >= 1) return den;
-  }
-  const lead = s.match(/(\d+)/);
-  if (lead) {
-    const nLead = Number(lead[1]);
-    if (nLead >= 1) return nLead;
-  }
-  return 1;
-}
-
 function computePpFactFromCostD1_(
   costSum,
   basket,
@@ -23859,7 +23837,7 @@ function computePpFactFromCostD1_(
   retailGoodsOpt
 ) {
   const scheme = normalizePpSchemeD1_(schemeOpt) || "LEGACY";
-  const n = monthDeliveriesN_(deliveriesN);
+  const n = Math.max(1, Number(deliveriesN) || 1);
   let coef = Number(coefIn);
   const pc =
     packCountsOpt && typeof packCountsOpt === "object"

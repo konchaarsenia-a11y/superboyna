@@ -33,7 +33,7 @@ function extractFn(src, name) {
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
-assert(/v71122800/.test(uiSrc), "APP_VERSION v71122800");
+assert(/v71122900/.test(uiSrc), "APP_VERSION v71122900");
 assert(/function ppSheetPrice_/.test(uiSrc) && /function raw26ApiFactPrice_/.test(uiSrc), "UI ignores stale calcFactCost");
 assert(/function subscriptionNickKeys_/.test(wSrc) && /function sanitizeRaw26CalcFactCost_/.test(wSrc), "Worker nick aliases + sanitize calcFact");
 assert(
@@ -84,8 +84,7 @@ const ctx = vm.createContext({
   isCrumbBasketItemUi_: function (it) {
     return !!(it && (String(it.cat || "").toLowerCase() === "crumb" || it.crumbKind || (it.sources && it.sources.length)));
   },
-  buildPriceCompositionForMessage: function () { return "СОСТАВ"; },
-  PP_RAW26_DELIVERY_PER: 9
+  buildPriceCompositionForMessage: function () { return "СОСТАВ"; }
 });
 
 vm.runInContext(
@@ -105,7 +104,6 @@ vm.runInContext(
     extractFn(uiSrc, "roundRub"),
     extractFn(uiSrc, "formatClientRub_"),
     extractFn(uiSrc, "capOfferSubToDisplayedRetail_"),
-    extractFn(uiSrc, "monthDeliveriesN_"),
     extractFn(uiSrc, "composePpClientMessage"),
     extractFn(uiSrc, "composeRetailClientMessage"),
     extractFn(uiSrc, "ppSheetPrice_"),
