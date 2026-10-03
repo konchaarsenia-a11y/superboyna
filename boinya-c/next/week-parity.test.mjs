@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+const dir = path.dirname(fileURLToPath(import.meta.url));
 const L = require("./week-logic.js");
 
 const tree = {
@@ -33,6 +37,37 @@ test("баннер закрытия не верит локальной поме�
   assert.match(L.finishPlain({ message: "week_finish_unknown" }), /Кнопку не нажимайте/);
   assert.equal(L.finishPendingActive(Date.now() + 1000, Date.now()), true);
   assert.equal(L.finishPendingActive(Date.now() - 1000, Date.now()), false);
+});
+
+test("подсветка дня: от 4 зелёный, от 6 оранжевый, от 8 красный", () => {
+  assert.equal(L.dayLoadMark(0), "");
+  assert.equal(L.dayLoadMark(3), "");
+  assert.equal(L.dayLoadMark(4), "ok");
+  assert.equal(L.dayLoadMark(5), "ok");
+  assert.equal(L.dayLoadMark(6), "warn");
+  assert.equal(L.dayLoadMark(7), "warn");
+  assert.equal(L.dayLoadMark(8), "bad");
+  assert.equal(L.dayLoadMark(12), "bad");
+});
+
+test("слот ПП тумблером, доп информация крупнее, плашка 14px", () => {
+  const orders = fs.readFileSync(path.join(dir, "orders.js"), "utf8");
+  const week = fs.readFileSync(path.join(dir, "week.js"), "utf8");
+  const prod = fs.readFileSync(path.join(dir, "production.js"), "utf8");
+  const shell = fs.readFileSync(path.join(dir, "shell.js"), "utf8");
+  const css = fs.readFileSync(path.join(dir, "app.css"), "utf8");
+  assert.match(orders, /nx-pp-toggle/);
+  assert.match(orders, /data-act="seg" data-seg="pp1"|segBtn\("pp1"/);
+  assert.match(week, /data-act="wslot"/);
+  assert.match(week, /nx-pp-toggle/);
+  assert.match(orders, /Доп информация/);
+  assert.match(orders, /nx-extra-info/);
+  assert.match(prod, /Доп информация/);
+  assert.match(prod, /nx-extra-info/);
+  assert.match(shell, /dayLoadMark/);
+  assert.match(css, /min-height:\s*44px/);
+  assert.match(css, /#nxDock\.nx-dock--order \.b-sum__k[\s\S]*font-size:\s*var\(--b-f14\)/);
+  assert.doesNotMatch(orders, /Доп · информация|ПП1 · ПП2/);
 });
 
 test("полный день с 8, неделя как в старом списке", () => {
