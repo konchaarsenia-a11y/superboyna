@@ -358,8 +358,19 @@
     scrollPlan = null;
   }
 
+  function clearOrderDockPad() {
+    var d = el("nxDock");
+    var main = el("nxMain");
+    if (d) d.classList.remove("nx-dock--order");
+    if (main) {
+      main.style.paddingBottom = "";
+      main.removeAttribute("data-order-dock");
+    }
+  }
+
   function dock(html) {
     var d = el("nxDock");
+    clearOrderDockPad();
     if (!html) {
       d.hidden = true;
       d.innerHTML = "";
