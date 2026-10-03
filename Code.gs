@@ -17262,7 +17262,9 @@ function handleListSubscriptions(json, callback, fromPost) {
         surveyFinalDue: bpMeta ? bpMeta.surveyFinalDue : "",
         lastTouch: bpMeta ? bpMeta.lastTouch : "",
         ownerTelegramId: bpMeta ? bpMeta.ownerTelegramId : "",
-        ownerName: bpMeta ? bpMeta.ownerName : ""
+        ownerName: bpMeta ? bpMeta.ownerName : "",
+        bpWeeks: bpMeta ? bpMeta.bpWeeks : 2,
+        bpOutcome: bpMeta ? bpMeta.bpOutcome : ""
       };
       if (moneyCols) {
         var money = ppListMoney_(data[r], moneyCols);
@@ -17582,6 +17584,10 @@ function handleGetSubscription(json, callback, fromPost) {
   var dogGet = parseDogFromWishesGs_(wishesOut);
   var schemeGet = parsePpSchemeFromWishes_(wishesOut) || "LEGACY";
   var coefGet = parsePpCoefFromWishesGs_(wishesOut);
+  var extendPriceGet = null;
+  if (bpMetaGet && bpMetaGet.bpWeeks === 1 && bpMetaGet.bpOutcome !== "done" && bpMetaGet.bpOutcome !== "pp") {
+    try { extendPriceGet = bpExtendPriceFromBaskets_(found.basket || [], found.basket2 || []); } catch (eEx) { extendPriceGet = null; }
+  }
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -17612,7 +17618,10 @@ function handleGetSubscription(json, callback, fromPost) {
     surveyFinalDue: bpMetaGet ? bpMetaGet.surveyFinalDue : "",
     lastTouch: bpMetaGet ? bpMetaGet.lastTouch : "",
     ownerTelegramId: bpMetaGet ? bpMetaGet.ownerTelegramId : "",
-    ownerName: bpMetaGet ? bpMetaGet.ownerName : ""
+    ownerName: bpMetaGet ? bpMetaGet.ownerName : "",
+    bpWeeks: bpMetaGet ? bpMetaGet.bpWeeks : 2,
+    bpOutcome: bpMetaGet ? bpMetaGet.bpOutcome : "",
+    extendPrice: extendPriceGet
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -17664,13 +17673,15 @@ function handleSaveSubscription(json, callback, fromPost) {
       weight: json.dogWeight != null ? json.dogWeight : (json.dog && json.dog.weight)
     });
   }
-  if (/^БП$/i.test(sheetName) || json.surveyBp2Due || json.surveyFinalDue || json.lastTouch || json.lastActivity || json.ownerTelegramId || json.respTelegramId) {
+  if (/^БП$/i.test(sheetName) || json.surveyBp2Due || json.surveyFinalDue || json.lastTouch || json.lastActivity || json.ownerTelegramId || json.respTelegramId || json.bpWeeks != null || json.bpOutcome != null) {
     wishes = stampBpMetaIntoWishes_(wishes, {
       surveyBp2Due: json.surveyBp2Due,
       surveyFinalDue: json.surveyFinalDue,
       lastTouch: json.lastTouch || json.lastActivity || new Date().toISOString(),
       ownerTelegramId: json.ownerTelegramId != null ? json.ownerTelegramId : json.respTelegramId,
-      ownerName: json.ownerName != null ? json.ownerName : json.respName
+      ownerName: json.ownerName != null ? json.ownerName : json.respName,
+      bpWeeks: json.bpWeeks != null ? json.bpWeeks : json.bp_weeks,
+      bpOutcome: json.bpOutcome
     });
   }
 
@@ -22077,7 +22088,7 @@ function calendarSourceKind_(row) {
 }
 
 function collectBpFunnelStats_(crmSs) {
-  var out = { total: 0, bp1: 0, bp2: 0, final: 0 };
+  var out = { total: 0, bp1: 0, bp2: 0, final: 0, oneWeek: 0, extended: 0, toPp: 0, doneWeek: 0 };
   var data = null;
   try { data = getCrmSheetValuesFast_(crmSs, "БП"); } catch (e0) { data = null; }
   if (!data || data.length < 3) return out;
@@ -22089,6 +22100,13 @@ function collectBpFunnelStats_(crmSs) {
     if (st === "ФИНАЛ") out.final++;
     else if (st === "БП2") out.bp2++;
     else out.bp1++;
+    var wk = parseBpMetaFromWishes_(String(data[r][4] || ""));
+    if (wk.bpWeeksSet && wk.bpWeeks === 1) {
+      if (wk.bpOutcome === "extend") out.extended++;
+      else if (wk.bpOutcome === "pp") out.toPp++;
+      else if (wk.bpOutcome === "done") out.doneWeek++;
+      else out.oneWeek++;
+    }
   }
   return out;
 }
@@ -27859,6 +27877,10 @@ function handleGetStats(json, callback, fromPost) {
       bp1: bp.bp1,
       bp2: bp.bp2,
       final: bp.final,
+      oneWeek: Number(bp.oneWeek) || 0,
+      extended: Number(bp.extended) || 0,
+      toPp: Number(bp.toPp) || 0,
+      doneWeek: Number(bp.doneWeek) || 0,
       deliveries: month.bpDeliveries,
       spend: bpSpend,
       basketCost: Number(month.bpBasketCost) || 0,
@@ -30351,6 +30373,19 @@ function stampDogIntoWishesGs_(wishes, dog) {
   return (base + (base ? " " : "") + tag).trim();
 }
 
+function bpWeeksNorm_(raw) {
+  if (raw == null || raw === "") return 2;
+  return Number(raw) === 1 ? 1 : 2;
+}
+
+function bpOutcomeNorm_(raw) {
+  var s = String(raw || "").trim().toLowerCase();
+  if (s === "extend" || s === "extended") return "extend";
+  if (s === "pp") return "pp";
+  if (s === "done" || s === "completed") return "done";
+  return "";
+}
+
 function parseBpMetaFromWishes_(wishes) {
   var w = String(wishes || "");
   var out = {
@@ -30359,12 +30394,17 @@ function parseBpMetaFromWishes_(wishes) {
     lastTouch: "",
     ownerTelegramId: "",
     ownerName: "",
+    bpWeeks: 2,
+    bpWeeksSet: false,
+    bpOutcome: "",
     clean: w
   };
   var m2 = w.match(/\[ОПРОС_БП2:([^\]]+)\]/i);
   var mf = w.match(/\[ОПРОС_ФИНАЛ:([^\]]+)\]/i);
   var mt = w.match(/\[TOUCH:([^\]]+)\]/i);
   var mr = w.match(/\[RESP:([^\]|]+)(?:\|([^\]]*))?\]/i);
+  var mw = w.match(/\[BPW:([12])\]/i);
+  var mo = w.match(/\[BPOUT:(extend|pp|done)\]/i);
   if (m2) out.surveyBp2Due = String(m2[1] || "").trim();
   if (mf) out.surveyFinalDue = String(mf[1] || "").trim();
   if (mt) out.lastTouch = String(mt[1] || "").trim();
@@ -30372,11 +30412,18 @@ function parseBpMetaFromWishes_(wishes) {
     out.ownerTelegramId = String(mr[1] || "").trim();
     out.ownerName = String(mr[2] || "").trim();
   }
+  if (mw) {
+    out.bpWeeks = Number(mw[1]) === 1 ? 1 : 2;
+    out.bpWeeksSet = true;
+  }
+  if (mo) out.bpOutcome = String(mo[1] || "").toLowerCase();
   out.clean = w
     .replace(/\[ОПРОС_БП2:[^\]]*\]/gi, "")
     .replace(/\[ОПРОС_ФИНАЛ:[^\]]*\]/gi, "")
     .replace(/\[TOUCH:[^\]]*\]/gi, "")
     .replace(/\[RESP:[^\]]*\]/gi, "")
+    .replace(/\[BPW:[^\]]*\]/gi, "")
+    .replace(/\[BPOUT:[^\]]*\]/gi, "")
     .replace(/\s+/g, " ")
     .trim();
   return out;
@@ -30394,11 +30441,17 @@ function stampBpMetaIntoWishes_(wishes, meta) {
   var ownerId = meta.ownerTelegramId != null ? String(meta.ownerTelegramId).trim() : parsed.ownerTelegramId;
   var ownerName = meta.ownerName != null ? String(meta.ownerName).trim() : parsed.ownerName;
   if (meta.ownerTelegramId === "") { ownerId = ""; ownerName = ""; }
+  var weeksTag = parsed.bpWeeksSet ? parsed.bpWeeks : 0;
+  if (meta.bpWeeks != null && meta.bpWeeks !== "") weeksTag = bpWeeksNorm_(meta.bpWeeks);
+  var outcomeTag = parsed.bpOutcome || "";
+  if (meta.bpOutcome != null) outcomeTag = bpOutcomeNorm_(meta.bpOutcome);
   var tags = "";
   if (bp2) tags += "[ОПРОС_БП2:" + bp2 + "]";
   if (fin) tags += "[ОПРОС_ФИНАЛ:" + fin + "]";
   if (touch) tags += "[TOUCH:" + touch + "]";
   if (ownerId) tags += "[RESP:" + ownerId + (ownerName ? ("|" + ownerName) : "") + "]";
+  if (weeksTag === 1 || weeksTag === 2) tags += "[BPW:" + weeksTag + "]";
+  if (outcomeTag) tags += "[BPOUT:" + outcomeTag + "]";
   return (base + (base && tags ? " " : "") + tags).trim();
 }
 
@@ -30446,6 +30499,99 @@ function ensureBpSheetProductHeaders_(crmSs) {
     bp.getRange(1, 1, 1, ppCols).setValues(headers);
   } catch (eH) {}
   return bp;
+}
+
+function formulaWeekCostGs_(S, G, P) {
+  var g = (Number(G) || 0) / 100;
+  var pieces = Number(P) || 0;
+  function r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+  var raw = r2(S);
+  var cut = r2(2.5 * g + 0.5 * pieces);
+  var assembly = r2(3);
+  var light = r2(0.8 * g + 0.3 * pieces);
+  var pack = r2(0.6 * g + 0.1 * pieces + 1.4);
+  var road = r2(4);
+  return r2(raw + cut + assembly + light + pack + road);
+}
+
+function basketHasQty_(basket) {
+  var i;
+  for (i = 0; i < (basket || []).length; i++) {
+    var it = basket[i] || {};
+    var val = Number(it.val != null ? it.val : it.value) || 0;
+    if (val > 0) return true;
+  }
+  return false;
+}
+
+/** Цена за продление: две недели по формуле статистики. Пустой состав — null. */
+function bpExtendPriceFromBaskets_(basket1, basket2) {
+  if (!basketHasQty_(basket1)) return null;
+  var u1 = formulaBasketUnits_(basket1, "bp");
+  var u2 = basketHasQty_(basket2) ? formulaBasketUnits_(basket2, "bp") : u1;
+  return Math.round((formulaWeekCostGs_(u1.S, u1.G, u1.P) + formulaWeekCostGs_(u2.S, u2.G, u2.P)) * 100) / 100;
+}
+
+function bpOneWeekRemindId_(nick) {
+  var s = String(nick || "").toUpperCase();
+  var out = "";
+  var i;
+  for (i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    var okCh = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 1040 && c <= 1103) || c === 1025 || c === 1105;
+    if (okCh) out += s.charAt(i);
+  }
+  if (!out) out = "X";
+  if (out.length > 40) out = out.substring(0, 40);
+  return "bp1w_" + out;
+}
+
+/** Напоминание менеджеру в задачах. Без Telegram. */
+function queueBpOneWeekRemind_(ownerTid, nick) {
+  ownerTid = String(ownerTid || "").trim();
+  nick = String(nick || "").trim();
+  if (!ownerTid || !nick) return "";
+  var title = "Предложить продление или переход на ПП: " + nick;
+  var id = bpOneWeekRemindId_(nick);
+  var sh = deferredSheet_();
+  var now = new Date();
+  var payloadObj = {
+    mode: "remind",
+    title: title,
+    remindAtMs: now.getTime(),
+    remindAt: Utilities.formatDate(now, "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+    remindSilent: true,
+    remindSent: true,
+    bpWeeks: 1,
+    client: nick,
+    targetTelegramId: ownerTid,
+    forTelegramId: ownerTid,
+    createdBy: ownerTid
+  };
+  var payload = JSON.stringify(payloadObj);
+  var data = sh.getDataRange().getValues();
+  var r;
+  for (r = 1; r < data.length; r++) {
+    if (String(data[r][0]) !== id) continue;
+    var st = String(data[r][6] || "open").trim().toLowerCase();
+    if (st === "open") return id;
+    sh.getRange(r + 1, 4, 1, 6).setValues([["remind", title, nick, "open", payload, now]]);
+    try { bustDeferredCache_(ownerTid); } catch (eB) {}
+    return id;
+  }
+  sh.appendRow([id, now, ownerTid, "remind", title, nick, "open", payload, now]);
+  try { bustDeferredCache_(ownerTid); } catch (eB2) {}
+  return id;
+}
+
+function maybeQueueBpOneWeekRemind_(wishes, status, ownerTid, nick) {
+  var meta = parseBpMetaFromWishes_(wishes || "");
+  var weeks = meta.bpWeeksSet ? meta.bpWeeks : 2;
+  if (weeks !== 1) return "";
+  if (meta.bpOutcome) return "";
+  var st = normalizeBpStage_(status || "БП1");
+  if (st === "ФИНАЛ" || st === "БП2") return "";
+  return queueBpOneWeekRemind_(ownerTid || meta.ownerTelegramId, nick);
 }
 
 function handleEnsureBpFromOrder(json, callback, fromPost) {
@@ -30513,7 +30659,9 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
           surveyFinalDue: exMeta.surveyFinalDue,
           ownerTelegramId: exMeta.ownerTelegramId,
           ownerName: exMeta.ownerName,
-          lastTouch: exMeta.lastTouch
+          lastTouch: exMeta.lastTouch,
+          bpWeeks: exMeta.bpWeeksSet ? exMeta.bpWeeks : undefined,
+          bpOutcome: exMeta.bpOutcome || undefined
         });
       }
     }
@@ -30529,6 +30677,9 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     meta.ownerTelegramId = ownerTelegramId;
     meta.ownerName = ownerName;
   }
+  if (json.bpWeeks != null && String(json.bpWeeks) !== "") meta.bpWeeks = bpWeeksNorm_(json.bpWeeks);
+  else if (json.bp_weeks != null && String(json.bp_weeks) !== "") meta.bpWeeks = bpWeeksNorm_(json.bp_weeks);
+  if (json.bpOutcome != null && String(json.bpOutcome) !== "") meta.bpOutcome = bpOutcomeNorm_(json.bpOutcome);
   wishes = stampBpMetaIntoWishes_(wishes, meta);
   var up = { row: 0, created: false };
   if (createCard) {
@@ -30609,6 +30760,15 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     ownerName: ownerName,
     survey: surveyItem
   };
+  try {
+    var reminded = maybeQueueBpOneWeekRemind_(wishes, status, ownerTelegramId, bpSheetNick || nick);
+    if (reminded) ok.bpRemindId = reminded;
+  } catch (eRm) {}
+  try {
+    var bpDoneMeta = parseBpMetaFromWishes_(wishes);
+    ok.bpWeeks = bpDoneMeta.bpWeeks;
+    ok.bpOutcome = bpDoneMeta.bpOutcome;
+  } catch (eMeta) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -30712,6 +30872,23 @@ function ensureBpAndSurveyFromOrder_(json) {
     meta.ownerTelegramId = ownerTelegramId;
     meta.ownerName = ownerName;
   }
+  var bpWeeksSave = null;
+  if (survey.bpWeeks != null && String(survey.bpWeeks) !== "") bpWeeksSave = bpWeeksNorm_(survey.bpWeeks);
+  else if (survey.bp_weeks != null && String(survey.bp_weeks) !== "") bpWeeksSave = bpWeeksNorm_(survey.bp_weeks);
+  var keepOutcome = "";
+  try {
+    var bpKeep = findSheetByBaseName_(crmSs, "БП");
+    if (bpKeep) {
+      var rowKeep = findSubscriptionRowIndex_(bpKeep, nick, String(survey.subId || "").trim());
+      if (rowKeep >= 0) {
+        var exKeep = parseBpMetaFromWishes_(String(bpKeep.getRange(rowKeep + 1, 5).getValue() || ""));
+        if (bpWeeksSave == null && exKeep.bpWeeksSet) bpWeeksSave = exKeep.bpWeeks;
+        keepOutcome = exKeep.bpOutcome || "";
+      }
+    }
+  } catch (eKeep) {}
+  if (bpWeeksSave != null) meta.bpWeeks = bpWeeksSave;
+  if (keepOutcome) meta.bpOutcome = keepOutcome;
   wishes = stampBpMetaIntoWishes_(wishes, meta);
   var bp = findSheetByBaseName_(crmSs, "БП");
   if (bp) {
@@ -30741,6 +30918,7 @@ function ensureBpAndSurveyFromOrder_(json) {
       });
     } catch (eSv) {}
   }
+  try { maybeQueueBpOneWeekRemind_(wishes, status, ownerTelegramId, nick); } catch (eRm) {}
 }
 
 /* ========== Отложенные расчёты (per telegramId) ========== */
@@ -30941,6 +31119,8 @@ function handleSaveDeferred_(json, callback, fromPost) {
       return fromPost ? jsonpText(callback, needTitle) : jsonp(callback, needTitle);
     }
     if (!payloadObj || typeof payloadObj !== "object") payloadObj = {};
+    var silentRemind = json.silent === true || json.silent === "1" || json.silent === 1 ||
+      payloadObj.remindSilent === true || payloadObj.remindSilent === "1" || payloadObj.remindSilent === 1;
     var msIn = Number(json.remindAtMs != null ? json.remindAtMs : payloadObj.remindAtMs);
     var when = null;
     if (isFinite(msIn) && msIn > 0) {
@@ -30954,10 +31134,18 @@ function handleSaveDeferred_(json, callback, fromPost) {
     }
     payloadObj.remindAtMs = when.getTime();
     payloadObj.remindAt = Utilities.formatDate(when, "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
-    payloadObj.remindSent = false;
-    delete payloadObj.remindSentAt;
-    delete payloadObj.remindSendError;
-    delete payloadObj.remindFailCount;
+    if (silentRemind) {
+      payloadObj.remindSilent = true;
+      payloadObj.remindSent = true;
+      delete payloadObj.remindSentAt;
+      delete payloadObj.remindSendError;
+      delete payloadObj.remindFailCount;
+    } else {
+      payloadObj.remindSent = false;
+      delete payloadObj.remindSentAt;
+      delete payloadObj.remindSendError;
+      delete payloadObj.remindFailCount;
+    }
     var targetTid = String(
       json.targetTelegramId || json.forTelegramId ||
       payloadObj.targetTelegramId || payloadObj.forTelegramId || tid
@@ -30976,6 +31164,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
     payloadObj.createdByName = createdByName;
     payload = JSON.stringify(payloadObj);
     // подтверждение только создателю (цель получит одно сообщение в срок — без дубля «поставлено»)
+    if (!silentRemind) {
     try {
       var whenLabel = Utilities.formatDate(when, Session.getScriptTimeZone() || "Europe/Minsk", "dd.MM HH:mm") +
         " (по времени таблицы / Минск)";
@@ -30987,6 +31176,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
         "\nКому: " + (targetTid === tid ? "себе" : toLabelAck);
       telegramSendText_(tid, ack);
     } catch (eAck) {}
+    }
   } else if (payloadObj && typeof payloadObj === "object") {
     // опциональное напоминание к «На потом» / «В отложенное» (mode order|pp|retail)
     var msOpt = Number(json.remindAtMs != null ? json.remindAtMs : payloadObj.remindAtMs);
@@ -31823,6 +32013,7 @@ function tickDeferredReminders_() {
       var payload = {};
       try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
       if (!payload) continue;
+      if (payload.remindSilent === true || payload.remindSilent === "1" || payload.remindSilent === 1) continue;
       var mode = String(data[r][3] || "").trim().toLowerCase();
       var ownerTid = String(data[r][2] || "").trim();
       if (deferredRemindShouldAutoHide_(payload, mode, nowMs)) {
