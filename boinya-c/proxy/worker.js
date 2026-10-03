@@ -1243,6 +1243,7 @@ async function handleAction_(action, params, env, url, ctx) {
     return liveSch && typeof liveSch === "object" ? liveSch : { status: "error", message: "gas_proxy_failed", action: a };
   }
   if (a === "unlockSubs") return unlockSubs_(params, actor, env);
+  if (a === "repairPpAfkTrio") return repairPpAfkTrio_(params, env);
   if (a === "getStatsMonthSetup") return getStatsMonthSetup_(params, env);
   if (a === "listCuttingStaff") return listCuttingStaff_(params, env);
   if (a === "saveCuttingCutter") return saveCuttingCutter_(params, env, ctx);
@@ -14661,12 +14662,7 @@ async function handleCutover_(a, params, env, ctx) {
           });
         }
         const liveSub = await gasProxy_(a, params, env, { write: false });
-        if (
-          liveSub &&
-          typeof liveSub === "object" &&
-          liveSub.status === "success" &&
-          liveSub.found !== false
-        ) {
+    if (liveSub && gasSubscriptionLooksFound_(liveSub)) {
           try {
             await mergeSubscriptionDetailIntoSnap_(env, liveSub);
           } catch (eMergeSub) {}
@@ -15306,15 +15302,97 @@ async function handleCutover_(a, params, env, ctx) {
       let d1SubRes = null;
       try {
         if (env && env.DB) {
-          if (/^(saveSubscription|moveSubscription)$/i.test(a)) {
+          if (/^moveSubscription$/i.test(a)) {
+            const gasMove = await gasProxy_(a, params, env, { write: true }).catch(function () {
+              return null;
+            });
+            if (!gasMove || gasMove.status !== "success") {
+              return {
+                status: "error",
+                message: (gasMove && gasMove.message) || "not_found",
+                cutover: true,
+                sandbox: false,
+                action: a,
+                subsCanon: subsCanonLabel_(env)
+              };
+            }
+            if (env && env.DB) {
+              d1SubRes = await upsertSubscription_(
+                Object.assign({}, params, {
+                  nick: params.nick || gasMove.nick || "",
+                  label: params.label || gasMove.label || gasMove.nick || "",
+                  subId: gasMove.subId || params.subId || "",
+                  fromSheet: params.fromSheet || gasMove.fromSheet,
+                  toSheet: params.toSheet || gasMove.toSheet
+                }),
+                env
+              );
+            } else {
+              d1SubRes = gasMove;
+            }
+            if (d1SubRes && d1SubRes.status === "success") {
+              return Object.assign({}, gasMove, d1SubRes, {
+                cutover: true,
+                sandbox: false,
+                d1Verified: true,
+                gasVerified: true,
+                optimistic: false,
+                subsCanon: subsCanonLabel_(env),
+                action: a
+              });
+            }
+            return {
+              status: "error",
+              message: (d1SubRes && d1SubRes.message) || "d1_write_failed",
+              gasVerified: true,
+              cutover: true,
+              sandbox: false,
+              action: a
+            };
+          } else if (/^saveSubscription$/i.test(a)) {
             params = await clampRaw26SubscriptionWriteD1_(params, env, ctx);
             d1SubRes = await upsertSubscription_(params, env);
           } else {
-            d1SubRes = await deleteSubscription_(params, env);
+            const gasDel = await gasProxy_(a, params, env, { write: true }).catch(function () {
+              return null;
+            });
+            if (env && env.DB) d1SubRes = await deleteSubscription_(params, env);
+            const d1n = Number(d1SubRes && (d1SubRes.wrote != null ? d1SubRes.wrote : d1SubRes.deletedPeople)) || 0;
+            const gasN = Number(gasDel && (gasDel.deletedCount || gasDel.deletedPeople)) || 0;
+            if (d1n > 0 || gasN > 0) {
+              return Object.assign({}, gasDel || {}, d1SubRes || {}, {
+                status: "success",
+                wrote: d1n || gasN,
+                deletedCount: gasN,
+                cutover: true,
+                sandbox: false,
+                d1Verified: d1n > 0,
+                gasVerified: gasN > 0,
+                optimistic: false,
+                subsCanon: subsCanonLabel_(env),
+                action: a
+              });
+            }
+            return {
+              status: "error",
+              message: (d1SubRes && d1SubRes.message) || (gasDel && gasDel.message) || "not_found",
+              cutover: true,
+              sandbox: false,
+              action: a
+            };
           }
         }
       } catch (eSubW) {
         d1SubRes = { status: "error", message: String((eSubW && eSubW.message) || eSubW) };
+      }
+      if (/^moveSubscription$/i.test(a) || /^deleteSubscription/i.test(a)) {
+        return {
+          status: "error",
+          message: (d1SubRes && d1SubRes.message) || "d1_write_failed",
+          cutover: true,
+          sandbox: false,
+          action: a
+        };
       }
       const gasSubP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
@@ -20457,17 +20535,358 @@ async function getSubscription_(params, env) {
   });
 }
 
+/** GAS getSubscription без строки CRM всё равно отвечает status:success. Пустой stub не карточка. */
+function gasSubscriptionLooksFound_(live) {
+  if (!live || live.status !== "success" || live.found === false) return false;
+  if (Number(live.rowIndex) > 0) return true;
+  if (String(live.subId || "").trim()) return true;
+  if (Array.isArray(live.basket) && live.basket.length) return true;
+  if (Array.isArray(live.basketBp1) && live.basketBp1.length) return true;
+  return false;
+}
+
+function sameSubscriptionIdentityAcrossSheets_(a, b) {
+  if (!a || !b) return false;
+  if (isDistinctPetPair_(a, b)) return false;
+  const iga = String(subscriptionIgFromRow_(a) || "").toLowerCase();
+  const igb = String(subscriptionIgFromRow_(b) || "").toLowerCase();
+  if (iga && igb) return iga === igb;
+  if (iga || igb) return false;
+  const mka = normalizeMatchKey_(a.nick || a.label || a.name || "");
+  const mkb = normalizeMatchKey_(b.nick || b.label || b.name || "");
+  return !!(mka && mkb && mka === mkb);
+}
+
+function subscriptionFieldAliases_(raw) {
+  return matchKeyAliases_(raw);
+}
+
+function subscriptionDeleteHit_(it, params) {
+  if (!it || !params) return false;
+  const sheetWant = String((params.sheet || params.segment || "")).trim().toUpperCase();
+  const sh = subscriptionSheetKey_(it);
+  if (sheetWant && sh && sh !== sheetWant) return false;
+  const ig = String(subscriptionIgFromRow_(it) || "").toLowerCase();
+  const reqIg = String(
+    extractInstagramNick_(params.nick) ||
+      extractInstagramNick_(params.label) ||
+      extractInstagramNick_(params.client) ||
+      ""
+  ).toLowerCase();
+  if (ig && reqIg && ig !== reqIg) return false;
+  if (ig && !reqIg) return false;
+  const req = [];
+  const seen = Object.create(null);
+  function addRaw(v) {
+    const aliases = subscriptionFieldAliases_(v);
+    for (let i = 0; i < aliases.length; i++) {
+      if (!aliases[i] || seen[aliases[i]]) continue;
+      seen[aliases[i]] = true;
+      req.push(aliases[i]);
+    }
+  }
+  addRaw(params.nick);
+  addRaw(params.label);
+  addRaw(params.client);
+  addRaw(params.name);
+  const rowKeys = [];
+  const seenR = Object.create(null);
+  const fields = [it.nick, it.name, it.label, it.client];
+  for (let f = 0; f < fields.length; f++) {
+    const aliases = subscriptionFieldAliases_(fields[f]);
+    for (let i = 0; i < aliases.length; i++) {
+      if (!aliases[i] || seenR[aliases[i]]) continue;
+      seenR[aliases[i]] = true;
+      rowKeys.push(aliases[i]);
+    }
+  }
+  let keyHit = false;
+  for (let i = 0; i < rowKeys.length; i++) {
+    if (req.indexOf(rowKeys[i]) >= 0) {
+      keyHit = true;
+      break;
+    }
+  }
+  const sid = String(it.subId || it.id || "").trim();
+  const wantSid = String(params.subId || "").trim();
+  if (wantSid && sid && sid === wantSid && !params.nick && !params.label && !params.client) return true;
+  return keyHit;
+}
+
+function subscriptionMovePlan_(arr, params) {
+  params = params || {};
+  const fromSheet = String(params.fromSheet || params.sheet || "")
+    .trim()
+    .toUpperCase();
+  const toSheet = String(params.toSheet || "").trim();
+  const nick = String(params.nick || params.client || "").trim();
+  const label = String(params.label || "").trim();
+  const subId = String(params.subId || "").trim();
+  if (!fromSheet || !toSheet) return { error: "need_from_to_nick" };
+  if (fromSheet === String(toSheet).toUpperCase()) return { error: "same_sheet" };
+  if (!nick && !label && !subId) return { error: "need_from_to_nick" };
+  const items = (arr || []).filter(Boolean);
+  let idx = findSubscriptionIndex_(items, nick || label, label, fromSheet, subId);
+  const ig = extractInstagramNick_(nick) || extractInstagramNick_(label) || "";
+  if (idx < 0 && ig) idx = findSubscriptionIndex_(items, ig, label || nick, fromSheet, subId);
+  if (idx < 0 && label && label !== nick) idx = findSubscriptionIndex_(items, label, nick, fromSheet, "");
+  if (idx < 0) return { error: "not_found" };
+  const base = items[idx];
+  const ident = preferSubscriptionIdentity_(nick, label, base.nick, base.label);
+  const row = Object.assign({}, base, {
+    nick: ident.nick || base.nick || "",
+    label: ident.label || base.label || ident.nick || "",
+    sheet: toSheet,
+    segment: toSheet,
+    subId: String(base.subId || base.id || subId || "")
+  });
+  if (extractInstagramNick_(ident.nick)) row.nick = ident.nick;
+  else if (subscriptionIgFromRow_(base)) row.nick = subscriptionIgFromRow_(base);
+  delete row.fromSheet;
+  delete row.toSheet;
+  delete row.action;
+  const next = [];
+  const removed = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const onSource = subscriptionSheetKey_(it) === fromSheet;
+    if (onSource && (i === idx || sameSubscriptionIdentityAcrossSheets_(base, it))) {
+      removed.push(it);
+      continue;
+    }
+    next.push(it);
+  }
+  next.push(row);
+  return { row: row, removed: removed, subscriptions: collapseSubscriptionList_(next) };
+}
+
+function ppAfkNormName_(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+}
+
+function isEvgeniaSubRow_(row) {
+  const ig = String(subscriptionIgFromRow_(row) || "").toLowerCase();
+  return ig === "evgenia_ln" || ig === "evgenia_in";
+}
+
+function isMargaSubRow_(row) {
+  if (!row) return false;
+  return (
+    ppAfkNormName_(row.nick) === "МАРГАРИТА СЕРГЕЕВНА" ||
+    ppAfkNormName_(row.label) === "МАРГАРИТА СЕРГЕЕВНА"
+  );
+}
+
+function isAndreiNameOnlySubRow_(row) {
+  if (!row || subscriptionIgFromRow_(row)) return false;
+  const n = ppAfkNormName_(row.nick);
+  const l = ppAfkNormName_(row.label);
+  const d = ppAfkNormName_(subscriptionDisplayFromRow_(row) || row.label || row.nick);
+  return n === "АНДРЕЙ" || l === "АНДРЕЙ" || d === "АНДРЕЙ";
+}
+
+function isAndreiPrigSubRow_(row) {
+  return String(subscriptionIgFromRow_(row) || "").toLowerCase() === "andreiprigunov";
+}
+
+function scanPpAfkIssues_(arr) {
+  const rows = (arr || []).filter(function (r) {
+    const sh = subscriptionSheetKey_(r);
+    return sh === "ПП" || sh === "АФК";
+  });
+  const both = [];
+  const seenBoth = Object.create(null);
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      if (subscriptionSheetKey_(rows[i]) === subscriptionSheetKey_(rows[j])) continue;
+      if (!sameSubscriptionIdentityAcrossSheets_(rows[i], rows[j])) continue;
+      const key = String(
+        subscriptionIgFromRow_(rows[i]) || normalizeMatchKey_(rows[i].nick || rows[i].label || "")
+      ).toUpperCase();
+      if (!key || seenBoth[key]) continue;
+      seenBoth[key] = true;
+      both.push({
+        key: key,
+        a: { sheet: rows[i].sheet, nick: rows[i].nick, label: rows[i].label, subId: rows[i].subId || "" },
+        b: { sheet: rows[j].sheet, nick: rows[j].nick, label: rows[j].label, subId: rows[j].subId || "" }
+      });
+    }
+  }
+  const twins = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (subscriptionIgFromRow_(rows[i])) continue;
+    const disp = ppAfkNormName_(subscriptionDisplayFromRow_(rows[i]) || rows[i].label || rows[i].nick);
+    if (!disp) continue;
+    const mates = [];
+    for (let j = 0; j < rows.length; j++) {
+      if (i === j || !subscriptionIgFromRow_(rows[j])) continue;
+      const d2 = ppAfkNormName_(subscriptionDisplayFromRow_(rows[j]) || "");
+      if (d2 && d2 === disp) mates.push(rows[j]);
+    }
+    if (!mates.length) continue;
+    twins.push({
+      nameOnly: {
+        sheet: rows[i].sheet,
+        nick: rows[i].nick,
+        label: rows[i].label,
+        subId: rows[i].subId || ""
+      },
+      handled: mates.map(function (m) {
+        return { sheet: m.sheet, nick: m.nick, label: m.label, subId: m.subId || "" };
+      })
+    });
+  }
+  return { bothSheets: both, nameOnlyTwins: twins };
+}
+
+function planPpAfkTrioRepair_(arr) {
+  const items = (arr || []).filter(Boolean).map(function (r) {
+    return Object.assign({}, r);
+  });
+  const scan = scanPpAfkIssues_(items);
+  const before = items.filter(function (r) {
+    return isEvgeniaSubRow_(r) || isMargaSubRow_(r) || isAndreiNameOnlySubRow_(r) || isAndreiPrigSubRow_(r);
+  });
+  const changes = [];
+  const prigs = items.filter(isAndreiPrigSubRow_);
+  const andreis = items.filter(function (r) {
+    return isAndreiNameOnlySubRow_(r) && subscriptionSheetKey_(r) === "ПП";
+  });
+  if (prigs.length && andreis.length) {
+    let host = prigs[0];
+    for (let i = 0; i < prigs.length; i++) {
+      if (subscriptionSheetKey_(prigs[i]) === "ПП") host = prigs[i];
+    }
+    const keepSheet = host.sheet;
+    const keepSeg = host.segment;
+    for (let d = 0; d < andreis.length; d++) {
+      const merged = mergeSubscriptionPair_(host, andreis[d]);
+      const keys = Object.keys(host);
+      for (let k = 0; k < keys.length; k++) delete host[keys[k]];
+      const mk = Object.keys(merged);
+      for (let k = 0; k < mk.length; k++) host[mk[k]] = merged[mk[k]];
+      host.sheet = keepSheet;
+      host.segment = keepSeg || keepSheet;
+      changes.push({ op: "merge", from: "Андрей", into: host.nick || "andreiprigunov", sheet: keepSheet || "" });
+    }
+  }
+  const evgPp = items.filter(function (r) {
+    return isEvgeniaSubRow_(r) && subscriptionSheetKey_(r) === "ПП";
+  });
+  const margaAfk = items.filter(function (r) {
+    return isMargaSubRow_(r) && subscriptionSheetKey_(r) === "АФК";
+  });
+  const next = [];
+  const removed = [];
+  let evgRetarget = false;
+  let margaRetarget = false;
+  let andreiSkipped = false;
+  for (let i = 0; i < items.length; i++) {
+    const r = items[i];
+    if (isEvgeniaSubRow_(r) && subscriptionSheetKey_(r) === "АФК") {
+      if (evgPp.length) {
+        removed.push(r);
+        changes.push({ op: "drop", who: "evgenia", sheet: "АФК", nick: r.nick || "", subId: r.subId || "" });
+        continue;
+      }
+      if (!evgRetarget) {
+        r.sheet = "ПП";
+        r.segment = "ПП";
+        evgRetarget = true;
+        changes.push({ op: "retarget", who: "evgenia", to: "ПП", nick: r.nick || "", subId: r.subId || "" });
+        next.push(r);
+      } else {
+        removed.push(r);
+        changes.push({ op: "drop", who: "evgenia", sheet: "АФК", nick: r.nick || "", subId: r.subId || "" });
+      }
+      continue;
+    }
+    if (isMargaSubRow_(r) && subscriptionSheetKey_(r) === "ПП") {
+      if (margaAfk.length) {
+        removed.push(r);
+        changes.push({
+          op: "drop",
+          who: "Маргарита Сергеевна",
+          sheet: "ПП",
+          nick: r.nick || "",
+          subId: r.subId || ""
+        });
+        continue;
+      }
+      if (!margaRetarget) {
+        r.sheet = "АФК";
+        r.segment = "АФК";
+        margaRetarget = true;
+        changes.push({ op: "retarget", who: "Маргарита Сергеевна", to: "АФК", nick: r.nick || "" });
+        next.push(r);
+      } else {
+        removed.push(r);
+        changes.push({ op: "drop", who: "Маргарита Сергеевна", sheet: "ПП", nick: r.nick || "" });
+      }
+      continue;
+    }
+    if (isAndreiNameOnlySubRow_(r) && subscriptionSheetKey_(r) === "ПП") {
+      if (prigs.length) {
+        removed.push(r);
+        changes.push({ op: "drop", who: "Андрей", sheet: "ПП", subId: r.subId || "", nick: r.nick || "" });
+        continue;
+      }
+      if (!andreiSkipped) {
+        andreiSkipped = true;
+        changes.push({ op: "skip", who: "Андрей", reason: "no_andreiprigunov_card" });
+      }
+    }
+    next.push(r);
+  }
+  return {
+    before: before,
+    changes: changes,
+    removed: removed,
+    subscriptions: collapseSubscriptionList_(next),
+    scan: scan
+  };
+}
+
 async function upsertSubscription_(params, env) {
   let list = (await getSnapRaw_(env, "listSubscriptions")) || {
     status: "success",
     subscriptions: []
   };
   const arr = (list.subscriptions || list.items || []).slice();
-  const nick = String(params.nick || params.client || params.label || "").trim();
-  const mk = normalizeMatchKey_(nick);
-  const isMove =
+  const isMoveEarly =
     !!(params.toSheet && params.fromSheet) ||
     String(params.action || "").toLowerCase() === "movesubscription";
+  if (isMoveEarly) {
+    const plan = subscriptionMovePlan_(arr, params);
+    if (plan.error) return { status: "error", message: plan.error, wrote: 0 };
+    list.subscriptions = plan.subscriptions;
+    list.count = plan.subscriptions.length;
+    list.status = "success";
+    await putSnap_(env, "listSubscriptions", list);
+    for (let ri = 0; ri < (plan.removed || []).length; ri++) {
+      try {
+        await putSubDeleteTombstone_(env, plan.removed[ri], 24 * 60 * 60 * 1000);
+      } catch (eMoveTomb) {}
+    }
+    return {
+      status: "success",
+      wrote: 1,
+      moved: true,
+      removedSource: (plan.removed || []).length,
+      nick: plan.row.nick,
+      label: plan.row.label,
+      subId: plan.row.subId || "",
+      sheet: plan.row.sheet,
+      d1Verified: true
+    };
+  }
+  const nick = String(params.nick || params.client || params.label || "").trim();
+  const mk = normalizeMatchKey_(nick);
+  const isMove = false;
   const findSheet = String(
     (isMove ? params.fromSheet : params.sheet || params.segment) || ""
   )
@@ -20574,35 +20993,31 @@ async function deleteSubscription_(params, env) {
   const sheetWant = String(params.sheet || params.segment || "").trim().toUpperCase();
   const removed = [];
   arr = arr.filter(function (it) {
-    const k = normalizeMatchKey_(it.nick || it.name || it.label || it.subId || it.id);
-    const sid = String(it.subId || it.id || "").trim();
-    let hit = false;
-    if (subId && sid && sid === subId) hit = true;
-    if (!hit && keys.length && keys.indexOf(k) >= 0) hit = true;
+    let hit = subscriptionDeleteHit_(it, params);
     if (!hit && items.length) {
       for (let ii = 0; ii < items.length; ii++) {
         const itm = items[ii];
-        if (typeof itm === "string") continue;
-        const ink = normalizeMatchKey_((itm && (itm.nick || itm.label)) || "");
-        const isid = String((itm && itm.subId) || "").trim();
-        const ish = String((itm && (itm.sheet || itm.segment)) || "")
-          .trim()
-          .toUpperCase();
-        if (isid && sid && isid === sid) {
-          hit = !ish || !subscriptionSheetKey_(it) || ish === subscriptionSheetKey_(it);
-          if (hit) break;
+        if (!itm || typeof itm === "string") {
+          if (typeof itm === "string" && subscriptionDeleteHit_(it, { nick: itm, sheet: sheetWant })) {
+            hit = true;
+            break;
+          }
+          continue;
         }
-        if (ink && ink === k) {
-          hit = !ish || !subscriptionSheetKey_(it) || ish === subscriptionSheetKey_(it);
-          if (hit) break;
+        if (
+          subscriptionDeleteHit_(it, {
+            nick: itm.nick || "",
+            label: itm.label || "",
+            subId: itm.subId || "",
+            sheet: itm.sheet || itm.segment || sheetWant
+          })
+        ) {
+          hit = true;
+          break;
         }
       }
     }
     if (!hit) return true;
-    if (sheetWant) {
-      const sh = subscriptionSheetKey_(it);
-      if (sh && sh !== sheetWant) return true;
-    }
     removed.push(it);
     return false;
   });
@@ -20615,27 +21030,26 @@ async function deleteSubscription_(params, env) {
       await putSubDeleteTombstone_(env, removed[ri]);
     } catch (eTomb) {}
   }
-  if (!removed.length && (keys.length || subId)) {
-    // D1 уже без строки — всё равно tomb на входной nick, чтобы force не воскресил
-    try {
-      await putSubDeleteTombstone_(env, {
-        nick: nicks[0] || "",
-        sheet: sheetWant || "ПП",
-        subId: subId
-      });
-    } catch (eT2) {}
+  if (!removed.length) {
+    return { status: "error", message: "not_found", wrote: 0, deletedPeople: 0 };
   }
   return {
     status: "success",
     wrote: before - arr.length,
     deletedPeople: before - arr.length,
-    tombstoned: removed.length || (keys.length || subId ? 1 : 0)
+    tombstoned: removed.length
   };
 }
 
 const SUB_DELETE_TOMB_TTL_MS_ = 15 * 60 * 1000;
 
-async function putSubDeleteTombstone_(env, row) {
+function subTombAlive_(it, now) {
+  if (!it) return false;
+  const ttl = Number(it.ttl) > 0 ? Number(it.ttl) : SUB_DELETE_TOMB_TTL_MS_;
+  return now - (Number(it.at) || 0) < ttl;
+}
+
+async function putSubDeleteTombstone_(env, row, ttlMs) {
   if (!env || !env.DB || !row) return;
   const nick = String(row.nick || row.label || row.name || "").trim();
   const mk = normalizeMatchKey_(nick);
@@ -20645,15 +21059,16 @@ async function putSubDeleteTombstone_(env, row) {
   let bag = (await getSnapRaw_(env, "subDeleteTombstones")) || { items: [] };
   let items = Array.isArray(bag.items) ? bag.items.slice() : [];
   const now = Date.now();
+  const ttl = Number(ttlMs) > 0 ? Number(ttlMs) : SUB_DELETE_TOMB_TTL_MS_;
   items = items.filter(function (it) {
-    return it && now - (Number(it.at) || 0) < SUB_DELETE_TOMB_TTL_MS_;
+    return subTombAlive_(it, now);
   });
   items = items.filter(function (it) {
     if (subId && String(it.subId || "") === subId && String(it.sheet || "") === sheet) return false;
     if (mk && String(it.mk || "") === mk && String(it.sheet || "") === sheet) return false;
     return true;
   });
-  items.push({ nick: nick, mk: mk, sheet: sheet, subId: subId, at: now });
+  items.push({ nick: nick, mk: mk, sheet: sheet, subId: subId, at: now, ttl: ttl });
   if (items.length > 200) items = items.slice(-200);
   await putSnap_(env, "subDeleteTombstones", { items: items, updatedAt: now });
 }
@@ -20662,8 +21077,61 @@ async function listSubDeleteTombstones_(env) {
   const bag = (await getSnapRaw_(env, "subDeleteTombstones")) || { items: [] };
   const now = Date.now();
   return (Array.isArray(bag.items) ? bag.items : []).filter(function (it) {
-    return it && now - (Number(it.at) || 0) < SUB_DELETE_TOMB_TTL_MS_;
+    return subTombAlive_(it, now);
   });
+}
+
+async function repairPpAfkTrio_(params, env) {
+  const confirm = String((params && params.confirm) || "") === "evgenia-marga-andrei";
+  const dry = !confirm || String((params && params.dry) || "") === "1";
+  const list = (await getSnapRaw_(env, "listSubscriptions")) || { status: "success", subscriptions: [] };
+  const arr = Array.isArray(list.subscriptions) ? list.subscriptions : [];
+  const plan = planPpAfkTrioRepair_(arr);
+  let gas = null;
+  try {
+    gas = await gasProxy_(
+      "repairPpAfkTrio",
+      { confirm: dry ? "" : "evgenia-marga-andrei", dry: dry ? "1" : "0" },
+      env,
+      { write: !dry }
+    );
+  } catch (eGas) {
+    gas = { status: "error", message: String((eGas && eGas.message) || eGas) };
+  }
+  if (!dry && env && env.DB) {
+    list.subscriptions = plan.subscriptions;
+    list.count = plan.subscriptions.length;
+    list.status = "success";
+    await putSnap_(env, "listSubscriptions", list);
+    for (let i = 0; i < (plan.removed || []).length; i++) {
+      try {
+        await putSubDeleteTombstone_(env, plan.removed[i], 24 * 60 * 60 * 1000);
+      } catch (eTomb) {}
+    }
+  }
+  const scan = plan.scan || { bothSheets: [], nameOnlyTwins: [] };
+  return {
+    status: "success",
+    dry: dry,
+    wrote: dry ? 0 : (plan.changes || []).length,
+    before: plan.before,
+    changes: plan.changes,
+    scan: scan,
+    otherClients: {
+      bothSheets: (scan.bothSheets || []).filter(function (x) {
+        const k = String(x.key || "");
+        return k !== "EVGENIA_LN" && k !== "EVGENIA_IN" && k !== "EVGENIALN" && k !== "EVGENIAIN";
+      }),
+      nameOnlyTwins: (scan.nameOnlyTwins || []).filter(function (t) {
+        const n = ppAfkNormName_((t.nameOnly && (t.nameOnly.label || t.nameOnly.nick)) || "");
+        return n !== "АНДРЕЙ" && n !== "МАРГАРИТА СЕРГЕЕВНА";
+      })
+    },
+    gas: gas,
+    note: dry
+      ? "Сухой прогон. Запись: confirm=evgenia-marga-andrei и без dry=1. Только evgenia_ln/evgenia_In, Маргарита Сергеевна и дубль «Андрей»."
+      : "Записано только для этих троих."
+  };
 }
 
 function isSubDeleteTombstoned_(tombs, mk, sheet, subId) {

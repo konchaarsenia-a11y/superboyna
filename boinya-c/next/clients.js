@@ -1146,9 +1146,10 @@
       if (res[k] != null && res[k] !== "") card[k] = res[k];
     });
     card.status = res.ppStatus || res.stage || "";
-    card.sheet = res.sheet || sheet || "ПП";
+    card.sheet = (Number(res.rowIndex) > 0 && res.sheet) ? res.sheet : (sheet || res.sheet || "ПП");
     card.nick = res.nick || nick || "";
-    card.label = res.label || res.nick || "";
+    card.label = res.label || res.nick || nick || "";
+    card.subId = res.subId || subId || "";
     card.basket = eng().mapApiBasketToLocal(res.basket || []);
     card.basket2 = eng().mapApiBasketToLocal(res.basket2 || []);
     card.basketBp1 = eng().mapApiBasketToLocal(res.basketBp1 || []);
@@ -1608,7 +1609,8 @@
     if (!ok) return;
     var res = await api().apiGet({
       action: "deleteSubscription",
-      nick: card.label || card.nick,
+      nick: card.nick || "",
+      label: card.label || card.nick || "",
       subId: card.subId || "",
       sheet: card.sheet,
       segment: card.sheet,
@@ -1633,13 +1635,14 @@
     if (!ok) return;
     var res = await api().apiGet({
       action: "moveSubscription",
-      nick: card.label || card.nick,
+      nick: card.nick || "",
+      label: card.label || card.nick || "",
       subId: card.subId || "",
       fromSheet: card.sheet,
       toSheet: to,
       sheet: card.sheet,
       _: String(Date.now())
-    }, { timeoutMs: 30000, cacheTtlMs: 0 });
+    }, { timeoutMs: 45000, cacheTtlMs: 0 });
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не перенеслось"); return; }
     sh().toast("Готово → " + to);
     card.sheet = to;
@@ -1740,13 +1743,14 @@
     }
     var res = await api().apiGet({
       action: "moveSubscription",
-      nick: card.label || card.nick,
+      nick: card.nick || "",
+      label: card.label || card.nick || "",
       subId: card.subId || "",
       fromSheet: "БП",
       toSheet: "ПП",
       sheet: "БП",
       _: String(Date.now())
-    }, { timeoutMs: 30000, cacheTtlMs: 0 });
+    }, { timeoutMs: 45000, cacheTtlMs: 0 });
     try {
       await api().apiGet({
         action: "recordBpToPpConversion",
