@@ -459,9 +459,10 @@ async function startHelper() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "repair-"));
   const worker = [
     "const ALLOW = { listSubscriptions: 1, subDeleteTombstones: 1 };",
+    "const KEY = " + JSON.stringify(key) + ";",
     "export default {",
     "  async fetch(req, env) {",
-    "    if (!env.REPAIR_KEY || req.headers.get('x-repair-key') !== env.REPAIR_KEY) return new Response('denied', { status: 403 });",
+    "    if (req.headers.get('x-repair-key') !== KEY) return new Response('denied', { status: 403 });",
     "    if (req.method === 'GET') {",
     "      const key = new URL(req.url).searchParams.get('key') || '';",
     "      if (!ALLOW[key]) return new Response('bad', { status: 400 });",
@@ -509,14 +510,6 @@ async function startHelper() {
   }
   if (deployed.code !== 0) {
     return { ok: false, reason: "deploy " + scrub(deployed.err || deployed.out, key), key: key, dir: dir, hosts: hosts };
-  }
-  const secretPut = await runCmd("npx", ["wrangler@4", "secret", "put", "REPAIR_KEY"], {
-    cwd: dir,
-    env: env,
-    input: key
-  });
-  if (secretPut.code !== 0) {
-    return { ok: false, reason: "secret " + scrub(secretPut.err || secretPut.out, key), key: key, dir: dir, hosts: hosts };
   }
   const note = (/Deployed/.test(blob) ? "deployed" : "not_deployed") +
     (/Current Version ID/.test(blob) ? " version_set" : " no_version");
