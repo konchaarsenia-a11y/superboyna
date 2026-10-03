@@ -325,6 +325,7 @@
   function apiGet(params, opts) {
     opts = opts || {};
     params = stamp(params);
+    var action = String(params.action || "");
     if (typeof root.__NEXT_API_HOOK__ === "function") {
       return Promise.resolve(root.__NEXT_API_HOOK__(params, opts)).then(function (res) {
         return res == null ? { status: "error", message: "empty" } : res;
