@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71123100";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71123200";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -13289,30 +13289,43 @@
     window.applyDepotPreset = applyDepotPreset;
 
     function parseGeoFromNote(note) {
+      var peeled = peelServiceCoords_(note);
+      if (peeled && peeled.geo && peeled.geo.lat != null && peeled.geo.lon != null) {
+        return { lat: Number(peeled.geo.lat), lon: Number(peeled.geo.lon) };
+      }
       const m = String(note || "").match(/\[GEO:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]/i);
       if (!m) return null;
       return { lat: Number(m[1]), lon: Number(m[2]) };
     }
 
     function parseYandexUrlFromNote(note) {
+      var peeled = peelServiceCoords_(note);
+      if (peeled && peeled.geo && peeled.geo.yandexUrl) return peeled.geo.yandexUrl;
       const m = String(note || "").match(/\[YMAPS:(https:\/\/[^\]]+)\]/i);
       return m ? m[1] : "";
     }
 
-    function stripGeoTags(note) {
-      return String(note || "")
-        .replace(/\[GEO:[^\]]+\]/gi, "")
-        .replace(/\[YMAPS:[^\]]+\]/gi, "")
+    function peelServiceCoords_(text) {
+      var G = (typeof globalThis !== "undefined" && globalThis.BoinyaWishesGeo) || null;
+      if (G && G.peel) return G.peel(text);
+      var s = String(text || "")
+        .replace(/\[GEO:[^\]]+\]/gi, " ")
+        .replace(/\[YMAPS:[^\]]+\]/gi, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
+      return { text: s, geo: null, geos: [] };
+    }
+
+    function stripGeoTags(note) {
+      return peelServiceCoords_(note).text;
     }
 
     function applyGeoTags(note, geo) {
-      var clean = stripGeoTags(note);
-      if (!geo || geo.lat == null || geo.lon == null) return clean;
-      var tags = "[GEO:" + geo.lat + "," + geo.lon + "]";
-      if (geo.yandexUrl) tags += " [YMAPS:" + geo.yandexUrl + "]";
-      return (clean + " " + tags).trim();
+      return stripGeoTags(note);
+    }
+
+    function wishesForStaffField_(raw) {
+      return stripGeoTags(stripDogFromWishes_(stripPpMetaFromWishes_(raw)));
     }
 
     function setAddressPickedHint(on) {
@@ -17013,7 +17026,7 @@
       var surveyDate = surveyDateEl ? String(surveyDateEl.value || "").trim() : "";
       var address = (document.getElementById("bpAddAddress") && document.getElementById("bpAddAddress").value) || "";
       var phone = (document.getElementById("bpAddPhone") && document.getElementById("bpAddPhone").value) || "";
-      var wishes = (document.getElementById("bpAddWishes") && document.getElementById("bpAddWishes").value) || "";
+      var wishes = wishesForStaffField_((document.getElementById("bpAddWishes") && document.getElementById("bpAddWishes").value) || "");
       var owner = ownerFromSelect_("bpAddOwner");
       if (!owner.telegramId) {
         showToast("Выбери ответственного менеджера");
@@ -24569,7 +24582,8 @@
       var coef0 = parsePpCoefFromWishes_(wishesRaw0);
       var sch0 = parsePpSchemeFromWishes_(wishesRaw0) || "LEGACY";
       var dog0 = parseDogFromWishes_(wishesRaw0);
-      document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpMetaFromWishes_(wishesRaw0));
+      document.getElementById("subDetailWishes").value = wishesForStaffField_(wishesRaw0);
+      if (s) s.serviceGeo = peelServiceCoords_(wishesRaw0).geo || s.serviceGeo || null;
       fillSubDetailDogFields_(dog0);
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
@@ -24644,7 +24658,8 @@
         var dogParsed = (res.dogName != null || res.dogBreed != null || res.dogWeight != null)
           ? { name: res.dogName || "", breed: res.dogBreed || "", weight: res.dogWeight || "" }
           : parseDogFromWishes_(wishesRaw);
-        document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpMetaFromWishes_(wishesRaw));
+        document.getElementById("subDetailWishes").value = wishesForStaffField_(wishesRaw);
+        currentSubDetail.serviceGeo = (res && res.serviceGeo) || peelServiceCoords_(wishesRaw).geo || null;
         fillSubDetailDogFields_(dogParsed);
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
@@ -25098,7 +25113,7 @@
         if (sheet === "ПП") {
           try { await recalcSubDetailFactCost_(); } catch (eRec) {}
         }
-        var wishesSave = (document.getElementById("subDetailWishes").value || "").trim();
+        var wishesSave = wishesForStaffField_((document.getElementById("subDetailWishes").value || "").trim());
         wishesSave = stampDogIntoWishes_(wishesSave, readSubDetailDogFields_());
         if (sheet === "ПП") {
           wishesSave = stampPpCoefIntoWishes_(wishesSave, subDetailCoefValue_());
@@ -25141,6 +25156,7 @@
           address: (document.getElementById("subDetailAddress").value || "").trim(),
           phone: (document.getElementById("subDetailPhone").value || "").trim(),
           note: wishesSave,
+          geo: (currentSubDetail && currentSubDetail.serviceGeo) || null,
 
           factCost: sheet === "ПП" ? statedSave : (document.getElementById("subDetailFact").value || ""),
           statedCost: sheet === "ПП" ? statedSave : "",

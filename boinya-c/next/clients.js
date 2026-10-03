@@ -119,6 +119,24 @@
 
   function W() { return root.BoinyaBpWeeks; }
 
+  function geoLib_() { return root.BoinyaWishesGeo; }
+
+  function staffWishes_(raw) {
+    var base = W() ? W().strip(P().stripPpMetaFromWishes_(raw || "")) : P().stripPpMetaFromWishes_(raw || "");
+    var G = geoLib_();
+    if (!G || !G.peel) return base;
+    return G.peel(base).text;
+  }
+
+  function serviceGeoOf_(raw, extra) {
+    if (extra && extra.lat != null && extra.lon != null) {
+      return { lat: Number(extra.lat), lon: Number(extra.lon), yandexUrl: extra.yandexUrl || "" };
+    }
+    var G = geoLib_();
+    if (!G || !G.peel) return null;
+    return G.peel(raw || "").geo;
+  }
+
   function tid() {
     try {
       var u = api().telegramUser();
@@ -1192,8 +1210,9 @@
     card.basketBp2 = eng().mapApiBasketToLocal(res.basketBp2 || []);
     card.scheme = P().parsePpSchemeFromWishes_(res.wishes || "") || res.ppScheme || res.scheme || (card.sheet === "ПП" ? "LEGACY" : "");
     var coef = P().parsePpCoefFromWishes_(res.wishes || "");
+    card.serviceGeo = serviceGeoOf_(res.wishes || "", res.serviceGeo);
     if (coef) card.coef = String(coef);
-    card.wishes = W() ? W().strip(P().stripPpMetaFromWishes_(res.wishes || "")) : P().stripPpMetaFromWishes_(res.wishes || "");
+    card.wishes = staffWishes_(res.wishes || "");
     if (res.bpWeeks != null && res.bpWeeks !== "") card.bpWeeks = res.bpWeeks;
     if (res.bpOutcome != null) card.bpOutcome = res.bpOutcome;
     if (res.extendPrice != null && res.extendPrice !== "") card.extendPrice = res.extendPrice;
@@ -1230,7 +1249,7 @@
   async function saveCard() {
     flushClientNotes();
     if (!card) return;
-    var wishes = card.wishes || "";
+    var wishes = staffWishes_(card.wishes || "");
     if (card.sheet === "ПП") {
       wishes = P().stampPpCoefIntoWishes_(wishes, card.coef);
       if (card.scheme === "RAW26" || P().parsePpSchemeFromWishes_(wishes)) wishes = P().stampPpSchemeIntoWishes_(wishes, card.scheme);
@@ -1250,6 +1269,7 @@
       address: card.address || "",
       phone: card.phone || "",
       note: wishes,
+      geo: card.serviceGeo || null,
       factCost: card.sheet === "ПП" ? (card.statedCost || "") : (card.factCost || ""),
       statedCost: card.sheet === "ПП" ? (card.statedCost || "") : "",
       calcFactCost: card.sheet === "ПП" ? (card.calcFactCost || card.statedCost || "") : "",
@@ -1302,7 +1322,7 @@
     var ok = await sh().confirm({ title: "В лист ПП", text: "Внести " + nick + (enroll.displayName ? " (" + enroll.displayName + ")" : "") + " в лист ПП?", ok: "Внести", cancel: "Отмена" });
     if (!ok) return;
     var scheme = price.scheme || P().defaultPpSchemeForNewLocal_();
-    var wishes = P().stampPpSchemeIntoWishes_(P().stampPpCoefIntoWishes_(enroll.note || "", price.coef), scheme);
+    var wishes = P().stampPpSchemeIntoWishes_(P().stampPpCoefIntoWishes_(staffWishes_(enroll.note || ""), price.coef), scheme);
     var fact = enroll.fact;
     if (scheme === "RAW26" && price.fact) fact = price.fact;
     var body = {
@@ -1589,7 +1609,7 @@
       status: status,
       surveyDate: surveyDate,
       surveyKind: surveyKind,
-      wishes: (document.getElementById("cxBpWishes") || {}).value || "",
+      wishes: staffWishes_((document.getElementById("cxBpWishes") || {}).value || ""),
       address: (document.getElementById("cxBpAddress") || {}).value || "",
       phone: (document.getElementById("cxBpPhone") || {}).value || "",
       ownerTelegramId: ownerId,

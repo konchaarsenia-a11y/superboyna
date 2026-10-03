@@ -1020,8 +1020,14 @@
       var t = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
       if (t) bits.push(t);
     }
-    if (any) return bits.join(", ");
-    return raw.replace(/\[[^\]]+\]/g, " ").replace(/\+?375[\d\s\-]{9,}/g, "").replace(/\s{2,}/g, " ").trim();
+    var shown = any
+      ? bits.join(", ")
+      : raw.replace(/\[[^\]]+\]/g, " ").replace(/\+?375[\d\s\-]{9,}/g, "").replace(/\s{2,}/g, " ").trim();
+    try {
+      var wishGeo = root.BoinyaWishesGeo;
+      if (wishGeo && wishGeo.peel) shown = wishGeo.peel(shown).text;
+    } catch (eWishGeo) {}
+    return shown;
   }
 
   function publicAddr(raw) {

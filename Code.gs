@@ -2649,6 +2649,12 @@ function doGet(e) {
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
     }, callback, false);
   }
+  if (action === "stripCoordsFromWishes") {
+    return handleStripCoordsFromWishes({
+      confirm: e.parameter.confirm || "",
+      dryRun: e.parameter.dryRun || ""
+    }, callback, false);
+  }
   if (action === "saveSubscription") {
     return handleSaveSubscription({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -3407,6 +3413,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getSubscription") {
     return handleGetSubscription(json, callback, fromPost);
+  }
+  if (action === "stripCoordsFromWishes") {
+    return handleStripCoordsFromWishes(json, callback, fromPost);
   }
   if (action === "saveSubscription") {
     return handleSaveSubscription(json, callback, fromPost);
@@ -5769,6 +5778,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
   if (geo && geo.lat != null && geo.lon != null) {
     upsertClientGeo_(ss, json.day, json.client, geo.lat, geo.lon, geo.yandexUrl || "");
+    upsertClientGeo_(ss, "CARD", json.client, geo.lat, geo.lon, geo.yandexUrl || "");
   } else if (allowEmptyOverwrite) {
     clearClientGeo_(ss, json.day, json.client);
   }
@@ -6693,6 +6703,7 @@ function getClientsData_(ss, dayName) {
   var addressesMatrix = totalSheetRows >= addressRow ? targetSheet.getRange(addressRow, 3, 1, colsToRead).getValues() : null;
   var notesMatrix = totalSheetRows >= noteRow ? targetSheet.getRange(noteRow, 3, 1, colsToRead).getValues() : null;
   var geoIndex = buildDayGeoIndex_(dayName);
+  var cardGeoIndex = buildDayGeoIndex_("CARD");
   var phoneIndex = {};
   try { phoneIndex = buildClientPhoneIndex_(ss); } catch (ePhIdx) { phoneIndex = {}; }
   var calByKey = {};
@@ -6762,7 +6773,7 @@ function getClientsData_(ss, dayName) {
         var noteRaw = rawNote != null ? String(rawNote).trim() : "";
         var legacyGeo = parseGeoTagsFromNote_(noteRaw);
         if (legacyGeo) noteRaw = stripGeoTagsFromNote_(noteRaw);
-        var geoObj = geoIndex[nameClean.toUpperCase()] || legacyGeo || null;
+        var geoObj = geoIndex[nameClean.toUpperCase()] || cardGeoIndex[nameClean.toUpperCase()] || legacyGeo || null;
         var phone = "";
         var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
         phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
@@ -9199,11 +9210,7 @@ function nominatimSuggest_(text) {
 /* ========== GEO вне примечания ========== */
 
 function stripGeoTagsFromNote_(note) {
-  return String(note || "")
-    .replace(/\[GEO:[^\]]+\]/gi, "")
-    .replace(/\[YMAPS:[^\]]+\]/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return peelServiceCoords_(note).text;
 }
 
 /** Аудитория примечания: [TO:mgr,cut,cour]. Без тега — менеджеру и курьеру (как раньше). */
@@ -9462,14 +9469,201 @@ function collectCuttingRowNotes_(ss, dayName) {
 }
 
 function parseGeoTagsFromNote_(note) {
-  var m = String(note || "").match(/\[GEO:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]/i);
+  var peeled = peelServiceCoords_(note);
+  return peeled.geo;
+}
+
+function peelNum_(v) {
+  var n = Number(String(v == null ? "" : v).replace(",", "."));
+  return isFinite(n) ? n : NaN;
+}
+
+function peelInBy_(lat, lon) {
+  return lat >= 51.2 && lat <= 56.3 && lon >= 23.1 && lon <= 32.9;
+}
+
+function peelMapUrl_(lat, lon) {
+  return "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map";
+}
+
+function peelAsGeo_(lat, lon, yandexUrl) {
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat: lat, lon: lon, yandexUrl: yandexUrl || peelMapUrl_(lat, lon) };
+}
+
+function peelTakeTagged_(a, b) {
+  if (peelInBy_(b, a) && !peelInBy_(a, b)) return peelAsGeo_(b, a);
+  return peelAsGeo_(a, b);
+}
+
+function peelTakeLoose_(a, b) {
+  if (peelInBy_(a, b)) return peelAsGeo_(a, b);
+  if (peelInBy_(b, a)) return peelAsGeo_(b, a);
+  return null;
+}
+
+function peelTidy_(s) {
+  return String(s || "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function peelFromYandexUrl_(url) {
+  var m = String(url || "").match(/[?&#]pt=([+-]?\d+(?:[.,]\d+)?)\s*,\s*([+-]?\d+(?:[.,]\d+)?)/i);
   if (!m) return null;
-  var y = String(note || "").match(/\[YMAPS:(https:\/\/[^\]]+)\]/i);
-  return {
-    lat: Number(m[1]),
-    lon: Number(m[2]),
-    yandexUrl: y ? y[1] : ("https://yandex.ru/maps/?pt=" + m[2] + "," + m[1] + "&z=17&l=map")
+  return peelTakeTagged_(peelNum_(m[2]), peelNum_(m[1]));
+}
+
+/** Служебные координаты из текста карточки. [COEF]/[SCHEME]/[DOG] не трогает. marker wishes-geo-h1 */
+function peelServiceCoords_(text) {
+  var geos = [];
+  var s = String(text || "");
+  s = s.replace(/\[GEO:\s*([+-]?\d+(?:[.,]\d+)?)\s*,\s*([+-]?\d+(?:[.,]\d+)?)\s*\]/gi, function (_m, a, b) {
+    var g = peelTakeTagged_(peelNum_(a), peelNum_(b));
+    if (g) geos.push(g);
+    return " ";
+  });
+  s = s.replace(/\[YMAPS:\s*(https?:\/\/[^\]]+)\]/gi, function (_m, url) {
+    var g = peelFromYandexUrl_(url);
+    if (g) geos.push(g);
+    return " ";
+  });
+  s = s.replace(/https?:\/\/(?:www\.)?(?:yandex\.(?:ru|by|com)|maps\.yandex\.\w+)\/\S*?[?&#]pt=[+-]?\d+(?:[.,]\d+)?\s*,\s*[+-]?\d+(?:[.,]\d+)?\S*/gi, function (url) {
+    var g = peelFromYandexUrl_(url);
+    if (g) geos.push(g);
+    return " ";
+  });
+  s = s.replace(/(^|[^\d.])([+-]?\d{2}\.\d{4,})\s*[,;]\s*([+-]?\d{2}\.\d{4,})(?![.\d])/g, function (m, pre, a, b) {
+    var g = peelTakeLoose_(peelNum_(a), peelNum_(b));
+    if (!g) return m;
+    geos.push(g);
+    return pre + " ";
+  });
+  return { text: peelTidy_(s), geo: geos[0] || null, geos: geos };
+}
+
+function wishesColFromHeaders_(headers) {
+  var col = 4;
+  for (var c = 0; c < (headers || []).length; c++) {
+    var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
+    if (/ПОЖЕЛАН|WISH/.test(h)) return c;
+  }
+  return col;
+}
+
+/**
+ * Снимает только служебные координаты из пожеланий ПП/АФК/БП и заметки профиля.
+ * confirm!=1 — сухой прогон. confirm=1 пишет бэкап «Пожелания_гео_бэкап», затем ячейку.
+ * marker wishes-geo-h1
+ */
+function handleStripCoordsFromWishes(json, callback, fromPost) {
+  json = json || {};
+  var confirm = String(json.confirm || "") === "1" && String(json.dryRun || "") !== "1";
+  var crmSs = getCrmSpreadsheet_();
+  var names = ["ПП", "АФК", "БП"];
+  var changes = [];
+  var scanned = 0;
+  var si, r, sh, data, headers, wCol, before, peeled, nick;
+  for (si = 0; si < names.length; si++) {
+    sh = findSheetByBaseName_(crmSs, names[si]);
+    if (!sh || sh.getLastRow() < 2) continue;
+    data = sh.getDataRange().getValues();
+    headers = data[0] || [];
+    wCol = wishesColFromHeaders_(headers);
+    for (r = 1; r < data.length; r++) {
+      before = String(data[r][wCol] != null ? data[r][wCol] : "");
+      if (!before.trim()) continue;
+      scanned++;
+      peeled = peelServiceCoords_(before);
+      if (peeled.text === before.trim()) continue;
+      nick = String(data[r][0] || "").trim();
+      changes.push({
+        nick: nick,
+        sheet: names[si],
+        row: r + 1,
+        col: wCol + 1,
+        before: before,
+        after: peeled.text,
+        lat: peeled.geo ? peeled.geo.lat : "",
+        lon: peeled.geo ? peeled.geo.lon : ""
+      });
+    }
+  }
+  try {
+    var prof = getClientsProfilesSheet_();
+    var pdata = prof.getDataRange().getValues();
+    for (r = 1; r < pdata.length; r++) {
+      before = String(pdata[r][3] || "");
+      if (!before.trim()) continue;
+      scanned++;
+      peeled = peelServiceCoords_(before);
+      if (peeled.text === before.trim()) continue;
+      changes.push({
+        nick: String(pdata[r][0] || "").trim(),
+        sheet: "Клиенты",
+        row: r + 1,
+        col: 4,
+        before: before,
+        after: peeled.text,
+        lat: peeled.geo ? peeled.geo.lat : "",
+        lon: peeled.geo ? peeled.geo.lon : ""
+      });
+    }
+  } catch (eProf) {}
+  var written = 0;
+  if (confirm && changes.length) {
+    var backup = crmSs.getSheetByName("Пожелания_гео_бэкап");
+    if (!backup) {
+      backup = crmSs.insertSheet("Пожелания_гео_бэкап");
+      backup.getRange(1, 1, 1, 6).setValues([["nick", "sheet", "before", "after", "lat", "lon"]]);
+    }
+    var rows = [];
+    for (var i = 0; i < changes.length; i++) {
+      var ch = changes[i];
+      rows.push([ch.nick, ch.sheet, ch.before, ch.after, ch.lat, ch.lon]);
+      var target = ch.sheet === "Клиенты" ? getClientsProfilesSheet_() : findSheetByBaseName_(crmSs, ch.sheet);
+      if (!target) continue;
+      target.getRange(ch.row, ch.col).setValue(ch.after);
+      written++;
+      if (ch.lat !== "" && ch.lon !== "" && ch.nick) {
+        try { upsertClientGeo_(getDataSpreadsheet_(), "CARD", ch.nick, ch.lat, ch.lon, ""); } catch (eGeo) {}
+      }
+    }
+    if (rows.length) {
+      backup.getRange(backup.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+    }
+    try { SpreadsheetApp.flush(); } catch (eFl) {}
+    try {
+      clearCrmSheetCache_("ПП");
+      clearCrmSheetCache_("АФК");
+      clearCrmSheetCache_("БП");
+    } catch (eC) {}
+  }
+  var sample = [];
+  for (var s = 0; s < changes.length && s < 40; s++) {
+    sample.push({
+      nick: changes[s].nick,
+      sheet: changes[s].sheet,
+      before: changes[s].before,
+      after: changes[s].after,
+      lat: changes[s].lat,
+      lon: changes[s].lon
+    });
+  }
+  var ok = {
+    status: "success",
+    dryRun: !confirm,
+    confirm: confirm ? 1 : 0,
+    scanned: scanned,
+    changed: changes.length,
+    written: written,
+    sample: sample
   };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 /** Книга «данных» мини-аппа: гео, память нарезки/доставок, итоги. Чистовик = active (склад, люди, неделя). */
@@ -12424,6 +12618,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     if (json.geo && json.geo.lat != null && dayName) {
       try {
         upsertClientGeo_(ss, dayName, client, json.geo.lat, json.geo.lon, json.geo.yandexUrl || "");
+        upsertClientGeo_(ss, "CARD", client, json.geo.lat, json.geo.lon, json.geo.yandexUrl || "");
       } catch (eGeo) {}
     }
   }
@@ -14237,7 +14432,8 @@ function upsertClientProfile_(ss, nick, address, phone, note, source, lastBasket
       break;
     }
   }
-  var cleanNote = String(note || "")
+  var cleanNote = peelServiceCoords_(note).text;
+  cleanNote = String(cleanNote || "")
     .replace(/\[TEL:[^\]]+\]/gi, "")
     .replace(/\[GEO:[^\]]+\]/gi, "")
     .replace(/\[YMAPS:[^\]]+\]/gi, "")
@@ -17892,6 +18088,14 @@ function handleGetSubscription(json, callback, fromPost) {
   if (bpMetaGet && bpMetaGet.bpWeeks === 1 && bpMetaGet.bpOutcome !== "done" && bpMetaGet.bpOutcome !== "pp") {
     try { extendPriceGet = bpExtendPriceFromBaskets_(found.basket || [], found.basket2 || []); } catch (eEx) { extendPriceGet = null; }
   }
+  var peeledWishGet = peelServiceCoords_(wishesOut);
+  var serviceGeoOut = peeledWishGet.geo;
+  wishesOut = peeledWishGet.text;
+  var noteOut = peelServiceCoords_(contact.note || "").text;
+  try {
+    var storedCardGeo = getClientGeo_(getDataSpreadsheet_(), "CARD", nick || label);
+    if (storedCardGeo) serviceGeoOut = storedCardGeo;
+  } catch (eCardGeoGet) {}
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -17899,10 +18103,11 @@ function handleGetSubscription(json, callback, fromPost) {
     subId: found.subId || subId,
     basket: found.basket || [],
     wishes: wishesOut,
+    serviceGeo: serviceGeoOut,
     xtraCount: xtraBasket.length,
     address: contact.address || "",
     phone: contact.phone || "",
-    note: contact.note || "",
+    note: noteOut,
     sheet: found.sheet || segment,
     deliveries: deliveries,
     ppStatus: status,
@@ -17953,6 +18158,18 @@ function handleSaveSubscription(json, callback, fromPost) {
   var deliveriesN = Number(json.deliveries != null ? json.deliveries : json.deliveriesN) || 0;
   var ppStatus = String(json.ppStatus || json.status || "").trim();
   var wishes = String(json.wishes || "").trim();
+  if (!wishes) wishes = String(json.note || "").trim();
+  var peeledWishSave = peelServiceCoords_(wishes);
+  wishes = peeledWishSave.text;
+  var geoSaveCard = json.geo || peeledWishSave.geo || null;
+  if (typeof geoSaveCard === "string" && geoSaveCard) {
+    try { geoSaveCard = JSON.parse(geoSaveCard); } catch (eGeoCard) { geoSaveCard = null; }
+  }
+  if (geoSaveCard && geoSaveCard.lat != null && geoSaveCard.lon != null) {
+    try {
+      upsertClientGeo_(getDataSpreadsheet_(), "CARD", nick || label, geoSaveCard.lat, geoSaveCard.lon, geoSaveCard.yandexUrl || "");
+    } catch (eCardGeoSave) {}
+  }
   if (/^БП$/i.test(sheetName)) {
     ppStatus = normalizeBpStage_(ppStatus || "БП1");
   }
@@ -31047,6 +31264,13 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
   var wishes = String(json.wishes || "").trim();
   var noteField = String(json.note || "").trim();
   if (!wishes && noteField) wishes = noteField;
+  var peeledBp = peelServiceCoords_(wishes);
+  wishes = peeledBp.text;
+  if (peeledBp.geo) {
+    try {
+      upsertClientGeo_(getDataSpreadsheet_(), "CARD", nick, peeledBp.geo.lat, peeledBp.geo.lon, peeledBp.geo.yandexUrl || "");
+    } catch (eBpGeo) {}
+  }
   // не затирать [ОПРОС_*]/[RESP:*] из карточки БП при сохранении заказа (wishes = примечание заказа)
   var existingBpRow = -1;
   var bpSheetNick = nick;
@@ -32940,6 +33164,8 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     basket = mergeBasketItemsForPp_(basket);
   }
 
+  var peeledEnrollWish = peelServiceCoords_(wishes);
+  wishes = peeledEnrollWish.text;
   // новое зачисление в ПП: схема по cutoff (с 2026-08-31 — RAW26), если не передали явно
   var enrollScheme = resolvePpScheme_({
     scheme: json.scheme,
@@ -32991,6 +33217,11 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, noPp) : jsonp(callback, noPp);
   }
   var headers = pp.getRange(1, 1, 1, pp.getLastColumn()).getValues()[0];
+  if (peeledEnrollWish.geo) {
+    try {
+      upsertClientGeo_(crmSs, "CARD", nick, peeledEnrollWish.geo.lat, peeledEnrollWish.geo.lon, peeledEnrollWish.geo.yandexUrl || "");
+    } catch (eGeoEn) {}
+  }
   var rowVals = writePpBasketToRowValues_(headers, basket, nick, json.subId || "", deliveriesN, json.ppStatus || "ПП1", wishes, factCost);
 
   if (!String(rowVals[1] || "").trim()) {
