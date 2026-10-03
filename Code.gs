@@ -10835,7 +10835,7 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
         var pn = String(ppRows[i].name || "").trim();
         if (!pn) continue;
         var tag = nudgePpSlotTag_(ppRows[i].ppSlot);
-        lines.push("· " + pn + (tag ? (" · " + tag) : ""));
+        lines.push("• " + pn + (tag ? (" — " + tag) : ""));
       }
       lines.push("");
     }
@@ -10845,14 +10845,14 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
         var bn = String(bpRows[j].name || "").trim();
         if (!bn) continue;
         var st = String(bpRows[j].stage || "").trim();
-        lines.push("· " + bn + (st ? (" · " + st) : ""));
+        lines.push("• " + bn + (st ? (" — " + st) : ""));
       }
       lines.push("");
     }
   }
   lines.push("Сверьте следующие даты в Просмотр.");
   lines.push("У ПП — кнопка «В АФК», если клиент хочет перерыв.");
-  lines.push("⏰ " + when + " · Минск");
+  lines.push("⏰ " + when + " Минск");
   return lines.join("\n");
 }
 
@@ -10895,7 +10895,7 @@ function sendDeliveryDatesNudge_(slot, dateOverride) {
     var tok = storePpAfkToken_(pack.pp[b]);
     if (!tok) continue;
     keyboard.push([{
-      text: "⏸ В АФК · " + btnName.slice(0, 28),
+      text: "⏸ В АФК — " + btnName.slice(0, 28),
       callback_data: ("ppafk:" + tok).slice(0, 64)
     }]);
   }

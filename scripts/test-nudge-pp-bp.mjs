@@ -145,13 +145,15 @@ const text = api.buildDeliveryDatesNudgeText_({
 }, "11");
 assert(text.indexOf("ПП и БП:") > 0, "header says ПП и БП");
 assert(text.indexOf("ПП и БП1") < 0, "header no longer says ПП и БП1");
-assert(text.indexOf("· Viihrova · ПП2") > 0, "PP2 name keeps the slot");
-assert(text.indexOf("· Alinagidayathanova · ПП1") > 0, "PP1 name keeps the slot");
+assert(text.indexOf("• Viihrova — ПП2") > 0, "PP2 name keeps the slot");
+assert(text.indexOf("• Alinagidayathanova — ПП1") > 0, "PP1 name keeps the slot");
 assert(text.indexOf("БП (3):") > 0, "section title is БП");
 assert(text.indexOf("БП1 (") < 0, "section is not titled БП1");
-assert(text.indexOf("· Аня · БП2") > 0, "BP2 stage sits next to the name");
-assert(text.indexOf("· Боря · ФИНАЛ") > 0, "final stage sits next to the name");
-assert(text.indexOf("· Неделя · БП1") > 0, "BP1 stage sits next to the name");
+assert(text.indexOf("• Аня — БП2") > 0, "BP2 stage sits next to the name");
+assert(text.indexOf("• Боря — ФИНАЛ") > 0, "final stage sits next to the name");
+assert(text.indexOf("• Неделя — БП1") > 0, "BP1 stage sits next to the name");
+assert(text.indexOf("⏰ 11:00 Минск") > 0, "footer has no middle dot");
+assert(text.indexOf("·") < 0, "nudge text has no middle dots");
 assert(text.indexOf("В АФК") > 0, "AFK hint stays for PP");
 assert(text.indexOf("Лавка") < 0 && text.indexOf("Pause") < 0, "retail and AFK are not in the text");
 
@@ -171,6 +173,9 @@ assert(listSrc.indexOf('meta.kind === "retail"') > 0, "retail is still skipped")
 
 const sendSrc = sliceFn("sendDeliveryDatesNudge_");
 assert(sendSrc.indexOf("storePpAfkToken_") > 0, "В АФК buttons still built for PP");
+assert(sendSrc.indexOf('text: "⏸ В АФК — "') > 0, "AFK button uses an em dash");
+assert(sendSrc.indexOf("В АФК ·") < 0, "AFK button has no middle dot");
+assert(sendSrc.indexOf('callback_data: ("ppafk:" + tok)') > 0, "AFK callback_data unchanged");
 assert(sendSrc.indexOf("deliveryDatesNudgeIsEmpty_") > 0, "empty pack still skips Telegram");
 assert(sendSrc.indexOf('telegram: false') > 0, "empty skip still flags telegram false");
 
