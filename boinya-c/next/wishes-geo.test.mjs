@@ -47,6 +47,7 @@ test("карточка и заказ не пишут координаты обр
   const app = fs.readFileSync(path.join(root, "app.main.js"), "utf8");
   const gs = fs.readFileSync(path.join(root, "..", "Code.gs"), "utf8");
   const worker = fs.readFileSync(path.join(root, "proxy", "worker.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(root, "next.html"), "utf8"), /next\/wishes-geo\.js/);
   assert.match(clients, /BoinyaWishesGeo/);
   assert.match(clients, /staffWishes_/);
   assert.match(payload, /BoinyaWishesGeo/);
