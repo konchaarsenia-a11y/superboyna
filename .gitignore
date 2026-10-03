@@ -12,6 +12,7 @@ goodboy/assets/source-ava/
 
 # Native (Capacitor) — см. native/.gitignore; дублируем критичное
 native/node_modules/
+scripts/next-lint/node_modules/
 native/www/
 native/ios/App/Pods/
 native/android/.gradle/
