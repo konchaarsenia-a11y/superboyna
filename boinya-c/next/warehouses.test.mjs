@@ -73,5 +73,8 @@ test("удаление переносит флаг на самую старую 
   const save = extractFn(src, "saveWarehouse_");
   assert.match(save, /name\.length > 80/);
   assert.match(save, /address\.length > 240/);
+  assert.match(save, /Укажите координаты/);
+  assert.match(save, /lat, lon/);
   assert.match(extractFn(src, "ensureWarehouses_"), /beletskogo/);
+  assert.match(extractFn(src, "ensureWarehouses_"), /ADD COLUMN lat/);
 });

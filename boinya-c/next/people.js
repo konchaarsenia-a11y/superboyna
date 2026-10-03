@@ -203,9 +203,10 @@
     if (!warehouses.length) html += '<p class="b-note">Складов пока нет, курьер видит Белецкого 10к2</p>';
     warehouses.forEach(function (w) {
       var dep = !!(w.departure || (whDeparture && String(whDeparture.id) === String(w.id)));
+      var geo = (w.lat != null && w.lon != null) ? formatDepotCoords(w.lat, w.lon) : "";
       html += '<article class="nx-depot"><div class="nx-depot__body"><p class="b-li__title" style="margin:0">' + esc(w.name) +
         (dep ? ' <span class="b-pill b-pill--ok">выезд</span>' : "") +
-        '</p><p class="b-note">' + esc(w.address) + "</p></div>";
+        '</p><p class="b-note">' + esc(w.address) + (geo ? "<br>" + esc(geo) : "") + "</p></div>";
       if (!dep) html += '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="wh-dep" data-id="' + esc(w.id) + '">Выезд</button>';
       html += '<button type="button" class="b-btn b-btn--danger b-btn--sm" data-act="wh-del" data-id="' + esc(w.id) + '">Удалить</button></article>';
     });
@@ -327,13 +328,29 @@
     });
   }
 
+  function parseDepotCoords(raw) {
+    var eng = root.BoinyaOrderEngine;
+    if (eng && eng.parseLatLonFromText_) return eng.parseLatLonFromText_(raw);
+    return null;
+  }
+
+  function formatDepotCoords(lat, lon) {
+    var a = Number(lat);
+    var b = Number(lon);
+    if (!isFinite(a) || !isFinite(b)) return "";
+    return (Math.round(a * 1e6) / 1e6) + ", " + (Math.round(b * 1e6) / 1e6);
+  }
+
   function openNewWarehouse() {
     whSuggest = [];
     sh().openSheet({
       title: "Новый склад",
       html: '<p class="b-lbl">Название</p><label class="b-field"><input class="b-field__input" id="whName" autocomplete="off"></label>' +
-        '<p class="b-lbl">Адрес</p><label class="b-field"><input class="b-field__input" id="whAddr" autocomplete="off"></label>' +
-        '<div id="whSuggest"></div>',
+        '<p class="b-lbl">Адрес</p><label class="b-field"><input class="b-field__input" id="whAddr" autocomplete="off" placeholder="Улица и дом"></label>' +
+        '<div id="whSuggest"></div>' +
+        '<p class="b-note">Подсказки появятся, когда начнёте вводить адрес</p>' +
+        '<p class="b-lbl">Координаты</p><label class="b-field"><input class="b-field__input" id="whCoords" autocomplete="off" inputmode="decimal" placeholder="53.9, 27.56"></label>' +
+        '<p class="b-note">Обязательно. Широта и долгота через запятую, маршрут строится от них</p>',
       foot: '<button type="button" class="b-btn b-btn--main" data-act="wh-save">Сохранить</button>'
     });
   }
@@ -356,8 +373,11 @@
     var addrEl = document.getElementById("whAddr");
     var name = nameEl ? String(nameEl.value || "").trim() : "";
     var address = addrEl ? String(addrEl.value || "").trim() : "";
+    var coordsEl = document.getElementById("whCoords");
+    var coords = parseDepotCoords(coordsEl ? coordsEl.value : "");
     if (!name || !address) { sh().toast("Укажите название и адрес"); return; }
-    var res = await api().apiPost({ action: "saveWarehouse", name: name, address: address, telegramId: tid() });
+    if (!coords) { sh().toast("Координаты: широта, долгота, например 53.9, 27.56"); return; }
+    var res = await api().apiPost({ action: "saveWarehouse", name: name, address: address, lat: coords.lat, lon: coords.lon, telegramId: tid() });
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилось"); return; }
     warehouses = res.warehouses || [];
     whDeparture = res.departure || null;
@@ -587,6 +607,10 @@
       var row = whSuggest[Number(node.getAttribute("data-i"))];
       var inp = document.getElementById("whAddr");
       if (row && inp) inp.value = row.address || row.title || "";
+      if (row && row.lat != null && row.lon != null) {
+        var geoInp = document.getElementById("whCoords");
+        if (geoInp && !String(geoInp.value || "").trim()) geoInp.value = formatDepotCoords(row.lat, row.lon);
+      }
       whSuggest = [];
       paintWhSuggest();
       return true;
@@ -693,5 +717,5 @@
     paint();
   }
 
-  root.BoinyaPeople = { show: show, onAct: onAct };
+  root.BoinyaPeople = { show: show, onAct: onAct, parseDepotCoords: parseDepotCoords };
 })(window);

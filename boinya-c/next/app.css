@@ -606,16 +606,56 @@ button.nx-count {
 
 .nx-pack-grp {
   margin-top: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--b-line);
-  border-radius: 12px;
+  padding: 4px 0 0;
+  border: 0;
+  border-radius: 0;
+  text-align: center;
+}
+
+.nx-pack-grp .nx-grp {
+  justify-content: center;
+}
+
+.nx-pack-grp .nx-grp::after {
+  display: none;
+}
+
+.nx-pack-grp .mix-parts {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .nx-pack-grp > div + div,
 .nx-pack-grp > .mix {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--b-line);
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.nx-nickrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nx-type {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--b-line);
+  border-radius: 999px;
+  font-size: var(--b-f12);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.nx-mini-bang {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  flex: 0 0 auto;
 }
 
 .nx-hot {

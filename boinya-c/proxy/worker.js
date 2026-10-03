@@ -2639,10 +2639,14 @@ function shapeWarehouses_(rows) {
   const list = [];
   (rows || []).forEach(function (r) {
     if (!r || Number(r.active) === 0) return;
+    const latN = r.lat == null || r.lat === "" ? null : Number(r.lat);
+    const lonN = r.lon == null || r.lon === "" ? null : Number(r.lon);
     list.push({
       id: String(r.id || ""),
       name: String(r.name || ""),
       address: String(r.address || ""),
+      lat: Number.isFinite(latN) ? latN : null,
+      lon: Number.isFinite(lonN) ? lonN : null,
       departure: Number(r.is_departure) === 1,
       createdAt: String(r.created_at || "")
     });
@@ -2687,6 +2691,8 @@ async function ensureWarehouses_(env) {
       .bind(new Date().toISOString())
       .run();
   }
+  try { await env.DB.prepare("ALTER TABLE warehouses ADD COLUMN lat REAL").run(); } catch (eLat) {}
+  try { await env.DB.prepare("ALTER TABLE warehouses ADD COLUMN lon REAL").run(); } catch (eLon) {}
   env.__whReady = true;
   return true;
 }
@@ -3139,7 +3145,7 @@ async function listWarehouses_(env) {
   try {
     await ensureWarehouses_(env);
     const q = await env.DB.prepare(
-      "SELECT id, name, address, active, is_departure, created_at FROM warehouses WHERE active = 1 ORDER BY created_at ASC"
+      "SELECT id, name, address, lat, lon, active, is_departure, created_at FROM warehouses WHERE active = 1 ORDER BY created_at ASC"
     ).all();
     return shapeWarehouses_((q && q.results) || []);
   } catch (eWh) {
@@ -3152,16 +3158,21 @@ async function saveWarehouse_(params, actor, env) {
   await ensureWarehouses_(env);
   const name = String((params && params.name) || "").trim();
   const address = String((params && params.address) || "").trim();
+  const lat = Number(params && params.lat);
+  const lon = Number(params && params.lon);
   if (!name || !address) return { status: "error", message: "Укажите название и адрес" };
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+    return { status: "error", message: "Укажите координаты: широта, долгота" };
+  }
   if (name.length > 80) return { status: "error", message: "Название длиннее 80 знаков" };
   if (address.length > 240) return { status: "error", message: "Адрес длиннее 240 знаков" };
   const id = "wh_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const activeN = await env.DB.prepare("SELECT COUNT(*) AS n FROM warehouses WHERE active = 1").first();
   const dep = !activeN || Number(activeN.n) === 0 ? 1 : 0;
   await env.DB.prepare(
-    "INSERT INTO warehouses (id, name, address, active, is_departure, created_at, created_by) VALUES (?, ?, ?, 1, ?, ?, ?)"
+    "INSERT INTO warehouses (id, name, address, lat, lon, active, is_departure, created_at, created_by) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)"
   )
-    .bind(id, name, address, dep, new Date().toISOString(), String((actor && actor.tid) || (params && params.actorId) || ""))
+    .bind(id, name, address, lat, lon, dep, new Date().toISOString(), String((actor && actor.tid) || (params && params.actorId) || ""))
     .run();
   return listWarehouses_(env);
 }
