@@ -1654,6 +1654,7 @@
     crumbSourceNames_: crumbSourceNames_,
     isPieceSkuName: isPieceSkuName,
     buildIgKnownMap: buildIgKnownMap,
+    igAliasResolve: igAliasResolve,
     dressuraFractionSizeKey: dressuraFractionSizeKey,
     dressuraFractionPickRate: dressuraFractionPickRate,
     dressuraFractionRates: dressuraFractionRates,

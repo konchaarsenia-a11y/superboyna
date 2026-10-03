@@ -25,7 +25,7 @@
   var enroll = null;
   var editingId = "";
   var price = blankPrice();
-  var pick = { type: "pp", anketa: "", result: null, text: "" };
+  var pick = { type: "pp", anketa: "", result: null, text: "", busy: false };
   var focusNick = "";
 
   function sh() { return root.BoinyaShell; }
@@ -807,6 +807,7 @@
     html += '<p class="b-lbl">Анкета</p>' + area("cxAnketa", pick.anketa, "Текст анкеты");
     html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-clear" style="margin-top:8px">Очистить</button>';
     if (pick.result && pick.result.items) {
+      html += '<div id="cxPickOut">';
       var lastCat = "";
       pick.result.items.forEach(function (it, i) {
         var cat = it.cat === "dressura" ? "Дрессура" : (it.cat === "chew" ? "Жевалки" : (it.cat === "veg" ? "Овощи-Фрукты" : (it.cat === "crumb" ? "Крошки" : "Другое")));
@@ -826,8 +827,11 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-calc">В расчёт</button>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="cl-pick-again">Подобрать ещё</button>'
       );
+      html += "</div>";
     }
-    sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-pick-go">Подобрать</button>');
+    sh().dock(pick.busy
+      ? '<button type="button" class="b-btn b-btn--main b-btn--loading" data-act="cl-pick-go" disabled><span class="b-spin"></span> Подбираю…</button>'
+      : '<button type="button" class="b-btn b-btn--main" data-act="cl-pick-go">Подобрать</button>');
     sh().main(html);
   }
 
@@ -1844,16 +1848,39 @@
     paint();
   }
 
+  function revealPick() {
+    var box = document.getElementById("cxPickOut");
+    if (!box) return;
+    try { box.scrollIntoView({ block: "start" }); }
+    catch (e) { box.scrollIntoView(); }
+  }
+
   async function runPick() {
-    var sig = P().parseAnketSignals_(pick.anketa || "");
-    var target = pick.type === "retail" ? "retail" : (pick.type === "bp1" ? "bp1" : (pick.type === "bp2" ? "bp2" : "pp"));
-    var composed = P().pricePickComposeForTarget_(sig, target);
-    var fit = null;
-    try { fit = await P().pricePickFitBudget_({ items: composed.items, target: target, signals: sig }); } catch (e) { fit = null; }
-    var items = (fit && fit.items) || composed.items || [];
-    pick.result = { items: items, signals: sig, monthly: fit && fit.monthly };
-    pick.text = P().pricePickOfferText_(sig, target, items);
+    if (pick.busy) return;
+    var areaEl = document.getElementById("cxAnketa");
+    if (areaEl && typeof areaEl.value === "string") pick.anketa = areaEl.value;
+    if (!String(pick.anketa || "").trim()) {
+      sh().toast("Вставь текст анкеты");
+      return;
+    }
+    pick.busy = true;
     paint();
+    await new Promise(function (r) { setTimeout(r, 0); });
+    try {
+      var sig = P().parseAnketSignals_(pick.anketa || "");
+      var target = pick.type === "retail" ? "retail" : (pick.type === "bp1" ? "bp1" : (pick.type === "bp2" ? "bp2" : "pp"));
+      var composed = P().pricePickComposeForTarget_(sig, target);
+      var fit = null;
+      try { fit = await P().pricePickFitBudget_({ items: composed.items, target: target, signals: sig }); } catch (eFit) { fit = null; }
+      var items = (fit && fit.items) || composed.items || [];
+      pick.result = { items: items, signals: sig, monthly: fit && fit.monthly };
+      pick.text = P().pricePickOfferText_(sig, target, items);
+    } catch (e) {
+      sh().toast("Не получилось подобрать");
+    }
+    pick.busy = false;
+    paint();
+    revealPick();
   }
 
   function pickIntoCalc() {

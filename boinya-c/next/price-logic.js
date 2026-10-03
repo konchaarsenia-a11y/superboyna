@@ -14,6 +14,7 @@
   var unitForItem = eng.unitForItem;
   var isPieceSkuName = eng.isPieceSkuName;
   var buildIgKnownMap = eng.buildIgKnownMap;
+  var igAliasResolve = eng.igAliasResolve;
   var serializeBasketItem_ = eng.serializeBasketItem_;
   var prettyProductName = eng.prettyProductName;
   var humanFraction = eng.humanFraction;
