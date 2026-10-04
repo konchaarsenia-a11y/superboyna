@@ -7880,6 +7880,28 @@ async function getViewCompare_(params, env) {
   };
 }
 
+/** Даты слотов с листа (snap weekDayCountsSheet): day → dd.MM.yyyy. Пусто, если даты нет. */
+async function weekSlotDatesFromSheetSnap_(env) {
+  const out = Object.create(null);
+  if (!env) return out;
+  let snap = null;
+  try {
+    snap = await getSnapRaw_(env, "weekDayCountsSheet");
+  } catch (eSh) {
+    snap = null;
+  }
+  const items = (snap && snap.items) || [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const day = it && it.day ? String(it.day) : "";
+    if (!day) continue;
+    const dmy = String((it && it.date) || "").trim();
+    if (!dmyToIso_(dmy)) continue;
+    out[day] = dmy;
+  }
+  return out;
+}
+
 async function rebuildWeekCounts_(env) {
   if (!env || !env.DB) return { status: "success", items: [], total: 0, sandbox: true };
   const prev = await getSnapRaw_(env, "weekDayCounts");
@@ -7887,6 +7909,7 @@ async function rebuildWeekCounts_(env) {
   ((prev && prev.items) || []).forEach(function (it) {
     if (it && it.day) prevDates[it.day] = it.date || "";
   });
+  const sheetDates = await weekSlotDatesFromSheetSnap_(env);
 
   const items = [];
   let total = 0;
@@ -7900,14 +7923,17 @@ async function rebuildWeekCounts_(env) {
       .first();
     const c = Number(q && q.c) || 0;
     total += c;
-    // дата — из живых orders, иначе из предыдущего counts (не из протухшего dateToDay)
-    let date = "";
-    const dr = await env.DB.prepare(
-      "SELECT date_iso, COUNT(*) AS n FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' GROUP BY date_iso ORDER BY n DESC LIMIT 1"
-    )
-      .bind(d)
-      .first();
-    if (dr && dr.date_iso) date = isoToDmy_(dr.date_iso);
+    // Сначала дата слота с листа. Большинство date_iso в D1 — только если листа нет
+    // (иначе хвост прошлой недели откатывает Вт/Ср/Пт на −7).
+    let date = sheetDates[d] || "";
+    if (!date) {
+      const dr = await env.DB.prepare(
+        "SELECT date_iso, COUNT(*) AS n FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' GROUP BY date_iso ORDER BY n DESC LIMIT 1"
+      )
+        .bind(d)
+        .first();
+      if (dr && dr.date_iso) date = isoToDmy_(dr.date_iso);
+    }
     if (!date) date = prevDates[d] || "";
     const iso = dmyToIso_(date);
     if (iso) dateToDay[iso] = d;
@@ -18667,7 +18693,8 @@ async function countActiveOrdersForDay_(env, day) {
 async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   opts = opts || {};
   await ensureMetaColumn_(env);
-  const info = await dayDateInfo_(env, day);
+  const slotIsoOpt = coerceDateIso_(opts.slotIso);
+  const info = slotIsoOpt ? { iso: slotIsoOpt, date: isoToDmy_(slotIsoOpt) } : await dayDateInfo_(env, day);
   // Close-week / slot roll: detach leftover Day:mk rows BEFORE upsert, else
   // ON CONFLICT(id) stamps date_iso +7 on the same Понедельник:MK row.
   if (info && info.iso) {
@@ -19141,16 +19168,9 @@ async function scrubWeekClientDupes_(env) {
         mk: mk,
         day: drop.day_name,
         dateIso: drop.date_iso,
-        client: drop.client
+        client: drop.client,
+        sameDateSurvivor: true
       });
-      try {
-        await putSnap_(env, "delTomb:" + String(drop.day_name) + ":" + mk, {
-          mk: mk,
-          day: drop.day_name,
-          at: Date.now(),
-          reason: "week_dupe_scrub"
-        });
-      } catch (eT) {}
     } catch (eDel) {}
   }
   if (removed) {
@@ -19183,9 +19203,17 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
     }
   }
   // сначала актуальные даты недели, потом сброс ops (сравнение date в rebuildCourier)
+  const liveSlotIso = Object.create(null);
   try {
     const liveCounts = await gasProxy_("getWeekDayCounts", {}, env, { write: false });
     if (liveCounts && liveCounts.status === "success") {
+      const liveItems = (liveCounts && liveCounts.items) || [];
+      for (let li = 0; li < liveItems.length; li++) {
+        const itL = liveItems[li];
+        if (!itL || !itL.day) continue;
+        const isoL = dmyToIso_(itL.date);
+        if (isoL) liveSlotIso[String(itL.day)] = isoL;
+      }
       await cutoverStoreRead_("getWeekDayCounts", {}, env, liveCounts);
     }
   } catch (eCnt) {}
@@ -19234,7 +19262,8 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
             skipProtectMissing: true,
             ignoreTombstones: true,
             forceShrink: forceGasReplace,
-            allowEmptyGasWipe: forceGasReplace
+            allowEmptyGasWipe: forceGasReplace,
+            slotIso: liveSlotIso[day] || ""
           });
           if (rep && rep.aborted && !forceGasReplace) {
             await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: false });
@@ -19314,6 +19343,9 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
       for (let di = 0; di < dropped.length; di++) {
         const d = dropped[di];
         if (!d) continue;
+        // Копия на ту же дату: снимаем только лишнюю строку D1. GAS delete по нику+дате
+        // сносит и основную запись и ставит delTomb.
+        if (d.sameDateSurvivor) continue;
         try {
           await gasProxy_(
             "deleteClient",

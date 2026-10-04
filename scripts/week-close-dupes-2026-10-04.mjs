@@ -1,0 +1,574 @@
+#!/usr/bin/env node
+/**
+ * Дубли после закрытия недели 04.10.2026.
+ * По умолчанию DRY RUN: только чтение D1.
+ * Apply: APPLY_CONFIRM=delete-week-close-dupes-2026-10-04 и APPLY_IDS
+ * точно как строка плана. GAS / календарь / брони / лист / карточки ПП /
+ * tombs / sheet_outbox не трогает.
+ */
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const CONFIRM = "delete-week-close-dupes-2026-10-04";
+const OUT_DIR = path.join(root, "artifacts/week-close-dupes-2026-10-04");
+
+const A_TARGETS = [
+  { label: "evgenia_In", main: "2026-10-06", copy: "2026-09-29" },
+  { label: "_ann22_", main: "2026-10-06", copy: "2026-09-29" },
+  { label: "polotno_an", main: "2026-10-07", copy: "2026-09-30" },
+  { label: "confettins97", main: "2026-10-07", copy: "2026-09-30" },
+  { label: "karpusha_me", main: "2026-10-07", copy: "2026-09-30" },
+  { label: "Наталья Фалютинская", main: "2026-10-09", copy: "2026-10-02" }
+];
+
+const DAY_BY_ISO = {
+  "2026-10-05": "Понедельник",
+  "2026-10-06": "Вторник",
+  "2026-10-07": "Среда",
+  "2026-10-08": "Четверг",
+  "2026-10-09": "Пятница",
+  "2026-10-10": "Суббота",
+  "2026-10-11": "Воскресенье",
+  "2026-10-12": "Будущая неделя"
+};
+
+function looseKey(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/[._\s@]/g, "");
+}
+
+function normAddr(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normClient(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseJson(raw, fallback) {
+  if (raw && typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw || "") ?? fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function basketItems(row) {
+  const arr = parseJson(row && row.basket_json, []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function basketBrief(row) {
+  return basketItems(row)
+    .map((it) => {
+      it = it || {};
+      const name = String(it.name || it.main || "").trim();
+      const sub = String(it.sub || "").trim();
+      const val = it.val != null ? it.val : it.value != null ? it.value : "";
+      if (!name) return "";
+      return name + (sub ? "/" + sub : "") + (val !== "" ? "×" + val : "");
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function priceScore(row) {
+  const m = parseJson(row && row.meta_json, {});
+  let n = 0;
+  ["orderPrice", "statedCost", "factCost", "clientPrice"].forEach((k) => {
+    const v = m && m[k];
+    if (v != null && String(v).trim() !== "") n++;
+  });
+  return n;
+}
+
+function score(row) {
+  const basket = basketItems(row).filter((it) => it && (it.name || it.main)).length;
+  return {
+    basket,
+    prices: priceScore(row),
+    phone: String((row && row.phone) || "").trim() ? 1 : 0,
+    address: String((row && row.address) || "").trim() ? 1 : 0,
+    note: String((row && row.note) || "").trim() ? 1 : 0
+  };
+}
+
+function notPoorer(main, other) {
+  const a = score(main);
+  const b = score(other);
+  return a.basket >= b.basket && a.prices >= b.prices && a.phone >= b.phone && a.address >= b.address && a.note >= b.note;
+}
+
+function rowMatchesLabel(row, label) {
+  const want = looseKey(label);
+  if (!want) return false;
+  const mk = looseKey(row.match_key);
+  const client = looseKey(row.client);
+  if (mk === want || client === want) return true;
+  const raw = String(row.client || "");
+  if (raw.toLowerCase().includes(String(label).toLowerCase())) return true;
+  return false;
+}
+
+function lineOf(row) {
+  return (
+    "id=" +
+    row.id +
+    " date=" +
+    row.date_iso +
+    " day=" +
+    (row.day_name || "—") +
+    " updated_at=" +
+    (row.updated_at || "") +
+    " basket=" +
+    (basketBrief(row) || "—")
+  );
+}
+
+function classify(rows) {
+  const active = (rows || []).filter((r) => r && String(r.status || "active") === "active");
+  const plan = [];
+  const manual = [];
+  const plannedIds = Object.create(null);
+
+  function addDupe(kind, dup, main) {
+    if (!dup || !main || dup.id === main.id) return;
+    if (plannedIds[dup.id]) return;
+    plannedIds[dup.id] = true;
+    plan.push({ kind, dup, main });
+  }
+
+  for (let i = 0; i < A_TARGETS.length; i++) {
+    const t = A_TARGETS[i];
+    const hits = active.filter((r) => rowMatchesLabel(r, t.label));
+    const mains = hits.filter((r) => r.date_iso === t.main);
+    const copies = hits.filter((r) => r.date_iso === t.copy);
+    if (!mains.length || !copies.length) continue;
+    if (mains.length !== 1) {
+      manual.push({
+        kind: "A",
+        why: t.label + ": несколько основных на " + t.main + ", не удалять",
+        rows: mains.concat(copies)
+      });
+      continue;
+    }
+    const main = mains[0];
+    for (let c = 0; c < copies.length; c++) {
+      if (notPoorer(main, copies[c])) addDupe("A", copies[c], main);
+      else {
+        manual.push({
+          kind: "A",
+          why: t.label + ": копия на " + t.copy + " богаче основной, не удалять",
+          rows: [copies[c], main]
+        });
+      }
+    }
+  }
+
+  const groups = Object.create(null);
+  for (let i = 0; i < active.length; i++) {
+    const r = active[i];
+    if (r.date_iso < "2026-10-05" || r.date_iso > "2026-10-11") continue;
+    const key = [r.date_iso, String(r.match_key || ""), normClient(r.client), normAddr(r.address)].join("|");
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  }
+  Object.keys(groups).forEach((key) => {
+    const g = groups[key];
+    if (g.length < 2) return;
+    const iso = g[0].date_iso;
+    const wantDay = DAY_BY_ISO[iso] || "";
+    const correct = g.filter((r) => String(r.day_name || "") === wantDay);
+    if (!correct.length) {
+      manual.push({ kind: "B", why: "нет строки с day_name " + wantDay + " на " + iso, rows: g });
+      return;
+    }
+    const keeper = correct.slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0];
+    const poorer = g.some((r) => r.id !== keeper.id && !notPoorer(keeper, r));
+    if (poorer) {
+      manual.push({ kind: "B", why: "строка с верным днём беднее другой на " + iso, rows: g });
+      return;
+    }
+    for (let i = 0; i < g.length; i++) {
+      if (g[i].id !== keeper.id) addDupe("B", g[i], keeper);
+    }
+  });
+
+  const byMk = Object.create(null);
+  for (let i = 0; i < active.length; i++) {
+    const r = active[i];
+    const mk = String(r.match_key || "");
+    if (!mk) continue;
+    if (!byMk[mk]) byMk[mk] = [];
+    byMk[mk].push(r);
+  }
+  Object.keys(byMk).forEach((mk) => {
+    const list = byMk[mk];
+    const mondays = list.filter((r) => r.date_iso === "2026-10-05" && String(r.day_name || "") === "Понедельник");
+    const futures = list.filter((r) => r.date_iso === "2026-10-12");
+    if (!mondays.length || !futures.length) return;
+    if (mondays.length !== 1) {
+      manual.push({ kind: "C", why: mk + ": несколько Пн 05.10, не удалять 12.10", rows: mondays.concat(futures) });
+      return;
+    }
+    const main = mondays[0];
+    const richerFuture = futures.some((r) => !notPoorer(main, r));
+    if (richerFuture) {
+      manual.push({
+        kind: "C",
+        why: mk + ": Пн 05.10 беднее строки на 12.10, вручную, не удалять",
+        rows: [main].concat(futures)
+      });
+      return;
+    }
+    for (let i = 0; i < futures.length; i++) addDupe("C", futures[i], main);
+  });
+
+  plan.sort((a, b) => String(a.dup.id).localeCompare(String(b.dup.id)));
+  const applyIds = plan.map((p) => p.dup.id).join(",");
+  return { plan, manual, applyIds };
+}
+
+function formatReport(classified) {
+  const lines = [];
+  lines.push("DRY RUN week-close dupes 2026-10-04");
+  ["A", "B", "C"].forEach((kind) => {
+    const part = classified.plan.filter((p) => p.kind === kind);
+    lines.push("");
+    lines.push(kind === "A" ? "A) копия на −7" : kind === "B" ? "B) одна дата 05.10–11.10" : "C) Пн 05.10 продублирован на 12.10");
+    if (!part.length) {
+      lines.push("(нет)");
+      return;
+    }
+    part.forEach((p) => {
+      lines.push("дубль " + lineOf(p.dup) + "  ⇢  основная " + lineOf(p.main));
+    });
+  });
+  lines.push("");
+  lines.push("вручную");
+  if (!classified.manual.length) lines.push("(нет)");
+  classified.manual.forEach((m) => {
+    lines.push("- " + m.why);
+    (m.rows || []).forEach((r) => lines.push("  " + lineOf(r)));
+  });
+  lines.push("");
+  lines.push("APPLY_IDS=" + classified.applyIds);
+  return lines.join("\n");
+}
+
+function parseWrangler(text) {
+  const s = String(text || "");
+  const start = s.indexOf("[");
+  const end = s.lastIndexOf("]");
+  if (start < 0 || end < start) throw new Error("wrangler: нет JSON в ответе");
+  const parsed = JSON.parse(s.slice(start, end + 1));
+  if (Array.isArray(parsed) && parsed[0] && Array.isArray(parsed[0].results)) return parsed[0].results;
+  if (parsed && Array.isArray(parsed.results)) return parsed.results;
+  throw new Error("wrangler: неожиданный JSON");
+}
+
+function d1(sql) {
+  const out = execFileSync(
+    "npx",
+    ["--yes", "wrangler", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql],
+    {
+      cwd: path.join(root, "boinya-c/proxy"),
+      env: process.env,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024
+    }
+  );
+  return parseWrangler(out);
+}
+
+function sqlLit(v) {
+  return "'" + String(v == null ? "" : v).replace(/'/g, "''") + "'";
+}
+
+function writeOut(name, text) {
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.writeFileSync(path.join(OUT_DIR, name), text);
+}
+
+function selfTest() {
+  const rows = [
+    {
+      id: "tue-main",
+      date_iso: "2026-10-06",
+      day_name: "Вторник",
+      client: "evgenia_In",
+      match_key: "EVGENIAIN",
+      address: "a",
+      note: "n",
+      phone: "111",
+      basket_json: '[{"name":"ЛЁГКОЕ","val":100}]',
+      meta_json: '{"orderPrice":10}',
+      status: "active",
+      updated_at: "2026-10-04T18:00:00.000Z"
+    },
+    {
+      id: "tue-copy",
+      date_iso: "2026-09-29",
+      day_name: "Вторник",
+      client: "evgenia_In",
+      match_key: "EVGENIAIN",
+      address: "a",
+      note: "",
+      phone: "",
+      basket_json: "[]",
+      meta_json: "{}",
+      status: "active",
+      updated_at: "2026-09-29T10:00:00.000Z"
+    },
+    {
+      id: "same-good",
+      date_iso: "2026-10-05",
+      day_name: "Понедельник",
+      client: "dupemon",
+      match_key: "DUPEMON",
+      address: "ул одна",
+      note: "n",
+      phone: "1",
+      basket_json: '[{"name":"СЕРДЦЕ","val":50}]',
+      meta_json: '{"orderPrice":5}',
+      status: "active",
+      updated_at: "2026-10-04T12:00:00.000Z"
+    },
+    {
+      id: "same-extra",
+      date_iso: "2026-10-05",
+      day_name: "Будущая неделя",
+      client: "dupemon",
+      match_key: "DUPEMON",
+      address: "ул одна",
+      note: "",
+      phone: "",
+      basket_json: "[]",
+      meta_json: "{}",
+      status: "active",
+      updated_at: "2026-10-03T12:00:00.000Z"
+    },
+    {
+      id: "varka-1",
+      date_iso: "2026-10-06",
+      day_name: "Вторник",
+      client: "varka",
+      match_key: "VARKA",
+      address: "точка А",
+      note: "",
+      phone: "",
+      basket_json: "[]",
+      meta_json: "{}",
+      status: "active",
+      updated_at: "2026-10-04T12:00:00.000Z"
+    },
+    {
+      id: "varka-2",
+      date_iso: "2026-10-06",
+      day_name: "Вторник",
+      client: "varka",
+      match_key: "VARKA",
+      address: "точка Б",
+      note: "",
+      phone: "",
+      basket_json: "[]",
+      meta_json: "{}",
+      status: "active",
+      updated_at: "2026-10-04T12:00:00.000Z"
+    },
+    {
+      id: "mon-main",
+      date_iso: "2026-10-05",
+      day_name: "Понедельник",
+      client: "mondayperson",
+      match_key: "MONDAYPERSON",
+      address: "дом",
+      note: "n",
+      phone: "1",
+      basket_json: '[{"name":"ПОЧКИ","val":100}]',
+      meta_json: '{"orderPrice":8}',
+      status: "active",
+      updated_at: "2026-10-04T12:00:00.000Z"
+    },
+    {
+      id: "mon-future",
+      date_iso: "2026-10-12",
+      day_name: "Будущая неделя",
+      client: "mondayperson",
+      match_key: "MONDAYPERSON",
+      address: "дом",
+      note: "",
+      phone: "",
+      basket_json: "[]",
+      meta_json: "{}",
+      status: "active",
+      updated_at: "2026-10-04T19:00:00.000Z"
+    },
+    {
+      id: "poor-mon",
+      date_iso: "2026-10-05",
+      day_name: "Понедельник",
+      client: "poor",
+      match_key: "POOR",
+      address: "",
+      note: "",
+      phone: "",
+      basket_json: "[]",
+      meta_json: "{}",
+      status: "active",
+      updated_at: "2026-10-04T12:00:00.000Z"
+    },
+    {
+      id: "rich-future",
+      date_iso: "2026-10-12",
+      day_name: "Будущая неделя",
+      client: "poor",
+      match_key: "POOR",
+      address: "дом",
+      note: "есть",
+      phone: "1",
+      basket_json: '[{"name":"УХО","val":1}]',
+      meta_json: '{"orderPrice":9}',
+      status: "active",
+      updated_at: "2026-10-04T19:00:00.000Z"
+    }
+  ];
+  const c = classify(rows);
+  const ids = c.plan.map((p) => p.dup.id).sort();
+  const expect = ["mon-future", "same-extra", "tue-copy"];
+  if (JSON.stringify(ids) !== JSON.stringify(expect)) {
+    console.error("self-test plan", ids, "expected", expect);
+    process.exit(1);
+  }
+  if (!c.manual.some((m) => m.kind === "C" && m.why.includes("POOR"))) {
+    console.error("self-test: бедный Пн должен остаться вручную");
+    process.exit(1);
+  }
+  if (c.plan.some((p) => p.dup.id === "varka-1" || p.dup.id === "varka-2")) {
+    console.error("self-test: разные адреса Варки склеились");
+    process.exit(1);
+  }
+  if (formatReport(c).includes("111")) {
+    console.error("self-test: в отчёте телефон");
+    process.exit(1);
+  }
+  console.log("self-test ok");
+  console.log(formatReport(c));
+}
+
+if (process.argv.includes("--self-test")) {
+  selfTest();
+  process.exit(0);
+}
+
+const mode = String(process.env.MODE || "dry-run").trim().toLowerCase();
+const confirm = String(process.env.APPLY_CONFIRM || "").trim();
+const givenIds = String(process.env.APPLY_IDS || "").trim();
+const wantApply = mode === "apply";
+
+let rows = [];
+try {
+  rows = d1(
+    "SELECT id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json FROM orders WHERE status = 'active' AND date_iso >= '2026-09-28' AND date_iso <= '2026-10-12'"
+  );
+} catch (e) {
+  const raw = String((e && e.stderr) || (e && e.message) || e);
+  const why = /CLOUDFLARE_API_TOKEN/.test(raw)
+    ? "в окружении нет CLOUDFLARE_API_TOKEN"
+    : raw.split("\n")[0];
+  const msg = "DRY RUN не выполнен: нет чтения D1 (" + why + ")";
+  console.error(msg);
+  try {
+    writeOut("plan.txt", msg + "\n");
+  } catch (eW) {}
+  process.exit(2);
+}
+
+const classified = classify(rows);
+const report = formatReport(classified).replace(/^DRY RUN/, wantApply ? "APPLY REQUEST" : "DRY RUN");
+console.log(report);
+writeOut("plan.txt", report + "\n");
+writeOut(
+  "backup.json",
+  JSON.stringify(
+    {
+      at: new Date().toISOString(),
+      applyIds: classified.applyIds,
+      rows: classified.plan
+        .map((p) => [p.dup, p.main])
+        .flat()
+        .map((r) => {
+          const copy = Object.assign({}, r);
+          delete copy.phone;
+          return copy;
+        })
+    },
+    null,
+    2
+  )
+);
+
+if (!wantApply) process.exit(0);
+
+if (confirm !== CONFIRM) {
+  console.error("apply отклонён: нужен APPLY_CONFIRM=" + CONFIRM);
+  process.exit(2);
+}
+if (givenIds !== classified.applyIds) {
+  console.error("apply отклонён: APPLY_IDS не совпал с текущим планом");
+  console.error("план  " + classified.applyIds);
+  console.error("дан   " + givenIds);
+  process.exit(2);
+}
+if (!classified.plan.length) {
+  console.log("план пуст, записей нет");
+  process.exit(0);
+}
+
+const now = new Date().toISOString();
+for (let i = 0; i < classified.plan.length; i++) {
+  const p = classified.plan[i];
+  const sql =
+    "UPDATE orders SET status = 'deleted', updated_at = " +
+    sqlLit(now) +
+    " WHERE id = " +
+    sqlLit(p.dup.id) +
+    " AND status = 'active' AND date_iso = " +
+    sqlLit(p.dup.date_iso) +
+    " AND match_key = " +
+    sqlLit(p.dup.match_key) +
+    " AND EXISTS (SELECT 1 FROM orders AS main WHERE main.id = " +
+    sqlLit(p.main.id) +
+    " AND main.status = 'active' AND main.id != orders.id)";
+  d1(sql);
+}
+
+const mainIds = [];
+classified.plan.forEach((p) => {
+  if (mainIds.indexOf(p.main.id) < 0) mainIds.push(p.main.id);
+});
+const check = d1(
+  "SELECT id, status FROM orders WHERE id IN (" + mainIds.map(sqlLit).join(",") + ")"
+);
+const dead = mainIds.filter((id) => !check.some((r) => r.id === id && r.status === "active"));
+if (dead.length) {
+  console.error("основные не active после apply: " + dead.join(","));
+  process.exit(1);
+}
+console.log("apply ok, основные active: " + mainIds.length);

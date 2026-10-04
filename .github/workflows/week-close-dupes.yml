@@ -1,0 +1,50 @@
+# Дубли после закрытия недели 04.10.2026. По умолчанию только чтение.
+# Apply: mode=apply, confirm=delete-week-close-dupes-2026-10-04, apply_ids=строка APPLY_IDS из dry-run.
+name: week-close-dupes
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run or apply"
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirm:
+        description: "Для apply: delete-week-close-dupes-2026-10-04"
+        required: false
+        default: ""
+      apply_ids:
+        description: "Для apply: точная строка APPLY_IDS из последнего dry-run"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  dupes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Plan week-close dupes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MODE: ${{ inputs.mode }}
+          APPLY_CONFIRM: ${{ inputs.confirm }}
+          APPLY_IDS: ${{ inputs.apply_ids }}
+        run: node scripts/week-close-dupes-2026-10-04.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: week-close-dupes-plan
+          path: artifacts/week-close-dupes-2026-10-04/
+          if-no-files-found: warn
