@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Дубли после закрытия недели 04.10.2026.
- * По умолчанию DRY RUN: только чтение D1.
+ * По умолчанию DRY RUN: только чтение D1 (локально, если токен умеет query).
+ * CI ходит в Worker POST /admin/week-close-dupes: токен CI D1 query не имеет.
  * Apply: APPLY_CONFIRM=delete-week-close-dupes-2026-10-04 и APPLY_IDS
  * точно как строка плана. GAS / календарь / брони / лист / карточки ПП /
  * tombs / sheet_outbox не трогает.
@@ -9,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -492,12 +494,167 @@ function selfTest() {
     console.error("self-test: в отчёте телефон");
     process.exit(1);
   }
+  const worker = loadWorkerDupes_();
+  const c2 = worker.weekCloseDupesClassify_(rows);
+  if (c2.applyIds !== c.applyIds) {
+    console.error("worker classify разошёлся", c2.applyIds, c.applyIds);
+    process.exit(1);
+  }
+  const pub = JSON.stringify(worker.weekCloseDupesPublicPlan_(c2));
+  const workerReport = worker.weekCloseDupesFormat_(c2);
+  if (pub.includes("+375291112233") || pub.includes("375291112233") || pub.includes('"phone"')) {
+    console.error("self-test: публичный план Worker содержит телефон");
+    process.exit(1);
+  }
+  if (workerReport.includes("+375291112233") || /phone\s*=/.test(workerReport)) {
+    console.error("self-test: отчёт Worker содержит телефон");
+    process.exit(1);
+  }
   console.log("self-test ok");
   console.log(formatReport(c));
 }
 
+function loadWorkerDupes_() {
+  const src = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
+  if (!src.includes('url.pathname === "/admin/week-close-dupes"')) {
+    console.error("worker: нет POST /admin/week-close-dupes");
+    process.exit(1);
+  }
+  const start = src.indexOf("var WEEK_CLOSE_DUPES_CONFIRM_");
+  const end = src.indexOf("\nfunction json(obj, status)", start);
+  if (start < 0 || end < 0) {
+    console.error("worker: блок дублей не найден");
+    process.exit(1);
+  }
+  const block = src.slice(start, end);
+  [
+    'WEEK_CLOSE_DUPES_CONFIRM_ = "delete-week-close-dupes-2026-10-04"',
+    "DUPES_ADMIN_TOKEN",
+    "x-dupes-admin-token",
+    "UPDATE orders SET status = 'deleted', updated_at = ?",
+    "AND status = 'active' AND date_iso = ?",
+    "AND match_key = ?",
+    "main.status = 'active' AND main.id != orders.id",
+    'if (k === "phone") return;'
+  ].forEach((needle) => {
+    if (!block.includes(needle)) {
+      console.error("worker source missing: " + needle);
+      process.exit(1);
+    }
+  });
+  const admin = block.slice(block.indexOf("async function weekCloseDupesAdmin_"));
+  ["gasProxy_", "putSnap_", "sheet_outbox", "deleteClient", "removeCalendarClient"].forEach((bad) => {
+    if (admin.includes(bad)) {
+      console.error("worker admin трогает " + bad);
+      process.exit(1);
+    }
+  });
+  const fns = block.slice(0, block.indexOf("async function weekCloseDupesLoad_"));
+  const ctx = vm.createContext({});
+  vm.runInContext(fns, ctx);
+  return ctx;
+}
+
+function ciBody() {
+  const file =
+    process.env.APPROVED_FILE || path.join(root, "scripts/week-close-dupes-approved.json");
+  function emit(obj) {
+    process.stdout.write(JSON.stringify(obj));
+  }
+  if (!fs.existsSync(file)) {
+    emit({ mode: "dry-run" });
+    console.error("нет scripts/week-close-dupes-approved.json — dry-run");
+    return;
+  }
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    emit({ mode: "dry-run" });
+    console.error("файл подтверждения не JSON — остаётся dry-run");
+    process.exitCode = 2;
+    return;
+  }
+  const got = String((data && data.confirm) || "").trim();
+  const ids = data && data.applyIds;
+  if (got === CONFIRM && typeof ids === "string") {
+    emit({ mode: "apply", confirm: got, applyIds: ids });
+    console.error("apply по файлу подтверждения");
+    return;
+  }
+  emit({ mode: "dry-run" });
+  console.error("файл подтверждения без верного confirm и applyIds — остаётся dry-run");
+  process.exitCode = 2;
+}
+
 if (process.argv.includes("--self-test")) {
   selfTest();
+  process.exit(0);
+}
+
+if (process.argv.includes("--ci-body")) {
+  ciBody();
+  process.exit(process.exitCode || 0);
+}
+
+const checkAt = process.argv.indexOf("--check-response");
+if (checkAt >= 0) {
+  const file = process.argv[checkAt + 1];
+  const code = String(process.argv[checkAt + 2] || "");
+  const bodyRc = Number(process.argv[checkAt + 3] || "0");
+  const raw = fs.readFileSync(file, "utf8");
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    console.error(raw.slice(0, 4000));
+    console.error("ответ Worker не JSON, HTTP " + code);
+    process.exit(1);
+  }
+  function walk(node) {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    Object.keys(node).forEach((k) => {
+      if (String(k).toLowerCase() === "phone") {
+        console.error("в ответе есть ключ phone");
+        process.exit(1);
+      }
+      walk(node[k]);
+    });
+  }
+  walk(data);
+  const report = String(data.report || "");
+  if (/phone\s*=/.test(report)) {
+    console.error("в отчёте есть phone=");
+    process.exit(1);
+  }
+  console.log(report);
+  writeOut("plan.txt", report + "\n");
+  writeOut("response.json", raw.endsWith("\n") ? raw : raw + "\n");
+  const modeOut = String(data.mode || "");
+  const status = String(data.status || "");
+  if (bodyRc !== 0 && bodyRc !== 2) {
+    console.error("разбор файла подтверждения завершился кодом " + bodyRc);
+    process.exit(1);
+  }
+  if (modeOut === "dry-run") {
+    if (code !== "200" || status !== "success") {
+      console.error("dry-run не success, HTTP " + code + " status=" + status);
+      process.exit(1);
+    }
+    if (bodyRc === 2) {
+      console.error("файл подтверждения битый — apply не делался, dry-run выше");
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+  if (code !== "200" || status !== "success") {
+    console.error("apply не success, HTTP " + code + " status=" + status);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
