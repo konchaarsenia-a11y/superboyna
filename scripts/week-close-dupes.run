@@ -1,0 +1,2 @@
+# Пуш этого файла на main запускает workflow week-close-dupes.
+# Без scripts/week-close-dupes-approved.json запуск всегда dry-run.

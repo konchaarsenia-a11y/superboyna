@@ -1,58 +1,110 @@
-# Дубли после закрытия недели 04.10.2026. По умолчанию только чтение.
-# Apply: mode=apply, confirm=delete-week-close-dupes-2026-10-04, apply_ids=строка APPLY_IDS из dry-run.
+# Дубли после закрытия недели 04.10.2026.
+# D1 из CI не читается (токен не имеет права query). Чтение идёт через Worker,
+# у которого есть binding DB. Этот workflow Worker не деплоит.
+# Порядок: дождаться boinya-c-worker* (deploy + promote 100%), затем secret put,
+# затем POST /admin/week-close-dupes, в конце всегда secret delete.
+# Apply только если в репо есть scripts/week-close-dupes-approved.json
+# с confirm и applyIds. Без файла — всегда dry-run.
 name: week-close-dupes
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "dry-run or apply"
-        required: true
-        default: dry-run
-        type: choice
-        options:
-          - dry-run
-          - apply
-      confirm:
-        description: "Для apply: delete-week-close-dupes-2026-10-04"
-        required: false
-        default: ""
-      apply_ids:
-        description: "Для apply: точная строка APPLY_IDS из последнего dry-run"
-        required: false
-        default: ""
   push:
     branches: [main]
     paths:
       - .github/workflows/week-close-dupes.yml
       - scripts/week-close-dupes-2026-10-04.mjs
+      - scripts/week-close-dupes-wait-deploy.py
+      - scripts/week-close-dupes.run
+      - scripts/week-close-dupes-approved.json
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: week-close-dupes
+  cancel-in-progress: false
 
 jobs:
   dupes:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Plan week-close dupes
+      - name: Classification self-test
+        run: |
+          node --check boinya-c/proxy/worker.js
+          node --check scripts/week-close-dupes-2026-10-04.mjs
+          node scripts/week-close-dupes-2026-10-04.mjs --self-test
+          python3 scripts/week-close-dupes-wait-deploy.py --self-test
+      - name: Wait until Worker deploy promoted this SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/week-close-dupes-wait-deploy.py
+      - name: Call Worker admin route
+        working-directory: boinya-c/proxy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # push на main всегда dry-run. apply только workflow_dispatch с confirm.
-          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
-          APPLY_CONFIRM: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm || '' }}
-          APPLY_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_ids || '' }}
         run: |
+          set -euo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
             unset CLOUDFLARE_ACCOUNT_ID
           fi
-          node scripts/week-close-dupes-2026-10-04.mjs
+          BODY="$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/request.json"
+          mkdir -p "$(dirname "$BODY")"
+          set +e
+          node "$GITHUB_WORKSPACE/scripts/week-close-dupes-2026-10-04.mjs" --ci-body > "$BODY"
+          body_rc=$?
+          set -e
+          python3 -c 'import json,sys; print("request mode:", json.load(open(sys.argv[1]))["mode"])' "$BODY"
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          put_ok=0
+          for i in 1 2 3 4 5 6; do
+            if printf '%s' "$TOKEN" | npx wrangler@4 secret put DUPES_ADMIN_TOKEN; then
+              put_ok=1
+              break
+            fi
+            echo "secret put не прошёл (попытка $i), ждём пока последняя версия будет на 100%"
+            sleep 20
+          done
+          test "$put_ok" = 1
+          OUT="$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/response.json"
+          code="000"
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -sS -o "$OUT" -w "%{http_code}" \
+              -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/week-close-dupes" \
+              -H "Content-Type: application/json" \
+              -H "X-Dupes-Admin-Token: $TOKEN" \
+              --data-binary @"$BODY" \
+              --max-time 120 || true)
+            echo "HTTP $code (попытка $i)"
+            if [ "$code" = "200" ] || [ "$code" = "400" ]; then
+              break
+            fi
+            sleep 15
+          done
+          node "$GITHUB_WORKSPACE/scripts/week-close-dupes-2026-10-04.mjs" --check-response "$OUT" "$code" "$body_rc"
+      - name: Delete one-time DUPES_ADMIN_TOKEN
+        if: always()
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: "true"
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          npx wrangler@4 secret delete DUPES_ADMIN_TOKEN
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -835,6 +835,9 @@ export default {
     }
 
     const url = new URL(request.url);
+    if (url.pathname === "/admin/week-close-dupes") {
+      return weekCloseDupesAdmin_(request, env);
+    }
     // Обход GitHub Pages: Menu Button → https://boinya-c.konchaarsenia.workers.dev/varka/
     if (
       request.method === "GET" &&
@@ -28005,6 +28008,408 @@ async function previewWeekCloseWarehouseD1_(params, env, ctx) {
   };
 }
 
+
+var WEEK_CLOSE_DUPES_CONFIRM_ = "delete-week-close-dupes-2026-10-04";
+
+function weekCloseDupesSecretOk_(request, env) {
+  var secret = String((env && env.DUPES_ADMIN_TOKEN) || "").trim();
+  if (!secret) return false;
+  var got = String((request.headers && request.headers.get("x-dupes-admin-token")) || "");
+  if (!got || got.length !== secret.length) return false;
+  var diff = 0;
+  for (var i = 0; i < secret.length; i++) diff |= secret.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
+function weekCloseDupesStripPhone_(value) {
+  if (Array.isArray(value)) {
+    return value.map(function (item) {
+      return weekCloseDupesStripPhone_(item);
+    });
+  }
+  if (!value || typeof value !== "object") return value;
+  var out = {};
+  Object.keys(value).forEach(function (k) {
+    if (k === "phone") return;
+    out[k] = weekCloseDupesStripPhone_(value[k]);
+  });
+  return out;
+}
+
+function weekCloseDupesPublicRow_(row) {
+  var copy = weekCloseDupesStripPhone_(row);
+  if (copy && typeof copy.meta_json === "string") {
+    try {
+      copy.meta_json = JSON.stringify(weekCloseDupesStripPhone_(JSON.parse(copy.meta_json)));
+    } catch (eMeta) {}
+  }
+  return copy;
+}
+
+function weekCloseDupesLooseKey_(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/[._\s@]/g, "");
+}
+
+function weekCloseDupesNormAddr_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function weekCloseDupesNormClient_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function weekCloseDupesParseJson_(raw, fallback) {
+  if (raw && typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw || "") ?? fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function weekCloseDupesBasketItems_(row) {
+  var arr = weekCloseDupesParseJson_(row && row.basket_json, []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function weekCloseDupesBasketBrief_(row) {
+  return weekCloseDupesBasketItems_(row)
+    .map(function (it) {
+      it = it || {};
+      var name = String(it.name || it.main || "").trim();
+      var sub = String(it.sub || "").trim();
+      var val = it.val != null ? it.val : it.value != null ? it.value : "";
+      if (!name) return "";
+      return name + (sub ? "/" + sub : "") + (val !== "" ? "×" + val : "");
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function weekCloseDupesScore_(row) {
+  var m = weekCloseDupesParseJson_(row && row.meta_json, {});
+  var prices = 0;
+  ["orderPrice", "statedCost", "factCost", "clientPrice"].forEach(function (k) {
+    var v = m && m[k];
+    if (v != null && String(v).trim() !== "") prices++;
+  });
+  return {
+    basket: weekCloseDupesBasketItems_(row).filter(function (it) {
+      return it && (it.name || it.main);
+    }).length,
+    prices: prices,
+    phone: String((row && row.phone) || "").trim() ? 1 : 0,
+    address: String((row && row.address) || "").trim() ? 1 : 0,
+    note: String((row && row.note) || "").trim() ? 1 : 0
+  };
+}
+
+function weekCloseDupesNotPoorer_(main, other) {
+  var a = weekCloseDupesScore_(main);
+  var b = weekCloseDupesScore_(other);
+  return a.basket >= b.basket && a.prices >= b.prices && a.phone >= b.phone && a.address >= b.address && a.note >= b.note;
+}
+
+function weekCloseDupesRowMatches_(row, label) {
+  var want = weekCloseDupesLooseKey_(label);
+  if (!want) return false;
+  if (weekCloseDupesLooseKey_(row.match_key) === want || weekCloseDupesLooseKey_(row.client) === want) return true;
+  return String(row.client || "")
+    .toLowerCase()
+    .includes(String(label).toLowerCase());
+}
+
+function weekCloseDupesLine_(row) {
+  return (
+    "id=" +
+    row.id +
+    " date=" +
+    row.date_iso +
+    " day=" +
+    (row.day_name || "—") +
+    " updated_at=" +
+    (row.updated_at || "") +
+    " basket=" +
+    (weekCloseDupesBasketBrief_(row) || "—")
+  );
+}
+
+function weekCloseDupesClassify_(rows) {
+  var targets = [
+    { label: "evgenia_In", main: "2026-10-06", copy: "2026-09-29" },
+    { label: "_ann22_", main: "2026-10-06", copy: "2026-09-29" },
+    { label: "polotno_an", main: "2026-10-07", copy: "2026-09-30" },
+    { label: "confettins97", main: "2026-10-07", copy: "2026-09-30" },
+    { label: "karpusha_me", main: "2026-10-07", copy: "2026-09-30" },
+    { label: "Наталья Фалютинская", main: "2026-10-09", copy: "2026-10-02" }
+  ];
+  var dayByIso = {
+    "2026-10-05": "Понедельник",
+    "2026-10-06": "Вторник",
+    "2026-10-07": "Среда",
+    "2026-10-08": "Четверг",
+    "2026-10-09": "Пятница",
+    "2026-10-10": "Суббота",
+    "2026-10-11": "Воскресенье",
+    "2026-10-12": "Будущая неделя"
+  };
+  var active = (rows || []).filter(function (r) {
+    return r && String(r.status || "active") === "active";
+  });
+  var plan = [];
+  var manual = [];
+  var plannedIds = Object.create(null);
+  function addDupe(kind, dup, main) {
+    if (!dup || !main || dup.id === main.id || plannedIds[dup.id]) return;
+    plannedIds[dup.id] = true;
+    plan.push({ kind: kind, dup: dup, main: main });
+  }
+  for (var i = 0; i < targets.length; i++) {
+    var t = targets[i];
+    var hits = active.filter(function (r) {
+      return weekCloseDupesRowMatches_(r, t.label);
+    });
+    var mains = hits.filter(function (r) {
+      return r.date_iso === t.main;
+    });
+    var copies = hits.filter(function (r) {
+      return r.date_iso === t.copy;
+    });
+    if (!mains.length || !copies.length) continue;
+    if (mains.length !== 1) {
+      manual.push({
+        kind: "A",
+        why: t.label + ": несколько основных на " + t.main + ", не удалять",
+        rows: mains.concat(copies)
+      });
+      continue;
+    }
+    for (var c = 0; c < copies.length; c++) {
+      if (weekCloseDupesNotPoorer_(mains[0], copies[c])) addDupe("A", copies[c], mains[0]);
+      else {
+        manual.push({
+          kind: "A",
+          why: t.label + ": копия на " + t.copy + " богаче основной, не удалять",
+          rows: [copies[c], mains[0]]
+        });
+      }
+    }
+  }
+  var groups = Object.create(null);
+  for (var gi = 0; gi < active.length; gi++) {
+    var r = active[gi];
+    if (r.date_iso < "2026-10-05" || r.date_iso > "2026-10-11") continue;
+    var key = [r.date_iso, String(r.match_key || ""), weekCloseDupesNormClient_(r.client), weekCloseDupesNormAddr_(r.address)].join("|");
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  }
+  Object.keys(groups).forEach(function (gkey) {
+    var g = groups[gkey];
+    if (g.length < 2) return;
+    var iso = g[0].date_iso;
+    var wantDay = dayByIso[iso] || "";
+    var correct = g.filter(function (row) {
+      return String(row.day_name || "") === wantDay;
+    });
+    if (!correct.length) {
+      manual.push({ kind: "B", why: "нет строки с day_name " + wantDay + " на " + iso, rows: g });
+      return;
+    }
+    var keeper = correct.slice().sort(function (a, b) {
+      return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+    })[0];
+    var poorer = g.some(function (row) {
+      return row.id !== keeper.id && !weekCloseDupesNotPoorer_(keeper, row);
+    });
+    if (poorer) {
+      manual.push({ kind: "B", why: "строка с верным днём беднее другой на " + iso, rows: g });
+      return;
+    }
+    for (var j = 0; j < g.length; j++) {
+      if (g[j].id !== keeper.id) addDupe("B", g[j], keeper);
+    }
+  });
+  var byMk = Object.create(null);
+  for (var mi = 0; mi < active.length; mi++) {
+    var rowM = active[mi];
+    var mk = String(rowM.match_key || "");
+    if (!mk) continue;
+    if (!byMk[mk]) byMk[mk] = [];
+    byMk[mk].push(rowM);
+  }
+  Object.keys(byMk).forEach(function (mk) {
+    var list = byMk[mk];
+    var mondays = list.filter(function (row) {
+      return row.date_iso === "2026-10-05" && String(row.day_name || "") === "Понедельник";
+    });
+    var futures = list.filter(function (row) {
+      return row.date_iso === "2026-10-12";
+    });
+    if (!mondays.length || !futures.length) return;
+    if (mondays.length !== 1) {
+      manual.push({ kind: "C", why: mk + ": несколько Пн 05.10, не удалять 12.10", rows: mondays.concat(futures) });
+      return;
+    }
+    var richerFuture = futures.some(function (row) {
+      return !weekCloseDupesNotPoorer_(mondays[0], row);
+    });
+    if (richerFuture) {
+      manual.push({
+        kind: "C",
+        why: mk + ": Пн 05.10 беднее строки на 12.10, вручную, не удалять",
+        rows: [mondays[0]].concat(futures)
+      });
+      return;
+    }
+    for (var fi = 0; fi < futures.length; fi++) addDupe("C", futures[fi], mondays[0]);
+  });
+  plan.sort(function (a, b) {
+    return String(a.dup.id).localeCompare(String(b.dup.id));
+  });
+  return { plan: plan, manual: manual, applyIds: plan.map(function (p) { return p.dup.id; }).join(",") };
+}
+
+function weekCloseDupesFormat_(classified) {
+  var lines = ["DRY RUN week-close dupes 2026-10-04"];
+  ["A", "B", "C"].forEach(function (kind) {
+    var part = classified.plan.filter(function (p) {
+      return p.kind === kind;
+    });
+    lines.push("");
+    lines.push(kind === "A" ? "A) копия на −7" : kind === "B" ? "B) одна дата 05.10–11.10" : "C) Пн 05.10 продублирован на 12.10");
+    if (!part.length) {
+      lines.push("(нет)");
+      return;
+    }
+    part.forEach(function (p) {
+      lines.push("дубль " + weekCloseDupesLine_(p.dup) + "  ⇢  основная " + weekCloseDupesLine_(p.main));
+    });
+  });
+  lines.push("");
+  lines.push("вручную");
+  if (!classified.manual.length) lines.push("(нет)");
+  classified.manual.forEach(function (m) {
+    lines.push("- " + m.why);
+    (m.rows || []).forEach(function (r) {
+      lines.push("  " + weekCloseDupesLine_(r));
+    });
+  });
+  lines.push("");
+  lines.push("APPLY_IDS=" + classified.applyIds);
+  return lines.join("\n");
+}
+
+function weekCloseDupesPublicPlan_(classified) {
+  return {
+    plan: classified.plan.map(function (p) {
+      return { kind: p.kind, dup: weekCloseDupesPublicRow_(p.dup), main: weekCloseDupesPublicRow_(p.main) };
+    }),
+    manual: classified.manual.map(function (m) {
+      return { kind: m.kind, why: m.why, rows: (m.rows || []).map(weekCloseDupesPublicRow_) };
+    }),
+    applyIds: classified.applyIds
+  };
+}
+
+async function weekCloseDupesLoad_(env) {
+  var q = await env.DB.prepare(
+    "SELECT id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json FROM orders WHERE status = 'active' AND date_iso >= '2026-09-28' AND date_iso <= '2026-10-12'"
+  ).all();
+  return (q && q.results) || [];
+}
+
+async function weekCloseDupesAdmin_(request, env) {
+  if (!request || request.method !== "POST" || !weekCloseDupesSecretOk_(request, env)) {
+    return new Response("not found", { status: 404 });
+  }
+  if (!env || !env.DB) return json({ status: "error", message: "no_d1" }, 500);
+  var body = {};
+  try {
+    body = await request.json();
+  } catch (eBody) {
+    body = {};
+  }
+  body = body || {};
+  var mode = String(body.mode || "dry-run").trim().toLowerCase();
+  var rows = await weekCloseDupesLoad_(env);
+  var classified = weekCloseDupesClassify_(rows);
+  var pub = weekCloseDupesPublicPlan_(classified);
+  var report = weekCloseDupesFormat_(classified);
+  if (mode !== "apply") {
+    return json({
+      status: "success",
+      mode: "dry-run",
+      plan: pub.plan,
+      manual: pub.manual,
+      applyIds: pub.applyIds,
+      report: report
+    });
+  }
+  var confirm = String(body.confirm || "").trim();
+  var applyIds = String(body.applyIds || "").trim();
+  if (confirm !== WEEK_CLOSE_DUPES_CONFIRM_ || applyIds !== classified.applyIds) {
+    return json(
+      {
+        status: "error",
+        message: "apply_rejected",
+        mode: "apply",
+        applyIds: pub.applyIds,
+        manual: pub.manual,
+        report: report
+      },
+      400
+    );
+  }
+  var now = new Date().toISOString();
+  var backup = [];
+  var deleted = [];
+  var skipped = [];
+  for (var i = 0; i < classified.plan.length; i++) {
+    var p = classified.plan[i];
+    backup.push(weekCloseDupesPublicRow_(p.dup));
+    var res = await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active' AND date_iso = ? AND match_key = ? AND EXISTS (SELECT 1 FROM orders AS main WHERE main.id = ? AND main.status = 'active' AND main.id != orders.id)"
+    )
+      .bind(now, p.dup.id, p.dup.date_iso, p.dup.match_key, p.main.id)
+      .run();
+    var changes = res && res.meta ? Number(res.meta.changes) || 0 : 0;
+    if (changes > 0) deleted.push(p.dup.id);
+    else skipped.push(p.dup.id);
+  }
+  var mainIds = [];
+  classified.plan.forEach(function (p) {
+    if (mainIds.indexOf(p.main.id) < 0) mainIds.push(p.main.id);
+  });
+  var dead = [];
+  for (var mi = 0; mi < mainIds.length; mi++) {
+    var mainRow = await env.DB.prepare("SELECT id, status FROM orders WHERE id = ?").bind(mainIds[mi]).first();
+    if (!mainRow || mainRow.status !== "active") dead.push(mainIds[mi]);
+  }
+  return json({
+    status: skipped.length || dead.length ? "error" : "success",
+    mode: "apply",
+    deleted: deleted,
+    skipped: skipped,
+    mainsActive: dead.length === 0,
+    deadMains: dead,
+    backup: backup,
+    applyIds: pub.applyIds,
+    report: report
+  });
+}
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
