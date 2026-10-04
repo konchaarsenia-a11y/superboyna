@@ -2,12 +2,6 @@ name: andrei-read
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cursor/andrei-oct5-card-f592
-    paths:
-      - "scripts/recover-andrei-read.mjs"
-      - ".github/workflows/andrei-read.yml"
 
 jobs:
   read:
