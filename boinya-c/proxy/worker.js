@@ -11027,6 +11027,238 @@ async function clearWriteGuard_(env, day, matchKey) {
   } catch (e) {}
 }
 
+/**
+ * Одна запись: id, иначе дата (+ слот, если на дату их несколько), иначе один day.
+ * Другая date_iso этого ника не входит. Карточка ПП отсюда не читается.
+ */
+function rowsForUserDelete_(rows, params) {
+  params = params || {};
+  const client = String(params.client || "").trim();
+  const matchKey = String(params.matchKey || params.client || "");
+  const dateIso = String(params.dateIso || params.date || "").trim();
+  const day = String(params.day || "").trim();
+  const id = String(params.id || params.orderId || "").trim();
+  const slot = String(params.ppSlot || params.deliverySlot || params.slot || "").trim();
+  let pool = (rows || []).filter(function (r) {
+    if (!r) return false;
+    if (String(r.status || "active").toLowerCase() === "deleted") return false;
+    return orderRowLooseMatch_(r, matchKey, client);
+  });
+  if (id) return pool.filter(function (r) { return String(r.id) === id; });
+  if (dateIso) {
+    pool = pool.filter(function (r) { return String(r.date_iso || "") === dateIso; });
+  } else if (day) {
+    pool = pool.filter(function (r) { return String(r.day_name || "") === day; });
+  } else {
+    return [];
+  }
+  if (slot && pool.length > 1) {
+    const want = slot.replace(/^пп\s*/i, "");
+    const slotted = pool.filter(function (r) {
+      let meta = r.meta;
+      if (!meta && r.meta_json) {
+        try { meta = JSON.parse(r.meta_json); } catch (eMeta) { meta = {}; }
+      }
+      meta = meta || {};
+      const s = String(meta.ppSlot || meta.deliverySlot || r.ppSlot || r.deliverySlot || "");
+      return s === slot || s.replace(/^пп\s*/i, "") === want;
+    });
+    if (slotted.length) pool = slotted;
+  }
+  return pool;
+}
+
+/** Дубль недели = та же date_iso на двух day_name. Другой день с другой датой не дубль. */
+function weekDupeDropIds_(rows) {
+  const byMk = Object.create(null);
+  for (let i = 0; i < (rows || []).length; i++) {
+    const r = rows[i];
+    if (!r || String(r.status || "active").toLowerCase() === "deleted") continue;
+    if (!String(r.day_name || "").trim()) continue;
+    const mk = normalizeMatchKey_(r.match_key || r.client || "");
+    if (!mk) continue;
+    if (!byMk[mk]) byMk[mk] = [];
+    byMk[mk].push(r);
+  }
+  const drop = [];
+  const mks = Object.keys(byMk);
+  for (let mi = 0; mi < mks.length; mi++) {
+    const byIso = Object.create(null);
+    const list = byMk[mks[mi]];
+    for (let j = 0; j < list.length; j++) {
+      const iso = String(list[j].date_iso || "");
+      if (!iso) continue;
+      if (!byIso[iso]) byIso[iso] = [];
+      byIso[iso].push(list[j]);
+    }
+    const isos = Object.keys(byIso);
+    for (let k = 0; k < isos.length; k++) {
+      const g = byIso[isos[k]];
+      for (let d = 1; d < g.length; d++) drop.push(g[d]);
+    }
+  }
+  return drop;
+}
+
+async function loadActiveOrdersForDelete_(env, matchKeyRaw, client, dateIso, day) {
+  const out = [];
+  const seen = Object.create(null);
+  function pushList(list) {
+    for (let i = 0; i < (list || []).length; i++) {
+      const r = list[i];
+      if (!r || !r.id || seen[r.id]) continue;
+      seen[r.id] = true;
+      out.push(r);
+    }
+  }
+  if (dateIso) {
+    try {
+      const q = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND date_iso = ? LIMIT 80"
+      )
+        .bind(dateIso)
+        .all();
+      pushList((q && q.results) || []);
+    } catch (eDate) {}
+  }
+  if (day) {
+    try {
+      const qDay = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND day_name = ? LIMIT 80"
+      )
+        .bind(day)
+        .all();
+      pushList((qDay && qDay.results) || []);
+    } catch (eDay) {}
+  }
+  const aliases = matchKeyAliases_(matchKeyRaw).concat(matchKeyAliases_(client));
+  const seenA = Object.create(null);
+  for (let ai = 0; ai < aliases.length; ai++) {
+    const a = aliases[ai];
+    if (!a || seenA[a]) continue;
+    seenA[a] = true;
+    try {
+      const qMk = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND match_key = ? LIMIT 30"
+      )
+        .bind(a)
+        .all();
+      pushList((qMk && qMk.results) || []);
+    } catch (eMk) {}
+  }
+  return out;
+}
+
+/** UI-delete: только эта запись. Не зовёт deleteSubscription_ и не ищет «ещё active где угодно». */
+async function deleteClientOneRecord_(params, env, ctx) {
+  ctx = ctx || {};
+  const day = String(ctx.day || "");
+  const dateIso = String(ctx.dateIso || "");
+  const client = String(ctx.client || "");
+  const matchKeyRaw = ctx.matchKeyRaw || client;
+  const mk = ctx.mk || normalizeMatchKey_(matchKeyRaw);
+  const calendarOnly = !!ctx.calendarOnly;
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const loaded = await loadActiveOrdersForDelete_(env, matchKeyRaw, client, dateIso, day);
+  const targets = rowsForUserDelete_(loaded, {
+    client: client,
+    matchKey: matchKeyRaw,
+    date: dateIso,
+    dateIso: dateIso,
+    day: day,
+    id: params.id || params.orderId || "",
+    ppSlot: params.ppSlot || params.deliverySlot || params.slot || ""
+  });
+  const now = new Date().toISOString();
+  let changed = 0;
+  const ids = [];
+  const days = [];
+  for (let i = 0; i < targets.length; i++) {
+    const row = targets[i];
+    if (!row || !row.id) continue;
+    if (dateIso && String(row.date_iso || "") !== dateIso) continue;
+    if (!dateIso && day && String(row.day_name || "") !== day) continue;
+    try {
+      const res = await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, row.id)
+        .run();
+      const n = Number((res && res.meta && res.meta.changes) || 0);
+      if (n) {
+        changed += n;
+        ids.push(String(row.id));
+        const dn = String(row.day_name || "");
+        if (dn && days.indexOf(dn) < 0) days.push(dn);
+        if (!dn && row.date_iso) {
+          try {
+            await putDeleteTombstone_(env, "", matchKeyRaw || client);
+            await putSnap_(env, "delTomb:CAL:" + String(row.date_iso) + ":" + mk, {
+              day: "",
+              dateIso: String(row.date_iso),
+              mk: mk,
+              at: Date.now()
+            });
+          } catch (eCalT) {}
+        }
+      }
+    } catch (eRow) {}
+  }
+  try {
+    for (let ti = 0; ti < days.length; ti++) {
+      await putDeleteTombstone_(env, days[ti], matchKeyRaw || client);
+      if (client && normalizeMatchKey_(client) !== mk) {
+        await putDeleteTombstone_(env, days[ti], client);
+      }
+      await clearWriteGuard_(env, days[ti], matchKeyRaw || client);
+      if (client) await clearWriteGuard_(env, days[ti], client);
+    }
+    if (calendarOnly && dateIso) {
+      await putDeleteTombstone_(env, "", matchKeyRaw || client);
+      await putSnap_(env, "delTomb:CAL:" + dateIso + ":" + mk, {
+        day: "",
+        dateIso: dateIso,
+        mk: mk,
+        at: Date.now()
+      });
+    }
+  } catch (eTomb) {}
+  if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
+    try { await clearMoveEpoch_(env, matchKeyRaw); } catch (eEp) {}
+  }
+  if (!skipHeavyInvalidate_(params) && days.length) {
+    try { await invalidateDays_(env, days); } catch (eInv) {}
+  }
+  if (changed === 0) {
+    return {
+      status: "success",
+      sandbox: true,
+      wrote: 0,
+      missing: true,
+      alreadyGone: true,
+      d1Verified: true,
+      oneRecord: true,
+      subscriptionUntouched: true,
+      day: day,
+      date: dateIso,
+      ids: ids
+    };
+  }
+  return {
+    status: "success",
+    sandbox: true,
+    wrote: changed,
+    missing: false,
+    d1Verified: true,
+    oneRecord: true,
+    subscriptionUntouched: true,
+    day: day,
+    date: dateIso,
+    ids: ids,
+    daysCleared: days
+  };
+}
+
 async function deleteClient_(params, env) {
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   let day = String(params.day || "");
@@ -11045,7 +11277,25 @@ async function deleteClient_(params, env) {
     toBool_(params._calendarOnly) ||
     /^removeCalendarClient$/i.test(String((params && params.action) || ""));
   if (!mk && !client) return { status: "error", message: "no_client" };
-  if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
+  if (!day && !dateIso && !String(params.id || params.orderId || "").trim()) {
+    return { status: "error", message: "need_day_or_date" };
+  }
+
+  // Явный delete из мини-аппа: только эта запись (id / дата+слот / один день).
+  // Не дни-кандидаты и не findActiveOrderByMatch_ — иначе соседний день и «дубль» одной клички.
+  const userOne =
+    !strictDay &&
+    (toBool_(params._userDelete) || toBool_(params._explicitDelete));
+  if (userOne) {
+    return await deleteClientOneRecord_(params, env, {
+      day: day,
+      dateIso: dateIso,
+      client: client,
+      matchKeyRaw: matchKeyRaw,
+      mk: mk,
+      calendarOnly: calendarOnly
+    });
+  }
 
   // removeCalendar / дата вне недели: не тащить day=Вт из UI — сносим по date_iso
   if (dateIso) {
@@ -17706,9 +17956,12 @@ async function cutoverStoreRead_(a, params, env, payload) {
             {
               client: dropWho,
               day: params.day,
+              date: payload.dateIso || payload.date || "",
               matchKey: normalizeMatchKey_(dropWho),
               _keepMoveEpoch: payload._explicitDelete ? "" : "1",
-              _strictDay: payload._explicitDelete ? "" : "1"
+              _strictDay: payload._explicitDelete ? "" : "1",
+              _userDelete: payload._explicitDelete ? "1" : "",
+              _explicitDelete: payload._explicitDelete ? "1" : ""
             },
             env
           );
@@ -18762,8 +19015,8 @@ async function clearCuttingFlagsForWeekDates_(env, countsPayload) {
 }
 
 /**
- * Один клиент на двух днях одной недели (типично: Будущая→Пн + materialize брони на Вт).
- * Оставляем самый ранний date_iso, остальные soft-delete в D1.
+ * Копия одной и той же date_iso на двух day_name (Пн и «Будущая»).
+ * Другая дата того же клиента — отдельная запись, не снимается.
  */
 async function scrubWeekClientDupes_(env) {
   if (!env || !env.DB) return { removed: 0, kept: [], dropped: [] };
@@ -18776,58 +19029,37 @@ async function scrubWeekClientDupes_(env) {
   } catch (eQ) {
     return { removed: 0, kept: [], dropped: [] };
   }
-  const byMk = Object.create(null);
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r) continue;
-    const mk = normalizeMatchKey_(r.match_key || r.client || "");
-    if (!mk) continue;
-    if (!byMk[mk]) byMk[mk] = [];
-    byMk[mk].push(r);
-  }
   const now = new Date().toISOString();
   let removed = 0;
   const kept = [];
   const dropped = [];
-  const mks = Object.keys(byMk);
-  for (let mi = 0; mi < mks.length; mi++) {
-    const list = byMk[mks[mi]] || [];
-    if (list.length < 2) continue;
-    list.sort(function (a, b) {
-      return String(a.date_iso || "").localeCompare(String(b.date_iso || ""));
-    });
-    const keep = list[0];
-    kept.push({
-      mk: mks[mi],
-      day: keep.day_name,
-      dateIso: keep.date_iso,
-      client: keep.client
-    });
-    for (let di = 1; di < list.length; di++) {
-      const drop = list[di];
+  const drops = weekDupeDropIds_(rows);
+  for (let di = 0; di < drops.length; di++) {
+    const drop = drops[di];
+    if (!drop) continue;
+    const mk = normalizeMatchKey_(drop.match_key || drop.client || "");
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, drop.id)
+        .run();
+      removed++;
+      dropped.push({
+        mk: mk,
+        day: drop.day_name,
+        dateIso: drop.date_iso,
+        client: drop.client
+      });
       try {
-        await env.DB.prepare(
-          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
-        )
-          .bind(now, drop.id)
-          .run();
-        removed++;
-        dropped.push({
-          mk: mks[mi],
+        await putSnap_(env, "delTomb:" + String(drop.day_name) + ":" + mk, {
+          mk: mk,
           day: drop.day_name,
-          dateIso: drop.date_iso,
-          client: drop.client
+          at: Date.now(),
+          reason: "week_dupe_scrub"
         });
-        try {
-          await putSnap_(env, "delTomb:" + String(drop.day_name) + ":" + mks[mi], {
-            mk: mks[mi],
-            day: drop.day_name,
-            at: Date.now(),
-            reason: "week_dupe_scrub"
-          });
-        } catch (eT) {}
-      } catch (eDel) {}
-    }
+      } catch (eT) {}
+    } catch (eDel) {}
   }
   if (removed) {
     try {

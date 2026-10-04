@@ -4535,6 +4535,32 @@ function isCancelledCalendarKey_(keys, client, matchKeyOpt) {
   return false;
 }
 
+/**
+ * Дни, чью колонку можно снять при удалении одной записи.
+ * Если есть дата доставки — только слоты с этой датой на листе (Пн и «Будущая» с одной датой).
+ * Без даты — только названный день. Другой день не входит. Карточку ПП эта функция не трогает.
+ */
+function daysToClearForDelete_(dayName, deliveryDateKey, dayDateKeys) {
+  var out = [];
+  function add(d) {
+    d = String(d || "").trim();
+    if (!d) return;
+    for (var i = 0; i < out.length; i++) if (out[i] === d) return;
+    out.push(d);
+  }
+  var want = String(deliveryDateKey || "").trim();
+  var named = String(dayName || "").trim();
+  if (want) {
+    var names = dayDateKeys ? Object.keys(dayDateKeys) : [];
+    for (var n = 0; n < names.length; n++) {
+      if (String(dayDateKeys[names[n]] || "") === want) add(names[n]);
+    }
+    return out;
+  }
+  if (named) add(named);
+  return out;
+}
+
 function handleDeleteClient(ss, json, callback, fromPost) {
   if (fromPost === undefined) fromPost = false;
   var reply = function (obj) {
@@ -4558,24 +4584,22 @@ function handleDeleteClient(ss, json, callback, fromPost) {
   var clearedCols = 0;
   var clientRaw = String(json.client || "").trim();
   var wantKey = String(json.matchKey || "").trim() || clientMatchKey_(clientRaw);
-  // Сегодняшний пн часто = лист «Будущая неделя»: UI мог прислать day=Понедельник + date=сегодня.
-  // Чистим и day, и слот по дате (и оба, если разошлись).
-  var daysToClear = [];
-  function addDelDay_(d) {
-    d = String(d || "").trim();
-    if (!d) return;
-    for (var ai = 0; ai < daysToClear.length; ai++) {
-      if (daysToClear[ai] === d) return;
-    }
-    daysToClear.push(d);
-  }
-  addDelDay_(dayName);
-  if (deliveryDate) {
+  // Только колонка этой даты. Пн и «Будущая» снимаются вместе, если на листах одна и та же дата.
+  // Соседний день и карточка ПП не трогаются.
+  var dayDateKeys = {};
+  var dayNamesForDelete = MANAGER_DAY_NAMES_.concat(["Будущая неделя"]);
+  for (var dni = 0; dni < dayNamesForDelete.length; dni++) {
     try {
-      addDelDay_(findDayNameForDate_(ss, deliveryDate) || "");
-    } catch (eMap) {}
+      var rawDayDate = getDayDate_(ss, dayNamesForDelete[dni]);
+      var parsedDayDate = parseFlexibleDate_(rawDayDate, tz);
+      if (parsedDayDate) dayDateKeys[dayNamesForDelete[dni]] = dateKey_(parsedDayDate, tz);
+    } catch (eDayKey) {}
   }
-  if (!daysToClear.length && dayName) daysToClear.push(dayName);
+  var daysToClear = daysToClearForDelete_(
+    dayName,
+    deliveryDate ? dateKey_(deliveryDate, tz) : "",
+    dayDateKeys
+  );
   for (var di = 0; di < daysToClear.length; di++) {
     var nClear = clearClientColumnFromDay_(ss, daysToClear[di], clientRaw, wantKey);
     if (nClear > 0) {

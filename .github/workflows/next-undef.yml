@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "boinya-c/next/**"
+      - "boinya-c/proxy/worker.js"
+      - "Code.gs"
       - "scripts/check-next-undef.mjs"
       - "scripts/next-lint/**"
       - ".github/workflows/next-undef.yml"
@@ -11,6 +13,8 @@ on:
     branches: [main]
     paths:
       - "boinya-c/next/**"
+      - "boinya-c/proxy/worker.js"
+      - "Code.gs"
       - "scripts/check-next-undef.mjs"
       - "scripts/next-lint/**"
       - ".github/workflows/next-undef.yml"
