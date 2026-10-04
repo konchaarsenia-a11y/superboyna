@@ -2040,6 +2040,9 @@ function doGet(e) {
   if (action === "getWeekDayCounts") {
     return handleGetWeekDayCounts({}, callback, false);
   }
+  if (action === "getWeekSnapshot") {
+    return handleGetWeekSnapshot(callback, false);
+  }
   if (action === "inspectManagerFormulas") {
     return handleInspectManagerFormulas({}, callback, false);
   }
@@ -3137,6 +3140,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getWeekDayCounts") {
     return handleGetWeekDayCounts(json, callback, fromPost);
+  }
+  if (action === "getWeekSnapshot") {
+    return handleGetWeekSnapshot(callback, fromPost);
   }
   if (action === "inspectManagerFormulas") {
     return handleInspectManagerFormulas(json, callback, fromPost);
@@ -6596,6 +6602,287 @@ function handleGetWeekDayCounts(json, callback, fromPost) {
   var ok = { status: "success", items: items, total: total };
   try { cachePutJson_(cacheKey, ok, 20); } catch (ePut) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Один getValues на лист: гео по дням, без чтения ячейка-за-ячейкой. */
+function geoIndexesByDay_() {
+  var out = {};
+  try {
+    var sh = getGeoSheet_();
+    if (!sh || sh.getLastRow() < 2) return out;
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var day = String(data[i][0] || "").trim().toUpperCase();
+      if (!day) continue;
+      if (!out[day]) out[day] = {};
+      var client = String(data[i][1] || "").trim().toUpperCase();
+      if (!client) continue;
+      var lat = Number(data[i][2]);
+      var lon = Number(data[i][3]);
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+      out[day][client] = {
+        lat: lat,
+        lon: lon,
+        yandexUrl: data[i][4] ? String(data[i][4]) : ("https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map")
+      };
+    }
+  } catch (eGeo) {}
+  return out;
+}
+
+function calendarRowsByDateKey_(ss) {
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var by = {};
+  var all = [];
+  try { all = readAllCalendarRows_(); } catch (eCal) { all = []; }
+  for (var i = 0; i < all.length; i++) {
+    var st = String(all[i].status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    var key = bd ? dateKey_(bd, tz) : "";
+    if (!key) continue;
+    var row = all[i];
+    row.matchKey = clientMatchKey_(row.client) || row.matchKey || "";
+    if (!by[key]) by[key] = [];
+    by[key].push(row);
+  }
+  return by;
+}
+
+function snapshotDateFromMatrix_(matrix, block, tz) {
+  if (!matrix || !block) return "";
+  var dateRow = block.nick - 2;
+  var line = matrix[dateRow - 1];
+  var raw = line ? line[0] : "";
+  try {
+    var d = parseFlexibleDate_(raw, tz);
+    return d ? dateKey_(d, tz) : "";
+  } catch (eDt) {
+    return "";
+  }
+}
+
+/** Клиенты одного дня из уже прочитанной матрицы листа. getRange здесь нет. */
+function clientsFromBlockMatrix_(matrix, block, ctx) {
+  ctx = ctx || {};
+  if (!matrix || !block) return { status: "error", clients: [] };
+  function at(row, col) {
+    var line = matrix[row - 1];
+    if (!line || col < 1 || col > line.length) return "";
+    return line[col - 1];
+  }
+  var phoneIndex = ctx.phoneIndex || {};
+  var ppIdx = ctx.ppIdx || {};
+  var geoIndex = ctx.geo || {};
+  var cardGeoIndex = ctx.cardGeo || {};
+  var calByKey = {};
+  var calRows = ctx.calRows || [];
+  for (var ci = 0; ci < calRows.length; ci++) {
+    var ck0 = calRows[ci].matchKey || clientMatchKey_(calRows[ci].client) || "";
+    if (ck0) calByKey[ck0] = calRows[ci];
+    var cu0 = String(calRows[ci].client || "").toUpperCase();
+    if (cu0) calByKey[cu0] = calRows[ci];
+  }
+  var itemNames = [];
+  for (var rr = block.start; rr <= block.end; rr++) {
+    var nm = at(rr, 1);
+    itemNames.push(nm != null ? String(nm).trim() : "");
+  }
+  var clientsDataList = [];
+  for (var colIdx = 0; colIdx < 15; colIdx++) {
+    var sheetCol = 3 + colIdx;
+    var nameClean = String(at(block.nick, sheetCol) || "").trim();
+    var checkUpper = nameClean.toUpperCase();
+    if (
+      nameClean === "" ||
+      nameClean === "0" ||
+      checkUpper === "0" ||
+      checkUpper === "ИТОГО НА ДЕНЬ" ||
+      checkUpper === "ИТОГО" ||
+      checkUpper === "ФАКТ СНЯТОЕ" ||
+      !isCountableClientNick_(nameClean)
+    ) {
+      continue;
+    }
+    var clientBasket = [];
+    var totalItemsInOrder = 0;
+    for (var rIdx = 0; rIdx < itemNames.length; rIdx++) {
+      var rawCell = at(block.start + rIdx, sheetCol);
+      var cellValue = 0;
+      if (rawCell !== null && rawCell !== undefined && typeof rawCell !== "object") {
+        cellValue = Number(rawCell) || 0;
+      }
+      var currentItemName = itemNames[rIdx] || "";
+      if (currentItemName === "" || currentItemName.indexOf("#") > -1) continue;
+      if (cellValue > 0) {
+        totalItemsInOrder++;
+        var parsed = parseSheetItemName(currentItemName, rIdx);
+        clientBasket.push({
+          cat: parsed.cat,
+          name: parsed.name,
+          sub: parsed.sub,
+          val: cellValue,
+          unit: parsed.unit
+        });
+      }
+    }
+    if (isTestClientNick_(nameClean) && totalItemsInOrder === 0) continue;
+    var rawAddr = at(block.addr, sheetCol);
+    var rawNote = at(block.note, sheetCol);
+    var noteRaw = rawNote != null ? String(rawNote).trim() : "";
+    var legacyGeo = parseGeoTagsFromNote_(noteRaw);
+    if (legacyGeo) noteRaw = stripGeoTagsFromNote_(noteRaw);
+    var geoObj = geoIndex[nameClean.toUpperCase()] || cardGeoIndex[nameClean.toUpperCase()] || legacyGeo || null;
+    var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
+    var phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
+    if (!phone) {
+      var telM = noteRaw.match(/\[TEL:([^\]]+)\]/i);
+      if (telM) phone = String(telM[1] || "").trim();
+    }
+    if (!phone) {
+      var phM = noteRaw.match(/(\+?375[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/);
+      if (phM) phone = phM[1].replace(/\s+/g, "");
+    }
+    var calHit = (pk && calByKey[pk]) || calByKey[nameClean.toUpperCase()] || null;
+    var segFromNote = extractSegmentFromNote_(noteRaw) || (calHit && calHit.segment) || "";
+    var orderPriceOut = (calHit && calHit.orderPrice !== "" && calHit.orderPrice != null)
+      ? calHit.orderPrice
+      : extractOrderPriceFromNote_(noteRaw);
+    var ppSlotOut = (calHit && calHit.ppSlot) || "";
+    var noteStr = stripTechFromNote_(noteRaw);
+    var noCutFlag = noteHasNoCut_(noteRaw) || (calHit && noteHasNoCut_(calHit.note));
+    var srcFromSeg = "";
+    if (segFromNote === "БП" || segFromNote === "BP") srcFromSeg = "bp";
+    else if (segFromNote === "ПП" || segFromNote === "PP" || segFromNote === "АФК") srcFromSeg = "pp";
+    else if (segFromNote.indexOf("ПАРТ") === 0) srcFromSeg = "partner";
+    else if (segFromNote === "Р" || segFromNote === "RETAIL") srcFromSeg = "retail";
+    if (calHit && calHit.phone && !phone) phone = calHit.phone;
+    var basketOut = clientBasket;
+    var dogCountOut = 1;
+    if (calHit && calHit.basket && basketHasDogSplit_(calHit.basket)) {
+      basketOut = calHit.basket;
+      dogCountOut = 2;
+    } else if (calHit && calHit.basket && calHit.basket.length) {
+      basketOut = attachCrumbSourcesFromCalendar_(basketOut, calHit.basket);
+    }
+    try { basketOut = normalizeBasketAliases_(basketOut); } catch (eAliasB) {}
+    clientsDataList.push({
+      name: nameClean,
+      orderCount: totalItemsInOrder,
+      address: rawAddr != null ? String(rawAddr).trim() : "",
+      note: noteStr,
+      phone: phone,
+      geo: geoObj || null,
+      basket: basketOut,
+      dogCount: dogCountOut,
+      segment: segFromNote,
+      source: srcFromSeg,
+      orderPrice: orderPriceOut,
+      ppSlot: ppSlotOut,
+      ppHint: ppSlotOut ? ("ПП " + ppSlotOut) : "",
+      deliveryAfter: (calHit && calHit.deliveryAfter) || "",
+      deliveryBefore: (calHit && calHit.deliveryBefore) || "",
+      matchKey: pk || "",
+      ppPartner: (calHit && calHit.ppPartner) || (pk && ppIdx[pk]) || ppIdx[nameClean.toUpperCase()] || "",
+      couponsQty: (calHit && calHit.couponsQty) || 0,
+      couponPrice: (calHit && calHit.couponPrice) || 0,
+      noCut: noCutFlag
+    });
+  }
+  var deduped = [];
+  var seenKeys = {};
+  for (var di = 0; di < clientsDataList.length; di++) {
+    var cl = clientsDataList[di];
+    var mk = clientMatchKey_(cl.name);
+    if (!mk) {
+      deduped.push(cl);
+      continue;
+    }
+    if (!seenKeys.hasOwnProperty(mk)) {
+      seenKeys[mk] = deduped.length;
+      deduped.push(cl);
+      continue;
+    }
+    var prev = deduped[seenKeys[mk]];
+    var prevLen = (prev.basket || []).length;
+    var nextLen = (cl.basket || []).length;
+    if (nextLen > prevLen || (nextLen === prevLen && String(cl.name).length > String(prev.name).length)) {
+      deduped[seenKeys[mk]] = cl;
+    }
+  }
+  return { status: "success", clients: deduped };
+}
+
+function readSheetBlock_(sheet, rows, cols) {
+  if (!sheet) return null;
+  var r = Math.min(rows, sheet.getMaxRows());
+  var c = Math.min(cols, sheet.getMaxColumns());
+  if (r < 1 || c < 1) return null;
+  return sheet.getRange(1, 1, r, c).getValues();
+}
+
+/**
+ * Один снимок недели: даты слотов и клиенты Пн–Вс + Будущая неделя.
+ * Только чтение. Два getValues на сетку «Прием заказов» и «Будущая неделя».
+ */
+function handleGetWeekSnapshot(callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var daysMeta = [
+    { day: "Понедельник", short: "Пн" },
+    { day: "Вторник", short: "Вт" },
+    { day: "Среда", short: "Ср" },
+    { day: "Четверг", short: "Чт" },
+    { day: "Пятница", short: "Пт" },
+    { day: "Суббота", short: "Сб" },
+    { day: "Воскресенье", short: "Вс" },
+    { day: "Будущая неделя", short: "Буд" }
+  ];
+  var manager = ss.getSheetByName("Прием заказов");
+  var future = ss.getSheetByName("Будущая неделя");
+  if (!manager || !future) {
+    var miss = { status: "error", message: "snapshot_incomplete" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var managerValues = readSheetBlock_(manager, 427, 17);
+  var futureValues = readSheetBlock_(future, 61, 17);
+  if (!managerValues || !futureValues) {
+    var bad = { status: "error", message: "snapshot_incomplete" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var phoneIndex = {};
+  try { phoneIndex = buildClientPhoneIndex_(ss); } catch (ePh) { phoneIndex = {}; }
+  var ppIdx = {};
+  try { ppIdx = getPpPartnerIndex_(ss); } catch (ePp) { ppIdx = {}; }
+  var geoByDay = geoIndexesByDay_();
+  var cardGeo = geoByDay.CARD || {};
+  var calByDate = calendarRowsByDateKey_(ss);
+  var days = [];
+  var items = [];
+  var total = 0;
+  for (var i = 0; i < daysMeta.length; i++) {
+    var meta = daysMeta[i];
+    var block = getDayBlock(meta.day);
+    var matrix = block && block.sheet === "future" ? futureValues : managerValues;
+    var dateStr = snapshotDateFromMatrix_(matrix, block, tz);
+    if (!dateStr) {
+      var noDate = { status: "error", message: "snapshot_incomplete", day: meta.day };
+      return fromPost ? jsonpText(callback, noDate) : jsonp(callback, noDate);
+    }
+    var built = clientsFromBlockMatrix_(matrix, block, {
+      phoneIndex: phoneIndex,
+      ppIdx: ppIdx,
+      cardGeo: cardGeo,
+      geo: geoByDay[String(meta.day).toUpperCase()] || {},
+      calRows: calByDate[dateStr] || []
+    });
+    var clients = (built && built.clients) || [];
+    days.push({ day: meta.day, short: meta.short, date: dateStr, clients: clients });
+    items.push({ day: meta.day, short: meta.short, count: clients.length, date: dateStr });
+    total += clients.length;
+  }
+  var okSnap = { status: "success", source: "week-snapshot", days: days, items: items, total: total };
+  return fromPost ? jsonpText(callback, okSnap) : jsonp(callback, okSnap);
 }
 
 function handleGetClients(dayName, callback, dateStr) {

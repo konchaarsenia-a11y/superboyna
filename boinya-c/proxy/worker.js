@@ -6247,12 +6247,24 @@ async function reattachWeekSlotDayNames_(env, opts) {
     } catch (eInf) {}
     if (!wantIso) continue;
     let gasMks = Object.create(null);
-    try {
-      const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
-      if (fresh && fresh.status === "success") {
-        gasMks = gasClientMatchKeys_(fresh.clients);
-      }
-    } catch (eGas) {}
+    const presetClients = opts.clientsByDay && opts.clientsByDay[day];
+    const presetList = presetClients
+      ? Array.isArray(presetClients.clients)
+        ? presetClients.clients
+        : Array.isArray(presetClients)
+          ? presetClients
+          : null
+      : null;
+    if (presetList) {
+      gasMks = gasClientMatchKeys_(presetList);
+    } else {
+      try {
+        const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+        if (fresh && fresh.status === "success") {
+          gasMks = gasClientMatchKeys_(fresh.clients);
+        }
+      } catch (eGas) {}
+    }
     let rows = [];
     try {
       const q = await env.DB.prepare(
@@ -14654,10 +14666,13 @@ async function handleCutover_(a, params, env, ctx) {
       };
     }
     try {
-      await cutoverRefreshAllWeekDays_(env, {
+      const resyncInfo = await cutoverRefreshAllWeekDays_(env, {
         clearDayTombs: true,
         forceGasReplace: true
       });
+      const snapClients = resyncInfo && resyncInfo.clientsByDay;
+      if (resyncInfo) delete resyncInfo.clientsByDay;
+      const snapPath = !!(resyncInfo && String(resyncInfo.path || "").indexOf("snapshot") === 0);
       let restored = null;
       const restoreFrom =
         String(params.restoreFromMonday || params.fromMonday || params.prevMondayIso || "").trim();
@@ -14681,20 +14696,21 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         reattached = await reattachWeekSlotDayNames_(env, {
           insertMissing: true,
-          attachCalendar: false
+          attachCalendar: false,
+          clientsByDay: snapPath ? snapClients : null
         });
       } catch (eAttF) {
         reattached = { error: String((eAttF && eAttF.message) || eAttF) };
       }
       let repairedFields = null;
       try {
-        repairedFields = await repairWipedClientFields_(env, { useGas: true });
+        repairedFields = await repairWipedClientFields_(env, { useGas: !snapPath });
       } catch (eRepF) {
         repairedFields = { error: String((eRepF && eRepF.message) || eRepF) };
       }
       let repairedPrices = null;
       try {
-        repairedPrices = await repairMissingOrderPrices_(env, { useGas: true });
+        repairedPrices = await repairMissingOrderPrices_(env, { useGas: !snapPath });
       } catch (eRepP) {
         repairedPrices = { error: String((eRepP && eRepP.message) || eRepP) };
       }
@@ -14702,6 +14718,7 @@ async function handleCutover_(a, params, env, ctx) {
         status: "success",
         action: "forceWeekD1Resync",
         forceGasReplace: true,
+        resync: resyncInfo || null,
         restoreShifted: restored,
         reattached: reattached,
         repairedFields: repairedFields,
@@ -19189,9 +19206,89 @@ async function scrubWeekClientDupes_(env) {
   return { removed: removed, kept: kept, dropped: dropped };
 }
 
+function weekSnapshotPayloadOk_(snap) {
+  if (!snap || snap.status !== "success") return false;
+  if (!Array.isArray(snap.days) || !Array.isArray(snap.items)) return false;
+  var seen = Object.create(null);
+  for (var i = 0; i < snap.days.length; i++) {
+    var d = snap.days[i];
+    if (!d || !d.day || !Array.isArray(d.clients)) return false;
+    if (!dmyToIso_(d.date)) return false;
+    seen[String(d.day)] = true;
+  }
+  for (var w = 0; w < WEEK_DAYS.length; w++) {
+    if (!seen[WEEK_DAYS[w]]) return false;
+  }
+  return true;
+}
+
+function snapshotCall_(env, ms) {
+  return new Promise(function (resolve, reject) {
+    var done = false;
+    var timer = setTimeout(function () {
+      if (done) return;
+      done = true;
+      reject(new Error("snapshot_timeout"));
+    }, ms || 35000);
+    gasProxy_("getWeekSnapshot", {}, env, { write: false }).then(
+      function (v) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(v);
+      },
+      function (e) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
+async function fetchWeekSnapshotRetry_(env) {
+  var backoffs = [0, 400, 800];
+  var last = "";
+  for (var i = 0; i < backoffs.length; i++) {
+    if (backoffs[i]) {
+      await new Promise(function (resolve) {
+        setTimeout(resolve, backoffs[i]);
+      });
+    }
+    try {
+      var snap = await snapshotCall_(env, 35000);
+      if (weekSnapshotPayloadOk_(snap)) {
+        var byDay = Object.create(null);
+        snap.days.forEach(function (d) {
+          byDay[String(d.day)] = {
+            status: "success",
+            day: d.day,
+            date: d.date,
+            clients: d.clients
+          };
+        });
+        return {
+          ok: true,
+          tries: i + 1,
+          byDay: byDay,
+          counts: { status: "success", items: snap.items, total: snap.total }
+        };
+      }
+      last = String((snap && (snap.message || snap.status)) || "invalid");
+    } catch (eSnap) {
+      last = String((eSnap && eSnap.message) || eSnap);
+    }
+  }
+  return { ok: false, tries: backoffs.length, error: last };
+}
+
 async function cutoverRefreshAllWeekDays_(env, opts) {
   opts = opts || {};
-  if (!env || !env.DB) return;
+  if (!env || !env.DB) return { path: "noop", tries: 0, ms: 0 };
+  const tResync = Date.now();
+  let resyncPath = "fallback-per-day";
+  let resyncTries = 0;
   const gasAuth = isWeekD1GasAuthoritative_(env);
   const forceGasReplace = opts.forceGasReplace === true;
   if (opts.clearDayTombs) {
@@ -19207,19 +19304,41 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
   }
   // сначала актуальные даты недели, потом сброс ops (сравнение date в rebuildCourier)
   const liveSlotIso = Object.create(null);
+  let snapshotDays = null;
+  let liveCounts = null;
   try {
-    const liveCounts = await gasProxy_("getWeekDayCounts", {}, env, { write: false });
-    if (liveCounts && liveCounts.status === "success") {
-      const liveItems = (liveCounts && liveCounts.items) || [];
-      for (let li = 0; li < liveItems.length; li++) {
-        const itL = liveItems[li];
-        if (!itL || !itL.day) continue;
-        const isoL = dmyToIso_(itL.date);
-        if (isoL) liveSlotIso[String(itL.day)] = isoL;
-      }
-      await cutoverStoreRead_("getWeekDayCounts", {}, env, liveCounts);
+    const snapTry = await fetchWeekSnapshotRetry_(env);
+    resyncTries = snapTry.tries || 0;
+    if (snapTry.ok) {
+      snapshotDays = snapTry.byDay;
+      liveCounts = snapTry.counts;
+      resyncPath = snapTry.tries > 1 ? "snapshot-retry " + (snapTry.tries - 1) : "snapshot";
     }
-  } catch (eCnt) {}
+  } catch (eSnapUse) {
+    snapshotDays = null;
+    liveCounts = null;
+    resyncPath = "fallback-per-day";
+  }
+  if (!snapshotDays) {
+    resyncPath = "fallback-per-day";
+    try {
+      liveCounts = await gasProxy_("getWeekDayCounts", {}, env, { write: false });
+    } catch (eCnt) {
+      liveCounts = null;
+    }
+  }
+  if (liveCounts && liveCounts.status === "success") {
+    const liveItems = (liveCounts && liveCounts.items) || [];
+    for (let li = 0; li < liveItems.length; li++) {
+      const itL = liveItems[li];
+      if (!itL || !itL.day) continue;
+      const isoL = dmyToIso_(itL.date);
+      if (isoL) liveSlotIso[String(itL.day)] = isoL;
+    }
+    try {
+      await cutoverStoreRead_("getWeekDayCounts", {}, env, liveCounts);
+    } catch (eStoreCnt) {}
+  }
   try {
     await cutoverResetOpsSnaps_(env);
   } catch (eOps) {}
@@ -19234,7 +19353,9 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
   for (let i = 0; i < WEEK_DAYS.length; i++) {
     const day = WEEK_DAYS[i];
     try {
-      const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+      const fresh = snapshotDays
+        ? snapshotDays[day]
+        : await gasProxy_("getClients", { day: day }, env, { write: false });
       if (fresh && fresh.status === "success") {
         const gasList = Array.isArray(fresh.clients) ? fresh.clients : [];
         const d1Count = await countActiveOrdersForDay_(env, day);
@@ -19390,9 +19511,25 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
       }
     } catch (eDupe) {}
     try {
-      await reattachWeekSlotDayNames_(env, { insertMissing: true, attachCalendar: false });
+      await reattachWeekSlotDayNames_(env, {
+        insertMissing: true,
+        attachCalendar: false,
+        clientsByDay: snapshotDays || null
+      });
     } catch (eAttRf) {}
   }
+  const resyncInfo = {
+    path: resyncPath,
+    tries: resyncTries,
+    ms: Date.now() - tResync,
+    clientsByDay: snapshotDays || null
+  };
+  try {
+    console.log(
+      "weekResync path=" + resyncInfo.path + " tries=" + resyncInfo.tries + " ms=" + resyncInfo.ms
+    );
+  } catch (eLog) {}
+  return resyncInfo;
 }
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
