@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Дубли после закрытия недели 04.10.2026.
- * По умолчанию DRY RUN: только чтение D1.
+ * По умолчанию DRY RUN: только чтение D1 (локально, если токен умеет query).
+ * CI ходит в Worker POST /admin/week-close-dupes: токен CI D1 query не имеет.
  * Apply: APPLY_CONFIRM=delete-week-close-dupes-2026-10-04 и APPLY_IDS
  * точно как строка плана. GAS / календарь / брони / лист / карточки ПП /
  * tombs / sheet_outbox не трогает.
