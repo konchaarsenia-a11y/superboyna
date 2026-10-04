@@ -23278,7 +23278,8 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
   let rawCost = built.rawCost;
   let lines = built.lines;
   if (built.missing > 0) {
-    // cold unit costs
+    // Дырявый кэш (в т.ч. сразу после сброса canon) — не считать пропуски нулём.
+    let warmed = false;
     try {
       const warm = await gasProxy_(
         "calcPpFact",
@@ -23286,14 +23287,41 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
         env,
         { write: false }
       );
-      if (warm && warm.status === "success") {
-        rawCost = Number(warm.cost) || rawCost;
-        lines = warm.lines || lines;
+      if (warm && warm.status === "success" && isFinite(Number(warm.cost))) {
+        rawCost = Number(warm.cost);
+        if (Array.isArray(warm.lines) && warm.lines.length) lines = warm.lines;
+        warmed = true;
         try {
           await mergePriceCostsPpFromLinesD1_(env, lines, warm.ppCostCanon);
         } catch (eW) {}
       }
     } catch (eC) {}
+    if (!warmed) {
+      const liveMiss = await gasProxy_("migratePpToRaw26Scheme", params || {}, env, { write: true });
+      if (liveMiss && liveMiss.status === "success" && env && env.DB) {
+        try {
+          await mergeSubscriptionDetailIntoSnap_(
+            env,
+            Object.assign({}, liveMiss, {
+              nick: liveMiss.nick || nick,
+              sheet: "ПП",
+              factCost: liveMiss.factCost,
+              wishes: liveMiss.wishes,
+              scheme: "RAW26",
+              ppScheme: "RAW26",
+              coef: liveMiss.coef
+            })
+          );
+        } catch (eMiss) {}
+      }
+      if (liveMiss && typeof liveMiss === "object") {
+        liveMiss.cutover = true;
+        liveMiss.fromGas = true;
+        liveMiss.fromD1 = false;
+        liveMiss.sandbox = false;
+      }
+      return liveMiss || { status: "error", message: "gas_proxy_failed", cutover: true };
+    }
   }
   let packOpt = local.packCounts || null;
   if (typeof packOpt === "string") {
@@ -24718,19 +24746,8 @@ function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   if (/^УХО\s*К$/i.test(String(name || "").trim())) {
     return lookupPpCostInfoD1_(costs, "УХО Г", sub, zeroKeys);
   }
-  if (sub) {
-    const prefer = ["Ломтики", "Целое", "", "Среднее", "Мелкое"];
-    for (let p = 0; p < prefer.length; p++) {
-      const pk = name + (prefer[p] ? " / " + prefer[p] : "");
-      const info = costs[pk] || (prefer[p] ? null : costs[name]);
-      if (info && (Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0) > 0) return info;
-    }
-    for (let j = 0; j < keys.length; j++) {
-      const info2 = costs[keys[j]];
-      if (info2 && info2.name === name) return info2;
-    }
-    if (costs[name]) return costs[name];
-  }
+  // Чужая фракция того же имени — не эта позиция. Иначе после сброса кэша
+  // «ТРАХЕЯ / СРЕД» закроется ценой «БОЛ», missing останется 0 и GAS не допишет ключ.
   return null;
 }
 
@@ -24739,6 +24756,13 @@ async function mergePriceCostsPpFromLinesD1_(env, lines, canon) {
   let snap = (await getSnapRaw_(env, "priceCostsPp")) || { status: "success", costs: {} };
   if (!snap.costs || typeof snap.costs !== "object") snap.costs = {};
   if (!snap.zeroKeys || typeof snap.zeroKeys !== "object") snap.zeroKeys = {};
+  // Переход на новый canon: в кэше только строки этого ответа Apps Script.
+  // Старые ключи других позиций (лист до алиасов) не остаются «верными».
+  // Тот же canon дальше дописывает, не стирает.
+  if (canon && canon === PP_COST_CANON_D1_ && snap.ppCostCanon !== canon) {
+    snap.costs = {};
+    snap.zeroKeys = {};
+  }
   let wrotePositive = false;
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i] || {};

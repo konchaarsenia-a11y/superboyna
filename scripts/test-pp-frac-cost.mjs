@@ -219,9 +219,11 @@ assert(legacy.missing > 0, "без флага нуль по-прежнему mis
 
 snaps.priceCostsPp = {
   status: "success",
+  ppCostCanon: "frac-alias-1",
   costs: {
     "ТРАХЕЯ / БОЛ": { name: "ТРАХЕЯ", sub: "БОЛ", unitPrice: 1.75, piece: true }
-  }
+  },
+  zeroKeys: {}
 };
 await wCtx.mergePriceCostsPpFromLinesD1_(
   { DB: {} },
@@ -238,5 +240,85 @@ assert(!saved.costs["КАБАЧКИ"], "ноль кабачков не запи�
 assert(saved.zeroKeys["КАБАЧКИ"] === 1, "кабачки отмечены как известный ноль");
 assert(saved.costs["БЫЧИЙ КОРЕНЬ / СРЕД"].unitPrice === 1.91, "корень записан");
 assert(saved.ppCostCanon === "frac-alias-1", "канон кэша");
+
+const poisoned = {
+  "ТРАХЕЯ / СРЕД": { name: "ТРАХЕЯ", sub: "СРЕД", unitPrice: 1.75, piece: true },
+  "БЫЧИЙ КОРЕНЬ / СРЕД": { name: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", unitPrice: 2.5, piece: true },
+  "СТАНОВАЯ ЖИЛА / СРЕД": { name: "СТАНОВАЯ ЖИЛА", sub: "СРЕД", unitPrice: 2.5, piece: true },
+  "СТАНОВАЯ ЖИЛА / БОЛ": { name: "СТАНОВАЯ ЖИЛА", sub: "БОЛ", unitPrice: 4, piece: true },
+  "ТРАХЕЯ / БОЛ": { name: "ТРАХЕЯ", sub: "БОЛ", unitPrice: 3.5, piece: true }
+};
+snaps.priceCostsPp = {
+  status: "success",
+  costs: poisoned,
+  zeroKeys: { "КАБАЧКИ": 1, "ТРАХЕЯ / СРЕД": 1 }
+};
+await wCtx.mergePriceCostsPpFromLinesD1_(
+  { DB: {} },
+  [{ name: "ТРАХЕЯ", sub: "БОЛ", unitPrice: 1.75, piece: true }],
+  "frac-alias-1"
+);
+const wiped = snaps.priceCostsPp;
+assert(wiped.ppCostCanon === "frac-alias-1", "переход ставит canon");
+assert(Object.keys(wiped.costs).join(",") === "ТРАХЕЯ / БОЛ", "после перехода только свежая строка, got " + Object.keys(wiped.costs).join(","));
+assert(wiped.costs["ТРАХЕЯ / БОЛ"].unitPrice === 1.75, "свежая трахея БОЛ");
+assert(!wiped.costs["ТРАХЕЯ / СРЕД"], "отравленная ТРАХЕЯ / СРЕД сброшена");
+assert(!wiped.costs["БЫЧИЙ КОРЕНЬ / СРЕД"], "отравленный корень сброшен");
+assert(!wiped.costs["СТАНОВАЯ ЖИЛА / СРЕД"] && !wiped.costs["СТАНОВАЯ ЖИЛА / БОЛ"], "становая сброшена");
+assert(Object.keys(wiped.zeroKeys).length === 0, "старые zeroKeys не переживают переход");
+
+await wCtx.mergePriceCostsPpFromLinesD1_(
+  { DB: {} },
+  [{ name: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", unitPrice: 1.91, piece: true }],
+  "frac-alias-1"
+);
+const appended = snaps.priceCostsPp;
+assert(appended.costs["ТРАХЕЯ / БОЛ"].unitPrice === 1.75, "второй merge того же canon не стирает");
+assert(appended.costs["БЫЧИЙ КОРЕНЬ / СРЕД"].unitPrice === 1.91, "второй merge дописывает корень");
+assert(!appended.costs["СТАНОВАЯ ЖИЛА / СРЕД"], "старая становая не вернулась");
+
+const missingSred = wCtx.buildPpLinesFromCostsD1_(
+  [{ name: "ТРАХЕЯ", sub: "СРЕД", val: 1, cat: "chew" }],
+  appended.costs,
+  {}
+);
+assert(missingSred.missing > 0, "нет точного ключа → missing, не цена БОЛ");
+assert(!(missingSred.lines[0] && missingSred.lines[0].unitPrice > 0), "чужая фракция не подставляется");
+
+const missingZila = wCtx.buildPpLinesFromCostsD1_(
+  [{ name: "СТАНОВАЯ ЖИЛА", sub: "СРЕД", val: 1, cat: "chew" }],
+  appended.costs,
+  { zeroKnown: true, zeroKeys: appended.zeroKeys }
+);
+assert(missingZila.missing > 0, "дырявый кэш даже с zeroKnown даёт missing → GAS");
+
+const aliasHit = wCtx.buildPpLinesFromCostsD1_(
+  [{ name: "ТРАХЕЯ", sub: "СРЕД", val: 1, cat: "chew" }],
+  { "ТРАХЕЯ / Среднее": { name: "ТРАХЕЯ", sub: "Среднее", unitPrice: 0.88, piece: true } },
+  {}
+);
+assert(aliasHit.missing === 0 && aliasHit.lines[0].unitPrice === 0.88, "алиас СРЕД=Среднее ещё находится");
+
+const uho = wCtx.lookupPpCostInfoD1_(
+  { "УХО Г / Обычное": { name: "УХО Г", sub: "Обычное", unitPrice: 1.1, piece: true } },
+  "УХО К",
+  "Обычное",
+  {}
+);
+assert(uho && uho.unitPrice === 1.1, "УХО К по-прежнему берёт УХО Г");
+
+snaps.priceCostsPp = {
+  status: "success",
+  costs: {
+    "ТРАХЕЯ / СРЕД": { name: "ТРАХЕЯ", sub: "СРЕД", unitPrice: 1.75, piece: true }
+  },
+  zeroKeys: {}
+};
+await wCtx.mergePriceCostsPpFromLinesD1_(
+  { DB: {} },
+  [{ name: "ТРАХЕЯ", sub: "БОЛ", unitPrice: 1.75, piece: true }],
+  ""
+);
+assert(snaps.priceCostsPp.costs["ТРАХЕЯ / СРЕД"], "ответ без canon старые ключи не стирает");
 
 console.log("pp-frac-cost ok", pumpkin, zucchini);
