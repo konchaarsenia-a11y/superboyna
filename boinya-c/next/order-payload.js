@@ -204,6 +204,37 @@
     return book;
   }
 
+  /**
+   * Новый заказ розницы из расчёта. Тот же снимок, что у «На потом»,
+   * без записи в лист и без карточки клиента.
+   */
+  function retailOrderSnapshot(calc, eng) {
+    calc = calc || {};
+    var baskets = calc.baskets || {};
+    var dogCount = Number(calc.dogCount) >= 2 ? 2 : 1;
+    var paid = calc.retailPaidDelivery === true || calc.retailDelivery === "paid";
+    var state = {
+      orderType: "retail",
+      client: String(calc.client || "").trim(),
+      baskets: {
+        1: baskets[1] || baskets["1"] || [],
+        2: dogCount >= 2 ? (baskets[2] || baskets["2"] || []) : []
+      },
+      dogCount: dogCount,
+      activeDog: Number(calc.activeDog) === 2 && dogCount >= 2 ? 2 : 1,
+      retailPaidDelivery: paid,
+      notes: [],
+      isEdit: false,
+      priceInput: calc.priceInput != null ? String(calc.priceInput) : ""
+    };
+    var snap = buildDeferredSnapshot(state, eng);
+    snap.orderType = "retail";
+    snap.retailPaidDelivery = paid;
+    snap.isEdit = false;
+    snap.client = state.client;
+    return snap;
+  }
+
   function buildDeferredSnapshot(state, eng) {
     state = state || {};
     var coupons = couponsOf(state);
@@ -321,6 +352,7 @@
     addressFull: addressFull,
     buildSaveBookingParams: buildSaveBookingParams,
     buildDeferredSnapshot: buildDeferredSnapshot,
+    retailOrderSnapshot: retailOrderSnapshot,
     formHasData: formHasData,
     mergeClientProfiles: mergeClientProfiles,
     draftUseful: draftUseful,
