@@ -43,7 +43,8 @@ test("себес без ячейки не выдумывается", () => {
 test("счётчики карточки убраны, итог стоит над списком ПП", () => {
   assert.equal(ui.includes("cardMetricRow"), false);
   assert.equal(ui.includes("refreshCardMetrics"), false);
-  assert.ok(ui.includes("цена один раз на слоте с оплатой"));
+  assert.ok(ui.includes("сумма цен подписок"));
+  assert.equal(ui.includes("только если эта доставка отвезена"), false);
   assert.equal(ui.includes("Все клиенты ПП, цена один раз"), false);
   assert.ok(ui.includes("function ppTotalsHtml"));
   const listAt = ui.indexOf("function paintList");
@@ -53,7 +54,7 @@ test("счётчики карточки убраны, итог стоит над
   assert.equal(ui.slice(cardAt, cardAt + 800).includes(">Оборот<"), false);
 });
 
-test("сводка ПП равна статистике, а не сумме колонок листа", () => {
+test("сводка листа ПП — ожидаемые цены подписок, не отвезено за месяц", () => {
   const sheet = totals([
     { sheet: "ПП", subId: "a", turnover: 100, cost: 40 },
     { sheet: "ПП", subId: "b", turnover: 55, cost: 20 }
@@ -63,16 +64,42 @@ test("сводка ПП равна статистике, а не сумме ко
     status: "success",
     monthKey: "2026-10",
     fact: {
-      ppRevenue: 2480,
+      ppRevenue: 299,
       revenue: 3000,
       cost: 1400,
-      costBySource: { pp: 910 }
+      costBySource: { pp: 80 }
+    },
+    pp: {
+      clients: 30,
+      expected: 4200,
+      turnover: 4200,
+      actual: 299,
+      cost: 1800,
+      clean: 2400
+    },
+    money: {
+      ppExpected: 4200,
+      ppActual: 299,
+      ppCost: 1800,
+      ppClean: 2400,
+      sheetTurnover: 4200
     }
   });
-  assert.equal(snap.turnover, 2480);
-  assert.equal(snap.cost, 910);
-  assert.equal(snap.income, 1570);
+  assert.equal(snap.turnover, 4200);
+  assert.equal(snap.cost, 1800);
+  assert.equal(snap.income, 2400);
+  assert.notEqual(snap.turnover, 299);
   assert.notEqual(snap.turnover, sheet.turnover);
+  const onlyDelivered = fromStats({
+    status: "success",
+    monthKey: "2026-10",
+    fact: { ppRevenue: 299, costBySource: { pp: 80 } }
+  });
+  assert.equal(onlyDelivered, null);
+  const fn = ui.slice(ui.indexOf("function ppMoneyFromStats_"), ui.indexOf("async function loadPpMoney"));
+  assert.equal(fn.includes("statsScreen_"), false);
+  assert.equal(fn.includes("ppRevenue"), false);
+  assert.ok(fn.includes("pp.expected"));
 });
 
 test("лист ПП отдаёт цену строки, не умножая слоты", () => {
