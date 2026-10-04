@@ -28030,7 +28030,7 @@ function weekCloseDupesStripPhone_(value) {
   if (!value || typeof value !== "object") return value;
   var out = {};
   Object.keys(value).forEach(function (k) {
-    if (k === "phone") return;
+    if (k === "phone" || k === "address" || k === "note" || k === "permanentNote" || k === "geo") return;
     out[k] = weekCloseDupesStripPhone_(value[k]);
   });
   return out;
@@ -28324,11 +28324,387 @@ function weekCloseDupesPublicPlan_(classified) {
   };
 }
 
+function weekCloseDupesNormMk_(raw) {
+  if (typeof normalizeMatchKey_ === "function") return normalizeMatchKey_(raw);
+  return weekCloseDupesLooseKey_(raw);
+}
+
+function weekCloseDupesSamePerson_(row, label) {
+  if (!row || !label) return false;
+  if (weekCloseDupesRowMatches_(row, label)) return true;
+  var mk = weekCloseDupesNormMk_(label);
+  if (!mk) return false;
+  return weekCloseDupesNormMk_(row.match_key) === mk || weekCloseDupesNormMk_(row.client) === mk;
+}
+
+function weekCloseBasketCount_(row) {
+  return weekCloseDupesBasketItems_(row).filter(function (it) {
+    return it && (it.name || it.main);
+  }).length;
+}
+
+function weekCloseLastWeekTargets_() {
+  return [
+    { date: "2026-09-28", day: "Понедельник", label: "w.yvd", segment: "ПП" },
+    { date: "2026-09-28", day: "Понедельник", label: "Маргарита Сергеевна", segment: "ПП" },
+    { date: "2026-09-28", day: "Понедельник", label: "Maria_stsiapura", segment: "ПП" },
+    { date: "2026-09-28", day: "Понедельник", label: "Natalie", segment: "Р" },
+    { date: "2026-09-29", day: "Вторник", label: "_dyomkina", segment: "БП" },
+    { date: "2026-09-29", day: "Вторник", label: "Lu_or_lu", segment: "ПП" },
+    { date: "2026-09-29", day: "Вторник", label: "snowygodness", segment: "ПП" },
+    { date: "2026-09-29", day: "Вторник", label: "kitibragimov777", segment: "ПП" },
+    { date: "2026-09-30", day: "Среда", label: "daria.nsv", segment: "ПП" },
+    { date: "2026-09-30", day: "Среда", label: "Dnevnik.mv", segment: "Р" },
+    { date: "2026-10-02", day: "Пятница", label: "Alinagidayathanova", segment: "ПП" },
+    { date: "2026-10-02", day: "Пятница", label: "Ssuhharik", segment: "Р" },
+    { date: "2026-10-02", day: "Пятница", label: "Viihrova", segment: "ПП" },
+    { date: "2026-10-02", day: "Пятница", label: "_madmazelka_", segment: "ПП" },
+    { date: "2026-10-04", day: "Воскресенье", label: "ola_ba2ra", segment: "ПП" }
+  ];
+}
+
+function weekCloseLastWeekDecide_(rows) {
+  var targets = weekCloseLastWeekTargets_();
+  var list = rows || [];
+  return targets.map(function (t) {
+    var hits = list.filter(function (r) {
+      return weekCloseDupesSamePerson_(r, t.label);
+    });
+    var onDate = hits.filter(function (r) {
+      return r.date_iso === t.date;
+    });
+    var alive = onDate.filter(function (r) {
+      return String(r.status || "active") === "active";
+    });
+    if (alive.length) {
+      var best = alive.slice().sort(function (a, b) {
+        return weekCloseBasketCount_(b) - weekCloseBasketCount_(a);
+      })[0];
+      return {
+        label: t.label,
+        date: t.date,
+        day: t.day,
+        segment: t.segment,
+        result: "alive-before",
+        items: weekCloseBasketCount_(best),
+        id: best.id,
+        source: "d1"
+      };
+    }
+    var deleted = onDate.filter(function (r) {
+      return String(r.status || "") === "deleted";
+    });
+    if (deleted.length) {
+      var pick = deleted.slice().sort(function (a, b) {
+        var byItems = weekCloseBasketCount_(b) - weekCloseBasketCount_(a);
+        if (byItems) return byItems;
+        return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+      })[0];
+      return {
+        label: t.label,
+        date: t.date,
+        day: t.day,
+        segment: t.segment,
+        result: "would-restore",
+        action: "undelete",
+        items: weekCloseBasketCount_(pick),
+        id: pick.id,
+        source: "d1-deleted"
+      };
+    }
+    var moved = hits.filter(function (r) {
+      return String(r.status || "") === "active" && r.date_iso && r.date_iso !== t.date;
+    });
+    return {
+      label: t.label,
+      date: t.date,
+      day: t.day,
+      segment: t.segment,
+      result: "still-missing",
+      items: 0,
+      id: "",
+      source: "",
+      reason: moved.length
+        ? "строка перезаписана на " + moved[0].date_iso + " id=" + moved[0].id + ", старой корзины на эту дату нет"
+        : "нет строки на эту дату"
+    };
+  });
+}
+
+function weekCloseFindSnapClient_(snap, label) {
+  if (!snap || typeof snap !== "object") return null;
+  var lists = [];
+  ["month", "week", "clients"].forEach(function (k) {
+    if (Array.isArray(snap[k])) lists.push(snap[k]);
+  });
+  for (var i = 0; i < lists.length; i++) {
+    for (var j = 0; j < lists[i].length; j++) {
+      var c = lists[i][j];
+      if (!c) continue;
+      var fake = { client: c.name || c.client || "", match_key: c.matchKey || c.match_key || "" };
+      if (weekCloseDupesSamePerson_(fake, label)) return c;
+    }
+  }
+  return null;
+}
+
+function weekCloseExtraDecide_(rows, extraIds) {
+  var list = rows || [];
+  return (extraIds || []).map(function (raw) {
+    var id = String(raw || "").trim();
+    var dup = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === id) dup = list[i];
+    }
+    if (!dup) return { id: id, error: "нет строки" };
+    var mainId = "Понедельник:" + String(dup.match_key || "");
+    var main = null;
+    for (var j = 0; j < list.length; j++) {
+      var r = list[j];
+      if (!r || r.id !== mainId) continue;
+      if (String(r.status || "") !== "active" || r.date_iso !== "2026-10-05") continue;
+      main = r;
+    }
+    if (!main) return { id: id, error: "основная Понедельник не active на 05.10" };
+    if (dup.date_iso !== "2026-10-12" || String(dup.day_name || "") !== "Будущая неделя") {
+      return { id: id, error: "это не копия Будущая неделя 12.10" };
+    }
+    if (String(dup.match_key || "") !== String(main.match_key || "")) {
+      return { id: id, error: "match_key не совпал с основной" };
+    }
+    if (String(dup.status || "") === "deleted") return { id: id, dup: dup, main: main, already: true };
+    if (String(dup.status || "") !== "active") return { id: id, error: "статус " + dup.status };
+    return { id: id, dup: dup, main: main };
+  });
+}
+
+function weekCloseDeleteBlocked_(dup, decisions) {
+  if (!dup) return "";
+  for (var i = 0; i < (decisions || []).length; i++) {
+    var t = decisions[i];
+    if (t.id && dup.id === t.id) return "id совпал с прошлой неделей " + t.label;
+    if (weekCloseDupesSamePerson_(dup, t.label)) return "это запись прошлой недели " + t.label;
+  }
+  return "";
+}
+
+function weekCloseSafeNickLine_(row) {
+  return (
+    "nick=" +
+    String((row && (row.client || row.match_key)) || "") +
+    " date=" +
+    String((row && row.date_iso) || "") +
+    " status=" +
+    String((row && row.status) || "") +
+    " items=" +
+    weekCloseBasketCount_(row)
+  );
+}
+
+function weekCloseInventoryFormat_(rows) {
+  var lines = ["ROWS 2026-09-28..2026-10-04"];
+  var list = (rows || [])
+    .filter(function (r) {
+      return r && r.date_iso >= "2026-09-28" && r.date_iso <= "2026-10-04";
+    })
+    .slice()
+    .sort(function (a, b) {
+      var d = String(a.date_iso).localeCompare(String(b.date_iso));
+      if (d) return d;
+      return String(a.client || "").localeCompare(String(b.client || ""), "ru");
+    });
+  if (!list.length) lines.push("(нет)");
+  list.forEach(function (r) {
+    lines.push(weekCloseSafeNickLine_(r));
+  });
+  return lines.join("\n");
+}
+
+function weekCloseLastWeekFormat_(decisions, title) {
+  var lines = [title || "LAST WEEK"];
+  (decisions || []).forEach(function (d) {
+    var line =
+      "nick=" +
+      d.label +
+      " date=" +
+      d.date +
+      " " +
+      d.result +
+      " items=" +
+      (Number(d.items) || 0);
+    if (d.id) line += " id=" + d.id;
+    if (d.source) line += " source=" + d.source;
+    if (d.reason) line += " reason=" + d.reason;
+    lines.push(line);
+  });
+  return lines.join("\n");
+}
+
+function weekCloseExtraFormat_(extras) {
+  var lines = ["EXTRA 12.10"];
+  if (!extras || !extras.length) {
+    lines.push("(нет)");
+    return lines.join("\n");
+  }
+  extras.forEach(function (e) {
+    if (e.error) {
+      lines.push("skip id=" + e.id + " reason=" + e.error);
+      return;
+    }
+    var tag = e.already ? "already-deleted" : "delete";
+    lines.push(
+      tag +
+        " id=" +
+        e.id +
+        " date=" +
+        (e.dup && e.dup.date_iso) +
+        " items=" +
+        weekCloseBasketCount_(e.dup) +
+        " main=" +
+        (e.main && e.main.id) +
+        " mainDate=" +
+        (e.main && e.main.date_iso)
+    );
+  });
+  return lines.join("\n");
+}
+
+function weekCloseSafeDecision_(d) {
+  return {
+    label: d.label,
+    date: d.date,
+    result: d.result,
+    items: Number(d.items) || 0,
+    id: d.id || "",
+    source: d.source || "",
+    reason: d.reason || ""
+  };
+}
+
+async function weekCloseDupesLoadRange_(env) {
+  var q = await env.DB.prepare(
+    "SELECT id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json FROM orders WHERE date_iso >= '2026-09-21' AND date_iso <= '2026-10-12'"
+  ).all();
+  return (q && q.results) || [];
+}
+
+async function weekCloseFillFromSnap_(env, decisions) {
+  var cache = Object.create(null);
+  for (var i = 0; i < decisions.length; i++) {
+    var d = decisions[i];
+    if (d.result !== "still-missing") continue;
+    if (!cache[d.date]) {
+      try {
+        cache[d.date] = await getSnapRaw_(env, "viewDate:" + d.date);
+      } catch (eSnap) {
+        cache[d.date] = null;
+      }
+    }
+    var client = weekCloseFindSnapClient_(cache[d.date], d.label);
+    if (!client) continue;
+    var basket = Array.isArray(client.basket) ? client.basket : [];
+    d.result = "would-restore";
+    d.action = "insert-snap";
+    d.source = "viewDate";
+    d.items = basket.filter(function (it) {
+      return it && (it.name || it.main);
+    }).length;
+    d.snap = client;
+    d.reason = "";
+  }
+  return decisions;
+}
+
+async function weekCloseRestoreOne_(env, d, now) {
+  if (!d || d.result !== "would-restore") return d;
+  if (d.action === "undelete" && d.id) {
+    var res = await env.DB.prepare(
+      "UPDATE orders SET status = 'active', updated_at = ? WHERE id = ? AND status = 'deleted' AND date_iso = ? AND NOT EXISTS (SELECT 1 FROM orders AS live WHERE live.status = 'active' AND live.date_iso = orders.date_iso AND live.match_key = orders.match_key AND live.id != orders.id)"
+    )
+      .bind(now, d.id, d.date)
+      .run();
+    var changes = res && res.meta ? Number(res.meta.changes) || 0 : 0;
+    if (!changes) d.reason = "undelete не изменил строку";
+    return d;
+  }
+  if (d.action !== "insert-snap" || !d.snap) return d;
+  var client = d.snap;
+  var mk = weekCloseDupesNormMk_(client.matchKey || client.match_key || client.name || d.label);
+  var id = "CAL:" + mk + ":" + d.date;
+  var existing = await env.DB.prepare("SELECT id, status, date_iso, match_key FROM orders WHERE id = ?").bind(id).first();
+  if (existing && String(existing.status || "") === "active" && existing.date_iso === d.date) {
+    d.id = id;
+    return d;
+  }
+  if (existing && String(existing.status || "") === "deleted" && existing.date_iso === d.date) {
+    d.action = "undelete";
+    d.id = id;
+    return weekCloseRestoreOne_(env, d, now);
+  }
+  if (existing) {
+    d.result = "still-missing";
+    d.reason = "id " + id + " занят другой датой";
+    return d;
+  }
+  var meta = {};
+  ["ppSlot", "ppPaid", "paid", "deliverySlot", "deliveriesN", "orderPrice", "statedCost", "factCost", "clientPrice", "orderType", "ppHint"].forEach(function (k) {
+    if (client[k] != null && String(client[k]).trim() !== "") meta[k] = client[k];
+  });
+  var seg = "";
+  try {
+    seg = normalizeSegmentLabel_(client.segment || client.orderType || "") || d.segment || "";
+  } catch (eSeg) {
+    seg = d.segment || "";
+  }
+  var basket = JSON.stringify(Array.isArray(client.basket) ? client.basket : []);
+  var ins = await env.DB.prepare(
+    "INSERT INTO orders (id, date_iso, day_name, client, match_key, address, phone, note, basket_json, segment, source, status, updated_at, meta_json) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'week-close-restore', 'active', ?, ? WHERE NOT EXISTS (SELECT 1 FROM orders AS live WHERE live.status = 'active' AND live.date_iso = ? AND live.match_key = ?)"
+  )
+    .bind(
+      id,
+      d.date,
+      d.day,
+      String(client.name || client.client || d.label),
+      mk,
+      String(client.address || ""),
+      String(client.phone || ""),
+      String(client.note || ""),
+      basket,
+      seg,
+      now,
+      JSON.stringify(meta),
+      d.date,
+      mk
+    )
+    .run();
+  var insChanges = ins && ins.meta ? Number(ins.meta.changes) || 0 : 0;
+  if (!insChanges) d.reason = "insert не создал строку, active уже есть";
+  else d.id = id;
+  return d;
+}
+
 async function weekCloseDupesLoad_(env) {
   var q = await env.DB.prepare(
     "SELECT id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json FROM orders WHERE status = 'active' AND date_iso >= '2026-09-28' AND date_iso <= '2026-10-12'"
   ).all();
   return (q && q.results) || [];
+}
+
+function weekCloseDupesReport_(classified, extras, range, decisions, tail) {
+  return [
+    weekCloseDupesFormat_(classified),
+    "",
+    weekCloseExtraFormat_(extras),
+    "",
+    weekCloseInventoryFormat_(range),
+    "",
+    weekCloseLastWeekFormat_(decisions, "LAST WEEK"),
+    tail || ""
+  ]
+    .filter(function (part) {
+      return part !== "";
+    })
+    .join("\n");
 }
 
 async function weekCloseDupesAdmin_(request, env) {
@@ -28347,7 +28723,12 @@ async function weekCloseDupesAdmin_(request, env) {
   var rows = await weekCloseDupesLoad_(env);
   var classified = weekCloseDupesClassify_(rows);
   var pub = weekCloseDupesPublicPlan_(classified);
-  var report = weekCloseDupesFormat_(classified);
+  var range = await weekCloseDupesLoadRange_(env);
+  var decisions = await weekCloseFillFromSnap_(env, weekCloseLastWeekDecide_(range));
+  var extraIds = Array.isArray(body.extraIds) ? body.extraIds : [];
+  var extras = weekCloseExtraDecide_(range, extraIds);
+  var safeDecisions = decisions.map(weekCloseSafeDecision_);
+  var report = weekCloseDupesReport_(classified, extras, range, safeDecisions, "");
   if (mode !== "apply") {
     return json({
       status: "success",
@@ -28355,6 +28736,10 @@ async function weekCloseDupesAdmin_(request, env) {
       plan: pub.plan,
       manual: pub.manual,
       applyIds: pub.applyIds,
+      extra: extras.map(function (e) {
+        return { id: e.id, error: e.error || "", already: !!e.already, mainId: e.main ? e.main.id : "" };
+      }),
+      lastWeek: safeDecisions,
       report: report
     });
   }
@@ -28368,46 +28753,133 @@ async function weekCloseDupesAdmin_(request, env) {
         mode: "apply",
         applyIds: pub.applyIds,
         manual: pub.manual,
+        lastWeek: safeDecisions,
         report: report
       },
       400
     );
   }
+  var blocks = [];
+  classified.plan.forEach(function (p) {
+    var why = weekCloseDeleteBlocked_(p.dup, decisions);
+    if (why) blocks.push(p.dup.id + ": " + why);
+  });
+  extras.forEach(function (e) {
+    if (e.error) blocks.push(e.id + ": " + e.error);
+    else {
+      var whyE = weekCloseDeleteBlocked_(e.dup, decisions);
+      if (whyE) blocks.push(e.id + ": " + whyE);
+    }
+  });
+  if (blocks.length) {
+    return json(
+      {
+        status: "error",
+        message: "apply_blocked",
+        mode: "apply",
+        blocked: blocks,
+        lastWeek: safeDecisions,
+        report: report + "\n\nBLOCKED\n" + blocks.join("\n")
+      },
+      400
+    );
+  }
   var now = new Date().toISOString();
+  for (var ri = 0; ri < decisions.length; ri++) {
+    if (decisions[ri].result === "would-restore") await weekCloseRestoreOne_(env, decisions[ri], now);
+  }
+  var rangeAfter = await weekCloseDupesLoadRange_(env);
+  var after = weekCloseLastWeekDecide_(rangeAfter);
+  var lastWeek = decisions.map(function (before, idx) {
+    var nowD = after[idx] || {};
+    if (before.result === "alive-before") {
+      return weekCloseSafeDecision_(Object.assign({}, nowD, { result: "alive-before", source: before.source || nowD.source }));
+    }
+    if (nowD.result === "alive-before") {
+      return weekCloseSafeDecision_(
+        Object.assign({}, nowD, { result: "restored", source: before.source || nowD.source, reason: "" })
+      );
+    }
+    return weekCloseSafeDecision_(
+      Object.assign({}, nowD, {
+        result: "still-missing",
+        reason: before.reason || nowD.reason || "не удалось восстановить"
+      })
+    );
+  });
   var backup = [];
   var deleted = [];
   var skipped = [];
-  for (var i = 0; i < classified.plan.length; i++) {
-    var p = classified.plan[i];
-    backup.push(weekCloseDupesPublicRow_(p.dup));
-    var res = await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active' AND date_iso = ? AND match_key = ? AND EXISTS (SELECT 1 FROM orders AS main WHERE main.id = ? AND main.status = 'active' AND main.id != orders.id)"
-    )
-      .bind(now, p.dup.id, p.dup.date_iso, p.dup.match_key, p.main.id)
-      .run();
+  function pushDeleted_(id) {
+    if (id && deleted.indexOf(id) < 0) deleted.push(id);
+  }
+  var jobs = classified.plan.map(function (p) {
+    return { dup: p.dup, main: p.main, future: false };
+  });
+  extras.forEach(function (e) {
+    if (e.dup && e.main) jobs.push({ dup: e.dup, main: e.main, future: true, already: !!e.already });
+  });
+  for (var i = 0; i < jobs.length; i++) {
+    var job = jobs[i];
+    backup.push(weekCloseDupesPublicRow_(job.dup));
+    if (job.already || String(job.dup.status || "") === "deleted") {
+      pushDeleted_(job.dup.id);
+      continue;
+    }
+    var sql = job.future
+      ? "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active' AND date_iso = '2026-10-12' AND day_name = 'Будущая неделя' AND match_key = ? AND EXISTS (SELECT 1 FROM orders AS main WHERE main.id = ? AND main.status = 'active' AND main.date_iso = '2026-10-05' AND main.id != orders.id)"
+      : "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active' AND date_iso = ? AND match_key = ? AND EXISTS (SELECT 1 FROM orders AS main WHERE main.id = ? AND main.status = 'active' AND main.id != orders.id)";
+    var res = job.future
+      ? await env.DB.prepare(sql).bind(now, job.dup.id, job.dup.match_key, job.main.id).run()
+      : await env.DB.prepare(sql).bind(now, job.dup.id, job.dup.date_iso, job.dup.match_key, job.main.id).run();
     var changes = res && res.meta ? Number(res.meta.changes) || 0 : 0;
-    if (changes > 0) deleted.push(p.dup.id);
-    else skipped.push(p.dup.id);
+    if (changes > 0) pushDeleted_(job.dup.id);
+    else {
+      var again = await env.DB.prepare("SELECT status FROM orders WHERE id = ?").bind(job.dup.id).first();
+      if (again && again.status === "deleted") pushDeleted_(job.dup.id);
+      else skipped.push(job.dup.id);
+    }
   }
   var mainIds = [];
-  classified.plan.forEach(function (p) {
-    if (mainIds.indexOf(p.main.id) < 0) mainIds.push(p.main.id);
+  jobs.forEach(function (job) {
+    if (mainIds.indexOf(job.main.id) < 0) mainIds.push(job.main.id);
   });
   var dead = [];
   for (var mi = 0; mi < mainIds.length; mi++) {
     var mainRow = await env.DB.prepare("SELECT id, status FROM orders WHERE id = ?").bind(mainIds[mi]).first();
     if (!mainRow || mainRow.status !== "active") dead.push(mainIds[mi]);
   }
+  var mainsActive = dead.length === 0;
+  var stillMissing = lastWeek.filter(function (d) {
+    return d.result === "still-missing";
+  }).length;
+  var tail = [
+    "",
+    "DELETED_COUNT=" + deleted.length,
+    "mainsActive=" + (mainsActive ? "true" : "false"),
+    "STILL_MISSING=" + stillMissing,
+    "deleted:"
+  ]
+    .concat(
+      deleted.map(function (id) {
+        return "- " + id;
+      })
+    )
+    .concat(skipped.length ? ["skipped:"].concat(skipped.map(function (id) { return "- " + id; })) : [])
+    .concat(dead.length ? ["deadMains:"].concat(dead.map(function (id) { return "- " + id; })) : [])
+    .join("\n");
+  var finalReport = weekCloseDupesReport_(classified, extras, range, lastWeek, tail);
   return json({
     status: skipped.length || dead.length ? "error" : "success",
     mode: "apply",
     deleted: deleted,
     skipped: skipped,
-    mainsActive: dead.length === 0,
+    mainsActive: mainsActive,
     deadMains: dead,
     backup: backup,
     applyIds: pub.applyIds,
-    report: report
+    lastWeek: lastWeek,
+    report: finalReport
   });
 }
 
