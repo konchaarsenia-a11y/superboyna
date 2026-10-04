@@ -1089,7 +1089,7 @@
       deliveriesN: nOffer,
       costSum: cost,
       list: list,
-      packagesByn: 0,
+      packagesByn: packagesByn,
       dogCount: price.dogCount,
       dogNames: price.dogNames,
       fracRates: fracRates(),
@@ -1099,8 +1099,13 @@
     var apiOk = price.scheme !== "RAW26" || (P().raw26ApiFactUsable_ && P().raw26ApiFactUsable_(res, nOffer));
     var fact = apiOk && res ? P().raw26ApiFactPrice_(res) : 0;
     var sub = fact > 0 ? fact : quote.total;
+    if (fact > 0 && packagesByn) {
+      var factPacks = Number(res && res.packagesByn);
+      if (!(isFinite(factPacks) && factPacks > 0.001)) {
+        sub = Math.round((sub + packagesByn) * 100) / 100;
+      }
+    }
     if (price.scheme === "RAW26") sub = P().capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
-    if (packagesByn) sub = Math.round((sub + packagesByn) * 100) / 100;
     var messageOpts = {
       scheme: price.scheme,
       mode: "pp",
@@ -1112,7 +1117,6 @@
       dogCount: price.dogCount,
       dogNames: price.dogNames
     };
-    if (packagesByn) messageOpts.asEntered = true;
     var message = P().offerMessage(messageOpts);
     return { sub: sub, message: message, packagesByn: packagesByn, cost: cost, fact: fact };
   }

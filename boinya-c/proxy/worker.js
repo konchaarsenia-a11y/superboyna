@@ -24421,38 +24421,34 @@ function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliverie
   );
 }
 
-/** База капа товара = R. 9×N в кап не входит. R=0/нет → 0 (кап не применять). */
+/** База капа = розница в тексте клиенту: товар + доставка прайса, если R/N < 80. R=0 → 0. */
 function raw26RetailCapBaseD1_(retailGoods, deliveriesN) {
   const r = Number(retailGoods);
   if (!isFinite(r) || r <= 0) return 0;
-  return Math.round(r * 100) / 100;
+  const n = Math.max(1, Number(deliveriesN) || 1);
+  const per = r / n;
+  const delivery = per < PP_RAW26_RETAIL_FREE_FROM_D1_ ? PP_RAW26_DELIVERY_PER_D1_ * n : 0;
+  return Math.round((r + delivery) * 100) / 100;
 }
 
-/** Кап только товара: min(товар, 0.92×R), не ниже сырьё+recover. 9×N, F и пакеты сверху. */
+/** Потолок 92% на всю цену. Товар, 9×N, F и пакеты не сжимаем: режется только factCost. */
 function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
-  let g = Math.round((Number(goods) || 0) * 100) / 100;
+  const g = Math.round((Number(goods) || 0) * 100) / 100;
   const d = Math.round((Number(delivery) || 0) * 100) / 100;
   const p = Math.round((Number(packagesByn) || 0) * 100) / 100;
   const f = Math.round((Number(fracMark) || 0) * 100) / 100;
   const cap = Math.round((Number(capAt) || 0) * 100) / 100;
-  let floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
-  if (floor < 0) floor = 0;
-  const capped = cap > 0 && g > cap + 0.001;
-  if (capped) {
-    const next = cap < floor ? floor : cap;
-    g = Math.round(next * 100) / 100;
-  }
-  const fact = Math.round((g + d + p + f) * 100) / 100;
-  const uncappedFloor = !!(capped && g > cap + 0.001);
+  const sum = Math.round((g + d + p + f) * 100) / 100;
+  const capped = cap > 0 && sum > cap + 0.001;
   return {
     goods: g,
     delivery: d,
     packagesByn: p,
     fractionMarkup: f,
-    factCost: fact,
+    factCost: capped ? cap : sum,
     retailCapped: !!capped,
     retailCapAt: cap,
-    uncappedFloor: uncappedFloor
+    uncappedFloor: false
   };
 }
 
@@ -24528,9 +24524,7 @@ function computePpFactFromCostD1_(
     );
     const factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
     const cutParts = [];
-    if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
-    if (alloc.goods < goods - 0.001) cutParts.push("товар");
-    if (alloc.uncappedFloor) cutParts.push("пол");
+    if (alloc.retailCapped) cutParts.push("потолок");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -24542,7 +24536,7 @@ function computePpFactFromCostD1_(
       goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
       retailCapBase: retailCapBase,
-      retailCapIncludesDelivery: false,
+      retailCapIncludesDelivery: true,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
       uncappedFloor: !!alloc.uncappedFloor,
