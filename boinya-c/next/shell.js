@@ -688,6 +688,123 @@
     return p[2] + "." + p[1];
   }
 
+  function pad2_(n) {
+    var x = Number(n) || 0;
+    return (x < 10 ? "0" : "") + x;
+  }
+
+  function timeOf_(v) {
+    if (!v || typeof v.getTime !== "function") return NaN;
+    var t = Number(v.getTime());
+    return isFinite(t) ? t : NaN;
+  }
+
+  function remindPresetAt(value, now) {
+    var stamp = timeOf_(now);
+    var base = new Date(isFinite(stamp) ? stamp : Date.now());
+    if (value === "1h") return new Date(base.getTime() + 3600000);
+    if (value === "3h") return new Date(base.getTime() + 3 * 3600000);
+    if (value === "tomorrow" || value === "tomorrow10") {
+      base.setDate(base.getDate() + 1);
+      base.setHours(10, 0, 0, 0);
+      return base;
+    }
+    if (value === "today" || value === "today18") {
+      base.setHours(18, 0, 0, 0);
+      return base;
+    }
+    return null;
+  }
+
+  function remindInPast(when, now) {
+    var t = timeOf_(when);
+    var n = timeOf_(now);
+    if (!isFinite(n)) n = Date.now();
+    return !isFinite(t) || t <= n;
+  }
+
+  function dateTimeFromFields_(dateStr, timeStr) {
+    var d = String(dateStr || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    var t = String(timeStr || "").match(/^(\d{2}):(\d{2})/);
+    if (!d || !t) return null;
+    var when = new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3]), Number(t[1]), Number(t[2]), 0, 0);
+    return isFinite(when.getTime()) ? when : null;
+  }
+
+  function formatRemindWhen(raw) {
+    if (raw == null || raw === "") return "";
+    var stamp = timeOf_(raw);
+    var d = isFinite(stamp) ? new Date(stamp) : new Date(/^\d+$/.test(String(raw)) ? Number(raw) : raw);
+    if (!isFinite(d.getTime())) return "";
+    return pad2_(d.getDate()) + "." + pad2_(d.getMonth() + 1) + " в " + pad2_(d.getHours()) + ":" + pad2_(d.getMinutes());
+  }
+
+  function pickDateTime(opts) {
+    opts = opts || {};
+    var def = opts.at instanceof Date && isFinite(opts.at.getTime()) ? opts.at : remindPresetAt("tomorrow10", new Date());
+    var today = new Date();
+    var min = today.getFullYear() + "-" + pad2_(today.getMonth() + 1) + "-" + pad2_(today.getDate());
+    var dateVal = def.getFullYear() + "-" + pad2_(def.getMonth() + 1) + "-" + pad2_(def.getDate());
+    var timeVal = pad2_(def.getHours()) + ":" + pad2_(def.getMinutes());
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      }
+      openSheet({
+        title: opts.title || "Дата и время",
+        html:
+          '<p class="b-lbl">Дата</p><label class="b-field"><input class="b-field__input" id="nxRemindDate" type="date" min="' + esc(min) + '" value="' + esc(dateVal) + '"></label>' +
+          '<p class="b-lbl">Время</p><label class="b-field"><input class="b-field__input" id="nxRemindTime" type="time" value="' + esc(timeVal) + '"></label>' +
+          '<button class="b-btn b-btn--main" type="button" data-act="remind-when-save" style="margin-top:12px">Сохранить</button>',
+        onClose: function () { done(null); }
+      });
+      var prev = actHandler;
+      actHandler = function (act, node, e) {
+        if (act === "remind-when-save") {
+          var dateEl = document.getElementById("nxRemindDate");
+          var timeEl = document.getElementById("nxRemindTime");
+          var when = dateTimeFromFields_(dateEl && dateEl.value, timeEl && timeEl.value);
+          if (!when || remindInPast(when, new Date())) {
+            toast("Это время уже прошло");
+            return;
+          }
+          closeTop("ok");
+          done(when);
+          return;
+        }
+        if (prev) prev(act, node, e);
+      };
+      sheetStack[sheetStack.length - 1].onClose = function (how) {
+        actHandler = prev;
+        if (how !== "ok") done(null);
+      };
+    });
+  }
+
+  function pickRemindAt(opts) {
+    opts = opts || {};
+    var options = (opts.options || []).slice();
+    options.push({ value: "pick", label: "Выбрать дату и время" });
+    return choice({
+      title: opts.title || "Когда напомнить?",
+      text: opts.text != null ? opts.text : "Время по часам телефона.",
+      options: options
+    }).then(function (v) {
+      if (!v) return null;
+      if (v === "pick") return pickDateTime({ title: "Дата и время" });
+      if (v === "none") return { none: true };
+      var when = remindPresetAt(v, new Date());
+      if (!when || remindInPast(when, new Date())) {
+        toast("Это время уже прошло");
+        return null;
+      }
+      return when;
+    });
+  }
+
   function pickDate(opts) {
     opts = opts || {};
     var weekLogic = root.BoinyaWeekLogic;
@@ -914,6 +1031,11 @@
     choice: choice,
     prompt: prompt,
     pickDate: pickDate,
+    pickDateTime: pickDateTime,
+    pickRemindAt: pickRemindAt,
+    formatRemindWhen: formatRemindWhen,
+    remindPresetAt: remindPresetAt,
+    remindInPast: remindInPast,
     alert: alert,
     loader: loader,
     closeLoader: closeLoader,

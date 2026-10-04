@@ -58,10 +58,12 @@
     var sub = L().tasksSub(it);
     var subRu = { xfer: "Перенос", buy: "Дозакуп", orders: "Заказ", pp: "ПП/БП", remind: "Напоминание" }[sub] || sub;
     var title = it.title || it.client || it.mode || "Задача";
-    var when = it.remindAt || (it.payload && it.payload.remindAt) || "";
+    var plWhen = it.payload && typeof it.payload === "object" ? it.payload : null;
+    var when = it.remindAtMs || it.remindAt || (plWhen && (plWhen.remindAtMs || plWhen.remindAt)) || "";
+    var whenLabel = sh().formatRemindWhen(when);
     return '<button type="button" class="b-li" data-act="task-open" data-id="' + esc(it.id) + '">' +
       '<span class="b-li__body"><span class="b-li__title">' + esc(title) + "</span>" +
-      '<span class="b-li__sub">' + esc(subRu + (when ? ", " + when : "")) + "</span></span>" +
+      '<span class="b-li__sub">' + esc(subRu + (whenLabel ? ", " + whenLabel : "")) + "</span></span>" +
       '<span class="b-li__chev">Открыть</span></button>';
   }
 
@@ -189,6 +191,11 @@
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-buy" data-id="' + esc(id) + '">Собрать сообщение дозакупа</button>';
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-buy-refresh" style="margin-top:8px">Обновить дефицит</button>';
     }
+    var note = taskText(it);
+    if (sub === "remind") {
+      var whenLabel = sh().formatRemindWhen(it.remindAtMs || it.remindAt || (pl && (pl.remindAtMs || pl.remindAt)) || "");
+      if (whenLabel) note = whenLabel + (note ? "\n" + note : "");
+    }
     var idle = mode === "bp_idle" || String(id).indexOf("bpidle:") === 0;
     if (!idle && mode !== "partner" && (sub === "orders" || sub === "pp")) {
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-remind" data-id="' + esc(id) + '" style="margin-top:8px">Напомнить</button>';
@@ -199,7 +206,7 @@
     }
     sh().openSheet({
       title: it.title || "Задача",
-      html: '<p class="b-note" style="margin-top:0;white-space:pre-wrap">' + esc(taskText(it)) + "</p>" + buttons
+      html: '<p class="b-note" style="margin-top:0;white-space:pre-wrap">' + esc(note) + "</p>" + buttons
     });
   }
 
@@ -214,7 +221,7 @@
   }
 
   async function remind(id) {
-    var choice = await sh().choice({
+    var when = await sh().pickRemindAt({
       title: "Когда напомнить?",
       text: "Время по часам телефона.",
       options: [
@@ -223,11 +230,7 @@
         { value: "tomorrow10", label: "Завтра в 10:00" }
       ]
     });
-    if (!choice) return;
-    var when = new Date();
-    if (choice === "1h") when = new Date(Date.now() + 3600000);
-    else if (choice === "3h") when = new Date(Date.now() + 3 * 3600000);
-    else { when.setDate(when.getDate() + 1); when.setHours(10, 0, 0, 0); }
+    if (!when || when.none) return;
     var res = await api().apiPost({
       action: "setDeferredReminder",
       telegramId: tid(),
@@ -241,9 +244,16 @@
   async function addRemind() {
     var text = await sh().prompt({ title: "Напоминалка", text: "О чём напомнить?", ok: "Дальше" });
     if (text == null || !String(text).trim()) return;
-    var when = new Date();
-    when.setDate(when.getDate() + 1);
-    when.setHours(10, 0, 0, 0);
+    var when = await sh().pickRemindAt({
+      title: "Когда напомнить?",
+      text: "Время по часам телефона.",
+      options: [
+        { value: "1h", label: "Через 1 час" },
+        { value: "3h", label: "Через 3 часа" },
+        { value: "tomorrow10", label: "Завтра 10:00" }
+      ]
+    });
+    if (!when || when.none) return;
     var id = "def_" + Date.now().toString(36);
     var res = await api().apiPost({
       action: "saveDeferred",
