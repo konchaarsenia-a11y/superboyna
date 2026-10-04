@@ -33,7 +33,7 @@ function extractFn(src, name) {
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
-assert(/v71123600/.test(uiSrc), "APP_VERSION v71123600");
+assert(/v71123700/.test(uiSrc), "APP_VERSION v71123700");
 assert(/function ppSheetPrice_/.test(uiSrc) && /function raw26ApiFactPrice_/.test(uiSrc), "UI ignores stale calcFactCost");
 assert(/function subscriptionNickKeys_/.test(wSrc) && /function sanitizeRaw26CalcFactCost_/.test(wSrc), "Worker nick aliases + sanitize calcFact");
 assert(
@@ -195,9 +195,9 @@ const noKind = ctx.retailGoodsFromCrumbItemUi_(
 );
 assert(noKind === 10, "no crumbKind → source РУБЕЦ Т=10, got " + noKind);
 
-assert(ctx.capOfferSubToDisplayedRetail_(157.5, 171.2) === 157.5, "кап уже на товаре, 157.50 не режем");
-assert(ctx.capOfferSubToDisplayedRetail_(157.5, 156.2) === 157.5, "9×N и пакеты не срезаются вторым капом, got " + ctx.capOfferSubToDisplayedRetail_(157.5, 156.2));
-assert(ctx.capOfferSubToDisplayedRetail_(158, 156) === 158, "целое 158 остаётся 158");
+assert(ctx.capOfferSubToDisplayedRetail_(157.5, 171.2) === 157.5, "157.50 уже на потолке 0.92×171.20");
+assert(ctx.capOfferSubToDisplayedRetail_(178.94, 171.2) === 157.5, "вся цена режется до 157.50, got " + ctx.capOfferSubToDisplayedRetail_(178.94, 171.2));
+assert(Math.abs(ctx.capOfferSubToDisplayedRetail_(158, 156) - 143.52) < 0.001, "158 при R 156 → 0.92×156");
 
 const PRICE_XX = /\d+\.\d+\s+рублей/;
 const msgOk = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26");
@@ -226,9 +226,8 @@ assert(ctx.formatClientRub_(157.5) === "157.50", "owner/Экономика keeps
 assert(ctx.formatClientRub_(171.2) === "171.20", "owner retail keeps 171.20");
 
 const msgClamp = ctx.composePpClientMessage(rit, 1, "", 156.2, 157.5, "RAW26");
-assert(/стоимость выходит - 158 рублей за месяц/.test(msgClamp), "сообщение не режет цену повторно, Math.round(157.50)=158");
+assert(/стоимость выходит - 144 рублей за месяц/.test(msgClamp), "0.92×156.20 = 143.70 → 144, got " + msgClamp);
 assert(!PRICE_XX.test(msgClamp), "сообщение без .xx рублей");
-assert(!/144/.test(msgClamp), "старый кап 0.92×156.20 больше не подменяет цену");
 
 const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY", { asEntered: true });
 assert(/стоимость выходит - 195 рублей за месяц/.test(legacyKeep), "LEGACY stated not 92%-capped");

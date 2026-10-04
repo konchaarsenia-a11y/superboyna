@@ -52,13 +52,15 @@ function mainOffer(coef, costSum, fact, packagesByn) {
   return { sub: sub, message: message };
 }
 
-/** Как buildPpOffer: кап только на состав, сумма пакетов сверху. */
-function nextOffer(coef, costSum, fact, packagesByn) {
-  const quote = quoteOf(coef, costSum, 0);
+/** Как buildPpOffer: пакеты внутри quote, затем потолок 92% показанной розницы. */
+function nextOffer(coef, costSum, fact, packagesByn, factPacks) {
+  const quote = quoteOf(coef, costSum, packagesByn);
   const retail = retailOf(2);
   let sub = fact > 0 ? fact : quote.total;
+  if (fact > 0 && packagesByn && !(Number(factPacks) > 0.001)) {
+    sub = Math.round((sub + packagesByn) * 100) / 100;
+  }
   sub = P.capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
-  if (packagesByn) sub = Math.round((sub + packagesByn) * 100) / 100;
   const messageOpts = {
     scheme: "RAW26",
     mode: "pp",
@@ -70,8 +72,7 @@ function nextOffer(coef, costSum, fact, packagesByn) {
     dogCount: 1,
     dogNames: { 1: "", 2: "" }
   };
-  if (packagesByn) messageOpts.asEntered = true;
-  return { sub: sub, message: P.offerMessage(messageOpts) };
+  return { sub: sub, message: P.offerMessage(messageOpts), cap: Math.round(retail.total * 0.92 * 100) / 100 };
 }
 
 test("без пакетов цена и текст совпадают с main для коэффициентов RAW26", () => {
@@ -87,28 +88,19 @@ test("без пакетов цена и текст совпадают с main д
   }
 });
 
-test("пакеты сидят сверху капа товара и остаются в тексте", () => {
+test("пакеты внутри потолка 92% показанной розницы", () => {
   const costSum = 2.12;
   const packagesByn = Math.round(8 * P.PRICE_PACK_UNIT.small * 100) / 100;
   assert.equal(packagesByn, 2.72);
-  const bare = nextOffer(2.6, costSum, 40, 0);
-  const withPacks = nextOffer(2.6, costSum, 40, packagesByn);
-  const cappedTogether = P.capOfferSubToDisplayedRetail_(bare.sub + packagesByn, retailOf(2).total);
-  assert.equal(cappedTogether, Math.round((bare.sub + packagesByn) * 100) / 100);
-  assert.equal(Math.round((withPacks.sub - bare.sub) * 100) / 100, packagesByn);
-  assert.notEqual(withPacks.message, bare.message);
+  const retail = retailOf(2);
+  const cap = Math.round(retail.total * 0.92 * 100) / 100;
+  const bare = nextOffer(2.6, costSum, 0, 0);
+  const withPacks = nextOffer(2.6, costSum, 0, packagesByn);
+  assert.ok(bare.sub <= cap + 0.001);
+  assert.ok(withPacks.sub <= cap + 0.001);
   const shown = withPacks.message.match(/стоимость выходит - (\S+)/)[1];
-  const eaten = P.offerMessage({
-    scheme: "RAW26",
-    mode: "pp",
-    list: list,
-    deliveriesN: 2,
-    note: note,
-    retailTotal: retailOf(2).total,
-    subTotal: withPacks.sub
-  }).match(/стоимость выходит - (\S+)/)[1];
-  assert.equal(shown, eaten);
   assert.equal(shown, String(Math.round(withPacks.sub)));
+  assert.ok(Number(shown) <= Math.round(cap));
 });
 
 test("расчёт подписки читает пакеты после капа и обновляет текст на месте", () => {
@@ -118,9 +110,8 @@ test("расчёт подписки читает пакеты после кап�
   assert.match(calc, /if \(price\.mode === "retail"\) \{[^}]*cl-manual/);
   assert.match(calc, /id="cxMsg"/);
   assert.match(clients, /setTimeout\(function \(\) \{ refreshLiveMessage\(\); \}, 250\)/);
-  assert.match(offer, /packagesByn: 0/);
+  assert.match(offer, /packagesByn: packagesByn/);
   assert.match(offer, /var sub = fact > 0 \? fact : quote\.total/);
   assert.match(offer, /if \(price\.scheme === "RAW26"\) sub = P\(\)\.capOfferSubToDisplayedRetail_\(sub, retail\.total\) \|\| sub/);
-  assert.match(offer, /if \(packagesByn\) sub = Math\.round\(\(sub \+ packagesByn\) \* 100\) \/ 100/);
-  assert.match(offer, /if \(packagesByn\) messageOpts\.asEntered = true/);
+  assert.doesNotMatch(offer, /messageOpts\.asEntered = true/);
 });

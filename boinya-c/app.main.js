@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71123600";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71123700";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -21312,7 +21312,7 @@
 
     /**
      * Локальная оценка месячной ПП без запроса: от последнего живого calcPrice (anchor) вычитаем
-     * снятое сырьё × coef + recover + наценку фракций; потолок 92% розницы товара, 9×N сверху.
+     * снятое сырьё × coef + recover + наценку фракций; потолок 92% показанной розницы на всю цену.
      * Упаковку не моделируем — итог всегда подтверждаем живым calcPrice.
      */
     function pricePickLocalMonthly_(list, anchorList, anchor) {
@@ -21320,7 +21320,7 @@
       var monthA = pricePickMonthlyItems_(anchorList);
       var retail = calcRetailBasketTotal(month, { deliveriesN: PRICE_PICK_MONTH_DELIVERIES });
       var capRate = typeof PP_RAW26_RETAIL_CAP === "number" ? PP_RAW26_RETAIL_CAP : 0.92;
-      var goodsCap = Math.round((Number(retail.goods) || 0) * capRate * 100) / 100;
+      var priceCap = Math.round((Number(retail.total) || 0) * capRate * 100) / 100;
       var m = anchor && anchor.model;
       var monthly, goods;
       if (m) {
@@ -21351,11 +21351,7 @@
         monthly = ((anchor && anchor.monthly) || 0) * ratio;
         goods = ((anchor && anchor.goods) || 0) * ratio;
       }
-      if (goodsCap > 0 && goods > goodsCap + 0.001) {
-        var fixedPart = (Number(monthly) || 0) - (Number(goods) || 0);
-        goods = goodsCap;
-        monthly = goods + fixedPart;
-      }
+      if (priceCap > 0 && (Number(monthly) || 0) > priceCap + 0.001) monthly = priceCap;
       return {
         monthly: Math.round(monthly * 100) / 100,
         goods: Math.round(Math.max(0, goods) * 100) / 100
@@ -23950,38 +23946,36 @@
       }
     }
 
-    /** База капа товара = R. 9×N в кап не входит. */
+    /** База капа = розница в тексте клиенту: товар + доставка прайса, если R/N < 80. */
     function raw26RetailCapBase_(retailGoods, deliveriesN) {
       var r = Number(retailGoods);
       if (!isFinite(r) || r <= 0) return 0;
-      return Math.round(r * 100) / 100;
+      var n = Math.max(1, Number(deliveriesN) || 1);
+      var per = r / n;
+      var freeFrom = (typeof PP_RAW26_RETAIL_FREE_FROM === "number") ? PP_RAW26_RETAIL_FREE_FROM : 80;
+      var fee = (typeof PP_RAW26_DELIVERY_PER === "number") ? PP_RAW26_DELIVERY_PER : 9;
+      var delivery = per < freeFrom ? fee * n : 0;
+      return Math.round((r + delivery) * 100) / 100;
     }
 
-    /** Кап только товара: min(товар, 0.92×R), не ниже сырьё+recover. 9×N, F и пакеты сверху. */
+    /** Потолок 92% на всю цену. Товар, 9×N, F и пакеты не сжимаем: режется только factCost. */
     function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
       var g = Math.round((Number(goods) || 0) * 100) / 100;
       var d = Math.round((Number(delivery) || 0) * 100) / 100;
       var p = Math.round((Number(packagesByn) || 0) * 100) / 100;
       var f = Math.round((Number(fracMark) || 0) * 100) / 100;
       var cap = Math.round((Number(capAt) || 0) * 100) / 100;
-      var floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
-      if (floor < 0) floor = 0;
-      var capped = cap > 0 && g > cap + 0.001;
-      if (capped) {
-        var next = cap < floor ? floor : cap;
-        g = Math.round(next * 100) / 100;
-      }
-      var factAlloc = Math.round((g + d + p + f) * 100) / 100;
-      var uncappedFloor = !!(capped && g > cap + 0.001);
+      var sum = Math.round((g + d + p + f) * 100) / 100;
+      var capped = cap > 0 && sum > cap + 0.001;
       return {
         goods: g,
         delivery: d,
         packagesByn: p,
         fractionMarkup: f,
-        factCost: factAlloc,
+        factCost: capped ? cap : sum,
         retailCapped: !!capped,
         retailCapAt: cap,
-        uncappedFloor: uncappedFloor
+        uncappedFloor: false
       };
     }
 
@@ -24090,7 +24084,7 @@
           total = allocLocal.factCost;
           packagesByn = allocLocal.packagesByn;
           fracTotal = allocLocal.fractionMarkup;
-          hintCore += " · cap 92% розн. " + total;
+          hintCore += " · потолок 92% розн. " + total;
         }
         var factBeforeLocal = Math.round((goodsLocal + delivery + packsBefore + fracBefore) * 100) / 100;
         rememberPpCostFact_({
@@ -24112,9 +24106,7 @@
           factAfterCap: total,
           factCost: total,
           capCutByn: Math.round((factBeforeLocal - total) * 100) / 100,
-          capCutFrom: allocLocal.goods < goodsLocal - 0.001
-            ? (allocLocal.uncappedFloor ? "товар+пол" : "товар")
-            : "",
+          capCutFrom: allocLocal.retailCapped ? "потолок" : "",
           cleanBeforeCap: raw26OfferCleanByn_(factBeforeLocal, costSum, recover, packsBefore, n),
           cleanAfterCap: raw26OfferCleanByn_(total, costSum, recover, packagesByn, n),
           retailCapped: allocLocal.retailCapped,
@@ -25636,7 +25628,7 @@
         subTotal = capOfferSubToDisplayedRetail_(subTotal, retail.total);
         formulaHint = "сырьё " + costSum + " × " + coef +
           " + recover " + recover +
-          (capped ? (" (товар ≤92% розн. " + Math.round(allocUi.goods * 100) / 100 + ")") : "") +
+          (capped ? (" (потолок 92% розн. " + Math.round(allocUi.factCost * 100) / 100 + ")") : "") +
           " + 9×" + deliveriesN + "(" + deliveryByn + ")" +
           (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
           (fracMark.total ? (" + фракции " + fracMark.total) : "");
@@ -25974,9 +25966,13 @@
       return (Math.abs(x - Math.round(x)) < 0.001) ? String(Math.round(x)) : x.toFixed(2);
     }
 
-    /** Кап уже сидит на товаре. Здесь цену не режем: 9×N, F и пакеты остаются. */
+    /** Потолок 92% показанной розницы на всю цену подписки. */
     function capOfferSubToDisplayedRetail_(subTotal, retailTotal) {
-      return money2_(subTotal);
+      var sub = money2_(subTotal);
+      var retail = money2_(retailTotal);
+      if (!(retail > 0)) return sub;
+      var cap = money2_(retail * PP_RAW26_RETAIL_CAP);
+      return sub > cap + 0.001 ? cap : sub;
     }
 
     /** Месячное N. «2», «2/мес», «2 доставки» → 2. Слот «1/2» → знаменатель 2, не 1. */

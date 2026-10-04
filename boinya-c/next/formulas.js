@@ -61,21 +61,26 @@
     var parts = formulaParts_(input);
     var R = num_(input.R);
     var F = num_(input.F);
+    var packs = num_(input.packages);
     var g = parts.G / 100;
+    var n = parts.N > 0 ? parts.N : 0;
     var goodsRaw = kopeck_(kopeck_(parts.S * 2.6) + kopeck_(3.9 * g) + kopeck_(0.5 * parts.P));
-    var cap = kopeck_(0.92 * R);
-    var ceiling = goodsRaw > cap ? kopeck_(goodsRaw - cap) : 0;
-    var goods = goodsRaw > cap ? cap : goodsRaw;
-    var price = kopeck_(goods + kopeck_(9 * parts.N) + F);
+    var per = n > 0 ? R / n : R;
+    var retailDelivery = R > 0 && per < 80 ? kopeck_(9 * n) : 0;
+    var rDisplay = kopeck_(R + retailDelivery);
+    var cap = rDisplay > 0 ? kopeck_(0.92 * rDisplay) : 0;
+    var uncapped = kopeck_(goodsRaw + kopeck_(9 * n) + F + packs);
+    var price = cap > 0 && uncapped > cap ? cap : uncapped;
+    var ceiling = uncapped > price ? kopeck_(uncapped - price) : 0;
     var margin = kopeck_(price - parts.cost);
-    var marginCheck = kopeck_(kopeck_(1.6 * parts.S) - kopeck_(0.4 * parts.P) + kopeck_(0.6 * parts.N) + F - ceiling);
+    var marginCheck = kopeck_(kopeck_(1.6 * parts.S) - kopeck_(0.4 * parts.P) + kopeck_(0.6 * n) + F + packs - ceiling);
     return {
       S: parts.S, G: parts.G, P: parts.P, N: parts.N,
       raw: parts.raw, cut: parts.cut, assembly: parts.assembly,
       light: parts.light, pack: parts.pack, road: parts.road,
       cost: parts.cost, wage: parts.wage,
-      R: kopeck_(R), F: kopeck_(F),
-      goods: goods, goodsRaw: goodsRaw, cap: cap, ceiling: ceiling,
+      R: kopeck_(R), F: kopeck_(F), rDisplay: rDisplay, retailDelivery: retailDelivery,
+      goods: goodsRaw, goodsRaw: goodsRaw, cap: cap, ceiling: ceiling,
       price: price, margin: margin, marginCheck: marginCheck
     };
   }

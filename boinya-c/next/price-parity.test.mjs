@@ -39,24 +39,23 @@ test("формулы вырезаны из app.main.js без переписыв
   });
 });
 
-test("кап 92% только на товар, доставка и фракция сверху", () => {
+test("кап 92% на всю цену, компоненты не сжимаются", () => {
   const n1 = P.applyRaw26RetailCapAlloc_(100, 9, 1.4, 8, 92, 40);
-  assert.equal(n1.goods, 92);
+  assert.equal(n1.goods, 100);
   assert.equal(n1.fractionMarkup, 8);
   assert.equal(n1.packagesByn, 1.4);
   assert.equal(n1.delivery, 9);
-  assert.equal(n1.factCost, 110.4);
+  assert.equal(n1.factCost, 92);
   assert.equal(n1.uncappedFloor, false);
-  const n2 = P.applyRaw26RetailCapAlloc_(100, 18, 1.4, 8, 92, 40);
   const n4 = P.applyRaw26RetailCapAlloc_(100, 36, 1.4, 8, 92, 40);
-  assert.equal(n2.factCost, 119.4);
-  assert.equal(n4.factCost, 137.4);
-  assert.equal(Math.round((n2.factCost - n1.factCost) * 100) / 100, 9);
+  assert.equal(n4.delivery, 36);
+  assert.equal(n4.factCost, 92);
   const floor = P.applyRaw26RetailCapAlloc_(100, 9, 0.56, 4, 50, 60);
   assert.equal(floor.fractionMarkup, 4);
-  assert.equal(floor.goods, 60);
-  assert.equal(floor.uncappedFloor, true);
-  assert.equal(floor.factCost, 73.56);
+  assert.equal(floor.goods, 100);
+  assert.equal(floor.delivery, 9);
+  assert.equal(floor.uncappedFloor, false);
+  assert.equal(floor.factCost, 50);
   const open = P.applyRaw26RetailCapAlloc_(50, 18, 0, 3, 92, 20);
   assert.equal(open.retailCapped, false);
   assert.equal(open.goods, 50);
@@ -67,11 +66,11 @@ test("кап 92% только на товар, доставка и фракци�
 test("локальный RAW26 совпадает с applyLocalPpFact_", () => {
   const list = [{ cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Ломтики", val: 200, value: 200 }];
   const q = P.quotePp({ scheme: "RAW26", coef: 2.6, deliveriesN: 2, costSum: 10, list: list, packagesByn: 0, fracTotal: 0 });
-  assert.equal(q.total, 35.8);
   assert.equal(q.fact.recoverByn, 7.8);
-  assert.equal(q.fact.retailCapAt, 16.56);
-  assert.equal(q.fact.uncappedFloor, true);
   assert.equal(q.fact.deliveryByn, 18);
+  assert.equal(q.fact.uncappedFloor, false);
+  assert.ok(q.total <= q.fact.retailCapAt + 0.001);
+  assert.equal(q.fact.goodsByn, q.fact.goodsBeforeCap);
   const legacy = P.quotePp({ scheme: "LEGACY", coef: 2.3, deliveriesN: 2, costSum: 10, list: list, packagesByn: 0, fracTotal: 0 });
   assert.equal(legacy.total, Math.round((10 * 2.3 + 11 + 6 * 2) * 100) / 100);
 });
