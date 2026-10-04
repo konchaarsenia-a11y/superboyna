@@ -5236,6 +5236,18 @@ function handleMoveClient(ss, json, callback, fromPost) {
     dateSync.error = String(eSync);
   }
 
+  // финальный съём источника: параллельный move мог вернуть колонку и строку старой даты
+  try { clearClientColumnFromDay_(ss, srcDayName, clientName, matchKey); } catch (eClrFin) {}
+  try { clearClientFromWeekSheets_(ss, clientName, matchKey, targetDayName); } catch (eClrFin2) {}
+  try {
+    if (oldDate && newDate) {
+      moveCalendarClientDate_(ss, clientName, oldDate, newDate, {
+        matchKey: matchKey,
+        dayName: targetDayName
+      });
+    }
+  } catch (eCalFin) {}
+
   try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrub2) {}
   try { CacheService.getScriptCache().remove("WH_PLAN_V2"); } catch (eWhC) {}
   // дефицит — отдельно checkOrderWarehouse (не блокируем move)

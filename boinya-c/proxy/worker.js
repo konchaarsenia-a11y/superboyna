@@ -7070,6 +7070,13 @@ async function getClients_(params, env) {
             }
             continue;
           }
+          if (day) {
+            try {
+              if (await hasFreshDeleteTombstone_(env, day, mkX || rowX.match_key, rowX.client || "")) {
+                continue;
+              }
+            } catch (eTombHeal) {}
+          }
           if (mkX) {
             seenMk[mkX] = true;
             seenIdx[mkX] = rows.length;
@@ -9126,6 +9133,87 @@ function countPeopleFromViewPayload_(payload) {
   return { count: n, segments: segments };
 }
 
+/**
+ * Какой count писать в бейдж месяца.
+ * skip — не трогать день (пустой view при живых строках D1).
+ * keep — оставить прежний count (снимок урезан, D1 это не подтвердил).
+ * d1Known=false — запрос упал, ноль из воздуха не ставим.
+ * Оба нуля или D1 уже 0 — бейдж 0, даже если view ещё помнит удалённого.
+ */
+function monthBadgeNext_(viewCount, d1Count, d1Known, prevCount) {
+  viewCount = Number(viewCount) || 0;
+  d1Count = Number(d1Count) || 0;
+  prevCount = Number(prevCount) || 0;
+  if (!d1Known) {
+    if (viewCount === 0 && prevCount > 0) return { skip: true };
+    if (viewCount < prevCount) return { keep: true, count: prevCount };
+    return { count: viewCount };
+  }
+  if (d1Count > 0 && viewCount > d1Count) viewCount = d1Count;
+  if (viewCount === 0 && d1Count > 0) return { skip: true };
+  if (d1Count === 0) return { count: 0 };
+  if (viewCount < prevCount && !(d1Count < prevCount && viewCount <= d1Count)) {
+    return { keep: true, count: prevCount };
+  }
+  return { count: viewCount };
+}
+
+/** Бейдж одного дня = число active в D1, включая 0. Без полного rebuild. */
+async function patchMonthOverviewCountFromD1_(env, iso) {
+  iso = String(iso || "").trim();
+  if (!env || !env.DB || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+  let d1c = 0;
+  try {
+    const q = await env.DB.prepare(
+      "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+    )
+      .bind(iso)
+      .first();
+    d1c = Number(q && q.c) || 0;
+  } catch (eD1c) {
+    return;
+  }
+  const month = iso.slice(0, 7);
+  const keys = ["monthOverview:" + month, "monthOverview"];
+  const zeroSeg = { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    let body = null;
+    try {
+      body = await getSnapRaw_(env, key);
+    } catch (eG) {
+      body = null;
+    }
+    if (!body || !Array.isArray(body.days)) {
+      if (d1c === 0 || key !== "monthOverview:" + month) continue;
+      body = { status: "success", month: month, days: [], total: 0 };
+    }
+    let found = false;
+    body.days = (body.days || []).map(function (d) {
+      if (!d || d.dateIso !== iso) return d;
+      found = true;
+      return Object.assign({}, d, {
+        count: d1c,
+        segments: d1c ? d.segments : zeroSeg,
+        fromD1: true
+      });
+    });
+    if (!found && d1c > 0) {
+      body.days.push({ dateIso: iso, count: d1c, fromD1: true });
+      body.days.sort(function (a, b) {
+        return String(a.dateIso).localeCompare(String(b.dateIso));
+      });
+    }
+    if (!found && d1c === 0) continue;
+    body.total = (body.days || []).reduce(function (s, d) {
+      return s + (Number(d.count) || 0);
+    }, 0);
+    try {
+      await putSnap_(env, key, body);
+    } catch (eP) {}
+  }
+}
+
 /** Бейдж дня = фактический список Просмотра, не сырой Календарь_Дат. */
 async function patchMonthOverviewDayFromView_(env, iso, payload) {
   if (!env || !env.DB || !iso) return;
@@ -9133,6 +9221,7 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
   let viewCount = tallied.count;
   let segments = tallied.segments;
   let d1cPatch = 0;
+  let d1Known = false;
   try {
     const q = await env.DB.prepare(
       "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
@@ -9140,10 +9229,8 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
       .bind(iso)
       .first();
     d1cPatch = Number(q && q.c) || 0;
+    d1Known = true;
   } catch (eD1) {}
-  if (d1cPatch > 0 && viewCount > d1cPatch) viewCount = d1cPatch;
-  // пустой view-snap не должен обнулять день, если в D1 уже есть люди
-  if (viewCount === 0 && d1cPatch > 0) return;
   const month = String(iso).slice(0, 7);
   const keys = ["monthOverview:" + month, "monthOverview"];
   for (let i = 0; i < keys.length; i++) {
@@ -9161,22 +9248,21 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
       if (!d || d.dateIso !== iso) return d;
       found = true;
       const prev = Number(d.count) || 0;
-      // не затирать больший count меньшим (гонка пустого snap),
-      // но D1-подтверждённое снижение (клоны 21→28 сняты) — применяем.
-      if (viewCount < prev && !(d1cPatch > 0 && d1cPatch < prev && viewCount <= d1cPatch)) {
-        return Object.assign({}, d, { fromView: true });
-      }
+      const next = monthBadgeNext_(viewCount, d1cPatch, d1Known, prev);
+      if (next.skip || next.keep) return Object.assign({}, d, { fromView: true });
       return Object.assign({}, d, {
-        count: viewCount,
-        segments: segments,
+        count: next.count,
+        segments: next.count ? segments : { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 },
         fromView: true,
         fromWeekSheet: !!d.fromWeekSheet
       });
     });
     if (!found) {
+      const nextNew = monthBadgeNext_(viewCount, d1cPatch, d1Known, 0);
+      if (nextNew.skip || !nextNew.count) continue;
       body.days.push({
         dateIso: iso,
-        count: viewCount,
+        count: nextNew.count,
         segments: segments,
         fromView: true
       });
@@ -9223,6 +9309,7 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
       const prev = byIso[iso];
       const prevCount = Number(prev && prev.count) || 0;
       let d1c = 0;
+      let d1Known = false;
       try {
         const q1 = await env.DB.prepare(
           "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
@@ -9230,30 +9317,17 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
           .bind(iso)
           .first();
         d1c = Number(q1 && q1.c) || 0;
+        d1Known = true;
       } catch (eD1r) {}
-      // stale viewDate держал удалённые клоны (28.09: 11 вместо 5)
-      if (d1c > 0 && viewCount > d1c) viewCount = d1c;
-      // пустой/урезанный view-snap не должен обнулять бейдж месяца
-      if (viewCount === 0 && prevCount > 0) continue;
-      if (viewCount < prevCount) {
-        if (d1c > 0 && d1c < prevCount && viewCount <= d1c) {
-          byIso[iso] = Object.assign({}, prev || {}, {
-            dateIso: iso,
-            count: Math.max(viewCount, d1c),
-            segments: segments,
-            fromView: true,
-            fromWeekSheet: !!(prev && prev.fromWeekSheet)
-          });
-          continue;
-        }
-        // D1/календарь уже больше — оставить, только пометить fromView
-        byIso[iso] = Object.assign({}, prev, { fromView: true });
+      const next = monthBadgeNext_(viewCount, d1c, d1Known, prevCount);
+      if (next.skip || next.keep) {
+        if (prev) byIso[iso] = Object.assign({}, prev, { fromView: true });
         continue;
       }
       byIso[iso] = Object.assign({}, prev || {}, {
         dateIso: iso,
-        count: viewCount,
-        segments: segments,
+        count: next.count,
+        segments: next.count ? segments : { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 },
         fromView: true,
         fromWeekSheet: !!(prev && prev.fromWeekSheet)
       });
@@ -11173,6 +11247,12 @@ async function deleteClientOneRecord_(params, env, ctx) {
   let changed = 0;
   const ids = [];
   const days = [];
+  const dates = [];
+  function addDelDate_(iso) {
+    iso = String(iso || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso) && dates.indexOf(iso) < 0) dates.push(iso);
+  }
+  addDelDate_(dateIso);
   for (let i = 0; i < targets.length; i++) {
     const row = targets[i];
     if (!row || !row.id) continue;
@@ -11188,6 +11268,7 @@ async function deleteClientOneRecord_(params, env, ctx) {
       if (n) {
         changed += n;
         ids.push(String(row.id));
+        addDelDate_(row.date_iso);
         const dn = String(row.day_name || "");
         if (dn && days.indexOf(dn) < 0) days.push(dn);
         if (!dn && row.date_iso) {
@@ -11228,6 +11309,11 @@ async function deleteClientOneRecord_(params, env, ctx) {
   }
   if (!skipHeavyInvalidate_(params) && days.length) {
     try { await invalidateDays_(env, days); } catch (eInv) {}
+  }
+  // бейдж месяца и viewDate этой даты — даже на hot path и если строки уже не было
+  for (let di = 0; di < dates.length; di++) {
+    try { await delSnap_(env, "viewDate:" + dates[di]); } catch (eVd) {}
+    try { await patchMonthOverviewCountFromD1_(env, dates[di]); } catch (eMoDel) {}
   }
   if (changed === 0) {
     return {
@@ -12178,6 +12264,12 @@ async function moveClient_(params, env) {
   try {
     if (newDate) await delSnap_(env, "viewDate:" + newDate);
   } catch (eVn2) {}
+  try {
+    if (oldDate) await patchMonthOverviewCountFromD1_(env, oldDate);
+  } catch (eMoOld) {}
+  try {
+    if (newDate) await patchMonthOverviewCountFromD1_(env, newDate);
+  } catch (eMoNew) {}
 
   return {
     status: "success",
@@ -21676,8 +21768,13 @@ function isSubDeleteTombstoned_(tombs, mk, sheet, subId) {
     if (!t) continue;
     const tSh = String(t.sheet || "").trim().toUpperCase() || "ПП";
     if (tSh !== sh) continue;
-    if (wantSid && String(t.subId || "") === wantSid) return true;
-    if (wantMk && String(t.mk || "") === wantMk) return true;
+    const tMk = String(t.mk || "");
+    if (wantMk && tMk && wantMk === tMk) return true;
+    if (wantSid && String(t.subId || "") === wantSid) {
+      // subId скопирован на другую кличку (repair «Андрей» → andreiprigunov) — не снимать карточку хозяина
+      if (wantMk && tMk && wantMk !== tMk) continue;
+      return true;
+    }
   }
   return false;
 }
