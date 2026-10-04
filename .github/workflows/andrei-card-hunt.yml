@@ -1,0 +1,24 @@
+name: andrei-card-hunt
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/andrei-card-hunt-f592
+    paths:
+      - "scripts/recover-andrei-card-hunt.mjs"
+      - ".github/workflows/andrei-card-hunt.yml"
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read card copies
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/recover-andrei-card-hunt.mjs
