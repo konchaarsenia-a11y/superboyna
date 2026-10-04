@@ -860,18 +860,15 @@
     if (!sameDate && !(await confirmFullDay(newDate))) return;
     var onWeek = target && (target.onWeek || target.dayName);
     var calendarOnly = !!(view.calendarOnly || !onWeek);
-    var cut = "yes";
-    if (!calendarOnly) {
-      var ans = await sh().confirm({
-        title: "Нарезка при переносе",
-        text: "Нарезать сырьё на этого клиента в новом дне вместе со всеми?",
-        ok: "Да, резать",
-        alt: "Нет — только перенос",
-        cancel: "Отмена"
-      });
-      if (!ans) return;
-      cut = ans === "alt" ? "no" : "yes";
-    }
+    var ans = await sh().confirm({
+      title: "Нарезка при переносе",
+      text: "Нарезать сырьё на этого клиента в новом дне вместе со всеми?",
+      ok: "Да, резать",
+      alt: "Нет — только перенос",
+      cancel: "Отмена"
+    });
+    if (!ans) return;
+    var cut = ans === "alt" ? "no" : "yes";
     var ot = logic().resolveOrderType(c);
     var params = logic().moveParams({
       client: c.name,

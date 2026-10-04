@@ -111,6 +111,26 @@ test("тост people-write: точно только после таблицы",
   assert.equal(L.writeAccepted({ status: "error" }), false);
 });
 
+test("перенос дальше будущей недели спрашивает нарезку", () => {
+  const week = fs.readFileSync(path.join(dir, "week.js"), "utf8");
+  const gs = fs.readFileSync(path.resolve(dir, "../../Code.gs"), "utf8");
+  const at = week.indexOf("async function moveOne");
+  const body = week.slice(at, week.indexOf("async function delOne", at));
+  assert.match(body, /Нарезка при переносе/);
+  assert.match(body, /Да, резать/);
+  assert.match(body, /Нет — только перенос/);
+  assert.equal(body.includes("if (!calendarOnly)"), false);
+  assert.match(body, /cutRaw:\s*cut/);
+  const mark = gs.indexOf("FAR_DATE_CUT");
+  assert.ok(mark > 0);
+  const block = gs.slice(mark, gs.indexOf("var dstBlock = getDayBlock(targetDayName);", mark));
+  const applied = block.indexOf("applyNoCutToNote_(movePayload.note");
+  const moved = block.indexOf("moveClientDeliveryDateEverywhere_");
+  assert.ok(applied > 0 && applied < moved);
+  assert.match(block, /writeNote:\s*true/);
+  assert.match(block, /noCut:\s*noCutMove/);
+});
+
 test("moveClient: нарезка и календарь", () => {
   var cut = L.moveParams({ client: "Анна", oldDay: "Среда", newDay: "Четверг", newDate: "2026-10-01", cutRaw: "yes", orderType: "pp", segment: "ПП" });
   assert.equal(cut.action, "moveClient");
