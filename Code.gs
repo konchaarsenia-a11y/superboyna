@@ -5047,6 +5047,9 @@ function handleMoveClient(ss, json, callback, fromPost) {
     if (!newDate) return reply({ status: "need_date" });
     // СНАЧАЛА снимок состава/контакта — до clearClientColumnFromDay_
     var movePayload = gatherClientMovePayload_(ss, clientName, matchKey, oldDate, srcDayName);
+    // FAR_DATE_CUT: дата дальше «Будущей недели» — тот же ответ «резать / только перенос».
+    var noCutMove = resolveNoCutFlag_(json, movePayload.note || "");
+    movePayload.note = applyNoCutToNote_(movePayload.note || "", noCutMove);
     var cleared = 0;
     if (srcBlock) cleared += clearClientColumnFromDay_(ss, json.oldDay, clientName, matchKey);
     // на всякий случай снять и с «Будущей» / других дней
@@ -5058,7 +5061,10 @@ function handleMoveClient(ss, json, callback, fromPost) {
           matchKey: matchKey,
           address: movePayload.address || "",
           phone: movePayload.phone || "",
-          note: movePayload.note || "",
+          note: movePayload.note,
+          writeNote: true,
+          noCut: noCutMove ? "1" : "0",
+          cutRaw: noCutMove ? "0" : "1",
           basket: movePayload.basket || [],
           segment: movePayload.segment || "",
           dayName: ""
@@ -5071,7 +5077,9 @@ function handleMoveClient(ss, json, callback, fromPost) {
             matchKey: matchKey,
             address: movePayload.address || "",
             phone: movePayload.phone || "",
-            note: movePayload.note || "",
+            note: movePayload.note,
+            noCut: noCutMove ? "1" : "0",
+            cutRaw: noCutMove ? "0" : "1",
             basket: movePayload.basket || [],
             segment: movePayload.segment || "",
             dayName: "",
@@ -5090,6 +5098,8 @@ function handleMoveClient(ss, json, callback, fromPost) {
             address: movePayload.address,
             phone: movePayload.phone,
             note: movePayload.note,
+            noCut: noCutMove ? "1" : "0",
+            cutRaw: noCutMove ? "0" : "1",
             basket: movePayload.basket,
             segment: movePayload.segment
           });
@@ -5409,6 +5419,8 @@ function moveClientDeliveryDateEverywhere_(ss, client, oldDate, newDate, opts) {
         address: opts.address || "",
         phone: opts.phone || "",
         note: opts.note || "",
+        noCut: opts.noCut,
+        cutRaw: opts.cutRaw,
         basket: opts.basket || [],
         segment: opts.segment || "",
         dayName: opts.dayName || findDayNameForDate_(ss, newDate) || "",
@@ -5463,7 +5475,9 @@ function moveCalendarClientDate_(ss, client, oldDate, newDate, opts) {
     if (opts.address != null && opts.address !== "") {
       sh.getRange(all[i].rowIndex, 6).setValue(opts.address);
     }
-    if (opts.note != null && String(opts.note) !== "") {
+    if (opts.writeNote) {
+      sh.getRange(all[i].rowIndex, 8).setValue(opts.note == null ? "" : opts.note);
+    } else if (opts.note != null && String(opts.note) !== "") {
       sh.getRange(all[i].rowIndex, 8).setValue(opts.note);
     }
     moved++;
