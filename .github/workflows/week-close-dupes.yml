@@ -3,8 +3,9 @@
 # у которого есть binding DB. Этот workflow Worker не деплоит.
 # Порядок: дождаться boinya-c-worker* (deploy + promote 100%), затем secret put,
 # затем POST /admin/week-close-dupes, в конце всегда secret delete.
+# Сначала dry-run в лог, потом apply.
 # Apply только если в репо есть scripts/week-close-dupes-approved.json
-# с confirm и applyIds. Без файла — всегда dry-run.
+# с confirm, applyIds и при необходимости extraIds. Без файла — всегда dry-run.
 name: week-close-dupes
 
 on:
@@ -57,12 +58,22 @@ jobs:
             unset CLOUDFLARE_ACCOUNT_ID
           fi
           BODY="$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/request.json"
+          DRY_BODY="$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/request-dry.json"
           mkdir -p "$(dirname "$BODY")"
           set +e
           node "$GITHUB_WORKSPACE/scripts/week-close-dupes-2026-10-04.mjs" --ci-body > "$BODY"
           body_rc=$?
           set -e
-          python3 -c 'import json,sys; print("request mode:", json.load(open(sys.argv[1]))["mode"])' "$BODY"
+          python3 - "$BODY" "$DRY_BODY" <<'PY'
+          import json, sys
+          src, dst = sys.argv[1], sys.argv[2]
+          data = json.load(open(src, encoding="utf-8"))
+          dry = dict(data)
+          dry["mode"] = "dry-run"
+          dry.pop("confirm", None)
+          json.dump(dry, open(dst, "w", encoding="utf-8"))
+          print("request mode:", data.get("mode"), "extra:", len(data.get("extraIds") or []))
+          PY
           TOKEN=$(openssl rand -hex 32)
           echo "::add-mask::$TOKEN"
           put_ok=0
@@ -76,6 +87,33 @@ jobs:
           done
           test "$put_ok" = 1
           OUT="$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/response.json"
+          DRY_OUT="$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/response-dry.json"
+          code="000"
+          echo "=== DRY RUN ==="
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -sS -o "$DRY_OUT" -w "%{http_code}" \
+              -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/week-close-dupes" \
+              -H "Content-Type: application/json" \
+              -H "X-Dupes-Admin-Token: $TOKEN" \
+              --data-binary @"$DRY_BODY" \
+              --max-time 120 || true)
+            echo "dry-run HTTP $code (попытка $i)"
+            if [ "$code" = "200" ] || [ "$code" = "400" ]; then
+              break
+            fi
+            sleep 15
+          done
+          node "$GITHUB_WORKSPACE/scripts/week-close-dupes-2026-10-04.mjs" --check-response "$DRY_OUT" "$code" "0"
+          cp "$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/plan.txt" "$GITHUB_WORKSPACE/artifacts/week-close-dupes-2026-10-04/dry-run.txt"
+          apply_mode=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("mode",""))' "$BODY")
+          if [ "$apply_mode" != "apply" ]; then
+            echo "файла подтверждения нет — остаётся dry-run"
+            if [ "$body_rc" != "0" ]; then
+              exit "$body_rc"
+            fi
+            exit 0
+          fi
+          echo "=== APPLY ==="
           code="000"
           for i in 1 2 3 4 5 6 7 8; do
             code=$(curl -sS -o "$OUT" -w "%{http_code}" \
@@ -84,7 +122,7 @@ jobs:
               -H "X-Dupes-Admin-Token: $TOKEN" \
               --data-binary @"$BODY" \
               --max-time 120 || true)
-            echo "HTTP $code (попытка $i)"
+            echo "apply HTTP $code (попытка $i)"
             if [ "$code" = "200" ] || [ "$code" = "400" ]; then
               break
             fi

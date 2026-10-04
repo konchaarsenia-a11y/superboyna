@@ -502,12 +502,141 @@ function selfTest() {
   }
   const pub = JSON.stringify(worker.weekCloseDupesPublicPlan_(c2));
   const workerReport = worker.weekCloseDupesFormat_(c2);
-  if (pub.includes("+375291112233") || pub.includes("375291112233") || pub.includes('"phone"')) {
-    console.error("self-test: публичный план Worker содержит телефон");
+  if (
+    pub.includes("+375291112233") ||
+    pub.includes("375291112233") ||
+    pub.includes('"phone"') ||
+    pub.includes('"address"') ||
+    pub.includes('"note"')
+  ) {
+    console.error("self-test: публичный план Worker содержит телефон или адрес");
+    process.exit(1);
+  }
+  const last = worker.weekCloseLastWeekDecide_([
+    {
+      id: "Понедельник:WYVD",
+      date_iso: "2026-09-28",
+      day_name: "Понедельник",
+      client: "w.yvd",
+      match_key: "WYVD",
+      basket_json: '[{"name":"ЛЁГКОЕ","val":100}]',
+      status: "active"
+    },
+    {
+      id: "Вторник:LUORLU",
+      date_iso: "2026-09-29",
+      day_name: "Вторник",
+      client: "Lu_or_lu",
+      match_key: "LUORLU",
+      basket_json: '[{"name":"СЕРДЦЕ","val":50}]',
+      status: "deleted"
+    },
+    {
+      id: "Вторник:LUORLU2",
+      date_iso: "2026-10-06",
+      day_name: "Вторник",
+      client: "Lu_or_lu",
+      match_key: "LUORLU",
+      basket_json: "[]",
+      status: "active"
+    },
+    {
+      id: "Будущая неделя:FLAFFYFON",
+      date_iso: "2026-10-12",
+      day_name: "Будущая неделя",
+      client: "flaffyfon",
+      match_key: "FLAFFYFON",
+      basket_json: '[{"name":"УХО","val":1}]',
+      status: "active"
+    },
+    {
+      id: "Понедельник:FLAFFYFON",
+      date_iso: "2026-10-05",
+      day_name: "Понедельник",
+      client: "flaffyfon",
+      match_key: "FLAFFYFON",
+      basket_json: '[{"name":"УХО","val":1}]',
+      status: "active"
+    }
+  ]);
+  const wyvd = last.find((d) => d.label === "w.yvd");
+  const lu = last.find((d) => d.label === "Lu_or_lu");
+  const ola = last.find((d) => d.label === "ola_ba2ra");
+  if (!wyvd || wyvd.result !== "alive-before") {
+    console.error("self-test: w.yvd должен быть alive-before", wyvd);
+    process.exit(1);
+  }
+  if (!lu || lu.result !== "would-restore" || lu.action !== "undelete" || lu.id !== "Вторник:LUORLU") {
+    console.error("self-test: Lu_or_lu должен восстанавливаться из deleted", lu);
+    process.exit(1);
+  }
+  if (!ola || ola.result !== "still-missing") {
+    console.error("self-test: ola_ba2ra без строки — still-missing", ola);
+    process.exit(1);
+  }
+  const extras = worker.weekCloseExtraDecide_(
+    [
+      {
+        id: "Будущая неделя:FLAFFYFON",
+        date_iso: "2026-10-12",
+        day_name: "Будущая неделя",
+        client: "flaffyfon",
+        match_key: "FLAFFYFON",
+        status: "active",
+        basket_json: "[]"
+      },
+      {
+        id: "Понедельник:FLAFFYFON",
+        date_iso: "2026-10-05",
+        day_name: "Понедельник",
+        client: "flaffyfon",
+        match_key: "FLAFFYFON",
+        status: "active",
+        basket_json: "[]"
+      }
+    ],
+    ["Будущая неделя:FLAFFYFON"]
+  );
+  if (!extras[0] || extras[0].error || !extras[0].main || extras[0].main.id !== "Понедельник:FLAFFYFON") {
+    console.error("self-test: extra FLAFFYFON", extras[0]);
+    process.exit(1);
+  }
+  const blocked = worker.weekCloseDeleteBlocked_(
+    { id: "Вторник:LUORLU", client: "Lu_or_lu", match_key: "LUORLU", date_iso: "2026-09-29" },
+    last
+  );
+  if (!blocked) {
+    console.error("self-test: удаление записи прошлой недели должно блокироваться");
+    process.exit(1);
+  }
+  const lastText = worker.weekCloseLastWeekFormat_(last, "LAST WEEK");
+  if (lastText.includes("+375") || /phone\s*=/.test(lastText) || /address\s*=/.test(lastText)) {
+    console.error("self-test: отчёт прошлой недели содержит персональные данные");
     process.exit(1);
   }
   if (workerReport.includes("+375291112233") || /phone\s*=/.test(workerReport)) {
     console.error("self-test: отчёт Worker содержит телефон");
+    process.exit(1);
+  }
+  const approvedPath = path.join(root, "scripts/week-close-dupes-approved.json");
+  const approved = JSON.parse(fs.readFileSync(approvedPath, "utf8"));
+  const approvedIds = String(approved.applyIds || "").split(",").filter(Boolean);
+  if (approved.confirm !== CONFIRM || approvedIds.length !== 14) {
+    console.error("self-test: approved.json confirm/applyIds");
+    process.exit(1);
+  }
+  const extraOk =
+    Array.isArray(approved.extraIds) &&
+    approved.extraIds.includes("Будущая неделя:FLAFFYFON") &&
+    approved.extraIds.includes("Будущая неделя:ROSTISLOVE") &&
+    approved.extraIds.length === 2;
+  if (!extraOk) {
+    console.error("self-test: extraIds");
+    process.exit(1);
+  }
+  const approvedRaw = fs.readFileSync(approvedPath, "utf8");
+  if (/phone|address|\+375/i.test(approvedRaw)) {
+    console.error("self-test: в approved.json персональные поля");
     process.exit(1);
   }
   console.log("self-test ok");
@@ -535,7 +664,10 @@ function loadWorkerDupes_() {
     "AND status = 'active' AND date_iso = ?",
     "AND match_key = ?",
     "main.status = 'active' AND main.id != orders.id",
-    'if (k === "phone") return;'
+    'if (k === "phone" || k === "address" || k === "note" || k === "permanentNote" || k === "geo") return;',
+    "weekCloseLastWeekTargets_",
+    "w.yvd",
+    "extraIds"
   ].forEach((needle) => {
     if (!block.includes(needle)) {
       console.error("worker source missing: " + needle);
@@ -544,8 +676,8 @@ function loadWorkerDupes_() {
   });
   const admin = block.slice(block.indexOf("async function weekCloseDupesAdmin_"));
   ["gasProxy_", "putSnap_", "sheet_outbox", "deleteClient", "removeCalendarClient"].forEach((bad) => {
-    if (admin.includes(bad)) {
-      console.error("worker admin трогает " + bad);
+    if (admin.includes(bad) || block.includes(bad)) {
+      console.error("worker dupes трогает " + bad);
       process.exit(1);
     }
   });
@@ -577,9 +709,14 @@ function ciBody() {
   }
   const got = String((data && data.confirm) || "").trim();
   const ids = data && data.applyIds;
+  const extraIds = Array.isArray(data && data.extraIds)
+    ? data.extraIds.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
   if (got === CONFIRM && typeof ids === "string") {
-    emit({ mode: "apply", confirm: got, applyIds: ids });
-    console.error("apply по файлу подтверждения");
+    const body = { mode: "apply", confirm: got, applyIds: ids };
+    if (extraIds.length) body.extraIds = extraIds;
+    emit(body);
+    console.error("apply по файлу подтверждения, extra=" + extraIds.length);
     return;
   }
   emit({ mode: "dry-run" });
@@ -618,8 +755,8 @@ if (checkAt >= 0) {
     }
     if (!node || typeof node !== "object") return;
     Object.keys(node).forEach((k) => {
-      if (String(k).toLowerCase() === "phone") {
-        console.error("в ответе есть ключ phone");
+      if (["phone", "address", "note"].includes(String(k).toLowerCase())) {
+        console.error("в ответе есть ключ " + k);
         process.exit(1);
       }
       walk(node[k]);
