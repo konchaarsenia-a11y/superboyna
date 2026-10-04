@@ -25,6 +25,7 @@
   var enroll = null;
   var editingId = "";
   var price = blankPrice();
+  var crumbDraft = null;
   var pick = { type: "pp", anketa: "", result: null, text: "", busy: false };
   var focusNick = "";
 
@@ -1188,6 +1189,7 @@
   }
 
   function openAdd() {
+    crumbDraft = null;
     var cats = [
       ["dressura", "Дрессура"],
       ["chew", "Жевалки"],
@@ -1203,13 +1205,57 @@
     sh().openSheet({ title: "Ручной ввод", html: html });
   }
 
+  function markAddCat(cat) {
+    var nodes = document.querySelectorAll("[data-act='cl-cat']");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      if (nodes[i].getAttribute("data-cat") === cat) nodes[i].classList.add("b-chip--on");
+      else nodes[i].classList.remove("b-chip--on");
+    }
+  }
+
+  function renderCrumbPicker() {
+    var box = document.getElementById("clPicker");
+    if (!box || !crumbDraft) return;
+    var html = root.BoinyaOrders.crumbBuilderHtml(crumbDraft, {
+      kind: "cl-ckind",
+      src: "cl-csrc",
+      add: "cl-csrc-add",
+      del: "cl-csrc-del",
+      gram: "cl-cgram",
+      qty: "cl-cqty"
+    });
+    html += '<button class="b-btn b-btn--main" type="button" data-act="cl-cadd" style="margin-top:12px">В состав</button>';
+    box.innerHTML = html;
+  }
+
   function pickerCat(cat) {
+    markAddCat(cat);
+    if (cat === "crumb") {
+      crumbDraft = { kind: "meat", sources: [], grams: [], qty: 100 };
+      renderCrumbPicker();
+      return;
+    }
+    crumbDraft = null;
     var names = eng().catalogItemsForUi_(cat) || [];
     var html = names.map(function (n) {
       return '<button type="button" class="b-li" data-act="cl-sku" data-cat="' + esc(cat) + '" data-name="' + esc(n) + '"><span class="b-li__title">' + esc(eng().prettyProductName(n)) + "</span></button>";
     }).join("");
     var box = document.getElementById("clPicker");
     if (box) box.innerHTML = html || '<p class="b-note">Пусто</p>';
+  }
+
+  function addCrumbFromDraft() {
+    if (!crumbDraft || !root.BoinyaOrders) return;
+    var built = root.BoinyaOrders.crumbItemFromDraft(crumbDraft);
+    if (!built.ok) { sh().toast(built.message); return; }
+    var list = activeBasket().slice();
+    list.push(built.item);
+    setActiveBasket(list);
+    crumbDraft = null;
+    sh().closeTop("ok");
+    paint();
+    schedulePpMessage();
   }
 
   async function openCard(nick, subId, sheet) {
@@ -1470,7 +1516,26 @@
   }
 
   function onAct(act, node) {
-    if (act === "input" || act === "change") return readNode(node);
+    if (act === "input" || act === "change") {
+      if (crumbDraft && node && node.getAttribute) {
+        var crumbAct = node.getAttribute("data-act");
+        if (crumbAct === "cl-csrc") {
+          var idx = Number(node.getAttribute("data-i"));
+          var parts = String(node.value || "").split("|");
+          while (crumbDraft.sources.length <= idx) crumbDraft.sources.push("");
+          crumbDraft.sources[idx] = parts[1] || "";
+          renderCrumbPicker();
+          return true;
+        }
+        if (crumbAct === "cl-cgram") {
+          var gi = Number(node.getAttribute("data-i"));
+          if (!crumbDraft.grams) crumbDraft.grams = [];
+          crumbDraft.grams[gi] = node.value;
+          return true;
+        }
+      }
+      return readNode(node);
+    }
     if (!node || String(act || "").indexOf("cl-") !== 0 && act !== "cseg") {
       if (act !== "cl-open") return false;
     }
@@ -1538,6 +1603,38 @@
     if (act === "cl-migrate") { migrateRaw(); return true; }
     if (act === "cl-add" || act === "cl-manual") { openAdd(); return true; }
     if (act === "cl-cat") { pickerCat(node.getAttribute("data-cat")); return true; }
+    if (act === "cl-ckind") {
+      if (!crumbDraft) return true;
+      crumbDraft.kind = node.getAttribute("data-kind") || "meat";
+      crumbDraft.sources = [];
+      crumbDraft.grams = [];
+      renderCrumbPicker();
+      return true;
+    }
+    if (act === "cl-csrc-add") {
+      if (!crumbDraft) return true;
+      crumbDraft.sources.push("");
+      if (!crumbDraft.grams) crumbDraft.grams = [];
+      crumbDraft.grams.push("");
+      renderCrumbPicker();
+      return true;
+    }
+    if (act === "cl-csrc-del") {
+      if (!crumbDraft) return true;
+      crumbDraft.sources.pop();
+      if (crumbDraft.grams) crumbDraft.grams.pop();
+      renderCrumbPicker();
+      return true;
+    }
+    if (act === "cl-cqty") {
+      if (!crumbDraft) return true;
+      var crumbDir = Number(node.getAttribute("data-dir"));
+      var crumbNext = root.BoinyaOrders.gramStep_(crumbDraft.qty, crumbDir);
+      crumbDraft.qty = Math.max(10, crumbNext);
+      renderCrumbPicker();
+      return true;
+    }
+    if (act === "cl-cadd") { addCrumbFromDraft(); return true; }
     if (act === "cl-sku") { askQty(node.getAttribute("data-cat"), node.getAttribute("data-name")); return true; }
     if (act === "cl-del-line") {
       var list = activeBasket().slice();
