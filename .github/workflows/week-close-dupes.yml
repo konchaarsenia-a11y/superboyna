@@ -21,6 +21,11 @@ on:
         description: "Для apply: точная строка APPLY_IDS из последнего dry-run"
         required: false
         default: ""
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/week-close-dupes.yml
+      - scripts/week-close-dupes-2026-10-04.mjs
 
 permissions:
   contents: read
@@ -38,9 +43,10 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          MODE: ${{ inputs.mode }}
-          APPLY_CONFIRM: ${{ inputs.confirm }}
-          APPLY_IDS: ${{ inputs.apply_ids }}
+          # push на main всегда dry-run. apply только workflow_dispatch с confirm.
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
+          APPLY_CONFIRM: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm || '' }}
+          APPLY_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_ids || '' }}
         run: node scripts/week-close-dupes-2026-10-04.mjs
       - uses: actions/upload-artifact@v4
         if: always()
