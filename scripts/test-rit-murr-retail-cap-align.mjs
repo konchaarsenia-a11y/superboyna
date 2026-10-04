@@ -33,7 +33,7 @@ function extractFn(src, name) {
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
-assert(/v71123400/.test(uiSrc), "APP_VERSION v71123400");
+assert(/v71123500/.test(uiSrc), "APP_VERSION v71123500");
 assert(/function ppSheetPrice_/.test(uiSrc) && /function raw26ApiFactPrice_/.test(uiSrc), "UI ignores stale calcFactCost");
 assert(/function subscriptionNickKeys_/.test(wSrc) && /function sanitizeRaw26CalcFactCost_/.test(wSrc), "Worker nick aliases + sanitize calcFact");
 assert(
