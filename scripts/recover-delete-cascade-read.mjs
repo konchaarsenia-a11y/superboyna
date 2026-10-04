@@ -402,17 +402,30 @@ async function main() {
     } catch (eDep) {
       out = scrub((eDep && eDep.stdout) || "") + "\n" + scrub((eDep && eDep.stderr) || "") + "\n" + scrub(eDep && eDep.message);
       console.log(out.slice(0, 2000));
-      process.exit(4);
+      process.exitCode = 4;
+      return;
     }
-    const urlMatch = scrub(out).match(/https:\/\/[a-z0-9-]+\.[a-z0-9.-]+\.workers\.dev/);
-    const host = (urlMatch && urlMatch[0]) || "https://" + WORKER_NAME + ".konchaarsenia.workers.dev";
-    console.log("helper_host", host.replace(WORKER_NAME, "del-read-tmp"));
-    const res = await fetch(host + "/", { headers: { "x-repair-key": key } });
-    const text = await res.text();
-    console.log("helper_http", res.status, "bytes", text.length);
-    if (!res.ok) {
-      console.log(scrub(text).slice(0, 300));
-      process.exit(5);
+    const scrubbed = scrub(out);
+    const lines = scrubbed.split("\n").filter(function (ln) {
+      return /Deployed|Version|workers\.dev|ERROR|error|Uploaded/i.test(ln);
+    });
+    console.log(lines.slice(0, 30).join("\n"));
+    const urls = scrubbed.match(/https:\/\/boinya-c-del-read-tmp\.[a-z0-9.-]+\.workers\.dev/g) || [];
+    const host = urls[0] || "https://" + WORKER_NAME + ".konchaarsenia.workers.dev";
+    console.log("helper_host_ok", urls.length ? "1" : "0");
+    let res = null;
+    let text = "";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt) await new Promise(function (r) { setTimeout(r, 3000); });
+      res = await fetch(host + "/", { headers: { "x-repair-key": key } });
+      text = await res.text();
+      console.log("helper_http", res.status, "bytes", text.length, "try", attempt + 1);
+      if (res.ok) break;
+    }
+    if (!res || !res.ok) {
+      console.log(scrub(text).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 240));
+      process.exitCode = 5;
+      return;
     }
     const report = JSON.parse(text);
     console.log(JSON.stringify(report));
