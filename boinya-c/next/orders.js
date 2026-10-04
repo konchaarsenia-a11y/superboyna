@@ -1768,7 +1768,7 @@
     var nick = String(state.client || "").trim();
     var has = !!(eng().buildOrderSaveBasket_() || []).length;
     if (!nick && !has) { sh().toast("Укажи ник или корзину"); return; }
-    var when = await sh().choice({
+    var picked = await sh().pickRemindAt({
       title: "На потом",
       text: "Когда напомнить?",
       options: [
@@ -1777,10 +1777,8 @@
         { label: "Завтра 10:00", value: "tomorrow" }
       ]
     });
-    if (!when) return;
-    var whenDate = null;
-    if (when === "today") { whenDate = new Date(); whenDate.setHours(18, 0, 0, 0); }
-    if (when === "tomorrow") { whenDate = new Date(); whenDate.setDate(whenDate.getDate() + 1); whenDate.setHours(10, 0, 0, 0); }
+    if (!picked) return;
+    var whenDate = picked.none ? null : picked;
     var snap = pay().buildDeferredSnapshot(state, eng());
     var typeLab = { pp: "ПП", bp: "БП", retail: "Р", partner: "Партнёр" }[state.orderType] || "Заказ";
     var title = "Заказ, " + typeLab + (nick ? ", " + nick : "") + (state.deliveryDate ? ", " + ddmmOf(state.deliveryDate) : "");
