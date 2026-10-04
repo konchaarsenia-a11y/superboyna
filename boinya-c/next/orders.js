@@ -998,6 +998,29 @@
     return ex.unitFor_(cat, name) || "";
   }
 
+  /** Граммы: до 50 шаг 10, с 50 шаг 50. 75 → 50 или 100. Штуки сюда не попадают. */
+  function gramStep_(qty, dir) {
+    qty = Number(qty);
+    if (!isFinite(qty)) qty = 0;
+    dir = Number(dir) < 0 ? -1 : 1;
+    if (dir > 0) {
+      if (qty < 50) {
+        var up = Math.ceil((qty + 1e-6) / 10) * 10;
+        if (up > 50) up = 50;
+        return up;
+      }
+      return Math.ceil((qty + 1e-6) / 50) * 50;
+    }
+    if (qty <= 50) return Math.floor((qty - 1e-6) / 10) * 10;
+    var down = Math.floor((qty - 1e-6) / 50) * 50;
+    return down < 50 ? 50 : down;
+  }
+
+  function pieceQty_(cat, name, unit) {
+    if (cat === "chew" || cat === "chews") return true;
+    return unit === "шт";
+  }
+
   async function openAdd() {
     await ensurePriceExtras_();
     eng().applyState(state);
@@ -1874,8 +1897,11 @@
     }
     if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); patchPick(); return true; }
     if (act === "pqty") {
-      var step = (picker.cat === "chew" || (picker.name && (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт")) ? 1 : 50;
-      picker.qty = Math.max(step, Number(picker.qty) + Number(node.getAttribute("data-dir")) * step);
+      var pickUnit = picker.name ? (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) : "";
+      var pickPiece = pieceQty_(picker.cat, picker.name, pickUnit);
+      var pickDir = Number(node.getAttribute("data-dir"));
+      var pickNext = pickPiece ? Number(picker.qty) + pickDir : gramStep_(picker.qty, pickDir);
+      picker.qty = Math.max(pickPiece ? 1 : 10, pickNext);
       if (picker.cat === "crumb") rebuildAdd(null);
       else patchPick();
       return true;
@@ -1889,9 +1915,11 @@
       var i = Number(node.getAttribute("data-i"));
       var it = list[i];
       if (!it) return true;
-      var unit = eng().unitForItem(it.cat, it.main);
-      var st = unit === "шт" ? 1 : 50;
-      var next = Number(it.value != null ? it.value : it.val) + Number(node.getAttribute("data-dir")) * st;
+      var unit = it.unit || eng().unitForItem(it.cat, it.main);
+      var linePiece = pieceQty_(it.cat, it.main, unit);
+      var lineDir = Number(node.getAttribute("data-dir"));
+      var curQty = Number(it.value != null ? it.value : it.val);
+      var next = linePiece ? curQty + lineDir : gramStep_(curQty, lineDir);
       if (next <= 0) list.splice(i, 1);
       else it.value = next;
       syncRetail();
@@ -2188,6 +2216,7 @@
     syncProfiles: syncProfiles,
     rankCatalogName: rankCatalogName,
     catalogSearchRows: catalogSearchRows,
+    gramStep_: gramStep_,
     monthStore: function () { return { overview: monthMap, people: {} }; }
   };
   try {
