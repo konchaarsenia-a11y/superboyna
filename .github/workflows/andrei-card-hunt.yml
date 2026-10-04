@@ -2,12 +2,6 @@ name: andrei-card-hunt
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cursor/andrei-card-hunt-f592
-    paths:
-      - "scripts/recover-andrei-card-hunt.mjs"
-      - ".github/workflows/andrei-card-hunt.yml"
 
 jobs:
   hunt:
