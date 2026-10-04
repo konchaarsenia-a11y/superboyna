@@ -47,7 +47,12 @@ jobs:
           MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
           APPLY_CONFIRM: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm || '' }}
           APPLY_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_ids || '' }}
-        run: node scripts/week-close-dupes-2026-10-04.mjs
+        run: |
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/week-close-dupes-2026-10-04.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

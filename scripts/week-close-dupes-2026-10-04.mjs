@@ -283,18 +283,41 @@ function parseWrangler(text) {
   throw new Error("wrangler: неожиданный JSON");
 }
 
-function d1(sql) {
-  const out = execFileSync(
-    "npx",
-    ["--yes", "wrangler", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql],
-    {
-      cwd: path.join(root, "boinya-c/proxy"),
-      env: process.env,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024
+function scrubSecrets(text) {
+  let s = String(text || "");
+  [process.env.CLOUDFLARE_API_TOKEN, process.env.CLOUDFLARE_ACCOUNT_ID, process.env.GAS_SHARED_SECRET].forEach(
+    (sec) => {
+      if (sec && String(sec).length >= 4) s = s.split(String(sec)).join("[secret]");
     }
   );
-  return parseWrangler(out);
+  return s;
+}
+
+function d1(sql) {
+  let out = "";
+  try {
+    out = execFileSync(
+      "npx",
+      ["--yes", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql],
+      {
+        cwd: path.join(root, "boinya-c/proxy"),
+        env: process.env,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024
+      }
+    );
+  } catch (e) {
+    const err = new Error("wrangler d1 failed");
+    err.wranglerLog = scrubSecrets([e && e.stderr, e && e.stdout, e && e.message].filter(Boolean).join("\n"));
+    throw err;
+  }
+  try {
+    return parseWrangler(out);
+  } catch (e) {
+    const err = new Error("wrangler: нет JSON");
+    err.wranglerLog = scrubSecrets(String(out || "") + "\n" + String((e && e.message) || e));
+    throw err;
+  }
 }
 
 function sqlLit(v) {
@@ -316,7 +339,7 @@ function selfTest() {
       match_key: "EVGENIAIN",
       address: "a",
       note: "n",
-      phone: "111",
+      phone: "+375291112233",
       basket_json: '[{"name":"ЛЁГКОЕ","val":100}]',
       meta_json: '{"orderPrice":10}',
       status: "active",
@@ -464,7 +487,8 @@ function selfTest() {
     console.error("self-test: разные адреса Варки склеились");
     process.exit(1);
   }
-  if (formatReport(c).includes("111")) {
+  const report = formatReport(c);
+  if (report.includes("+375291112233") || report.includes("375291112233") || /phone\s*=/.test(report)) {
     console.error("self-test: в отчёте телефон");
     process.exit(1);
   }
@@ -488,14 +512,11 @@ try {
     "SELECT id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json FROM orders WHERE status = 'active' AND date_iso >= '2026-09-28' AND date_iso <= '2026-10-12'"
   );
 } catch (e) {
-  const raw = String((e && e.stderr) || (e && e.message) || e);
-  const why = /CLOUDFLARE_API_TOKEN/.test(raw)
-    ? "в окружении нет CLOUDFLARE_API_TOKEN"
-    : raw.split("\n")[0];
-  const msg = "DRY RUN не выполнен: нет чтения D1 (" + why + ")";
-  console.error(msg);
+  const detail = scrubSecrets((e && e.wranglerLog) || (e && e.stderr) || (e && e.message) || e);
+  console.error("DRY RUN не выполнен: нет чтения D1");
+  console.error(detail);
   try {
-    writeOut("plan.txt", msg + "\n");
+    writeOut("plan.txt", "DRY RUN не выполнен: нет чтения D1\n" + detail + "\n");
   } catch (eW) {}
   process.exit(2);
 }
