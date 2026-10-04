@@ -55,7 +55,31 @@
       slot: 1,
       fracs: { slices: 0, strips: 1, large: 1, medium: 2, small: 3, extraSmall: 4 },
       ig: "",
-      manualOpen: false
+      manualOpen: false,
+      retailDelivery: ""
+    };
+  }
+
+  function rubShort_(n) {
+    var x = Math.round(Number(n) * 100) / 100;
+    if (!isFinite(x)) x = 0;
+    return x.toFixed(2).replace(/0+$/, "").replace(/\.$/, "").replace(".", ",");
+  }
+
+  /** Розница: пустой override следует правилу прайса, «paid»/«free» его перекрывают. */
+  function retailCalcChoice_(engine, list, override) {
+    var auto = engine.calcRetailBasketTotal(list || [], { deliveriesN: 1 });
+    var mode = override === "paid" || override === "free" ? override : (auto.delivery > 0 ? "paid" : "free");
+    var quote = engine.retailQuote ? engine.retailQuote(list || [], mode === "paid") : auto;
+    var note = mode === "paid" && quote.delivery > 0
+      ? ("+" + rubShort_(quote.delivery) + " р")
+      : "доставка не считается";
+    return {
+      mode: mode,
+      total: quote.total,
+      goods: quote.goods,
+      delivery: quote.delivery,
+      note: note
     };
   }
 
@@ -785,6 +809,13 @@
     html += '<p class="b-lbl">Режим</p><div class="b-seg">' +
       '<button type="button" class="b-seg__item' + (price.mode === "pp" ? " b-seg__item--on" : "") + '" data-act="cl-mode" data-m="pp">Подписка</button>' +
       '<button type="button" class="b-seg__item' + (price.mode === "retail" ? " b-seg__item--on" : "") + '" data-act="cl-mode" data-m="retail">Розница</button></div>';
+    if (price.mode === "retail") {
+      var retailNow = retailCalcChoice_(eng(), allItems(), price.retailDelivery);
+      html += '<p class="b-lbl">Доставка</p><div class="b-seg">' +
+        '<button type="button" class="b-seg__item' + (retailNow.mode === "paid" ? " b-seg__item--on" : "") + '" data-act="cl-rdel" data-v="paid">Платная доставка</button>' +
+        '<button type="button" class="b-seg__item' + (retailNow.mode === "free" ? " b-seg__item--on" : "") + '" data-act="cl-rdel" data-v="free">Без доставки</button></div>' +
+        '<p class="b-note">' + esc(retailNow.note) + "</p>";
+    }
     html += '<p class="b-lbl">Собаки</p><div class="b-seg">' +
       '<button type="button" class="b-seg__item' + (price.dogCount === 1 ? " b-seg__item--on" : "") + '" data-act="cl-dogs" data-n="1">1</button>' +
       '<button type="button" class="b-seg__item' + (price.dogCount === 2 ? " b-seg__item--on" : "") + '" data-act="cl-dogs" data-n="2">2</button></div>';
@@ -1141,7 +1172,7 @@
     var list = allItems();
     if (!list.length) { sh().toast("Сначала набери состав"); return; }
     if (price.mode === "retail") {
-      var local = eng().calcRetailBasketTotal(list, { deliveriesN: 1 });
+      var local = retailCalcChoice_(eng(), list, price.retailDelivery);
       price.message = P().composeRetailClientMessage(list, local.total, price.note);
       paint();
       return;
@@ -1516,7 +1547,15 @@
       schedulePpMessage();
       return true;
     }
-    if (act === "cl-clear") { setActiveBasket([]); paint(); return true; }
+    if (act === "cl-clear") {
+      setActiveBasket([]);
+      if (seg === "calc" && view !== "card") {
+        price.retailDelivery = "";
+        price.message = "";
+      }
+      paint();
+      return true;
+    }
     if (act === "cl-save") { saveCard(); return true; }
     if (act === "cl-delete") { delCard(); return true; }
     if (act === "cl-move") { moveCard(node.getAttribute("data-to")); return true; }
@@ -1525,7 +1564,23 @@
     if (act === "cl-recalc") { recalcCard(); return true; }
     if (act === "cl-to-pp") { toPp(); return true; }
     if (act === "cl-touch") { touchBp(); return true; }
-    if (act === "cl-mode") { price.mode = node.getAttribute("data-m") === "retail" ? "retail" : "pp"; paint(); return true; }
+    if (act === "cl-mode") {
+      var nextMode = node.getAttribute("data-m") === "retail" ? "retail" : "pp";
+      if (nextMode !== price.mode) price.retailDelivery = "";
+      price.mode = nextMode;
+      paint();
+      return true;
+    }
+    if (act === "cl-rdel") {
+      price.retailDelivery = node.getAttribute("data-v") === "paid" ? "paid" : "free";
+      var retailList = allItems();
+      if (retailList.length) {
+        var retailPick = retailCalcChoice_(eng(), retailList, price.retailDelivery);
+        price.message = P().composeRetailClientMessage(retailList, retailPick.total, price.note);
+      }
+      paint();
+      return true;
+    }
     if (act === "cl-dogs") { price.dogCount = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; if (price.dogCount < 2) price.activeDog = 1; paint(); schedulePpMessage(); return true; }
     if (act === "cl-dog") { price.activeDog = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; paint(); schedulePpMessage(); return true; }
     if (act === "cl-pslot") { price.slot = Number(node.getAttribute("data-n")) || 1; paint(); schedulePpMessage(); return true; }
@@ -1874,7 +1929,9 @@
     var nick = await sh().prompt({ title: "Ник клиента", text: "Можно пусто", ok: "Дальше" });
     if (nick === null) return;
     var id = editingId || ("def_" + Date.now().toString(36));
-    var retail = eng().calcRetailBasketTotal(list, { deliveriesN: price.deliveriesN });
+    var retail = price.mode === "retail"
+      ? retailCalcChoice_(eng(), list, price.retailDelivery)
+      : eng().calcRetailBasketTotal(list, { deliveriesN: price.deliveriesN });
     var payload = {
       mode: price.mode,
       baskets: { 1: price.baskets[1], 2: price.baskets[2] },
@@ -2067,6 +2124,7 @@
     setSearch: setSearch,
     currentSeg: currentSeg,
     ppListTotals_: ppListTotals_,
-    ppMoneyFromStats_: ppMoneyFromStats_
+    ppMoneyFromStats_: ppMoneyFromStats_,
+    retailCalcChoice_: retailCalcChoice_
   };
 })(window);
