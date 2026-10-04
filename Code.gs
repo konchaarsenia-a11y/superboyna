@@ -20725,6 +20725,40 @@ function lookupPpCostInfoGs_(costs, name, sub) {
   return null;
 }
 
+/** СРЕД = Среднее, БОЛ = Большое, МАЛ = Малое. Значения override не меняются. */
+function ppCostFractionAliases_(sub) {
+  var raw = String(sub || "").trim();
+  if (!raw) return [""];
+  var u = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+  if (u === "СРЕД" || u === "СРЕДНЕЕ" || u === "СРЕДНИЙ") return ["Среднее", "СРЕД"];
+  if (u === "БОЛ" || u === "БОЛЬШОЕ" || u === "БОЛЬШОЙ") return ["Большое", "БОЛ"];
+  if (u === "МАЛ" || u === "МАЛОЕ" || u === "МАЛЕНЬКОЕ" || u === "МАЛЕНЬКИЙ") return ["МАЛ", "Малое"];
+  return [raw];
+}
+
+var PP_COST_CANON_ = "frac-alias-1";
+
+function writePpRawCost_(costs, key, name, sub, v, piece) {
+  if (costs[key]) {
+    costs[key].unitPrice = v;
+    costs[key].per100 = v;
+    if (piece) {
+      costs[key].piece = true;
+      costs[key].grams = false;
+    }
+    return;
+  }
+  costs[key] = {
+    per100: v,
+    unitPrice: v,
+    name: name,
+    sub: sub,
+    grams: !piece,
+    cat: piece ? "chew" : "",
+    piece: piece
+  };
+}
+
 function applyPpRawCostOverrides_(costs) {
   costs = costs || {};
   var o = PP_RAW_COST_OVERRIDE_BYN_ || {};
@@ -20737,23 +20771,11 @@ function applyPpRawCostOverrides_(costs) {
     var parts = String(key).split(" / ");
     var name = parts[0] || key;
     var sub = parts.length > 1 ? parts.slice(1).join(" / ") : "";
-    if (costs[key]) {
-      costs[key].unitPrice = v;
-      costs[key].per100 = v;
-      if (piece) {
-        costs[key].piece = true;
-        costs[key].grams = false;
-      }
-    } else {
-      costs[key] = {
-        per100: v,
-        unitPrice: v,
-        name: name,
-        sub: sub,
-        grams: !piece,
-        cat: piece ? "chew" : "",
-        piece: piece
-      };
+    var aliases = ppCostFractionAliases_(sub);
+    for (var ai = 0; ai < aliases.length; ai++) {
+      var asub = aliases[ai];
+      var akey = name + (asub ? " / " + asub : "");
+      writePpRawCost_(costs, akey, name, asub, v, piece);
     }
   }
   return costs;
@@ -20861,7 +20883,8 @@ function handleCalcPrice(json, callback, fromPost) {
     rawCost: rawCost,
     markup: refMarkup,
     scheme: schemeHintCp,
-    total: total
+    total: total,
+    ppCostCanon: PP_COST_CANON_
   };
   // полный факт ПП: сырая себест × coef (+ схема LEGACY/RAW26). coef ЗАМЕНЯЕТ 2.3/2.6, не множится сверху.
   if (json.fullFact === true || json.fullFact === "1" || json.fullFact === 1 ||
@@ -21570,7 +21593,8 @@ function handleCalcPpFact(json, callback, fromPost) {
       lines: lines,
       markup: fact.coef,
       scheme: fact.scheme,
-      total: Math.round(totalCost * fact.coef * 100) / 100
+      total: Math.round(totalCost * fact.coef * 100) / 100,
+      ppCostCanon: PP_COST_CANON_
     };
     for (var fk in fact) {
       if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
