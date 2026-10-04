@@ -626,24 +626,33 @@
     return sh().money(v) + " BYN";
   }
 
-  /** Сводка ПП = тот же срез, что экран статистики (цена один раз на оплаченном слоте). */
+  function finiteMoney_(v) {
+    if (v == null || v === "" || !isFinite(Number(v))) return null;
+    return Number(v);
+  }
+
+  /** Оборот листа ПП: ожидаемая цена подписки один раз (getStats.pp.expected).
+   *  Не fact.ppRevenue и не statsScreen_().pp.turnover: то уже отвезено в этом месяце. */
   function ppMoneyFromStats_(res) {
-    var lib = root.BoinyaStatsLogic;
-    if (!lib || !lib.statsScreen_) return null;
-    var screen = lib.statsScreen_(res || {}, null);
-    var pp = screen && screen.pp;
-    if (!pp) return null;
-    var turn = pp.turnover;
-    if (turn == null || !isFinite(Number(turn))) {
-      return { turnover: null, income: null, cost: null, month: String((res && res.monthKey) || "") };
-    }
-    var income = pp.profit == null || !isFinite(Number(pp.profit)) ? null : Number(pp.profit);
-    var cost = income == null ? null : Math.round((Number(turn) - income) * 100) / 100;
+    res = res || {};
+    var pp = res.pp || {};
+    var money = res.money || {};
+    var turn = finiteMoney_(pp.expected);
+    if (turn == null) turn = finiteMoney_(money.ppExpected);
+    if (turn == null) turn = finiteMoney_(money.sheetTurnover);
+    if (turn == null) turn = finiteMoney_(pp.turnover);
+    if (turn == null) turn = finiteMoney_(money.ppTurnover);
+    if (turn == null) return null;
+    var cost = finiteMoney_(pp.cost);
+    if (cost == null) cost = finiteMoney_(money.ppCost);
+    var income = finiteMoney_(pp.clean);
+    if (income == null) income = finiteMoney_(money.ppClean);
+    if (income == null && cost != null) income = Math.round((turn - cost) * 100) / 100;
     return {
-      turnover: Number(turn),
+      turnover: turn,
       income: income,
       cost: cost,
-      month: String((res && res.monthKey) || "")
+      month: String(res.monthKey || "")
     };
   }
 
@@ -673,17 +682,19 @@
     if (seg !== "pp") return "";
     var all = (subs || []).filter(function (s) { return String(s.sheet || "") === "ПП"; });
     if (!all.length && ppMoneyState !== "ok") return "";
-    var t = ppMoneyState === "ok" ? ppMoney : null;
+    var fromStats = (ppMoneyState === "ok" && ppMoney && ppMoney.turnover != null) ? ppMoney : null;
+    var fromList = all.length ? ppListTotals_(all) : null;
+    var t = fromStats || ((ppMoneyState === "err" || ppMoneyState === "ok") ? fromList : null);
     var turn = t ? t.turnover : null;
     var income = t ? t.income : null;
     var cost = t ? t.cost : null;
-    var wait = ppMoneyState !== "ok" && ppMoneyState !== "err";
+    var wait = !t && ppMoneyState !== "ok" && ppMoneyState !== "err";
     return '<div class="nx-counters nx-pp-totals" style="margin:8px 0 12px">' +
       '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(turn)) + "</b><span>Оборот</span></div>" +
       '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(income)) + "</b><span>Приход</span></div>" +
       '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(cost)) + "</b><span>Себес</span></div>" +
       "</div>" +
-      '<p class="b-note">Этот месяц, цена один раз на слоте с оплатой, и только если эта доставка отвезена</p>';
+      '<p class="b-note">Цена один раз. Если оплата отмечена, она на слоте ПП1 или ПП2. Пока оплаты нет, оборот — сумма цен подписок.</p>';
   }
 
   function paintCard() {
