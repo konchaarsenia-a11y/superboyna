@@ -3,9 +3,6 @@ name: delete-cascade-read
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cursor/delete-dup-cascade-f592
 
 jobs:
   read:
