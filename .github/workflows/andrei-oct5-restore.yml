@@ -2,12 +2,6 @@ name: andrei-oct5-restore
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cursor/andrei-card-hunt-f592
-    paths:
-      - "scripts/recover-andrei-oct5-restore.mjs"
-      - ".github/workflows/andrei-oct5-restore.yml"
 
 jobs:
   restore:
