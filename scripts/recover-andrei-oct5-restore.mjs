@@ -66,6 +66,9 @@ function selfTest() {
   assert(stripPhone("тел +375291112233").indexOf("375") < 0, "phone stripped");
   assert(normalizeMatchKey_("andreiprigunov") === "ANDREIPRIGUNOV", "mk");
   const src = workerSource("k", "sec");
+  const tmp = path.join(os.tmpdir(), "oct5-worker-self.js");
+  fs.writeFileSync(tmp, src);
+  execFileSync(process.execPath, ["--check", tmp], { stdio: "inherit" });
   const updates = src.split("UPDATE orders");
   assert(updates.length === 2, "one update");
   assert(src.indexOf("Суббота:ANDREIPRIGUNOV") > 0, "saturday is read");
@@ -233,7 +236,7 @@ async function mirrorSheet(row, secret) {
   const meta = parseJson(row.meta_json, {}) || {};
   const basket = parseJson(row.basket_json, []);
   const body = {
-    action: "saveOrder"
+    action: "saveOrder",
     client: String(row.client || "andreiprigunov"),
     matchKey: String(row.match_key || ""),
     day: TARGET_DAY,
