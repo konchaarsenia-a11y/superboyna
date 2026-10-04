@@ -233,8 +233,7 @@ async function mirrorSheet(row, secret) {
   const meta = parseJson(row.meta_json, {}) || {};
   const basket = parseJson(row.basket_json, []);
   const body = {
-    action: "saveOrder",
-    _wk: secret,
+    action: "saveOrder"
     client: String(row.client || "andreiprigunov"),
     matchKey: String(row.match_key || ""),
     day: TARGET_DAY,
@@ -254,6 +253,7 @@ async function mirrorSheet(row, secret) {
     noCut: meta.noCut === true,
     ppPartner: meta.ppPartner || ""
   };
+  if (secret) body._wk = secret;
   let res = await fetch(GAS_URL, {
     method: "POST",
     redirect: "manual",
@@ -406,8 +406,7 @@ export default {
     const d1Count = await patchMonth(env, TARGET_DATE);
     let gas = { status: "skipped" };
     try {
-      if (secret) gas = await mirrorSheet(target, secret);
-      else gas = { status: "no_secret" };
+      gas = await mirrorSheet(target, secret);
     } catch (eGas) {
       gas = { status: "gas_error", message: stripPhone(eGas && eGas.message || eGas).slice(0, 160) };
     }
@@ -497,18 +496,13 @@ async function main() {
     process.exitCode = 3;
     return;
   }
-  if (!gasSecret) {
-    console.log("no_gas_secret");
-    process.exitCode = 3;
-    return;
-  }
+  if (!gasSecret) console.log("gas_secret_absent");
   const key = crypto.randomBytes(24).toString("hex");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "andrei-oct5-restore-"));
   const scrub = function (s) {
-    return String(s || "")
-      .split(key).join("[key]")
-      .split(gasSecret).join("[secret]")
-      .replace(/\b[a-f0-9]{32}\b/g, "[id]");
+    let out = String(s || "").split(key).join("[key]");
+    if (gasSecret) out = out.split(gasSecret).join("[secret]");
+    return out.replace(/\b[a-f0-9]{32}\b/g, "[id]");
   };
   fs.writeFileSync(
     path.join(dir, "wrangler.toml"),
