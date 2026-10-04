@@ -17094,7 +17094,7 @@ async function handleCutover_(a, params, env, ctx) {
         env.DB
       ) {
         try {
-          await mergePriceCostsPpFromLinesD1_(env, live.lines);
+          await mergePriceCostsPpFromLinesD1_(env, live.lines, live.ppCostCanon);
         } catch (ePp) {}
       }
       if (a === "partnerListAdmin" || a === "partnerGetMe") {
@@ -23290,7 +23290,7 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
         rawCost = Number(warm.cost) || rawCost;
         lines = warm.lines || lines;
         try {
-          await mergePriceCostsPpFromLinesD1_(env, lines);
+          await mergePriceCostsPpFromLinesD1_(env, lines, warm.ppCostCanon);
         } catch (eW) {}
       }
     } catch (eC) {}
@@ -24677,9 +24677,35 @@ function parsePackCountsParamD1_(params) {
   return packOpt && typeof packOpt === "object" ? packOpt : null;
 }
 
-function lookupPpCostInfoD1_(costs, name, sub) {
+function ppCostFractionAliasesD1_(sub) {
+  const raw = String(sub || "").trim();
+  if (!raw) return [""];
+  const u = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+  if (u === "СРЕД" || u === "СРЕДНЕЕ" || u === "СРЕДНИЙ") return ["Среднее", "СРЕД"];
+  if (u === "БОЛ" || u === "БОЛЬШОЕ" || u === "БОЛЬШОЙ") return ["Большое", "БОЛ"];
+  if (u === "МАЛ" || u === "МАЛОЕ" || u === "МАЛЕНЬКОЕ" || u === "МАЛЕНЬКИЙ") return ["МАЛ", "Малое"];
+  return [raw];
+}
+
+const PP_COST_CANON_D1_ = "frac-alias-1";
+
+function ppCostUnitD1_(info) {
+  return info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+}
+
+function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   costs = costs || {};
   const key = name + (sub ? " / " + sub : "");
+  if (costs[key] && ppCostUnitD1_(costs[key]) > 0) return costs[key];
+  const aliases = ppCostFractionAliasesD1_(sub);
+  for (let a = 0; a < aliases.length; a++) {
+    if (!aliases[a] || aliases[a] === sub) continue;
+    const ak = name + " / " + aliases[a];
+    if (costs[ak] && ppCostUnitD1_(costs[ak]) > 0) return costs[ak];
+  }
+  if (zeroKeys && zeroKeys[key]) {
+    return { name: name, sub: sub, unitPrice: 0, per100: 0, knownZero: true };
+  }
   if (costs[key]) return costs[key];
   const keys = Object.keys(costs);
   for (let i = 0; i < keys.length; i++) {
@@ -24690,7 +24716,7 @@ function lookupPpCostInfoD1_(costs, name, sub) {
   if (!sub && costs[name]) return costs[name];
   // УХО К = те же unit costs, что УХО Г (пока нет отдельной строки в priceCostsPp)
   if (/^УХО\s*К$/i.test(String(name || "").trim())) {
-    return lookupPpCostInfoD1_(costs, "УХО Г", sub);
+    return lookupPpCostInfoD1_(costs, "УХО Г", sub, zeroKeys);
   }
   if (sub) {
     const prefer = ["Ломтики", "Целое", "", "Среднее", "Мелкое"];
@@ -24708,10 +24734,12 @@ function lookupPpCostInfoD1_(costs, name, sub) {
   return null;
 }
 
-async function mergePriceCostsPpFromLinesD1_(env, lines) {
+async function mergePriceCostsPpFromLinesD1_(env, lines, canon) {
   if (!env || !env.DB || !lines || !lines.length) return;
   let snap = (await getSnapRaw_(env, "priceCostsPp")) || { status: "success", costs: {} };
   if (!snap.costs || typeof snap.costs !== "object") snap.costs = {};
+  if (!snap.zeroKeys || typeof snap.zeroKeys !== "object") snap.zeroKeys = {};
+  let wrotePositive = false;
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i] || {};
     const name = String(L.name || "").trim();
@@ -24720,10 +24748,22 @@ async function mergePriceCostsPpFromLinesD1_(env, lines) {
     const unitPrice = Number(L.unitPrice != null ? L.unitPrice : L.per100) || 0;
     const piece = !!L.piece;
     const key = name + (sub ? " / " + sub : "");
+    if (!(unitPrice > 0)) {
+      const prev = snap.costs[key];
+      if (!(ppCostUnitD1_(prev) > 0)) snap.zeroKeys[key] = 1;
+      if (!sub && !(ppCostUnitD1_(snap.costs[name]) > 0)) snap.zeroKeys[name] = 1;
+      continue;
+    }
     const row = { name: name, sub: sub, unitPrice: unitPrice, piece: piece };
     snap.costs[key] = row;
-    if (!sub) snap.costs[name] = row;
+    delete snap.zeroKeys[key];
+    if (!sub) {
+      snap.costs[name] = row;
+      delete snap.zeroKeys[name];
+    }
+    wrotePositive = true;
   }
+  if (wrotePositive && canon && canon === PP_COST_CANON_D1_) snap.ppCostCanon = PP_COST_CANON_D1_;
   snap.status = "success";
   snap.cachedAt = new Date().toISOString();
   snap._d1TouchedAt = Date.now();
@@ -24732,7 +24772,8 @@ async function mergePriceCostsPpFromLinesD1_(env, lines) {
   } catch (eM) {}
 }
 
-function buildPpLinesFromCostsD1_(basket, costs) {
+function buildPpLinesFromCostsD1_(basket, costs, opts) {
+  opts = opts || {};
   const lines = [];
   let totalCost = 0;
   let missing = 0;
@@ -24764,9 +24805,10 @@ function buildPpLinesFromCostsD1_(basket, costs) {
         continue;
       }
     }
-    const info = lookupPpCostInfoD1_(costs, name, sub);
+    const info = lookupPpCostInfoD1_(costs, name, sub, opts.zeroKeys);
     const unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
-    if (!info || !(unitPrice > 0)) missing++;
+    if (!info) missing++;
+    else if (!(unitPrice > 0) && !opts.zeroKnown) missing++;
     let piece = false;
     if (info && info.piece) piece = true;
     else if (cat === "chew" || cat === "chews") piece = true;
@@ -24792,9 +24834,10 @@ function buildPpLinesFromCostsD1_(basket, costs) {
   };
 }
 
-async function calcPpFactFromD1Costs_(params, env, ctx, costs) {
+async function calcPpFactFromD1Costs_(params, env, ctx, costs, opts) {
+  opts = opts || {};
   const basket = parseBasketParamD1_(params);
-  const built = buildPpLinesFromCostsD1_(basket, costs);
+  const built = buildPpLinesFromCostsD1_(basket, costs, opts);
   if (built.missing > 0 || !built.lines.length) return null;
   const schemeFact = resolvePpSchemeD1_({
     scheme: params.scheme,
@@ -24851,7 +24894,7 @@ async function warmPpCostsFromGas_(params, env, ctx) {
   const live = await gasProxy_("calcPpFact", params, env, { write: false });
   if (live && live.status === "success" && Array.isArray(live.lines)) {
     try {
-      await mergePriceCostsPpFromLinesD1_(env, live.lines);
+      await mergePriceCostsPpFromLinesD1_(env, live.lines, live.ppCostCanon);
     } catch (eW) {}
   }
   if (live && typeof live === "object") {
@@ -24870,8 +24913,11 @@ async function calcPpFactD1_(params, env, ctx) {
     (params && (params.force === true || params.force === 1));
   if (!force) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
-    if (snap && snap.costs && typeof snap.costs === "object") {
-      const local = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs);
+    if (snap && snap.ppCostCanon === PP_COST_CANON_D1_ && snap.costs && typeof snap.costs === "object") {
+      const local = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs, {
+        zeroKnown: true,
+        zeroKeys: snap.zeroKeys
+      });
       if (local) return local;
     }
   }
@@ -24906,9 +24952,12 @@ async function calcPricePpD1_(params, env, ctx) {
     schemeHint === "RAW26" ? PP_RAW26_COEF_DEFAULT_D1_ : PP_LEGACY_COEF_DEFAULT_D1_;
   if (!force) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
-    if (snap && snap.costs && typeof snap.costs === "object") {
+    if (snap && snap.ppCostCanon === PP_COST_CANON_D1_ && snap.costs && typeof snap.costs === "object") {
       const basket = parseBasketParamD1_(params);
-      const built = buildPpLinesFromCostsD1_(basket, snap.costs);
+      const built = buildPpLinesFromCostsD1_(basket, snap.costs, {
+        zeroKnown: true,
+        zeroKeys: snap.zeroKeys
+      });
       if (built.missing === 0 && built.lines.length) {
         const ok = {
           status: "success",
@@ -24929,7 +24978,10 @@ async function calcPricePpD1_(params, env, ctx) {
           d1Verified: true
         };
         if (wantFact) {
-          const factFull = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs);
+          const factFull = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs, {
+            zeroKnown: true,
+            zeroKeys: snap.zeroKeys
+          });
           if (factFull) {
             Object.keys(factFull).forEach(function (fk) {
               if (fk === "mode" || fk === "sheet") return;
@@ -24948,7 +25000,7 @@ async function calcPricePpD1_(params, env, ctx) {
   const live = await gasProxy_("calcPrice", params, env, { write: false });
   if (live && live.status === "success" && Array.isArray(live.lines)) {
     try {
-      await mergePriceCostsPpFromLinesD1_(env, live.lines);
+      await mergePriceCostsPpFromLinesD1_(env, live.lines, live.ppCostCanon);
     } catch (eW2) {}
   }
   if (live && typeof live === "object") {
