@@ -795,7 +795,7 @@
 
   function paintCalc() {
     var html = '<button type="button" class="nx-link" data-act="price-back">← Назад</button>';
-    if (enroll) {
+    if (enroll && price.mode !== "retail") {
       html += '<article class="b-card" id="enrollCard"><p class="b-lbl">Внести в ПП</p>' +
         field("cxEnName", enroll.displayName, "Имя") +
         field("cxEnNick", enroll.nick, "Ник") +
@@ -854,11 +854,14 @@
       html += '<article class="b-card" id="cxMsg" style="margin-top:12px;white-space:pre-wrap">' + esc(price.message) + "</article>";
       html += '<button type="button" class="b-btn b-btn--sec" id="cxMsgCopy" data-act="cl-copy" style="margin-top:8px">Копировать сообщение</button>';
     }
+    var tailEnroll = price.mode === "retail"
+      ? '<button type="button" class="b-btn b-btn--sec" data-act="cl-order-open">Внести заказ</button>'
+      : '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-open">Внести в ПП</button>';
     html += '<div id="cxCalcTail">' + actions(
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-defer">В отложенное</button>' +
-      '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-open">Внести в ПП</button>'
+      tailEnroll
     ) + "</div>";
-    if (enroll) {
+    if (enroll && price.mode !== "retail") {
       sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-compose">Собрать сообщение</button>' +
         '<button type="button" class="b-btn b-btn--main" data-act="cl-enroll-go">Внести в лист ПП</button></div>');
     } else sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-compose">Собрать сообщение</button>');
@@ -1699,7 +1702,9 @@
     if (act === "cl-compose") { compose(); return true; }
     if (act === "cl-copy") { copyMsg(price.message || pick.text); return true; }
     if (act === "cl-defer") { deferCalc(); return true; }
+    if (act === "cl-order-open") { openRetailOrder(); return true; }
     if (act === "cl-enroll-open") {
+      if (price.mode === "retail") { openRetailOrder(); return true; }
       enroll = enroll || { id: "", displayName: "", nick: "", note: price.note, address: "", phone: "", deliveriesN: price.deliveriesN, fact: price.fact || "" };
       paint();
       return true;
@@ -2021,6 +2026,34 @@
     sh().toast("В состав: " + items.length);
     paint();
     schedulePpMessage();
+  }
+
+  function openRetailOrder() {
+    flushClientNotes();
+    var nickEl = document.getElementById("cxEnNick");
+    var nick = nickEl ? String(nickEl.value || "").trim() : "";
+    if (!nick && enroll) nick = String(enroll.nick || "").replace(/^@+/, "").trim();
+    var paid = retailCalcChoice_(eng(), allItems(), price.retailDelivery).mode === "paid";
+    var payload = root.BoinyaOrderPayload;
+    var orders = root.BoinyaOrders;
+    if (!payload || !payload.retailOrderSnapshot || !orders || !orders.loadDeferred) return;
+    var activeDog = Number(price.dogCount) >= 2 && Number(price.activeDog) === 2 ? 2 : 1;
+    var shown = payload.retailDisplayed({
+      activeDog: activeDog,
+      baskets: price.baskets,
+      retailPaidDelivery: paid
+    }, eng());
+    var priceInput = shown && shown.total != null && (price.baskets[activeDog] || []).length ? String(shown.total) : "";
+    var snap = payload.retailOrderSnapshot({
+      client: nick,
+      baskets: price.baskets,
+      dogCount: price.dogCount,
+      activeDog: price.activeDog,
+      retailPaidDelivery: paid,
+      priceInput: priceInput
+    }, eng());
+    orders.loadDeferred(snap, "");
+    if (root.__nxOpenNew) root.__nxOpenNew();
   }
 
   async function deferCalc() {
