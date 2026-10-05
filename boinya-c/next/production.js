@@ -280,9 +280,8 @@
     if (it.done && it.laid) cls += " nx-dim";
     var html = '<article class="' + cls + '" style="margin-top:12px" data-cut="' + esc(key) + '">';
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
-    if (!readonly) html += '<button type="button" class="b-chip nx-mini-bang' + (Number(it.surplus) ? " b-chip--on" : "") + '" data-act="pr-surplus-open" data-k="' + esc(key) + '" aria-label="Излишек">!</button>';
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
-    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (Number(it.surplus) ? ", излишек " + esc(String(it.surplus)) : "") + "</p>";
+    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + "</p>";
     html += cutNote(it);
     html += cutSizesNote(it);
     if (!readonly) {
@@ -302,6 +301,7 @@
     var day = dayOf("cut");
     var html = segBar() + dayField("nxCutDay", day);
     if (cutDone && !cutDetail) {
+      html += cutterLineHtml();
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">Нарезка завершена</p>' +
         '<p class="b-note">Позиций: ' + esc(String(cutDone.count || cutItems.length || 0)) + "<br>Время: " + esc(formatElapsed(cutDone.elapsedMs || 0)) + "</p>" +
         '<p class="b-note">День закрыт</p>' +
@@ -315,14 +315,9 @@
       '<div class="b-card"><b>' + c.toCut + '</b><span class="b-note">осталось нарезать</span></div>' +
       '<div class="b-card"><b>' + c.laidOnly + '</b><span class="b-note">выложено, не нарезано</span></div>' +
       '<div class="b-card"><b>' + c.both + '</b><span class="b-note">выложено и нарезано</span></div></div>';
-    if (cutCutter && (cutCutter.name || cutCutter.id)) {
-      html += '<p class="b-note">Сегодня режет ' + esc(cutCutter.name || cutCutter.id) + "</p>";
-    }
+    html += cutterLineHtml();
     if (cutSession.active) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" id="nxCutTimer" style="margin:0">' + esc(formatElapsed(Date.now() - cutSession.startedAt)) + '</p><p class="b-note">идёт нарезка</p></article>';
-      if (needCutterAsk_(cutCutter)) {
-        html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-cutter" style="margin-top:8px">Кто сегодня режет?</button>';
-      }
     } else if (cutItems.length) {
       html += '<button type="button" class="b-btn b-btn--main" data-act="pr-cut-start" style="margin-top:12px">Начать нарезку</button>';
     }
@@ -425,7 +420,6 @@
     if (patch.laid !== undefined) params.laid = patch.laid ? "true" : "false";
     if (patch.done !== undefined) params.done = patch.done ? "true" : "false";
     if (patch.outNext !== undefined) params.outNext = patch.outNext ? "true" : "false";
-    if (patch.surplus !== undefined) params.surplus = String(patch.surplus);
     var ok = false;
     try {
       var res = await api().apiGet(params, { timeoutMs: 22000, cacheTtlMs: 0 });
@@ -437,13 +431,17 @@
         if (patch.laid !== undefined) body.laid = !!patch.laid;
         if (patch.done !== undefined) body.done = !!patch.done;
         if (patch.outNext !== undefined) body.outNext = !!patch.outNext;
-        if (patch.surplus !== undefined) body.surplus = patch.surplus;
         var post = await api().apiPost(body);
         if (post && post.status !== "error") ok = true;
       } catch (ePost) {}
     }
     if (!ok) sh().toast("Галочка не сохранилась — нажми ещё раз");
     return ok;
+  }
+
+  function cutterLineHtml() {
+    var who = cutCutter && (cutCutter.name || cutCutter.id) ? (cutCutter.name || cutCutter.id) : "не выбран";
+    return '<p class="b-note">Сегодня режет ' + esc(who) + ' · <button type="button" class="nx-link" data-act="pr-cutter">Сменить</button></p>';
   }
 
   function needCutterAsk_(cutter) {
@@ -499,8 +497,21 @@
         people.unshift({ id: defId, name: def.name || defId });
       }
       if (!people.length) {
-        sh().toast("Нет сотрудников с доступом");
-        return null;
+        return new Promise(function (resolve) {
+          cutterWait = resolve;
+          sh().openSheet({
+            title: "Кто сегодня режет?",
+            html: '<p class="b-note">Список сотрудников пуст. Впишите имя.</p>' +
+              '<label class="b-field"><span class="b-note">Имя</span><input class="b-field__input" id="nxCutterManual" placeholder="Имя"></label>' +
+              '<button type="button" class="b-btn b-btn--main" data-act="pr-cutter-ok" style="margin-top:12px">Это он</button>',
+            onClose: function () {
+              if (!cutterWait) return;
+              var done = cutterWait;
+              cutterWait = null;
+              done(null);
+            }
+          });
+        });
       }
       var opts = people.map(function (p) {
         var id = String(p.id || "");
@@ -706,10 +717,78 @@
     return c.displayName || c.name || "";
   }
 
+  function dryRawKg_(grams, coef) {
+    var c = Number(coef) || 0.2;
+    var g = Number(grams);
+    if (!isFinite(g) || g < 0) g = 0;
+    return Math.round((g / 1000 / c) * 100) / 100;
+  }
+
+  function dryWeightsHtml() {
+    var rows = (asm && asm.dryWeights) || [];
+    if (!rows.length) return "";
+    var html = '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Вес после сушки</p>' +
+      '<p class="b-note">Граммы сухого продукта. Сырьё = вес ÷ коэффициент усушки. Пустое поле — считаем по плану.</p>';
+    rows.forEach(function (row) {
+      var key = String(row.key || "");
+      var fact = row.factDryG;
+      var shown = fact != null && fact !== "" ? String(fact) : "";
+      var plan = Number(row.planDryG) || 0;
+      var coef = Number(row.coef) || 0.2;
+      var raw = shown === "" ? dryRawKg_(plan, coef) : dryRawKg_(shown, coef);
+      html += '<label class="b-field" style="margin-top:10px"><span class="b-note">' + esc(row.name || key) +
+        "</span><input class=\"b-field__input\" inputmode=\"decimal\" data-dry=\"" + esc(key) +
+        "\" value=\"" + esc(shown) + "\" placeholder=\"граммы\"></label>";
+      html += '<p class="b-note">План ' + esc(String(plan)) + " г · коэф " + esc(String(coef)) +
+        " · сырьё " + esc(String(raw)) + " кг" + (shown === "" ? " по плану" : "") + "</p>";
+      html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-dry-save" data-k="' + esc(key) + '">Сохранить вес</button>';
+    });
+    return html + "</article>";
+  }
+
+  async function saveAsmDry(key) {
+    var day = currentDay("nxAsmDay", "pack");
+    var rows = (asm && asm.dryWeights) || [];
+    var row = null;
+    for (var i = 0; i < rows.length; i++) if (String(rows[i].key) === String(key)) row = rows[i];
+    if (!row || !day) return;
+    var input = document.querySelector('input[data-dry="' + String(key).replace(/"/g, "") + '"]');
+    var raw = input ? String(input.value || "").trim().replace(",", ".") : "";
+    var prev = row.factDryG;
+    if (raw === "") row.factDryG = null;
+    else {
+      var g = Number(raw);
+      if (!isFinite(g) || g < 0) { sh().toast("Нужны граммы"); return; }
+      row.factDryG = g;
+    }
+    row.fromFact = row.factDryG != null;
+    row.rawKg = dryRawKg_(row.factDryG != null ? row.factDryG : row.planDryG, row.coef);
+    paintAsm();
+    try {
+      var res = await api().apiPost({
+        action: "saveAssemblyDry",
+        day: day,
+        key: row.key,
+        name: row.name || "",
+        coef: row.coef,
+        dryG: raw
+      });
+      if (!res || res.status !== "success") throw new Error("save");
+      sh().toast(raw === "" ? "Вес снят, снова план" : "Вес после сушки сохранён");
+    } catch (e) {
+      row.factDryG = prev;
+      row.fromFact = prev != null && prev !== "";
+      row.rawKg = dryRawKg_(row.fromFact ? prev : row.planDryG, row.coef);
+      sh().toast("Не удалось сохранить вес");
+      paintAsm();
+    }
+  }
+
   function paintAsm() {
     var day = dayOf("pack");
     var html = segBar() + dayField("nxAsmDay", day);
     html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-asm-reload" style="margin-top:8px">Посчитать пакеты</button>';
+    html += dryWeightsHtml();
     var res = asm;
     if (!res || !(res.clients || []).length) {
       html += '<p class="b-note">Нет клиентов на сборку.</p>';
@@ -1778,10 +1857,13 @@
     if (act === "pr-dep-open") { openDepot(); return true; }
     if (act === "pr-dep") { setDepot(node.getAttribute("data-id")); return true; }
     if (act === "pr-cutter-ok") {
+      var manual = document.getElementById("nxCutterManual");
+      var manualName = manual ? String(manual.value || "").trim() : "";
       var sel = document.getElementById("nxCutterPick");
       var id = sel ? String(sel.value || "") : "";
-      var name = "";
-      if (sel && sel.options && sel.selectedIndex >= 0) name = String(sel.options[sel.selectedIndex].text || "");
+      var name = manualName;
+      if (!name && sel && sel.options && sel.selectedIndex >= 0) name = String(sel.options[sel.selectedIndex].text || "");
+      if (manualName) id = "";
       var donePick = cutterWait;
       cutterWait = null;
       sh().closeTop("ok");
@@ -1805,17 +1887,6 @@
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
     if (act === "pr-cut-back") { cutDetail = false; paintCut(); return true; }
-    if (act === "pr-surplus-open") {
-      var sk = node.getAttribute("data-k");
-      var srow = findCut(sk);
-      if (!srow) return true;
-      sh().openSheet({
-        title: srow.name || "Позиция",
-        html: '<label class="b-field"><span class="b-note">Излишек</span><input class="b-field__input" id="surplus_' + esc(sk) + '" inputmode="decimal" value="' + esc(String(srow.surplus || 0)) + '"></label>',
-        foot: '<button type="button" class="b-btn b-btn--main" data-act="pr-surplus" data-k="' + esc(sk) + '">Сохранить излишек</button>'
-      });
-      return true;
-    }
     if (act === "pr-bang") {
       var it = findCut(node.getAttribute("data-k"));
       if (!it) return true;
@@ -1836,20 +1907,7 @@
       });
       return true;
     }
-    if (act === "pr-surplus") {
-      var key = node.getAttribute("data-k");
-      var row = findCut(key);
-      var el = document.getElementById("surplus_" + key);
-      var surplus = Number(el && el.value) || 0;
-      var prevSurplus = row ? row.surplus : 0;
-      if (row) row.surplus = surplus;
-      paintCut();
-      persistCut(row || { row: key }, { surplus: surplus }).then(function (ok) {
-        if (ok) { sh().closeTop("ok"); sh().toast("Излишек сохранён"); }
-        else if (row) { row.surplus = prevSurplus; paintCut(); }
-      });
-      return true;
-    }
+    if (act === "pr-dry-save") { saveAsmDry(node.getAttribute("data-k")); return true; }
     if (act === "pr-asm-reload") { loadAsm(true); return true; }
     if (act === "pr-asm-more") { asmDetail = true; paintAsm(); return true; }
     if (act === "pr-asm-back") { asmDetail = false; paintAsm(); return true; }
@@ -1914,6 +1972,21 @@
     onAct: onAct,
     seg: function () { return seg; },
     needCutterAsk_: needCutterAsk_,
+    dryRawKg_: dryRawKg_,
+    previewDryHtml_: function (rows) {
+      var prev = asm;
+      asm = { dryWeights: rows || [] };
+      var html = dryWeightsHtml();
+      asm = prev;
+      return html;
+    },
+    previewCutterLine_: function (cutter) {
+      var prev = cutCutter;
+      cutCutter = cutter || null;
+      var html = cutterLineHtml();
+      cutCutter = prev;
+      return html;
+    },
     cutVolumes_: cutVolumes_,
     cutterWage_: cutterWage_,
     slotLabel: slotLabel,

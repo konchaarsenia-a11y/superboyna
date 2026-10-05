@@ -10972,13 +10972,10 @@
       var badgeHtml = badges.length
         ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(badges.join(" · ")) + "</div>"
         : "";
-      var surplus = Number(item.surplus) || 0;
       return '<div class="' + cutRowClass(item) + '" style="opacity:.95;">' +
         '<div class="cut-title">' + escapeHtml(item.name || "") + "</div>" +
         '<div class="cut-meta">Нужно: <b>' + escapeHtml(String(dryLabel)) + "</b><br>Сырьё: <b>" +
-          escapeHtml(String(rawLabel)) + "</b>" +
-          (surplus ? (" · излишек: <b>" + surplus + "</b>") : "") +
-        "</div>" +
+          escapeHtml(String(rawLabel)) + "</b></div>" +
         badgeHtml +
         (typeof renderCutNoteHint === "function" ? renderCutNoteHint(item) : "") +
         "</div>";
@@ -11316,8 +11313,6 @@
         <div class="cut-actions">
           <div class="check-line"><input type="checkbox" id="cut_laid_${keyAttr}" autocomplete="off" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${keyJs}, this.checked)"><label for="cut_laid_${keyAttr}">Выложено</label></div>
           <div class="check-line"><input type="checkbox" id="cut_done_${keyAttr}" autocomplete="off" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${keyJs}, this.checked)"><label for="cut_done_${keyAttr}">Нарезано</label></div>
-          <label>Излишек <input type="number" inputmode="decimal" id="surplus_${key}" value="${item.surplus || 0}" step="0.1"></label>
-          <button class="btn-action btn-blue" type="button" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${keyJs})">Сохранить излишек</button>
         </div>
       </div>`;
     }
@@ -11458,16 +11453,8 @@
       showToast(next ? "Помечено: нет на следующую" : "Пометка снята");
     }
 
-    async function saveCutSurplus(key) {
-      const cached = findCuttingCached_(key);
-      const el = document.getElementById("surplus_" + String(key));
-      const surplus = Number(el && el.value) || 0;
-      if (cached) cached.surplus = surplus;
-      const ok = await persistCuttingFlag_(cached || key, { surplus: surplus });
-      if (ok) showToast("Излишек сохранён");
-      var snap = captureCuttingScroll_();
-      recoverUiFocus();
-      restoreCuttingScroll_(snap);
+    async function saveCutSurplus() {
+      showToast("Вес после сушки вносится в Сборке");
     }
     window.toggleCutOutNext = toggleCutOutNext;
     window.saveCutSurplus = saveCutSurplus;

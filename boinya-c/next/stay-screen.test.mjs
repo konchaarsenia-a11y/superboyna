@@ -38,9 +38,12 @@ test("координаты точки: 53.9, 27.56 и отказ мусора", 
   assert.equal(eng.parseLatLonFromText_("1, 2"), null);
 });
 
-test("курьер: стикер типа, излишек за второй кнопкой, состав без полос", () => {
+test("курьер: стикер типа, без излишка на нарезке, состав без полос", () => {
   assert.match(prodSrc, /function clientTypeLabel/);
-  assert.match(prodSrc, /pr-surplus-open/);
+  assert.doesNotMatch(prodSrc, /pr-surplus-open/);
+  assert.match(prodSrc, /Вес после сушки/);
+  assert.match(prodSrc, /Сегодня режет/);
+  assert.match(prodSrc, /nxCutterManual/);
   assert.match(prodSrc, /Этаж и квартира/);
   assert.match(prodSrc, /\/\^ПП\/\.test\(slot\)/);
   assert.doesNotMatch(prodSrc, /Этаж и квартира не указаны/);
