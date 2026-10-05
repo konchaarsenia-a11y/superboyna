@@ -22,8 +22,10 @@ function assert(cond, msg) {
   console.log("ok    " + msg);
 }
 
-assert(!prodSrc.includes("pr-surplus"), "нарезка next не открывает излишек");
-assert(!prodSrc.includes("Сохранить излишек"), "нет кнопки сохранить излишек");
+assert(prodSrc.includes("function isChewCut_"), "излишек только через isChewCut_");
+assert(prodSrc.includes("pr-surplus-open"), "жевалка открывает излишек");
+assert(prodSrc.includes("Сохранить излишек"), "лист жевалки сохраняет излишек");
+assert(prodSrc.includes("if (!srow || !isChewCut_(srow))"), "лист излишка закрыт для веса");
 assert(prodSrc.includes("Вес после сушки"), "сборка показывает вес после сушки");
 assert(prodSrc.includes("saveAssemblyDry"), "сборка пишет saveAssemblyDry");
 assert(prodSrc.includes("Сегодня режет"), "строка кто режет на месте");
@@ -59,6 +61,14 @@ const dryHtml = api.previewDryHtml_([
   { key: "ЛЕГКОЕ", name: "Лёгкое", planDryG: 1200, factDryG: 800, coef: 0.2 }
 ]);
 assert(dryHtml.includes("Вес после сушки") && dryHtml.includes("Лёгкое") && !dryHtml.includes("Излишек"), "карточка веса без излишка");
+assert(api.isChewCut_({ name: "ТРАХЕЯ СРЕД", unit: "шт", cat: "chew" }), "трахея — жевалка");
+assert(api.isChewCut_({ name: "ЛОП ХРЯЩ шт.", unit: "шт" }), "хрящ штуками — жевалка");
+assert(!api.isChewCut_({ name: "Лёгкое", unit: "гр", cat: "dressura", surplus: 3 }), "лёгкое не жевалка");
+assert(!api.isChewCut_({ name: "Сердце", unit: "гр" }), "сердце не жевалка");
+const chewRow = api.previewCutRow_({ name: "ТРАХЕЯ СРЕД", unit: "шт", cat: "chew", dry: 4, raw: 4, surplus: 2, row: 1 });
+assert(chewRow.includes("pr-surplus-open") && chewRow.includes("излишек 2") && chewRow.includes("ТРАХЕЯ"), "жевалка: вторая ! и излишек");
+const weightRow = api.previewCutRow_({ name: "Лёгкое", unit: "гр", cat: "dressura", dry: 1200, raw: 6, surplus: 9, row: 2 });
+assert(weightRow.includes("pr-bang") && !weightRow.includes("pr-surplus") && !weightRow.includes("излишек"), "вес: только ! дефицита, без излишка");
 const who = api.previewCutterLine_({ id: "1", name: "Нарезчик" });
 assert(who.includes("Сегодня режет Нарезчик") && who.includes("Сменить"), "смена нарезчика видна");
 const none = api.previewCutterLine_(null);
@@ -92,6 +102,17 @@ if (!Database) {
     piece: false
   });
   assert(plan.raw === 7 && plan.fromFact === false, "без факта 6 кг + излишек 1, got " + plan.raw);
+  const piece = wctx.warehouseRawForKey_({
+    planDryG: 4,
+    planByDay: { "ТРАХЕЯ": { "2026-10-05": 4 } },
+    factByIso: {},
+    key: "ТРАХЕЯ",
+    dayIsos: ["2026-10-05"],
+    surplusKg: 2,
+    coef: 1,
+    piece: true
+  });
+  assert(piece.raw === 6 && piece.surplus === 2 && piece.fromFact === false, "жевалка: 4 шт + излишек 2, got " + piece.raw);
   const fact = wctx.warehouseRawForKey_({
     planDryG: 1200,
     planByDay: { "ЛЕГКОЕ": { "2026-10-05": 1200 } },
