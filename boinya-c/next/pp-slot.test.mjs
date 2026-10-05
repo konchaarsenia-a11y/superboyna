@@ -64,6 +64,25 @@ test("Вихрова: оплата на ПП1, цена ПП2 в сумму не
   assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-16" }), null);
 });
 
+test("karpusha 07.10: ПП2 без оплаты не входит в сумму месяца", function () {
+  var rows = [
+    { name: "karpusha_me", matchKey: "KARPUSHAME", segment: "ПП", ppSlot: "2/2", deliveriesN: 2, orderPrice: 120, paid: "", _sumDate: "2026-10-07" }
+  ];
+  assert.equal(L.revenueSum(rows), null);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-07" }), null);
+  L.stampPpPay(rows);
+  assert.equal(rows[0]._pay, 0);
+});
+
+test("ПП2 без отметки не забирает цену у отказа на ПП1", function () {
+  var rows = [
+    { name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", _sumDate: "2026-10-03" },
+    { name: "Рекс", segment: "ПП", ppSlot: "2/2", orderPrice: 80, paid: "", _sumDate: "2026-10-17" }
+  ];
+  assert.equal(L.revenueSum(rows), null);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-17" }), null);
+});
+
 test("оплата на ПП2: в сумму входит только эта доставка", function () {
   var rows = [
     { name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", _sumDate: "2026-10-03" },
@@ -82,6 +101,13 @@ test("без отметки оплаты цена подписки один ра
   ];
   assert.equal(L.revenueSum(rows), 59);
   assert.equal(L.attributePpRevenue(rows).doubled.length, 1);
+});
+
+test("месяц ставит _pay до отрисовки строки", function () {
+  var src = fs.readFileSync(new URL("./week.js", import.meta.url), "utf8");
+  assert.match(src, /stampPpPay\(list\)/);
+  assert.match(src, /stampPpPay\(monthList\)/);
+  assert.match(src, /c\._pay/);
 });
 
 test("в правке заказа с месяца есть Отмена через deleteParams", function () {

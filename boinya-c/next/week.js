@@ -124,7 +124,12 @@
 
   function rowBtn(c, index, source) {
     var who = splitWho(c);
-    var price = c.orderPrice != null && c.orderPrice !== "" ? (String(c.orderPrice).replace(".", ",") + " BYN") : "";
+    var price = "";
+    if (c && c._pay != null && c._pay !== "") {
+      if (Number(c._pay) > 0) price = String(c._pay).replace(".", ",") + " BYN";
+    } else if (c.orderPrice != null && c.orderPrice !== "") {
+      price = String(c.orderPrice).replace(".", ",") + " BYN";
+    }
     var addr = [c.address, price].filter(Boolean).join(", ");
     return '<button type="button" class="row" data-act="wrow" data-i="' + index + '" data-src="' + source + '">' +
       '<span class="avatar" aria-hidden="true">' + esc(who.letter) + "</span>" +
@@ -341,6 +346,7 @@
       return '<p class="b-note">Считаю месяц…</p>';
     }
     var list = flattenMonth(pack);
+    logic().stampPpPay(list);
     view.summaryClients = list;
     if (!list.length) {
       return sh().empty({ icon: "doc", title: "Заказов нет", text: "В этом месяце пусто.", action: "" });
@@ -361,9 +367,13 @@
   function dayRows() {
     var html = "";
     var listed = false;
-    view.monthClients.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "month"); });
-    if (view.calendarOnly || !view.monthClients.length) {
-      view.weekClients.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "week"); });
+    var monthList = view.monthClients || [];
+    var weekList = view.weekClients || [];
+    logic().stampPpPay(monthList);
+    if (view.calendarOnly || !monthList.length) logic().stampPpPay(weekList);
+    monthList.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "month"); });
+    if (view.calendarOnly || !monthList.length) {
+      weekList.forEach(function (c, i) { listed = true; html += rowBtn(c, i, "week"); });
     }
     if (!listed && !view.loading && !view.listLoading) {
       html += sh().empty({ icon: "doc", title: "Заказов нет", text: view.date ? "На эту дату пусто." : "Выберите день.", action: "" });
