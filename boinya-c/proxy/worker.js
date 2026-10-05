@@ -38,10 +38,13 @@ const DAY_SHORT = {
 
 
 /* ===================== AUTH / ROLES (roles-audit 2026-09-26) =====================
- * Identity = Telegram WebApp initData (HMAC-SHA256, Bot API spec). tid берём ТОЛЬКО из
- * проверенной initData. Роль/вкладки — из D1 (access:<tid> / listAccess), холодно — GAS getMyAccess.
+ * Identity = Telegram WebApp initData (HMAC-SHA256, Bot API spec) ИЛИ Telegram Login Widget
+ * (вход с компьютера в обычном браузере). tid берём ТОЛЬКО из проверенной подписи.
+ * Роль/вкладки — из D1 (access:<tid> / listAccess), холодно — GAS getMyAccess.
  * Escape hatch (без редеплоя кода): env AUTH_ENFORCE=0 → legacy (telegramId из параметров).
  * Owner-ids: env OWNER_TELEGRAM_IDS (wrangler [vars]) — Арсений 650923866.
+ * Desktop: startDesktopAuth / pollDesktopAuth. Виджет — hash Login Widget; deep-link gbi_ —
+ * тот же /start, что у натива, Worker подписывает сессию тем же bot token.
  */
 const AUTH_ALL_TABS = [
   "orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen",
@@ -568,6 +571,165 @@ async function verifyTgInitData_(initData, env, nowSec) {
   return res;
 }
 
+const TG_LOGIN_FIELDS_ = ["auth_date", "first_name", "id", "last_name", "photo_url", "username"];
+
+function tgLoginPairs_(fields) {
+  const pairs = [];
+  TG_LOGIN_FIELDS_.forEach(function (k) {
+    if (!fields || fields[k] == null || fields[k] === "") return;
+    pairs.push(k + "=" + String(fields[k]));
+  });
+  pairs.sort();
+  return pairs;
+}
+
+/** Login Widget: secret = SHA256(bot_token), hash = hex(HMAC_SHA256(data_check_string, secret)). */
+async function signTgLoginWidget_(fields, token) {
+  const pairs = tgLoginPairs_(fields);
+  const dcs = pairs.join("\n");
+  const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", _tgEnc.encode(String(token || ""))));
+  const hash = authHex_(await authHmac_(secret, dcs));
+  const sp = new URLSearchParams();
+  pairs.forEach(function (p) {
+    const i = p.indexOf("=");
+    sp.append(p.slice(0, i), p.slice(i + 1));
+  });
+  sp.append("hash", hash);
+  return sp.toString();
+}
+
+/**
+ * Проверка входа с сайта: https://core.telegram.org/widgets/login#checking-authorization
+ * Тот же bot token, что у Mini App. Не заменяет initData.
+ */
+async function verifyTgLoginWidget_(rawLogin, env, nowSec) {
+  const raw = String(rawLogin || "").trim();
+  if (!raw) return { ok: false, reason: "no_login" };
+  const cacheKey = "lg:" + raw;
+  const cached = _authInitCache.get(cacheKey);
+  if (cached && cached.exp > Date.now()) return cached.res;
+  let res = { ok: false, reason: "bad_hash" };
+  try {
+    const sp = new URLSearchParams(raw);
+    const hash = String(sp.get("hash") || "").toLowerCase();
+    const id = String(sp.get("id") || "");
+    if (!hash) res = { ok: false, reason: "no_hash" };
+    else if (!/^\d+$/.test(id)) res = { ok: false, reason: "no_user" };
+    else {
+      const fields = {};
+      TG_LOGIN_FIELDS_.forEach(function (k) {
+        const v = sp.get(k);
+        if (v != null && v !== "") fields[k] = v;
+      });
+      const dcs = tgLoginPairs_(fields).join("\n");
+      const tokens = authBotTokens_(env);
+      if (!tokens.length) res = { ok: false, reason: "no_bot_token" };
+      for (let i = 0; i < tokens.length; i++) {
+        const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", _tgEnc.encode(tokens[i])));
+        const calc = authHex_(await authHmac_(secret, dcs));
+        if (!authSafeEq_(calc, hash)) continue;
+        const authDate = Number(fields.auth_date || 0);
+        const maxAge = Number((env && env.TG_INITDATA_MAX_AGE_SEC) || 604800);
+        const now = nowSec != null ? nowSec : Math.floor(Date.now() / 1000);
+        if (!authDate || (maxAge > 0 && now - authDate > maxAge)) {
+          res = { ok: false, reason: "expired" };
+          break;
+        }
+        const user = { id: Number(id) };
+        if (fields.first_name) user.first_name = fields.first_name;
+        if (fields.last_name) user.last_name = fields.last_name;
+        if (fields.username) user.username = fields.username;
+        if (fields.photo_url) user.photo_url = fields.photo_url;
+        res = { ok: true, user: user, authDate: authDate, botIndex: i, via: "widget" };
+        break;
+      }
+    }
+  } catch (e) {
+    res = { ok: false, reason: "parse_error" };
+  }
+  if (_authInitCache.size > 500) _authInitCache.clear();
+  _authInitCache.set(cacheKey, { exp: Date.now() + 60000, res: res });
+  return res;
+}
+
+function authPrimaryBotToken_(env) {
+  return String((env && (env.TELEGRAM_BOT_TOKEN || env.BOINYA_BOT_TOKEN)) || "").trim();
+}
+
+let _botUserCache = null;
+async function telegramBotUsername_(env) {
+  const forced = String((env && env.TELEGRAM_BOT_USERNAME) || "").replace(/^@/, "").trim();
+  if (/^[A-Za-z0-9_]{4,32}$/.test(forced)) return forced;
+  if (_botUserCache && _botUserCache.exp > Date.now()) return _botUserCache.name;
+  const token = authPrimaryBotToken_(env);
+  if (!token || typeof fetch !== "function") return "";
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/getMe");
+    const body = await res.json();
+    const name = body && body.ok && body.result && body.result.username ? String(body.result.username) : "";
+    if (name) _botUserCache = { exp: Date.now() + 3600000, name: name };
+    return name;
+  } catch (e) {
+    return "";
+  }
+}
+
+function desktopAuthToken_() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+  return s;
+}
+
+/** Публичный старт входа с компьютера: username для Login Widget + ссылка /start gbi_. */
+async function startDesktopAuth_(env) {
+  const username = await telegramBotUsername_(env);
+  if (!username) {
+    return { status: "error", message: "no_bot_username", desktopAuth: "tg-login-widget" };
+  }
+  const token = desktopAuthToken_();
+  return {
+    status: "success",
+    desktopAuth: "tg-login-widget",
+    botUsername: username,
+    token: token,
+    startUrl: "https://t.me/" + username + "?start=gbi_" + token,
+    loginDomain: "konchaarsenia-a11y.github.io"
+  };
+}
+
+/**
+ * После /start gbi_<token> GAS pollNativeAuth отдаёт tid. Здесь подписываем tgLogin
+ * bot token'ом Бойни — клиент не может подставить чужой id.
+ */
+async function pollDesktopAuth_(params, env) {
+  const token = String((params && params.token) || "").trim();
+  if (!/^[A-Za-z0-9_-]{6,40}$/.test(token)) {
+    return { status: "error", message: "bad_token", linked: false };
+  }
+  const bot = authPrimaryBotToken_(env);
+  if (!bot) return { status: "error", message: "no_bot_token", linked: false };
+  let live = null;
+  try {
+    live = await gasProxy_("pollNativeAuth", { token: token }, env, { write: false });
+  } catch (e) {
+    live = null;
+  }
+  const tid = String((live && live.telegramId) || "").trim();
+  if (!live || !live.linked || !/^\d+$/.test(tid)) {
+    return { status: "success", linked: false };
+  }
+  const bits = String(live.name || "").trim().split(/\s+/).filter(Boolean);
+  const fields = { id: tid, auth_date: String(Math.floor(Date.now() / 1000)) };
+  if (bits[0]) fields.first_name = bits[0];
+  if (bits.length > 1) fields.last_name = bits.slice(1).join(" ");
+  const username = String(live.username || "").replace(/^@/, "").trim();
+  if (username) fields.username = username;
+  const tgLogin = await signTgLoginWidget_(fields, bot);
+  return { status: "success", linked: true, tgLogin: tgLogin, telegramId: tid };
+}
+
 const _authRoleCache = new Map();
 /** Роль + вкладки по tid: owner-ids → D1 access:<tid> → D1 listAccess → (cold) GAS getMyAccess. */
 async function authLookupRole_(tid, env) {
@@ -647,12 +809,22 @@ function authInvalidateRole_(tid) {
 
 /**
  * Resolve actor for this request.
- * enforce: tid ТОЛЬКО из проверенной initData. legacy: telegramId/actorId из параметров.
+ * enforce: tid ТОЛЬКО из проверенной подписи (initData мини-аппа или tgLogin виджета/desktop).
+ * Если initData непустой — только он, tgLogin не подменяет мини-апп.
+ * legacy: telegramId/actorId из параметров.
  */
 async function resolveActor_(params, env) {
   const initData = String((params && (params.initData || params._tg)) || "");
+  const tgLogin = String((params && params.tgLogin) || "");
   let v = null;
-  if (initData) v = await verifyTgInitData_(initData, env);
+  let authVia = "";
+  if (initData) {
+    v = await verifyTgInitData_(initData, env);
+    authVia = "webapp";
+  } else if (tgLogin) {
+    v = await verifyTgLoginWidget_(tgLogin, env);
+    authVia = "widget";
+  }
   const enforce = authEnforced_(env);
   let tid = "";
   let verified = false;
@@ -669,17 +841,18 @@ async function resolveActor_(params, env) {
     tid: tid,
     verified: verified,
     enforce: enforce,
-    reason: v && !v.ok ? v.reason : initData ? "" : "no_init_data",
+    reason: v && !v.ok ? v.reason : (initData || tgLogin) ? "" : "no_init_data",
     username: username,
     role: r.role,
     tabs: r.tabs,
     customTabs: r.customTabs,
     isOwner: r.role === "owner",
-    user: v && v.ok ? v.user : null
+    user: v && v.ok ? v.user : null,
+    authVia: verified ? authVia : ""
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -1099,6 +1272,7 @@ function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
   if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|poll|warehousePreview|checkOrderWarehouse)/i.test(a)) return false;
+  if (a === "startDesktopAuth") return false;
   if (
     a === "getMyAccess" ||
     a === "telegramStatus" ||
@@ -1161,9 +1335,12 @@ async function handleAction_(action, params, env, url, ctx) {
     if (pr && typeof pr === "object") {
       pr.authMode = authModeLabel_(env);
       pr.sandboxAllowed = !!(env && env.ALLOW_SANDBOX === "1");
+      pr.desktopAuth = "tg-login-widget";
     }
     return pr;
   }
+  if (a === "startDesktopAuth") return startDesktopAuth_(env);
+  if (a === "pollDesktopAuth") return pollDesktopAuth_(params, env);
   const actor = await resolveActor_(params, env);
   if (actor.tid) {
     params._actorTid = actor.tid;
@@ -1331,6 +1508,7 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   res.telegramId = tid;
   res.verified = !!actor.verified;
   res.authMode = authModeLabel_(env);
+  if (actor.authVia) res.authVia = actor.authVia;
   return res;
 }
 

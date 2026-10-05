@@ -15,11 +15,11 @@
         if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
           q.set("cutover", "1");
         }
-        if (!q.get("v")) q.set("v", "71124200");
+        q.set("v", "71124310");
         location.replace("next.html?" + q.toString() + (u.hash || ""));
       } catch (e) {
         if (!/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
-          location.replace("next.html?cutover=1&v=71124200" + (location.hash || ""));
+          location.replace("next.html?cutover=1&v=71124310" + (location.hash || ""));
         }
       }
     })();

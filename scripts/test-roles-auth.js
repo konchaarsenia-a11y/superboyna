@@ -63,6 +63,20 @@ function signInitData(user, token, authDate, extra) {
   sp.set("hash", hash);
   return sp.toString();
 }
+function signLoginWidget(user, token, authDate) {
+  const fields = { auth_date: String(authDate), id: String(user.id) };
+  if (user.first_name) fields.first_name = user.first_name;
+  if (user.last_name) fields.last_name = user.last_name;
+  if (user.username) fields.username = user.username;
+  if (user.photo_url) fields.photo_url = user.photo_url;
+  const dcs = Object.keys(fields).sort().map((k) => k + "=" + fields[k]).join("\n");
+  const secret = nodeCrypto.createHash("sha256").update(token).digest();
+  const hash = nodeCrypto.createHmac("sha256", secret).update(dcs).digest("hex");
+  const sp = new URLSearchParams();
+  Object.keys(fields).forEach((k) => sp.append(k, fields[k]));
+  sp.append("hash", hash);
+  return sp.toString();
+}
 const now = Math.floor(Date.now() / 1000);
 
 /* ---------- Worker sandbox ---------- */
@@ -75,6 +89,7 @@ const snaps = Object.create(null);
 const gasCalls = [];
 const innerCalls = [];
 let gasListAccess = null;
+let gasPollNative = null;
 const sb = {
   console, Date, Math, JSON, Object, String, Array, Number, RegExp, Map, Promise, Error,
   URLSearchParams, TextEncoder, Uint8Array,
@@ -88,6 +103,7 @@ const sb = {
     gasCalls.push({ action, p });
     if (action === "listAccess") return gasListAccess;
     if (action === "getMyAccess") return { status: "success", role: "none", access: "none" };
+    if (action === "pollNativeAuth") return gasPollNative || { status: "success", linked: false };
     return { status: "success" };
   },
   metaCanonLabel_: () => "d1-primary",
@@ -112,7 +128,7 @@ vm.runInContext(
     extractFn_(workerSrc, "listAccessMerged_"),
     extractFn_(workerSrc, "setAccessTabs_"),
     extractFn_(workerSrc, "unlockSubs_"),
-    "this.__t = { verifyTgInitData_, authEffectiveTabs_, authCheck_, resolveActor_, handleAction_, authInvalidateRole_, AUTH_ROLE_PRESETS, authStripCost_ };"
+    "this.__t = { verifyTgInitData_, verifyTgLoginWidget_, signTgLoginWidget_, startDesktopAuth_, pollDesktopAuth_, authEffectiveTabs_, authCheck_, resolveActor_, handleAction_, authInvalidateRole_, AUTH_ROLE_PRESETS, authStripCost_ };"
   ].join("\n"),
   sb
 );
@@ -137,6 +153,24 @@ async function run() {
   ok(v.ok, "PARTNER_BOT_TOKEN (Varka bot) also accepted");
   v = await T.verifyTgInitData_("user=%7B%22id%22%3A1%7D&auth_date=" + now, ENV);
   ok(!v.ok, "no hash → rejected");
+
+  console.log("Worker: Login Widget (desktop browser)");
+  const widget = signLoginWidget(owner, BOT_TOKEN, now);
+  v = await T.verifyTgLoginWidget_(widget, ENV);
+  ok(v.ok && String(v.user.id) === OWNER && v.via === "widget", "widget hash → verified owner");
+  const widgetBad = widget.replace("id=" + OWNER, "id=762080386");
+  ok(widgetBad !== widget, "widget tamper changed id");
+  v = await T.verifyTgLoginWidget_(widgetBad, ENV);
+  ok(!v.ok, "tampered widget id → rejected (" + v.reason + ")");
+  v = await T.verifyTgLoginWidget_(signLoginWidget(owner, "999:other_bot", now), ENV);
+  ok(!v.ok, "widget signed by another bot → rejected");
+  v = await T.verifyTgLoginWidget_(signLoginWidget(owner, BOT_TOKEN, now - 8 * 86400), ENV);
+  ok(!v.ok && v.reason === "expired", "widget auth_date older than 7d → expired");
+  v = await T.verifyTgLoginWidget_(signLoginWidget({ id: 222, first_name: "К", username: "courier" }, "777:partner", now), Object.assign({}, ENV, { PARTNER_BOT_TOKEN: "777:partner" }));
+  ok(v.ok && v.user.username === "courier", "widget accepts PARTNER_BOT_TOKEN like initData");
+  const minted = await T.signTgLoginWidget_({ id: OWNER, first_name: "Арсений", last_name: "Хотко", auth_date: String(now) }, BOT_TOKEN);
+  v = await T.verifyTgLoginWidget_(minted, ENV);
+  ok(v.ok && v.user.first_name === "Арсений" && v.user.last_name === "Хотко", "worker-minted tgLogin roundtrip (unicode name)");
 
   console.log("Worker: tabs / presets");
   ok(T.authEffectiveTabs_("owner", []).indexOf("peopleScreen") >= 0, "owner gets peopleScreen");
@@ -188,6 +222,12 @@ async function run() {
   console.log("Worker: getMyAccess fail-closed");
   r = await T.handleAction_("getMyAccess", { telegramId: OWNER }, ENV);
   ok(r.role === "none" && r.authRequired === true, "no initData → role none + authRequired (no ?tid spoof)");
+  r = await T.handleAction_("getMyAccess", { tgLogin: widget, telegramId: "1" }, ENV);
+  ok(r.role === "owner" && r.authVia === "widget" && r.telegramId === OWNER, "desktop tgLogin → same owner role, spoofed telegramId ignored");
+  r = await T.handleAction_("getStats", { tgLogin: signLoginWidget({ id: 222, first_name: "К" }, BOT_TOKEN, now), telegramId: OWNER }, ENV);
+  ok(r.status === "error" && r.message === "forbidden_role", "desktop courier tgLogin → getStats forbidden");
+  r = await T.handleAction_("getMyAccess", { initData: good, tgLogin: signLoginWidget({ id: 222, first_name: "К" }, BOT_TOKEN, now) }, ENV);
+  ok(r.role === "owner" && r.authVia === "webapp", "initData wins over tgLogin (mini-app not replaced)");
   r = await T.handleAction_("getMyAccess", { initData: good }, ENV);
   ok(r.role === "owner" && r.tabs.indexOf("peopleScreen") >= 0, "owner from Telegram → owner, all tabs (no lockout)");
   const stranger = signInitData({ id: 5555, first_name: "S" }, BOT_TOKEN, now);
@@ -221,6 +261,31 @@ async function run() {
   T.authInvalidateRole_();
   r = await T.handleAction_("getMyAccess", { initData: signInitData({ id: 762080386, first_name: "Н" }, BOT_TOKEN, now) }, ENV);
   ok(r.role === "pending" && r.tabs.length === 0, "pending user → no tabs");
+
+  console.log("Worker: desktop deep-link gbi_");
+  const deskEnv = Object.assign({}, ENV, { TELEGRAM_BOT_USERNAME: "BoinyaTestBot" });
+  r = await T.handleAction_("startDesktopAuth", {}, deskEnv);
+  ok(r.status === "success" && r.botUsername === "BoinyaTestBot" && /[?&]start=gbi_[a-f0-9]{32}$/.test(r.startUrl), "startDesktopAuth → t.me gbi_ token");
+  ok(/^[A-Za-z0-9_-]{6,40}$/.test(r.token), "desktop token matches GAS pollNativeAuth charset");
+  r = await T.handleAction_("pollDesktopAuth", { token: "short" }, ENV);
+  ok(r.message === "bad_token" && r.linked === false, "short desktop token rejected");
+  gasPollNative = { status: "success", linked: false };
+  r = await T.handleAction_("pollDesktopAuth", { token: r.token || "abcdef123456" }, ENV);
+  const waitToken = "abcdef123456";
+  r = await T.handleAction_("pollDesktopAuth", { token: waitToken }, ENV);
+  ok(r.status === "success" && r.linked === false && !r.tgLogin, "poll before /start → linked false, no session");
+  gasPollNative = { status: "success", linked: true, telegramId: OWNER, name: "Арсений Хотко", username: "arseniy" };
+  r = await T.handleAction_("pollDesktopAuth", { token: waitToken }, ENV);
+  ok(r.linked === true && r.tgLogin && r.telegramId === OWNER, "poll after gbi_ → signed tgLogin");
+  v = await T.verifyTgLoginWidget_(r.tgLogin, ENV);
+  ok(v.ok && String(v.user.id) === OWNER && v.user.username === "arseniy", "gbi_ session verifies as Login Widget");
+  const deskLogin = r.tgLogin;
+  r = await T.handleAction_("getMyAccess", { tgLogin: deskLogin }, ENV);
+  ok(r.role === "owner" && r.authVia === "widget", "gbi_ session gets owner role");
+  gasPollNative = { status: "success", linked: true, telegramId: "not-a-tid", name: "X" };
+  r = await T.handleAction_("pollDesktopAuth", { token: waitToken }, ENV);
+  ok(r.linked === false && !r.tgLogin, "non-numeric telegramId from GAS is not signed");
+  gasPollNative = null;
 
   console.log("Worker: setAccessTabs");
   r = await T.handleAction_("setAccessTabs", { initData: good, targetId: "222", tabs: "courierScreen,warehouseScreen" }, ENV);
