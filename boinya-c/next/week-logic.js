@@ -300,9 +300,16 @@
     return String(who).toUpperCase() + "|" + month;
   }
 
-  /* Цена подписки один раз: на доставке, где курьер отметил paid=yes.
-     Если оплаты ещё нет — на слоте, где её ждут (меньший номер), остальные 0.
-     Явный paid=no в сумму не входит. */
+  function paySlotOf_(c) {
+    var s = courierPaySlot_(c);
+    if (s >= 1) return s;
+    return ppSlotNumber(c && (c.deliverySlot || c.ppSlot)) || 0;
+  }
+
+  /* Цена подписки один раз: только на слоте с paid=yes (ПП1 или ПП2).
+     Если отметки ещё нет — на слоте 1 / без номера, где оплату ждут.
+     ПП2 без paid=yes в сумму не входит, даже если это единственная доставка месяца.
+     Явный paid=no в сумму не входит. Доставка при этом остаётся. */
   function attributePpRevenue(list) {
     var amount = {};
     var doubled = [];
@@ -334,20 +341,35 @@
       var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
       var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
       function bySlot(a, b) {
-        var as = ppSlotNumber(list[a].deliverySlot || list[a].ppSlot) || 9;
-        var bs = ppSlotNumber(list[b].deliverySlot || list[b].ppSlot) || 9;
+        var as = paySlotOf_(list[a]) || 9;
+        var bs = paySlotOf_(list[b]) || 9;
         if (as !== bs) return as - bs;
         var ai = String(list[a]._sumDate || list[a].dateIso || list[a].date || "");
         var bi = String(list[b]._sumDate || list[b].dateIso || list[b].date || "");
         return ai < bi ? -1 : ai > bi ? 1 : 0;
       }
-      var pool = yes.length ? yes.slice().sort(bySlot) : open.slice().sort(bySlot);
+      var poolSrc = yes.length ? yes : open.filter(function (i) { return paySlotOf_(list[i]) < 2; });
+      var pool = poolSrc.slice().sort(bySlot);
       var chosen = pool.length ? pool[0] : -1;
       if (chosen < 0) return;
       var money = orderMoney_(list[chosen]);
       if (money != null && money > 0) amount[chosen] = money;
     });
     return { amount: amount, doubled: doubled };
+  }
+
+  /* На строке ПП показываем только ту цену, которая входит в сумму месяца. */
+  function stampPpPay(list) {
+    var attr = attributePpRevenue(list);
+    (list || []).forEach(function (c, i) {
+      if (!c) return;
+      if (!isPpRow_(c)) {
+        if (c._pay != null) delete c._pay;
+        return;
+      }
+      c._pay = attr.amount[i] || 0;
+    });
+    return list;
   }
 
   function revenueSum(list, opts) {
@@ -1061,6 +1083,7 @@
     suggestPpSlot: suggestPpSlot,
     countPpSlots: countPpSlots,
     attributePpRevenue: attributePpRevenue,
+    stampPpPay: stampPpPay,
     revenueSum: revenueSum,
     courierStopMoney: courierStopMoney,
     courierCollectSum: courierCollectSum,

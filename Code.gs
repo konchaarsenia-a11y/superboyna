@@ -23222,17 +23222,20 @@ function ppCyclePaidStatus_(cycleStore, ck) {
 }
 
 /**
- * Выручка и factCost: цена подписки один раз.
- * ppPriceByKey уже указывает доставку с paid=yes или слот, где оплату ждут.
- * Слот 2 без цены не добавляет денег. Доставки (bySource.pp) не фильтруем.
+ * Выручка и factCost: цена подписки один раз, на слоте с paid=yes.
+ * Пока отметки нет — только слот 1 (или слот ещё не известен).
+ * Один ПП2 без paid=yes — 0, даже если в ключе уже лежит цена.
+ * Доставки (bySource.pp) не фильтруем.
  */
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
   var price = Number(monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0;
   var st = String(paid || "").toLowerCase();
-  if (st === "no" && !(price > 0)) return false;
-  if (st === "yes") return true;
-  if (price > 0) return true;
   var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
+  var maxSlot = Number((monthCal && monthCal.ppMaxSlotByKey && monthCal.ppMaxSlotByKey[ck]) || 0);
+  if (st === "yes") return true;
+  if (st === "no") return false;
+  if (minSlot >= 2 && (maxSlot >= 2 || !maxSlot)) return false;
+  if (price > 0) return true;
   if (minSlot >= 2) return false;
   return true;
 }
@@ -23315,7 +23318,11 @@ function foldPpRevenueOnce_(out) {
       if (flag === "yes") yes.push(g[b]);
       else if (flag !== "no") open.push(g[b]);
     }
-    var pool = (yes.length ? yes : open).slice().sort(function (x, y) {
+    var poolSrc = yes.length ? yes : open.filter(function (row) {
+      var s = Number(row.slot) || 0;
+      return s < 2;
+    });
+    var pool = poolSrc.slice().sort(function (x, y) {
       var xs = x.slot >= 1 ? x.slot : 9;
       var ys = y.slot >= 1 ? y.slot : 9;
       if (xs !== ys) return xs - ys;
