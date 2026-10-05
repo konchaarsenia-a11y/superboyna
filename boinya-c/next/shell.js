@@ -1004,6 +1004,121 @@
     return '<div class="b-skel">' + html + "</div>";
   }
 
+  function trackFromPhoto_(file) {
+    return new Promise(function (resolve) {
+      var Detector = typeof BarcodeDetector === "function" ? BarcodeDetector : null;
+      var makeBmp = typeof createImageBitmap === "function" ? createImageBitmap : null;
+      if (!file || !Detector || !makeBmp) {
+        resolve("");
+        return;
+      }
+      makeBmp(file).then(function (bmp) {
+        function read(det) {
+          return det.detect(bmp).then(function (codes) {
+            if (codes && codes.length && codes[0] && codes[0].rawValue) return String(codes[0].rawValue).trim();
+            return "";
+          });
+        }
+        var formats = ["code_128", "code_39", "ean_13", "ean_8", "itf", "codabar", "qr_code", "pdf417", "aztec", "data_matrix"];
+        read(new Detector({ formats: formats })).then(function (value) {
+          if (value) {
+            resolve(value);
+            return;
+          }
+          return read(new Detector()).then(resolve);
+        }).catch(function () {
+          read(new Detector()).then(resolve).catch(function () { resolve(""); });
+        });
+      }).catch(function () { resolve(""); });
+    });
+  }
+
+  /* Трек почты: ручной ввод, вставка из буфера, штрихкод с фото (BarcodeDetector). */
+  function askTrackCode(opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      }
+      openSheet({
+        title: opts.title || "Трек-код",
+        html:
+          '<p class="b-note" style="margin:0 0 12px">' + esc(opts.text || "Трек-код отправления") + "</p>" +
+          '<label class="b-field"><input class="b-field__input" id="nxTrack" value="" autocomplete="off" inputmode="text" placeholder="Трек-код"></label>' +
+          '<input id="nxTrackFile" type="file" accept="image/*" style="display:none">' +
+          '<div class="nx-actions" style="margin-top:8px">' +
+          '<button class="b-btn b-btn--sec" type="button" data-act="track-paste">Вставить из буфера</button>' +
+          '<button class="b-btn b-btn--sec" type="button" data-act="track-photo">Фото наклейки</button></div>' +
+          '<button class="b-btn b-btn--main" type="button" data-act="track-ok" style="margin-top:12px">Доставлено</button>',
+        onClose: function () { done(null); }
+      });
+      var prev = actHandler;
+      function valueOf() {
+        var inp = el("nxTrack");
+        return String((inp && inp.value) || "").trim();
+      }
+      actHandler = function (act, node) {
+        if (act === "track-paste") {
+          var clip = navigator.clipboard;
+          if (!clip || !clip.readText) {
+            toast("Буфер недоступен — введите код");
+            return;
+          }
+          clip.readText().then(function (text) {
+            var inp = el("nxTrack");
+            if (inp) inp.value = String(text || "").trim();
+            if (!valueOf()) toast("В буфере пусто");
+          }).catch(function () {
+            toast("Не удалось вставить — введите код");
+          });
+          return;
+        }
+        if (act === "track-photo") {
+          var file = el("nxTrackFile");
+          if (file) file.click();
+          return;
+        }
+        if (act === "change" && node && node.id === "nxTrackFile") {
+          var picked = node.files && node.files[0];
+          if (!picked) return;
+          toast("Смотрю фото…");
+          trackFromPhoto_(picked).then(function (code) {
+            var inp = el("nxTrack");
+            if (code && inp) {
+              inp.value = code;
+              toast("Код с фото");
+            } else {
+              toast("С фото код не прочитался — введите или вставьте");
+            }
+          });
+          return;
+        }
+        if (act === "track-ok") {
+          var v = valueOf();
+          if (!v) {
+            toast("Введите трек-код");
+            return;
+          }
+          closeTop("ok");
+          done(v);
+          return;
+        }
+        if (prev) prev(act, node);
+      };
+      sheetStack[sheetStack.length - 1].onClose = function (how) {
+        actHandler = prev;
+        if (how !== "ok") done(null);
+      };
+      setTimeout(function () {
+        var inp = el("nxTrack");
+        if (inp) inp.focus();
+      }, 30);
+    });
+  }
+
   root.BoinyaShell = {
     mount: mount,
     ico: ico,
@@ -1030,6 +1145,7 @@
     confirm: confirm,
     choice: choice,
     prompt: prompt,
+    askTrackCode: askTrackCode,
     pickDate: pickDate,
     pickDateTime: pickDateTime,
     pickRemindAt: pickRemindAt,

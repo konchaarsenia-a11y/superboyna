@@ -1143,6 +1143,15 @@ const AUTH_ACTOR_AS_TID_RE = /^(getStats|getExpectedProfit|exportStats|listStats
 async function handleAction_(action, params, env, url, ctx) {
   const a = String(action || "");
   params = params && typeof params === "object" ? params : {};
+  // Кнопка «Отправить трэк код» приходит из Telegram в Code.gs и сюда с секретом GAS↔Worker.
+  if (a === "fulfillMailTrack") {
+    const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
+    const got = String(params._wk || "").trim();
+    if (!sec || got !== sec) {
+      return { status: "error", message: "auth_required", action: a };
+    }
+    return fulfillMailTrack_(params, env);
+  }
   ["_actorTid", "_actorRole", "_wk", "_authVerified", "_unverified"].forEach(function (k) {
     delete params[k];
   });
@@ -1794,7 +1803,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
     };
   }
   // save*/move*/delete* — выше (sandbox_no_write); сюда не доходим
-  if (a === "setDelivered") return setDelivered_(params, env);
+  if (a === "setDelivered") return setDelivered_(params, env, ctx);
   if (a === "setAssembled") return setAssemblyFlag_(params, env, "assembled");
   if (a === "setPrinted") return setAssemblyFlag_(params, env, "printed");
   if (a === "updateCutting") return updateCutting_(params, env);
@@ -9539,6 +9548,82 @@ async function rebuildMonthOverview_(env, monthWanted) {
   return body;
 }
 
+function normPaidFlagD1_(v) {
+  const p = String(v == null ? "" : v).toLowerCase();
+  if (p === "yes" || p === "true" || p === "1") return "yes";
+  if (p === "no" || p === "false" || p === "0") return "no";
+  return "";
+}
+
+/* Почта — тот же признак, что в заказе: deliveryMethod euro/bel или тег в note. */
+function courierMailMethodD1_(c) {
+  const method = String((c && c.deliveryMethod) || "").trim().toLowerCase();
+  if (method === "euro" || method === "bel") return method;
+  const note = String((c && c.note) || "");
+  if (/\[ЕВРОПОЧТА\]/i.test(note)) return "euro";
+  if (/\[БЕЛПОЧТА\]/i.test(note)) return "bel";
+  return "";
+}
+
+function courierSlotNumD1_(c) {
+  const n = Number(c && c.deliverySlot) || 0;
+  if (n >= 1 && n <= 4) return n;
+  const s = String((c && c.ppSlot) || "").trim();
+  const m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (m) return Number(m[1]) || 0;
+  if (s === "1" || s === "2" || s === "3" || s === "4") return Number(s);
+  return 0;
+}
+
+/* ПП2 спрашивает оплату, пока на ПП1 нет paid=yes. Почта не спрашивает. */
+function courierAskPaidDecision_(c) {
+  if (!c) return false;
+  if (courierMailMethodD1_(c)) return false;
+  if (normPaidFlagD1_(c.paid) === "yes") return false;
+  const seg = String(c.segment || "").trim().toUpperCase();
+  const src = String(c.source || "").toLowerCase();
+  const isPp = seg === "ПП" || seg === "АФК" || seg === "PP" || src === "pp" || src === "subscription";
+  const isRetail = seg === "Р" || seg === "РОЗНИЦА" || src === "retail";
+  if (isRetail && !isPp) return true;
+  if (!isPp) return false;
+  const deliveriesN = Number(c.deliveriesN) || 0;
+  const slot = courierSlotNumD1_(c);
+  if (deliveriesN >= 2 && slot >= 2) return normPaidFlagD1_(c.siblingPaid) !== "yes";
+  if (c.ppPaid === true) return false;
+  return true;
+}
+
+function pickSiblingPpPaid_(rows, currentIso) {
+  let yes = false;
+  let no = false;
+  (rows || []).forEach(function (r) {
+    if (!r) return;
+    const iso = String(r.date_iso || "");
+    if (currentIso && iso && iso === currentIso) return;
+    if (Number(r.slot) !== 1) return;
+    const p = normPaidFlagD1_(r.paid);
+    if (p === "yes") yes = true;
+    else if (p === "no") no = true;
+  });
+  if (yes) return "yes";
+  if (no) return "no";
+  return "";
+}
+
+function mailTrackClientTextD1_(track) {
+  return "Здравствуйте!\nОтправили ваш заказик\nВот трэк код для отслеживания: " + String(track || "").trim();
+}
+
+function mailPayRemindAtMs_(nowMs) {
+  const n = Number(nowMs);
+  const base = isFinite(n) && n > 0 ? n : Date.now();
+  return base + 2 * 24 * 60 * 60 * 1000;
+}
+
+function mailTrackToken_() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+
 async function enrichCourierClientPp_(c, env, dateIso) {
   if (!c) return c;
   const seg = normalizeSegmentLabel_(c.segment || "");
@@ -9574,17 +9659,13 @@ async function enrichCourierClientPp_(c, env, dateIso) {
   } else {
     ppSlot = "";
   }
-  // платит сейчас: N=1 или слот 1; слот 2+ — только если явный отказ / ещё не оплачено и надо доспросить
-  const paidL = String(c.paid || "").toLowerCase();
-  let askPaid = false;
-  if (deliveriesN >= 1) {
-    if (paidL === "yes" || c.ppPaid) askPaid = false;
-    else if (deliveriesN === 1 || deliverySlot <= 1) askPaid = true;
-    else askPaid = paidL === "no";
-  }
-  c.askPaid = askPaid;
   if (deliveriesN >= 1) c.deliveriesN = deliveriesN;
   if (deliverySlot >= 1) c.deliverySlot = deliverySlot;
+  // ПП2 спрашивает, пока на ПП1 нет paid=yes. Точный siblingPaid дописывает refreshCourierAskPaid_.
+  const mail = courierMailMethodD1_(c);
+  if (mail) c.mailMethod = mail;
+  c.askPaid = courierAskPaidDecision_(c);
+  c.ppAskReady = true;
   if (ppSlot) c.ppSlot = ppSlot;
   else c.ppSlot = "";
   if (deliveriesN === 1) c.ppHint = "ПП N=1";
@@ -9623,7 +9704,7 @@ async function rebuildCourierDay_(env, day) {
     const merged = Object.assign({}, c, {
       delivered: sameDate ? !!old.delivered : false,
       assembled: sameDate ? !!(old.assembled || (asm && asm.assembled)) : !!(asm && asm.assembled),
-      paid: sameDate ? old.paid : null,
+      paid: (sameDate && old.paid) || c.paid || null,
       col: old.col,
       courierCol: old.courierCol,
       deliveriesN: Number(c.deliveriesN) || Number(old.deliveriesN) || 0,
@@ -9992,6 +10073,92 @@ async function resolveDay_(params, env) {
   };
 }
 
+async function siblingPaidFromCourierSnaps_(env, month) {
+  const out = Object.create(null);
+  if (!env || !month) return out;
+  for (let i = 0; i < WEEK_DAYS.length; i++) {
+    let snap = null;
+    try { snap = await getSnapRaw_(env, "courier:" + WEEK_DAYS[i]); } catch (eSnap) { snap = null; }
+    if (!snap || !Array.isArray(snap.clients)) continue;
+    const snapIso = coerceDateIso_(snap.dateIso || snap.date || "") || "";
+    if (snapIso && snapIso.slice(0, 7) !== month) continue;
+    snap.clients.forEach(function (c) {
+      if (!c) return;
+      if (courierSlotNumD1_(c) !== 1) return;
+      const p = normPaidFlagD1_(c.paid);
+      if (!p) return;
+      matchKeyAliases_(c.matchKey || c.name).forEach(function (k) {
+        if (!k) return;
+        if (out[k] === "yes") return;
+        if (p === "yes" || !out[k]) out[k] = p;
+      });
+    });
+  }
+  return out;
+}
+
+/** На чтении курьера: ПП2 видит paid с заказа ПП1 того же месяца. */
+async function refreshCourierAskPaid_(env, snap) {
+  const clients = (snap && snap.clients) || [];
+  if (!clients.length) return snap;
+  const iso = coerceDateIso_((snap && (snap.dateIso || snap.date)) || "") || "";
+  const month = iso ? iso.slice(0, 7) : "";
+  let rows = [];
+  if (env && env.DB && month) {
+    try {
+      const q = await env.DB.prepare(
+        "SELECT date_iso, match_key, client, meta_json FROM orders WHERE status = 'active' AND date_iso LIKE ? LIMIT 500"
+      )
+        .bind(month + "%")
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {
+      rows = [];
+    }
+  }
+  let snapPaid = null;
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i];
+    if (!c) continue;
+    const mail = courierMailMethodD1_(c);
+    if (mail) c.mailMethod = mail;
+    const n = Number(c.deliveriesN) || 0;
+    const slot = courierSlotNumD1_(c);
+    if (n >= 2 && slot >= 2) {
+      const aliases = matchKeyAliases_(c.matchKey || c.name);
+      const sibRows = [];
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r];
+        const mk = String((row && row.match_key) || "");
+        const nameMk = normalizeMatchKey_((row && row.client) || "");
+        let hit = aliases.indexOf(mk) >= 0 || aliases.indexOf(nameMk) >= 0;
+        if (!hit && row && c.name && String(row.client) === String(c.name)) hit = true;
+        if (!hit) continue;
+        const meta = parseMeta_(row.meta_json);
+        const rowSlot = parseForcedPpSlotD1_(meta.ppSlot || meta.deliverySlot, n || 2);
+        sibRows.push({ date_iso: row.date_iso, slot: rowSlot, paid: meta.paid });
+      }
+      let sib = pickSiblingPpPaid_(sibRows, iso);
+      if (sib !== "yes") {
+        if (!snapPaid) snapPaid = await siblingPaidFromCourierSnaps_(env, month);
+        let fromSnap = "";
+        for (let a = 0; a < aliases.length; a++) {
+          if (snapPaid[aliases[a]]) {
+            fromSnap = snapPaid[aliases[a]];
+            if (fromSnap === "yes") break;
+          }
+        }
+        if (fromSnap === "yes") sib = "yes";
+        else if (!sib && fromSnap === "no") sib = "no";
+      }
+      c.siblingPaid = sib;
+    }
+    c.ppAskReady = true;
+    c.askPaid = courierAskPaidDecision_(c);
+  }
+  return snap;
+}
+
 async function getCourier_(params, env) {
   const day = String(params.day || "Понедельник");
   let hit = await getSnapRaw_(env, "courier:" + day);
@@ -9999,7 +10166,9 @@ async function getCourier_(params, env) {
     await rebuildCourierDay_(env, day);
     hit = await getSnapRaw_(env, "courier:" + day);
   }
-  return hit || { status: "success", clients: [], day: day, sandbox: true };
+  hit = hit || { status: "success", clients: [], day: day, sandbox: true };
+  try { await refreshCourierAskPaid_(env, hit); } catch (eAsk) {}
+  return hit;
 }
 
 async function getAssembly_(params, env) {
@@ -12337,7 +12506,319 @@ async function moveClient_(params, env) {
   };
 }
 
-async function setDelivered_(params, env) {
+async function lookupClientTelegramId_(env, spec) {
+  spec = spec || {};
+  const nick = String(spec.name || spec.client || "")
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+  const mk = normalizeMatchKey_(spec.matchKey || spec.name || spec.client || "");
+  const phone = String(spec.phone || "");
+  let pack = { links: [], users: [] };
+  try {
+    pack = await gbLoadPack_(env);
+  } catch (ePack) {
+    pack = { links: [], users: [] };
+  }
+  const links = (pack && pack.links) || [];
+  for (let i = 0; i < links.length; i++) {
+    const link = links[i] || {};
+    const ln = String(link.clientNick || "")
+      .trim()
+      .replace(/^@/, "")
+      .toLowerCase();
+    const lmk = normalizeMatchKey_(link.matchKey || link.clientNick || "");
+    const tid = String(link.telegramId || "").trim();
+    if (!/^\d{5,15}$/.test(tid)) continue;
+    if ((mk && lmk && mk === lmk) || (nick && ln && nick === ln)) return tid;
+  }
+  const users = (pack && pack.users) || [];
+  for (let u = 0; u < users.length; u++) {
+    const user = users[u] || {};
+    const tid = String(user.telegramId || "").trim();
+    if (!/^\d{5,15}$/.test(tid)) continue;
+    if (phone && gbPhonesMatchWorker_(user.phone, phone)) return tid;
+  }
+  return "";
+}
+
+async function stampOrderMailTrackD1_(env, iso, aliases, fields) {
+  fields = fields || {};
+  if (!env || !env.DB || !iso) return;
+  const keys = aliases || [];
+  for (let i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue;
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(
+        "SELECT id, meta_json FROM orders WHERE status = 'active' AND date_iso = ? AND match_key = ? LIMIT 4"
+      )
+        .bind(iso, keys[i])
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {
+      rows = [];
+    }
+    for (let r = 0; r < rows.length; r++) {
+      const meta = parseMeta_(rows[r].meta_json);
+      if (fields.track) meta.mailTrack = fields.track;
+      if (fields.mail) meta.mailMethod = fields.mail;
+      meta.mailTrackAt = fields.at || new Date().toISOString();
+      if (fields.token) meta.mailTrackToken = fields.token;
+      try { await persistOrderMetaJson_(env, rows[r].id, JSON.stringify(meta)); } catch (eW) {}
+    }
+  }
+}
+
+async function mailTrackNotifyIds_(env) {
+  const base = ["827494606"];
+  String((env && env.PARTNER_OWNER_TIDS) || "")
+    .split(/[,;\s]+/)
+    .forEach(function (x) {
+      const s = String(x || "").trim();
+      if (s && base.indexOf(s) < 0) base.push(s);
+    });
+  try {
+    authOwnerIds_(env).forEach(function (id) {
+      if (id && base.indexOf(id) < 0) base.push(id);
+    });
+  } catch (eOwn) {}
+  try {
+    const ids = await notifyRecipientsWorker_(env, "missed_delivery", base, {});
+    return ids && ids.length ? ids : base.slice();
+  } catch (eN) {
+    return base.slice();
+  }
+}
+
+async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
+  ctxInfo = ctxInfo || {};
+  const track = String((params && params.track) || "").trim();
+  if (!track || !env) return { skipped: true };
+  const client = String((params && params.client) || "").trim();
+  const iso = coerceDateIso_(ctxInfo.iso || (params && params.date) || "") || String(ctxInfo.iso || "");
+  const mk = normalizeMatchKey_((params && params.matchKey) || client);
+  const dedupeKey = "mailTrackSent:" + (iso || "nodate") + ":" + (mk || client.toLowerCase());
+  let prev = null;
+  try { prev = await getSnapRaw_(env, dedupeKey); } catch (ePrev) { prev = null; }
+  if (
+    prev &&
+    prev.track === track &&
+    (prev.notified || (prev.inflight && Date.now() - Number(prev.inflight) < 120000))
+  ) {
+    return { skipped: true, duplicate: true, token: prev.token || "" };
+  }
+  const mail = String((params && params.mail) || "").trim();
+  const token = (prev && prev.token) || mailTrackToken_();
+  try {
+    await putSnap_(env, dedupeKey, { token: token, track: track, inflight: Date.now(), notified: false });
+  } catch (eLock) {}
+  let clientTid = "";
+  try {
+    clientTid = await lookupClientTelegramId_(env, {
+      name: client,
+      client: client,
+      matchKey: mk,
+      phone: String((params && params.phone) || "")
+    });
+  } catch (eTid) {
+    clientTid = "";
+  }
+  const record = {
+    token: token,
+    track: track,
+    client: client,
+    matchKey: mk,
+    phone: String((params && params.phone) || ""),
+    day: String((params && params.day) || ""),
+    dateIso: iso,
+    mail: mail,
+    clientTelegramId: clientTid,
+    createdAt: new Date().toISOString(),
+    sent: false
+  };
+  try { await putSnap_(env, "mailTrack:" + token, record); } catch (ePut) {}
+  if (iso) {
+    try {
+      await stampOrderMailTrackD1_(env, iso, matchKeyAliases_(mk).concat(matchKeyAliases_(client)), {
+        track: track,
+        mail: mail,
+        token: token,
+        at: record.createdAt
+      });
+    } catch (eStamp) {}
+  }
+  const ids = await mailTrackNotifyIds_(env);
+  const label = mail === "euro" ? "Европочта" : mail === "bel" ? "Белпочта" : "Почта";
+  const text =
+    "📦 " + label + " · трек сохранён\n" +
+    "Клиент: " + (client || "—") + "\n" +
+    (params.day ? "День: " + params.day + "\n" : "") +
+    "Трек: " + track + "\n\n" +
+    "Кнопка отправит клиенту:\n" +
+    mailTrackClientTextD1_(track);
+  const markup = {
+    inline_keyboard: [[{ text: "Отправить трэк код", callback_data: ("mtrack:" + token).slice(0, 64) }]]
+  };
+  let sentN = 0;
+  for (let i = 0; i < ids.length; i++) {
+    try {
+      const r = await telegramSendTextWorker_(env, ids[i], text, markup);
+      if (r && r.ok) sentN++;
+    } catch (eSend) {}
+  }
+  const remindAt = mailPayRemindAtMs_(Date.now());
+  let reminded = 0;
+  for (let j = 0; j < ids.length; j++) {
+    const tid = ids[j];
+    const id = ("mailpay_" + token + "_" + tid).slice(0, 80);
+    const title = "Проверить оплату · почта · " + (client || "клиент");
+    const payload = {
+      mode: "remind",
+      title: title,
+      remindAtMs: remindAt,
+      targetTelegramId: tid,
+      forTelegramId: tid,
+      track: track,
+      mailPayCheck: true,
+      client: client,
+      skipAck: "1"
+    };
+    try {
+      await saveDeferredD1_(
+        {
+          id: id,
+          telegramId: tid,
+          mode: "remind",
+          title: title,
+          clientNick: client,
+          client: client,
+          status: "open",
+          remindAtMs: remindAt,
+          remindAt: new Date(remindAt).toISOString(),
+          targetTelegramId: tid,
+          skipAck: "1",
+          payload: payload
+        },
+        env
+      );
+    } catch (eDef) {}
+    try {
+      await gasProxy_(
+        "saveDeferred",
+        {
+          id: id,
+          telegramId: tid,
+          mode: "remind",
+          title: title,
+          clientNick: client,
+          client: client,
+          status: "open",
+          remindAtMs: String(remindAt),
+          remindAt: new Date(remindAt).toISOString(),
+          targetTelegramId: tid,
+          skipAck: "1",
+          payload: JSON.stringify(payload)
+        },
+        env,
+        { write: true }
+      );
+      reminded++;
+    } catch (eGas) {}
+  }
+  try {
+    await putSnap_(env, dedupeKey, {
+      token: token,
+      track: track,
+      notified: sentN > 0,
+      notifiedCount: sentN,
+      reminded: reminded,
+      remindAt: remindAt
+    });
+  } catch (eFin) {}
+  return { sent: sentN, reminded: reminded, token: token };
+}
+
+async function telegramAnswerCallbackWorker_(env, callbackId, text) {
+  const token = getTelegramTokenWorker_(env);
+  const id = callbackId != null ? String(callbackId).trim() : "";
+  if (!token || !id) return { ok: false };
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/answerCallbackQuery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: id,
+        text: String(text || "").slice(0, 180),
+        show_alert: false
+      })
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+async function fulfillMailTrack_(params, env) {
+  const token = String((params && params.token) || "").replace(/^mtrack:/i, "").trim();
+  const cb = String((params && params.callbackQueryId) || "").trim();
+  const manager = String((params && params.managerTelegramId) || "").trim();
+  async function toast(text) {
+    if (!cb) return;
+    try { await telegramAnswerCallbackWorker_(env, cb, text); } catch (eT) {}
+  }
+  if (!token) {
+    await toast("Нет трека");
+    return { status: "error", message: "need_token", answered: !!cb, toast: "Нет трека" };
+  }
+  let rec = null;
+  try { rec = await getSnapRaw_(env, "mailTrack:" + token); } catch (eRec) { rec = null; }
+  if (!rec || !rec.track) {
+    await toast("Трек не найден");
+    return { status: "error", message: "not_found", answered: !!cb, toast: "Трек не найден" };
+  }
+  if (rec.sent) {
+    await toast("Уже отправлено клиенту");
+    return { status: "success", already: true, answered: !!cb };
+  }
+  let tid = String(rec.clientTelegramId || "").trim();
+  if (!/^\d{5,15}$/.test(tid)) {
+    try { tid = await lookupClientTelegramId_(env, rec); } catch (eL) { tid = ""; }
+  }
+  const text = mailTrackClientTextD1_(rec.track);
+  if (!/^\d{5,15}$/.test(tid)) {
+    await toast("Нет Telegram у клиента");
+    if (manager) {
+      try {
+        await telegramSendTextWorker_(
+          env,
+          manager,
+          "Не нашёл Telegram клиента " + (rec.client || "") + ".\nПерешлите вручную:\n\n" + text,
+          null
+        );
+      } catch (eM) {}
+    }
+    return { status: "success", sent: false, reason: "no_client_telegram", answered: !!cb };
+  }
+  const send = await telegramSendTextWorker_(env, tid, text, null);
+  if (!send || send.ok === false) {
+    await toast("Клиенту не ушло");
+    if (manager) {
+      try {
+        await telegramSendTextWorker_(env, manager, "Клиенту не ушло.\nТекст:\n\n" + text, null);
+      } catch (eM2) {}
+    }
+    return { status: "error", message: "send_failed", answered: !!cb, toast: "Клиенту не ушло" };
+  }
+  rec.sent = true;
+  rec.sentAt = new Date().toISOString();
+  rec.sentTo = tid;
+  try { await putSnap_(env, "mailTrack:" + token, rec); } catch (eP) {}
+  await toast("Трек отправлен клиенту");
+  return { status: "success", sent: true, answered: !!cb };
+}
+
+async function setDelivered_(params, env, ctx) {
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   const day = String(params.day || "");
   const client = String(params.client || "");
@@ -12379,11 +12860,39 @@ async function setDelivered_(params, env) {
     if (hit) {
       c.delivered = delivered;
       if (params.paid) c.paid = params.paid;
+      if (params.track) c.mailTrack = String(params.track).trim();
+      if (params.mail) c.mailMethod = String(params.mail);
+      if (!params.phone && c.phone) params.phone = c.phone;
+      if (normPaidFlagD1_(params.paid) === "yes" && courierSlotNumD1_(c) <= 1) c.paid = "yes";
     }
   });
   snap.flagsTouchedAt = Date.now();
   await putSnap_(env, "courier:" + day, snap);
-  return { status: "success", sandbox: true, wrote: 1, delivered: delivered };
+  const paidStamp = normPaidFlagD1_(params.paid);
+  if ((paidStamp === "yes" || paidStamp === "no") && iso) {
+    try { await stampOrderPaidOnDateD1_(env, iso, aliases, paidStamp); } catch (ePaid) {}
+  }
+  const track = String(params.track || "").trim();
+  if (track && iso) {
+    try {
+      await stampOrderMailTrackD1_(env, iso, aliases, {
+        track: track,
+        mail: String(params.mail || ""),
+        at: now
+      });
+    } catch (eMailStamp) {}
+  }
+  let side = null;
+  if (track) {
+    side = notifyMailTrackAndRemind_(params, env, { iso: iso });
+  }
+  if (side) {
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(side);
+    else {
+      try { await side; } catch (eSide) {}
+    }
+  }
+  return { status: "success", sandbox: true, wrote: 1, delivered: delivered, track: track || "" };
 }
 
 async function setAssemblyFlag_(params, env, flag) {
@@ -12523,6 +13032,9 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
       const paidStamp = String(params.paid || "").toLowerCase();
       if (paidStamp === "yes" || paidStamp === "no") {
         try { await stampOrderPaidOnDateD1_(env, info.iso, aliases, paidStamp); } catch (ePaid) {}
+      }
+      if (String(params.track || "").trim()) {
+        try { await notifyMailTrackAndRemind_(params, env, { iso: info.iso }); } catch (eMail) {}
       }
     }
     return;
@@ -15641,7 +16153,7 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         if (env && env.DB) {
           if (/^updateCutting$/i.test(a)) d1FlagRes = await applyCuttingFlagToSnap_(params, env, null);
-          else if (/^setDelivered$/i.test(a)) d1FlagRes = await setDelivered_(params, env);
+          else if (/^setDelivered$/i.test(a)) d1FlagRes = await setDelivered_(params, env, ctx);
           else if (/^setAssembled$/i.test(a)) d1FlagRes = await setAssemblyFlag_(params, env, "assembled");
           else if (/^setPrinted$/i.test(a)) d1FlagRes = await setAssemblyFlag_(params, env, "printed");
         }
