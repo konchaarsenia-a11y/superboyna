@@ -27,6 +27,15 @@ CREATE INDEX IF NOT EXISTS idx_orders_day ON orders(day_name);
 CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(date_iso);
 CREATE INDEX IF NOT EXISTS idx_orders_match ON orders(match_key);
 
+CREATE TABLE IF NOT EXISTS assembly_dry (
+  date_iso TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  dry_g REAL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (date_iso, row_key)
+);
+
 CREATE TABLE IF NOT EXISTS cutting_flags (
   date_iso TEXT NOT NULL,
   row_key TEXT NOT NULL,

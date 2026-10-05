@@ -706,7 +706,7 @@ const AUTH_TAB_RULES = [
   { re: /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume|listCuttingStaff|saveCuttingCutter)$/i, tabs: ["cuttingScreen"] },
   { re: /^listCuttingWages$/i, tabs: ["cuttingScreen", "statsScreen"] },
   { re: /^(setDelivered|sendCourierRoute|prepareCourierRoute|registerCourier)$/i, tabs: ["courierScreen.route"] },
-  { re: /^(setAssembled|setPrinted)$/i, tabs: ["courierScreen.assembly"] },
+  { re: /^(setAssembled|setPrinted|saveAssemblyDry)$/i, tabs: ["courierScreen.assembly"] },
   { re: /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|sendDeficit)$/i, tabs: ["warehouseScreen", "cuttingScreen"] },
   { re: /^(saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch)$/i, tabs: AUTH_TABS_ORDERS },
   { re: /^unlockSubs$/i, tabs: ["subsScreen", "subDetailScreen"] },
@@ -1250,6 +1250,7 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "getStatsMonthSetup") return getStatsMonthSetup_(params, env);
   if (a === "listCuttingStaff") return listCuttingStaff_(params, env);
   if (a === "saveCuttingCutter") return saveCuttingCutter_(params, env, ctx);
+  if (a === "saveAssemblyDry") return saveAssemblyDry_(params, env);
   if (a === "listCuttingWages") return listCuttingWages_(params, env);
   if (a === "saveStatsMonthMoney") return saveStatsMonthMoney_(params, env);
   if (a === "saveStatsRoles") return saveStatsRoles_(params, env);
@@ -10008,7 +10009,14 @@ async function getAssembly_(params, env) {
     await rebuildAssemblyDay_(env, day);
     hit = await getSnapRaw_(env, "assembly:" + day);
   }
-  return hit || { status: "success", clients: [], day: day, sandbox: true };
+  hit = hit || { status: "success", clients: [], day: day, sandbox: true };
+  let dryWeights = [];
+  try {
+    dryWeights = await assemblyDryWeightsForDay_(env, day, hit.clients || []);
+  } catch (eDry) {
+    dryWeights = [];
+  }
+  return Object.assign({}, hit, { dryWeights: dryWeights });
 }
 
 async function getCutting_(params, env) {
@@ -17161,7 +17169,16 @@ async function handleCutover_(a, params, env, ctx) {
         if (!(sheet && !isWeekSkewed_(sheet))) {
           const cal = await applyCalendarWeekIfSkewed_(a, params, env, liveLike || counts);
           // нарезку из календаря не отдаём — без фракций (трахея мал/сред…) и с дублями
-          if (cal && a !== "getCutting") return cal;
+          if (cal && a !== "getCutting") {
+            if (a === "getAssembly") {
+              try {
+                cal.dryWeights = await assemblyDryWeightsForDay_(env, String((params && params.day) || ""), cal.clients || []);
+              } catch (eDryCal) {
+                cal.dryWeights = [];
+              }
+            }
+            return cal;
+          }
         }
       }
     } catch (eCalOps) {}
@@ -23702,6 +23719,7 @@ async function loadPeopleForDaysD1_(env, dayMetas) {
 
 function accumulateDryNeedD1_(people, warehouseRows) {
   const dryByKey = Object.create(null);
+  const dryByKeyDay = Object.create(null);
   const metaByKey = Object.create(null);
   (people || []).forEach(function (p) {
     if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
@@ -23720,6 +23738,11 @@ function accumulateDryNeedD1_(people, warehouseRows) {
       const key = wh ? cutNameKey_(wh.name) : agg === "ЛОП ХРЯЩ" ? "ЛОП ХРЯЩ" : cutNameKey_(cname);
       if (!key) return;
       dryByKey[key] = (dryByKey[key] || 0) + val;
+      const isoDay = String((p && p.dateIso) || "").slice(0, 10);
+      if (isoDay) {
+        if (!dryByKeyDay[key]) dryByKeyDay[key] = Object.create(null);
+        dryByKeyDay[key][isoDay] = (dryByKeyDay[key][isoDay] || 0) + val;
+      }
       if (!metaByKey[key]) {
         metaByKey[key] = {
           name: (wh && wh.name) || cname,
@@ -23733,7 +23756,210 @@ function accumulateDryNeedD1_(people, warehouseRows) {
       }
     });
   });
-  return { dryByKey: dryByKey, metaByKey: metaByKey };
+  return { dryByKey: dryByKey, dryByKeyDay: dryByKeyDay, metaByKey: metaByKey };
+}
+
+/**
+ * Вес после сушки (г) с Сборки подменяет план дня.
+ * Нет факта по позиции — граммы плана и излишек нарезки как раньше.
+ */
+function blendDryGramsWithFacts_(planDryG, planByDay, factByIso, key, dayIsos) {
+  let dry = Number(planDryG) || 0;
+  let anyFact = false;
+  const byDay = (planByDay && planByDay[key]) || {};
+  for (let i = 0; i < (dayIsos || []).length; i++) {
+    const iso = String(dayIsos[i] || "").slice(0, 10);
+    const bag = factByIso && factByIso[iso];
+    if (!bag || !Object.prototype.hasOwnProperty.call(bag, key)) continue;
+    const fact = bag[key];
+    if (fact == null || fact === "") continue;
+    anyFact = true;
+    dry += (Number(fact) || 0) - (Number(byDay[iso]) || 0);
+  }
+  if (dry < 0) dry = 0;
+  return { dryG: dry, anyFact: anyFact };
+}
+
+function warehouseRawForKey_(spec) {
+  spec = spec || {};
+  const blended = blendDryGramsWithFacts_(
+    spec.planDryG,
+    spec.planByDay,
+    spec.factByIso,
+    spec.key,
+    spec.dayIsos
+  );
+  const sur = blended.anyFact ? 0 : Number(spec.surplusKg) || 0;
+  const piece = !!spec.piece;
+  const coef = Number(spec.coef) || (piece ? 1 : 0.2);
+  const raw = piece
+    ? (Number(blended.dryG) || 0) + sur
+    : (Number(blended.dryG) || 0) / 1000 / (coef || 0.2) + sur;
+  return {
+    dryG: round2_(blended.dryG),
+    surplus: round2_(sur),
+    raw: round2_(raw),
+    fromFact: blended.anyFact
+  };
+}
+
+async function ensureAssemblyDry_(env) {
+  if (!env || !env.DB) return;
+  try {
+    await env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS assembly_dry (" +
+        "date_iso TEXT NOT NULL, row_key TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', " +
+        "dry_g REAL, updated_at TEXT NOT NULL, PRIMARY KEY (date_iso, row_key))"
+    ).run();
+  } catch (eTbl) {}
+}
+
+async function loadAssemblyDryByIso_(env, isos) {
+  const out = Object.create(null);
+  if (!env || !env.DB) return out;
+  const list = [];
+  (isos || []).forEach(function (iso) {
+    const s = String(iso || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s) && list.indexOf(s) < 0) list.push(s);
+  });
+  if (!list.length) return out;
+  await ensureAssemblyDry_(env);
+  try {
+    const marks = list.map(function () { return "?"; }).join(",");
+    const rs = await env.DB.prepare(
+      "SELECT date_iso, row_key, dry_g FROM assembly_dry WHERE date_iso IN (" + marks + ")"
+    )
+      .bind(...list)
+      .all();
+    ((rs && rs.results) || []).forEach(function (r) {
+      const iso = String((r && r.date_iso) || "");
+      const key = String((r && r.row_key) || "");
+      if (!iso || !key) return;
+      if (!out[iso]) out[iso] = Object.create(null);
+      out[iso][key] = Number(r.dry_g) || 0;
+    });
+  } catch (eQ2) {}
+  return out;
+}
+
+async function saveAssemblyDry_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const day = String((params && params.day) || "").trim();
+  let iso = String((params && (params.dateIso || params.iso)) || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) && day) {
+    try {
+      const info = await dayDateInfo_(env, day);
+      iso = String((info && info.iso) || "").slice(0, 10);
+    } catch (eIso) {
+      iso = "";
+    }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { status: "error", message: "need_date" };
+  const key = cutNameKey_((params && (params.key || params.name)) || "");
+  if (!key) return { status: "error", message: "need_key" };
+  await ensureAssemblyDry_(env);
+  const raw = params && params.dryG != null ? params.dryG : params && params.dry;
+  const empty = raw == null || String(raw).trim() === "";
+  if (empty) {
+    try {
+      await env.DB.prepare("DELETE FROM assembly_dry WHERE date_iso = ? AND row_key = ?")
+        .bind(iso, key)
+        .run();
+    } catch (eDel) {}
+    return { status: "success", cleared: true, iso: iso, key: key, fromD1: true };
+  }
+  const g = Number(String(raw).replace(",", "."));
+  if (!isFinite(g) || g < 0) return { status: "error", message: "bad_weight" };
+  const name = String((params && params.name) || key).slice(0, 80);
+  const coef = Number(params && params.coef) || 0.2;
+  const now = new Date().toISOString();
+  try {
+    await env.DB.prepare(
+      "INSERT INTO assembly_dry (date_iso, row_key, name, dry_g, updated_at) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(date_iso, row_key) DO UPDATE SET name = excluded.name, dry_g = excluded.dry_g, updated_at = excluded.updated_at"
+    )
+      .bind(iso, key, name, g, now)
+      .run();
+  } catch (eIns) {
+    return { status: "error", message: "d1_write_failed" };
+  }
+  return {
+    status: "success",
+    iso: iso,
+    key: key,
+    name: name,
+    dryG: g,
+    rawKg: round2_(g / 1000 / (coef || 0.2)),
+    fromD1: true
+  };
+}
+
+async function assemblyDryWeightsForDay_(env, day, clients) {
+  let iso = "";
+  try {
+    const info = await dayDateInfo_(env, day);
+    iso = String((info && info.iso) || "").slice(0, 10);
+  } catch (eInfo) {
+    iso = "";
+  }
+  let rows = [];
+  try {
+    const wh = await getSnapRaw_(env, "warehouse");
+    rows = warehouseRows_(wh);
+  } catch (eWh) {
+    rows = [];
+  }
+  const people = (clients || []).map(function (c) {
+    return {
+      name: c && c.name,
+      basket: (c && c.basket) || [],
+      note: (c && c.note) || "",
+      noCut: !!(c && (c.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(c.note || "")))),
+      dateIso: iso
+    };
+  });
+  const acc = accumulateDryNeedD1_(people, rows);
+  const facts = iso ? await loadAssemblyDryByIso_(env, [iso]) : {};
+  const bag = (facts && facts[iso]) || {};
+  const keys = Object.create(null);
+  Object.keys(acc.metaByKey || {}).forEach(function (k) {
+    keys[k] = true;
+  });
+  Object.keys(bag).forEach(function (k) {
+    keys[k] = true;
+  });
+  const list = [];
+  Object.keys(keys).forEach(function (key) {
+    const meta = (acc.metaByKey && acc.metaByKey[key]) || {};
+    let whRow = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (cutNameKey_(rows[i] && rows[i].name) === key) {
+        whRow = rows[i];
+        break;
+      }
+    }
+    const piece = !!(meta.piece || (whRow && isPieceSku_(whRow.name, "", whRow.unit)));
+    if (piece) return;
+    const plan = Number(acc.dryByKey && acc.dryByKey[key]) || 0;
+    const hasFact = Object.prototype.hasOwnProperty.call(bag, key);
+    if (!(plan > 0) && !hasFact) return;
+    const coef = Number(meta.coef || (whRow && whRow.coef) || 0.2) || 0.2;
+    const fact = hasFact ? Number(bag[key]) || 0 : null;
+    const used = fact != null ? fact : plan;
+    list.push({
+      key: key,
+      name: (whRow && whRow.name) || meta.name || key,
+      planDryG: round2_(plan),
+      factDryG: fact,
+      coef: coef,
+      rawKg: round2_(used / 1000 / coef),
+      fromFact: fact != null
+    });
+  });
+  list.sort(function (a, b) {
+    return String(a.name || "").localeCompare(String(b.name || ""), "ru");
+  });
+  return list;
 }
 
 async function surplusByWarehouseD1_(env, dayMetas, warehouseRows) {
@@ -23808,6 +24034,18 @@ async function computeWarehouseWeekPlanD1_(env, opts) {
   const needAcc = accumulateDryNeedD1_(needPeople, rows);
   const priorAcc = accumulateDryNeedD1_(priorPeople, rows);
   const surplus = await surplusByWarehouseD1_(env, activeDays, rows);
+  const factByIso = await loadAssemblyDryByIso_(
+    env,
+    activeDays.map(function (d) {
+      return d.iso;
+    })
+  );
+  const needIsos = (needMetas.length ? needMetas : activeDays).map(function (d) {
+    return d.iso;
+  });
+  const priorIsos = priorMetas.map(function (d) {
+    return d.iso;
+  });
 
   const plan = [];
   const deficits = [];
@@ -23825,23 +24063,34 @@ async function computeWarehouseWeekPlanD1_(env, opts) {
       stock: Number(r.stock) || 0,
       arrival: Number(r.arrival) || 0
     };
-    const dryG = Number(needAcc.dryByKey[key]) || 0;
-    const priorDryG = Number(priorAcc.dryByKey[key]) || 0;
-    const sur = Number(surplus[key]) || 0;
     const coef = Number(meta.coef) || Number(r.coef) || 0.2;
     const piece = !!meta.piece || isPieceSku_(r.name, "", r.unit);
+    const needBlend = warehouseRawForKey_({
+      planDryG: Number(needAcc.dryByKey[key]) || 0,
+      planByDay: needAcc.dryByKeyDay,
+      factByIso: factByIso,
+      key: key,
+      dayIsos: needIsos,
+      surplusKg: Number(surplus[key]) || 0,
+      coef: coef,
+      piece: piece
+    });
+    const priorBlend = warehouseRawForKey_({
+      planDryG: Number(priorAcc.dryByKey[key]) || 0,
+      planByDay: priorAcc.dryByKeyDay,
+      factByIso: factByIso,
+      key: key,
+      dayIsos: priorIsos,
+      surplusKg: 0,
+      coef: coef,
+      piece: piece
+    });
+    const dryG = needBlend.dryG;
+    const priorDryG = priorBlend.dryG;
+    const sur = needBlend.surplus;
+    const needRaw = needBlend.raw;
+    const priorRaw = priorBlend.raw;
     const stockStart = (Number(r.stock) || 0) + (Number(r.arrival) || 0);
-    let needRaw = 0;
-    let priorRaw = 0;
-    if (piece) {
-      needRaw = dryG + sur;
-      priorRaw = priorDryG;
-    } else {
-      needRaw = (dryG / 1000) / (coef || 0.2) + sur;
-      priorRaw = (priorDryG / 1000) / (coef || 0.2);
-    }
-    needRaw = round2_(needRaw);
-    priorRaw = round2_(priorRaw);
     const available = round2_(Math.max(0, stockStart - priorRaw));
     const deficit = round2_(Math.max(0, needRaw - available));
     const rowPlan = {
@@ -23895,7 +24144,7 @@ async function computeWarehouseWeekPlanD1_(env, opts) {
     dateTo: rangeTo,
     asOf: asOf,
     rangeLabel: rangeFrom + " — " + rangeTo,
-    note: "D1 plan: stock+arrival − prior, need = dry÷coef (+surplus cutting)",
+    note: "D1 plan: stock+arrival − prior; вес после сушки подменяет план дня, иначе dry÷coef (+излишек)",
     writeOffNote: "Галочки нарезки НЕ списывают склад. Списание F — только при Завершить неделю.",
     fromD1Compute: true
   };
@@ -28002,6 +28251,15 @@ async function computeWarehouseCloseD1_(env) {
   const people = await loadPeopleForDaysD1_(env, activeDays);
   const acc = accumulateDryNeedD1_(people, rows);
   const surplus = await surplusByWarehouseD1_(env, activeDays, rows);
+  const factByIso = await loadAssemblyDryByIso_(
+    env,
+    activeDays.map(function (d) {
+      return d.iso;
+    })
+  );
+  const closeIsos = activeDays.map(function (d) {
+    return d.iso;
+  });
   const updates = [];
   const pieceUpdates = [];
   const skipped = [];
@@ -28028,11 +28286,20 @@ async function computeWarehouseCloseD1_(env) {
       skipped.push({ row: row, name: r.name, reason: "piece_special" });
       return;
     }
-    const dryG = Number(acc.dryByKey[key]) || 0;
-    const sur = Number(surplus[key]) || 0;
     const coef = Number(r.coef) || 0.2;
-    const dryPlanKg = dryG / 1000;
-    const totalRaw = dryPlanKg / (coef || 0.2) + sur;
+    const spent = warehouseRawForKey_({
+      planDryG: Number(acc.dryByKey[key]) || 0,
+      planByDay: acc.dryByKeyDay,
+      factByIso: factByIso,
+      key: key,
+      dayIsos: closeIsos,
+      surplusKg: Number(surplus[key]) || 0,
+      coef: coef,
+      piece: false
+    });
+    const dryG = spent.dryG;
+    const sur = spent.surplus;
+    const totalRaw = spent.raw;
     const arrival = Number(r.arrival) || 0;
     const revision = Number(r.stock) || 0;
     const after = Math.max(0, revision + arrival - totalRaw);

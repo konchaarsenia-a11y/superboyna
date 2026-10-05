@@ -9907,8 +9907,6 @@
         <div class="cut-actions">
           <label class="check-line"><input type="checkbox" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${item.row}, this.checked)"> Выложено</label>
           <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
-          <label>Излишек <input type="number" inputmode="decimal" id="surplus_${item.row}" value="${item.surplus || 0}" step="0.1"></label>
-          <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${item.row})">Сохранить излишек</button>
         </div>
       </div>`;
     }
