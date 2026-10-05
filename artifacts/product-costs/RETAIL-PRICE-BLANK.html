@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Прайс розницы — пустой шаблон</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: #f3f0ea;
+    color: #1a1a1a;
+  }
+  .sheet {
+    width: 794px;
+    margin: 16px auto;
+    background: #fffdf8;
+    border: 1px solid #d9d2c5;
+    padding: 28px 32px 36px;
+    box-shadow: 0 8px 28px rgba(40, 30, 10, 0.08);
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 26px;
+    letter-spacing: 0.02em;
+    font-weight: 700;
+  }
+  .sub {
+    margin: 0 0 18px;
+    font-size: 13px;
+    color: #6b655c;
+  }
+  h2 {
+    margin: 18px 0 8px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8a4b1f;
+    border-bottom: 2px solid #e8d9c4;
+    padding-bottom: 4px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+  th, td {
+    border: 1px solid #d7cbb8;
+    padding: 7px 8px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  th {
+    background: #f4ebe0;
+    font-weight: 600;
+    font-size: 11px;
+    color: #5a4f42;
+  }
+  td.name {
+    text-align: left;
+    font-weight: 600;
+    white-space: nowrap;
+    background: #fcf8f2;
+    width: 28%;
+  }
+  td.blank {
+    min-width: 52px;
+    height: 28px;
+    background: #fff;
+  }
+  td.na {
+    background: #f0ebe3;
+    color: #c0b6a8;
+  }
+  .note {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #6b655c;
+    line-height: 1.45;
+  }
+  .delivery {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .delivery .box {
+    border: 1px dashed #c9b79a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .delivery .blank-line {
+    display: inline-block;
+    min-width: 48px;
+    border-bottom: 1.5px solid #1a1a1a;
+    margin: 0 4px;
+    height: 16px;
+    vertical-align: bottom;
+  }
+</style>
+</head>
+<body>
+  <div class="sheet" id="priceSheet">
+    <h1>Прайс розницы · Goodboy</h1>
+    <p class="sub">Пустой шаблон актуальной витрины · BYN · заполни цены вручную</p>
+
+    <h2>Дрессура / мясо — за 100 г</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Позиция</th>
+          <th>Мелкое</th>
+          <th>Среднее</th>
+          <th>Крупное</th>
+          <th>Целое</th>
+          <th>без фракции</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">ЛЁГКОЕ</td><td class="blank"></td><td class="blank"></td><td class="na">—</td><td class="blank"></td><td class="na">—</td></tr>
+        <tr><td class="name">СЕРДЦЕ</td><td class="blank"></td><td class="na">—</td><td class="na">—</td><td class="blank"></td><td class="na">—</td></tr>
+        <tr><td class="name">ПОЧКИ</td><td class="blank"></td><td class="na">—</td><td class="na">—</td><td class="blank"></td><td class="na">—</td></tr>
+        <tr><td class="name">РУБЕЦ Т</td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="na">—</td></tr>
+        <tr><td class="name">БАРАНЬЕ ЛЁГКОЕ</td><td class="blank"></td><td class="blank"></td><td class="na">—</td><td class="blank"></td><td class="na">—</td></tr>
+        <tr><td class="name">ИНДЕЙКА</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">ПЕЧЕНЬ</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">ВЫМЯ</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">СЕМЕННИКИ</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">МЯСНЫЕ ЛОМТИКИ</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Крошки — пак (~100 г)</h2>
+    <table>
+      <thead><tr><th>Позиция</th><th>BYN</th></tr></thead>
+      <tbody>
+        <tr><td class="name">КРОШКА ЛЁГКОГО</td><td class="blank"></td></tr>
+        <tr><td class="name">КРОШКА ПОЧЕК</td><td class="blank"></td></tr>
+        <tr><td class="name">КРОШКА РУБЕЦ</td><td class="blank"></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Жевалки — за шт</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Позиция</th>
+          <th>ОЧ МАЛ</th>
+          <th>МАЛ</th>
+          <th>Среднее</th>
+          <th>Большое</th>
+          <th>ОГР</th>
+          <th>иное</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="name">БЫЧИЙ КОРЕНЬ</td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="na">—</td></tr>
+        <tr><td class="name">ТРАХЕЯ</td><td class="na">—</td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank">ПЛАСТ</td></tr>
+        <tr><td class="name">СТАНОВАЯ ЖИЛА</td><td class="na">—</td><td class="na">—</td><td class="blank"></td><td class="blank"></td><td class="na">—</td><td class="blank">ПАЛК</td></tr>
+        <tr><td class="name">УХО Г</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank">Обыч / пол</td></tr>
+        <tr><td class="name">АОРТА</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank">Обыч / пол</td></tr>
+        <tr><td class="name">КОЛЕНИ шт.</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">НОСЫ шт.</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">ЛОП ХРЯЩ шт.</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">УТИНЫЕ ШЕИ шт.</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+        <tr><td class="name">ПЕРЕПЁЛКИ шт.</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="blank"></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Овощи / фрукты — за 100 г</h2>
+    <table>
+      <thead><tr><th>Позиция</th><th>BYN</th></tr></thead>
+      <tbody>
+        <tr><td class="name">ТЫКВА</td><td class="blank"></td></tr>
+        <tr><td class="name">БАТАТ</td><td class="blank"></td></tr>
+        <tr><td class="name">ГРУШИ</td><td class="blank"></td></tr>
+        <tr><td class="name">БАНАНЫ</td><td class="blank"></td></tr>
+        <tr><td class="name">ЯБЛОКИ</td><td class="blank"></td></tr>
+        <tr><td class="name">МОРКОВЬ</td><td class="blank"></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Доставка</h2>
+    <div class="delivery">
+      <div class="box">Товар &lt; <span class="blank-line"></span> BYN → доставка <span class="blank-line"></span> BYN</div>
+      <div class="box">Товар ≥ порога → доставка <span class="blank-line"></span> BYN</div>
+    </div>
+
+    <p class="note">
+      Серые «—» — ячейки без позиции в актуальной витрине (не заполнять).<br>
+      Убрано с витрины: светлый рубец, книжка, пикальное, копыто, губы, кабачок, клубника, свекла.
+    </p>
+  </div>
+</body>
+</html>
