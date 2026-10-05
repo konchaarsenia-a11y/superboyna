@@ -272,16 +272,32 @@
     return '<p class="b-note">' + esc(text) + "</p>";
   }
 
+  /** Жевалки (шт / cat=chew). Весовые позиции склада излишек не показывают. */
+  function isChewCut_(it) {
+    if (!it) return false;
+    var cat = String(it.cat || "").toLowerCase();
+    if (cat === "chew" || cat === "chews") return true;
+    if (String(it.unit || "").toLowerCase().indexOf("шт") >= 0) return true;
+    var name = String(it.name || "");
+    if (/шт/i.test(name)) return true;
+    if (eng() && eng().isPieceSkuName && eng().isPieceSkuName(name)) return true;
+    if (/УХО|УШК|КОРЕН|ХРЯЩ|КОПЫТ|НОСЫ|НОС\b|ШЕИ|ШЕЯ|ГУБЫ|АОРТ|ТРАХЕ|ЛОПАТ/i.test(name)) return true;
+    return false;
+  }
+
   function paintCutRow(it, readonly) {
     var key = cutKey(it);
+    var chew = isChewCut_(it);
     var dry = it.unit === "шт" ? (it.dry + " шт") : (it.dry + " гр сухого");
     var raw = it.unit === "шт" ? (it.raw + " шт") : (Number(it.raw).toFixed(2) + " кг сырого");
+    var sur = chew ? (Number(it.surplus) || 0) : 0;
     var cls = "b-card";
     if (it.done && it.laid) cls += " nx-dim";
     var html = '<article class="' + cls + '" style="margin-top:12px" data-cut="' + esc(key) + '">';
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
+    if (!readonly && chew) html += '<button type="button" class="b-chip nx-mini-bang' + (sur ? " b-chip--on" : "") + '" data-act="pr-surplus-open" data-k="' + esc(key) + '" aria-label="Излишек">!</button>';
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
-    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + "</p>";
+    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (sur ? ", излишек " + esc(String(sur)) : "") + "</p>";
     html += cutNote(it);
     html += cutSizesNote(it);
     if (!readonly) {
@@ -292,6 +308,7 @@
       if (it.laid) badges.push("выложено");
       if (it.done) badges.push("нарезано");
       if (it.outNext) badges.push("нет на след.");
+      if (sur) badges.push("излишек " + sur);
       if (badges.length) html += '<p class="b-note">' + esc(badges.join(", ")) + "</p>";
     }
     return html + "</article>";
@@ -414,12 +431,18 @@
   async function persistCut(it, patch) {
     var day = currentDay("nxCutDay", "cut");
     if (!day || !it) return false;
+    if (patch && patch.surplus !== undefined && !isChewCut_(it)) {
+      if (patch.laid === undefined && patch.done === undefined && patch.outNext === undefined) return false;
+      patch = Object.assign({}, patch);
+      delete patch.surplus;
+    }
     rememberCut(it, patch);
     var params = { action: "updateCutting", day: day, row: String(it.row || ""), _: String(Date.now()) };
     if (it.name) params.name = it.name;
     if (patch.laid !== undefined) params.laid = patch.laid ? "true" : "false";
     if (patch.done !== undefined) params.done = patch.done ? "true" : "false";
     if (patch.outNext !== undefined) params.outNext = patch.outNext ? "true" : "false";
+    if (patch.surplus !== undefined) params.surplus = String(patch.surplus);
     var ok = false;
     try {
       var res = await api().apiGet(params, { timeoutMs: 22000, cacheTtlMs: 0 });
@@ -431,6 +454,7 @@
         if (patch.laid !== undefined) body.laid = !!patch.laid;
         if (patch.done !== undefined) body.done = !!patch.done;
         if (patch.outNext !== undefined) body.outNext = !!patch.outNext;
+        if (patch.surplus !== undefined) body.surplus = patch.surplus;
         var post = await api().apiPost(body);
         if (post && post.status !== "error") ok = true;
       } catch (ePost) {}
@@ -1887,6 +1911,17 @@
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
     if (act === "pr-cut-back") { cutDetail = false; paintCut(); return true; }
+    if (act === "pr-surplus-open") {
+      var sk = node.getAttribute("data-k");
+      var srow = findCut(sk);
+      if (!srow || !isChewCut_(srow)) return true;
+      sh().openSheet({
+        title: srow.name || "Позиция",
+        html: '<label class="b-field"><span class="b-note">Излишек</span><input class="b-field__input" id="surplus_' + esc(sk) + '" inputmode="decimal" value="' + esc(String(srow.surplus || 0)) + '"></label>',
+        foot: '<button type="button" class="b-btn b-btn--main" data-act="pr-surplus" data-k="' + esc(sk) + '">Сохранить излишек</button>'
+      });
+      return true;
+    }
     if (act === "pr-bang") {
       var it = findCut(node.getAttribute("data-k"));
       if (!it) return true;
@@ -1904,6 +1939,22 @@
           if (!saved) { it.outNext = prev; paintCut(); }
           else sh().toast(next ? "Помечено: нет на следующую" : "Пометка снята");
         });
+      });
+      return true;
+    }
+    if (act === "pr-surplus") {
+      var key = node.getAttribute("data-k");
+      var row = findCut(key);
+      if (!row || !isChewCut_(row)) return true;
+      var el = document.getElementById("surplus_" + key);
+      var surplus = Number(String(el && el.value || "").replace(",", ".")) || 0;
+      if (surplus < 0) surplus = 0;
+      var prevSurplus = row.surplus;
+      row.surplus = surplus;
+      paintCut();
+      persistCut(row, { surplus: surplus }).then(function (ok) {
+        if (ok) { sh().closeTop("ok"); sh().toast("Излишек сохранён"); }
+        else { row.surplus = prevSurplus; paintCut(); }
       });
       return true;
     }
@@ -1986,6 +2037,10 @@
       var html = cutterLineHtml();
       cutCutter = prev;
       return html;
+    },
+    isChewCut_: isChewCut_,
+    previewCutRow_: function (it, readonly) {
+      return paintCutRow(it || {}, !!readonly);
     },
     cutVolumes_: cutVolumes_,
     cutterWage_: cutterWage_,

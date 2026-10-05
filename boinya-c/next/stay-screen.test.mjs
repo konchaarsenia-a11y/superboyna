@@ -38,9 +38,10 @@ test("координаты точки: 53.9, 27.56 и отказ мусора", 
   assert.equal(eng.parseLatLonFromText_("1, 2"), null);
 });
 
-test("курьер: стикер типа, без излишка на нарезке, состав без полос", () => {
+test("курьер: стикер типа, излишек только у жевалок, состав без полос", () => {
   assert.match(prodSrc, /function clientTypeLabel/);
-  assert.doesNotMatch(prodSrc, /pr-surplus-open/);
+  assert.match(prodSrc, /function isChewCut_/);
+  assert.match(prodSrc, /pr-surplus-open/);
   assert.match(prodSrc, /Вес после сушки/);
   assert.match(prodSrc, /Сегодня режет/);
   assert.match(prodSrc, /nxCutterManual/);
@@ -50,6 +51,9 @@ test("курьер: стикер типа, без излишка на нарез
   const rowStart = prodSrc.indexOf("function paintCutRow");
   const rowEnd = prodSrc.indexOf("function paintCut(", rowStart);
   const row = prodSrc.slice(rowStart, rowEnd);
+  assert.match(row, /isChewCut_\(it\)/);
+  assert.match(row, /if \(!readonly && chew\)/);
+  assert.match(row, /pr-surplus-open/);
   assert.doesNotMatch(row, /<span class="b-note">Излишек<\/span>/);
   assert.match(css, /\.nx-pack-grp \{[^}]*text-align: left/s);
   assert.match(css, /\.nx-pack-grp \.nx-grp \{[^}]*justify-content: flex-start/s);
