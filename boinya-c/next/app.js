@@ -16,6 +16,9 @@
   var flyCache = [];
   var routeLocked = false;
   var shownKey = "";
+  var deskToken = "";
+  var deskStartUrl = "";
+  var deskPoll = null;
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -530,6 +533,9 @@
       var goalsSub = access.role === "owner" ? "Задачи, общие и показатели" : "Свои и общие задачи";
       more += '<button type="button" class="b-li" data-act="more-goals"><span class="b-li__body"><span class="b-li__title">Цели</span><span class="b-li__sub">' + goalsSub + '</span></span><span class="b-li__chev">›</span></button>';
     }
+    if (api().hasDesktopLogin && api().hasDesktopLogin()) {
+      more += '<button type="button" class="b-li" data-act="desk-logout"><span class="b-li__body"><span class="b-li__title">Выйти</span><span class="b-li__sub">Вход с компьютера через Telegram</span></span><span class="b-li__chev">›</span></button>';
+    }
     sh().main('<div class="b-list">' + (more || '<p class="b-note">В этом разделе пока пусто.</p>') + "</div>" + '<p class="b-mark">' + sh().esc(badgeLabel() || "Бойня") + "</p>");
   }
 
@@ -709,6 +715,8 @@
     if (act === "tasks") { openTasks(); return; }
     if (act === "bug") { sh().closeTop("ok"); sendBug(); return; }
     if (act === "gate-retry") { boot(); return; }
+    if (act === "desk-open") { openDesktopTelegram(); return; }
+    if (act === "desk-logout") { logoutDesktop(); return; }
     if (act === "gate-ask") { askAccess(); return; }
     if (act === "go-new") {
       route.tab = "orders";
@@ -746,6 +754,129 @@
       text: text,
       actions: button || ""
     });
+  }
+
+  function insideTelegramApp() {
+    try {
+      var tg = root.Telegram && root.Telegram.WebApp;
+      if (!tg) return false;
+      if (String(tg.initData || "")) return true;
+      if (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) return true;
+      var platform = String(tg.platform || "");
+      if (platform && platform !== "unknown") return true;
+      if (root.parent && root.parent !== root) return true;
+    } catch (eTg) {}
+    return false;
+  }
+
+  function stopDeskPoll() {
+    if (deskPoll) clearInterval(deskPoll);
+    deskPoll = null;
+  }
+
+  function mountTgWidget(username) {
+    var host = document.getElementById("nxTgWidget");
+    if (!host || !/^[A-Za-z0-9_]{4,32}$/.test(String(username || ""))) return;
+    root.__boinyaTgAuth = function (user) {
+      if (!user || !user.id || !user.hash) return;
+      var keys = ["auth_date", "first_name", "id", "last_name", "photo_url", "username"];
+      var sp = new URLSearchParams();
+      keys.forEach(function (k) {
+        if (user[k] == null || user[k] === "") return;
+        sp.append(k, String(user[k]));
+      });
+      sp.append("hash", String(user.hash));
+      api().rememberLogin(sp.toString());
+      stopDeskPoll();
+      boot();
+    };
+    var s = document.createElement("script");
+    s.async = true;
+    s.src = "https://telegram.org/js/telegram-widget.js?22";
+    s.setAttribute("data-telegram-login", String(username));
+    s.setAttribute("data-size", "large");
+    s.setAttribute("data-radius", "8");
+    s.setAttribute("data-userpic", "false");
+    s.setAttribute("data-onauth", "__boinyaTgAuth(user)");
+    host.appendChild(s);
+  }
+
+  function showDesktopLogin(info, errText) {
+    stopDeskPoll();
+    deskToken = info && info.token ? String(info.token) : "";
+    deskStartUrl = info && info.startUrl ? String(info.startUrl) : "";
+    sh().hideGate();
+    sh().chrome({ title: "Бойня", sub: "Вход с компьютера", bell: false, nav: [], active: "" });
+    sh().dock("");
+    sh().main("");
+    var widget = info && info.botUsername ? '<div id="nxTgWidget" class="nx-desk-widget"></div>' : "";
+    var deep = deskStartUrl
+      ? '<button class="b-btn b-btn--sec" type="button" data-act="desk-open" style="margin-top:8px">Открыть Telegram и подтвердить</button>'
+      : "";
+    var note = info && info.botUsername
+      ? "Кнопка Telegram входит в этом окне. Если вместо неё ошибка домена, в BotFather у бота Бойни: /setdomain → konchaarsenia-a11y.github.io. Либо «Открыть Telegram»: нажмите Start и вернитесь на эту вкладку."
+      : "Нужен обновлённый сервер Бойни. Нажмите «Повторить» после выкладки Worker.";
+    sh().gate({
+      title: "Войти через Telegram",
+      text: errText || "Бойня на компьютере открывается в браузере на весь экран. Роль та же, что в мини-аппе.",
+      actions: widget + deep +
+        '<button class="b-btn b-btn--main" type="button" data-act="gate-retry" style="margin-top:8px">Повторить</button>' +
+        '<p class="b-note" style="margin-top:10px">' + sh().esc(note) + "</p>"
+    });
+    if (info && info.botUsername) mountTgWidget(info.botUsername);
+  }
+
+  async function openDesktopGate() {
+    var info = null;
+    try {
+      info = await api().apiGet({ action: "startDesktopAuth" }, { timeoutMs: 8000, retries: 0, cacheTtlMs: 0 });
+    } catch (eD) {
+      info = null;
+    }
+    if (!info || info.status !== "success" || !info.botUsername) {
+      showDesktopLogin(null, "Сервер входа ещё не ответил. Нажмите «Повторить». Пока Бойню можно открыть из бота в Telegram.");
+      return;
+    }
+    showDesktopLogin(info, "");
+  }
+
+  function startDeskPoll() {
+    stopDeskPoll();
+    var token = deskToken;
+    if (!token) return;
+    var left = 90;
+    deskPoll = setInterval(function () {
+      left -= 1;
+      if (left <= 0) {
+        stopDeskPoll();
+        sh().toast("Telegram не подтвердил вход. Нажмите ещё раз.");
+        return;
+      }
+      api().apiGet({ action: "pollDesktopAuth", token: token }, { timeoutMs: 8000, retries: 0, cacheTtlMs: 0 }).then(function (res) {
+        if (token !== deskToken || !res || !res.linked || !res.tgLogin) return;
+        stopDeskPoll();
+        api().rememberLogin(res.tgLogin);
+        boot();
+      }).catch(function () {});
+    }, 2000);
+  }
+
+  function openDesktopTelegram() {
+    if (deskStartUrl) {
+      try { root.open(deskStartUrl, "_blank", "noopener"); } catch (eOpen) {}
+    }
+    sh().toast("В Telegram нажмите Start и вернитесь сюда");
+    startDeskPoll();
+  }
+
+  function logoutDesktop() {
+    stopDeskPoll();
+    deskToken = "";
+    deskStartUrl = "";
+    if (api().clearLogin) api().clearLogin();
+    try { localStorage.removeItem("nx_access_v1"); } catch (eOut) {}
+    access = null;
+    boot();
   }
 
   async function askAccess() {
@@ -801,10 +932,17 @@
     try {
       var init = root.__NEXT_API_HOOK__ ? "hook" : await api().waitForInitData(1600);
       if (ticket !== bootGen) return;
-      if (!init) {
-        if (hadCache) keepCached("Telegram ещё не ответил, показываю как было");
-        else showFail("Откройте через Telegram", "Бойня работает только внутри Telegram (кнопка бота). Вне Telegram доступа нет.",
-          '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
+      var login = !init && api().loginData ? api().loginData() : "";
+      if (!init && !login) {
+        if (insideTelegramApp()) {
+          if (hadCache) keepCached("Telegram ещё не ответил, показываю как было");
+          else showFail("Откройте через Telegram", "Бойня работает только внутри Telegram (кнопка бота). Вне Telegram доступа нет.",
+            '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
+          watchTelegram();
+          return;
+        }
+        await openDesktopGate();
+        if (ticket !== bootGen) return;
         watchTelegram();
         return;
       }
@@ -825,6 +963,11 @@
           return;
         }
         if (res && res.authRequired) {
+          if (!init && login) {
+            if (api().clearLogin) api().clearLogin();
+            await openDesktopGate();
+            return;
+          }
           showFail("Нужен Telegram", "Подпись Telegram не прошла проверку. Нажмите «Повторить» или откройте мини-апп из бота.",
             '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
         } else {

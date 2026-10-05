@@ -15,7 +15,8 @@ function loadApi(setup) {
   const sandbox = {
     sessionStorage: {
       getItem(k) { return store.has(k) ? store.get(k) : ""; },
-      setItem(k, v) { store.set(k, String(v)); }
+      setItem(k, v) { store.set(k, String(v)); },
+      removeItem(k) { store.delete(k); }
     },
     location: { hash: "" },
     setTimeout,
@@ -90,10 +91,59 @@ test("apiGet отдаёт успешный JSONP и не падает", async ()
   assert.equal(res.role, "owner");
 });
 
+test("tgLogin не подменяет живой initData и уходит, только если мини-аппа нет", async () => {
+  const login = "id=7&first_name=Ник&hash=abc";
+  const box = loadApi((s) => {
+    s.localStorage = {
+      getItem(k) { return k === "nx_tg_login_v1" ? login : ""; },
+      setItem() {},
+      removeItem() {}
+    };
+    s.Telegram = { WebApp: { initData: "query_id=live&user=%7B%22id%22%3A42%7D", initDataUnsafe: { user: { id: 42, first_name: "Арс" } } } };
+  });
+  assert.equal(box.BoinyaApi.initData().indexOf("query_id=live"), 0);
+  assert.equal(box.BoinyaApi.loginData(), "");
+  assert.equal(box.BoinyaApi.hasDesktopLogin(), false);
+  assert.equal(box.BoinyaApi.telegramUser().id, 42);
+
+  const desk = loadApi((s) => {
+    const mem = new Map();
+    s.localStorage = {
+      getItem(k) { return mem.has(k) ? mem.get(k) : ""; },
+      setItem(k, v) { mem.set(k, String(v)); },
+      removeItem(k) { mem.delete(k); }
+    };
+    s.Telegram = { WebApp: { initData: "", initDataUnsafe: {} } };
+  });
+  desk.BoinyaApi.rememberLogin(login);
+  assert.equal(desk.BoinyaApi.loginData(), login);
+  assert.equal(desk.BoinyaApi.telegramUser().id, 7);
+  assert.equal(desk.BoinyaApi.telegramUser().first_name, "Ник");
+  const seen = [];
+  desk.document = {
+    createElement() { return {}; },
+    head: {
+      appendChild(node) {
+        seen.push(String(node.src));
+        const m = String(node.src).match(/[?&]callback=([^&]+)/);
+        desk[decodeURIComponent(m[1])]({ status: "success", role: "owner" });
+      }
+    }
+  };
+  await desk.BoinyaApi.apiGet({ action: "getMyAccess" }, { timeoutMs: 1000, retries: 0, cacheTtlMs: 0 });
+  assert.match(seen[0], /tgLogin=/);
+  assert.equal(seen[0].indexOf("initData="), -1);
+  desk.BoinyaApi.clearLogin();
+  assert.equal(desk.BoinyaApi.loginData(), "");
+});
+
 test("перезагрузка: кэш остаётся, запрос доступа с таймаутом", () => {
   assert.equal(appSrc.includes("if (booting) return"), false);
   assert.match(appSrc, /waitForInitData\(1600\)/);
   assert.match(appSrc, /показываю как было/);
+  assert.match(appSrc, /Откройте через Telegram/);
+  assert.match(appSrc, /Войти через Telegram/);
+  assert.match(appSrc, /insideTelegramApp/);
   assert.match(appSrc, /timeoutMs: 8000, retries: 1/);
   assert.match(apiSrc, /function bounded\(/);
   assert.match(apiSrc, /tgWebAppData/);

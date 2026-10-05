@@ -17,6 +17,7 @@
   }
 
   var INIT_KEY = "nx_tg_init_v1";
+  var LOGIN_KEY = "nx_tg_login_v1";
 
   function liveInitData() {
     try {
@@ -67,6 +68,48 @@
     return rememberedInit();
   }
 
+  function storeGet(store, key) {
+    try {
+      if (!store || !store.getItem) return "";
+      return String(store.getItem(key) || "");
+    } catch (eS) {
+      return "";
+    }
+  }
+
+  function storeSet(store, key, val) {
+    try {
+      if (store && store.setItem) store.setItem(key, val);
+    } catch (eSet) {}
+  }
+
+  function storeDel(store, key) {
+    try {
+      if (store && store.removeItem) store.removeItem(key);
+    } catch (eDel) {}
+  }
+
+  function loginData() {
+    if (liveInitData()) return "";
+    return storeGet(root.sessionStorage, LOGIN_KEY) || storeGet(root.localStorage, LOGIN_KEY);
+  }
+
+  function rememberLogin(raw) {
+    var v = String(raw || "");
+    if (!v) return;
+    storeSet(root.sessionStorage, LOGIN_KEY, v);
+    storeSet(root.localStorage, LOGIN_KEY, v);
+  }
+
+  function clearLogin() {
+    storeDel(root.sessionStorage, LOGIN_KEY);
+    storeDel(root.localStorage, LOGIN_KEY);
+  }
+
+  function hasDesktopLogin() {
+    return !liveInitData() && !!loginData();
+  }
+
   function waitForInitData(maxMs) {
     var limit = maxMs == null ? 1600 : maxMs;
     var started = Date.now();
@@ -105,7 +148,24 @@
       var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
       if (u && u.id) return u;
     } catch (e) {}
-    return userFromInit(liveInitData()) || userFromInit(hashInitData()) || userFromInit(rememberedInit()) || {};
+    return userFromInit(liveInitData()) || userFromInit(hashInitData()) || userFromInit(rememberedInit()) || userFromLogin(loginData()) || {};
+  }
+
+  function userFromLogin(raw) {
+    var src = String(raw || "");
+    if (!src || src.indexOf("hash=") < 0) return null;
+    try {
+      var sp = new URLSearchParams(src);
+      var id = Number(sp.get("id") || 0);
+      if (!id) return null;
+      var u = { id: id };
+      if (sp.get("first_name")) u.first_name = sp.get("first_name");
+      if (sp.get("last_name")) u.last_name = sp.get("last_name");
+      if (sp.get("username")) u.username = sp.get("username");
+      return u;
+    } catch (eL) {
+      return null;
+    }
   }
 
   function stamp(params) {
@@ -115,6 +175,10 @@
     if (!out.initData) {
       var raw = initData();
       if (raw) out.initData = raw;
+    }
+    if (!out.initData && !out.tgLogin) {
+      var login = loginData();
+      if (login) out.tgLogin = login;
     }
     if (root.__BOINYA_C_CUTOVER__ && out.cutover == null && out.mode !== "live") out.cutover = "1";
     return out;
@@ -155,7 +219,7 @@
 
   function cacheKey(params) {
     return Object.keys(params).filter(function (k) {
-      return k !== "_" && k !== "nocache" && k !== "initData";
+      return k !== "_" && k !== "nocache" && k !== "initData" && k !== "tgLogin";
     }).sort().map(function (k) { return k + "=" + params[k]; }).join("&");
   }
 
@@ -382,6 +446,10 @@
     apiPost: apiPost,
     initData: initData,
     liveInitData: liveInitData,
+    loginData: loginData,
+    rememberLogin: rememberLogin,
+    clearLogin: clearLogin,
+    hasDesktopLogin: hasDesktopLogin,
     waitForInitData: waitForInitData,
     telegramUser: telegramUser,
     webhook: webhook,

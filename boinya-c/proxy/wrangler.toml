@@ -32,7 +32,8 @@ PARTNER_OWNER_USERNAMES = "one_more_person_228"
 # WAREHOUSE_CLOSE_CANON = "d1-compute"
 
 # Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN
-#   ↑ ОБЯЗАТЕЛЕН для проверки initData Mini App (тот же бот, что открывает Бойню). Нет токена → authMode=legacy_no_token.
+#   ↑ ОБЯЗАТЕЛЕН для проверки initData Mini App и Login Widget (вход с компьютера). Нет токена → authMode=legacy_no_token.
+# TELEGRAM_BOT_USERNAME = "..."  # необязательно: виджет / t.me. Пусто → Worker берёт getMe по TELEGRAM_BOT_TOKEN.
 #   PARTNER_BOT_TOKEN — бот Varka (initData партнёрки). TG_EXTRA_BOT_TOKENS — ещё боты через запятую.
 # Secret: GAS_SHARED_SECRET — = Script Property WORKER_SHARED_SECRET в Apps Script (GAS доверяет Worker).
 # Secret: SUBS_VIEW_PASSWORD — пароль экрана «Подписки» (раньше лежал в app.main.js).

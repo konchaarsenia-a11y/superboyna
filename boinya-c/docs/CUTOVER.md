@@ -2,17 +2,35 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71124200
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71124310
 
 Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
 В Telegram Menu Button (бот Бойни, не @GOODBOY_LG) любая из этих ссылок открывает `next.html` и сохраняет hash с initData:
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71124200`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71124310`
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1&v=71124200`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1&v=71124310`
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/index.html?v=71124200`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/index.html?v=71124310`
+
+## Вход с компьютера
+
+Тот же адрес в Chrome или Safari, не из окна мини-аппа:
+
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71124310
+
+Если страница открыта не внутри Telegram, вместо «только из бота» показывается вход:
+
+1. **Кнопка Telegram Login Widget** — подпись как у [Login Widget](https://core.telegram.org/widgets/login). Worker проверяет hash тем же `TELEGRAM_BOT_TOKEN`, что и initData мини-аппа, и берёт роль из D1 / `getMyAccess`.
+2. Если виджет пишет про домен: в BotFather у **бота Бойни** (не @GOODBOY_LG) команда `/setdomain` → `konchaarsenia-a11y.github.io` (без `https://` и без пути).
+3. **«Открыть Telegram и подтвердить»** — запасной путь. Открывается уже существующий `/start gbi_<token>`. В боте нажать Start и вернуться на вкладку. Worker опрашивает `pollNativeAuth` и выдаёт подписанный `tgLogin`. Подставить чужой Telegram ID нельзя.
+
+Сессия в браузере живёт до 7 дней (`TG_INITDATA_MAX_AGE_SEC`, как у initData). Выход — «Ещё» → «Выйти».
+
+Мини-апп на телефоне не меняется: если есть `initData`, виджет не показывается и `tgLogin` не уходит.
+
+После merge нужен зелёный Action `boinya-c-worker-deploy`. Пока Worker старый, кнопка входа ответит «сервер ещё не ответил».
 
 Старый интерфейс: тот же адрес с `?legacy=1`. Файл `boinya-c/app.html` не удалён.
 
