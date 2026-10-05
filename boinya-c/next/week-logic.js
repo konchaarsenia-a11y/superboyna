@@ -450,6 +450,56 @@
     return Math.round(sum * 100) / 100;
   }
 
+  /* Почта: тег в примечании заказа или deliveryMethod euro/bel. */
+  function courierMailMethod(c) {
+    c = c || {};
+    var method = String(c.deliveryMethod || "").trim().toLowerCase();
+    if (method === "euro" || method === "bel") return method;
+    var note = String(c.note || "");
+    if (/\[ЕВРОПОЧТА\]/i.test(note)) return "euro";
+    if (/\[БЕЛПОЧТА\]/i.test(note)) return "bel";
+    return "";
+  }
+
+  function ownPaidFlag_(c) {
+    var p = String(c && c.paid != null ? c.paid : "").toLowerCase();
+    if (p === "yes" || p === "true" || p === "1") return "yes";
+    if (p === "no" || p === "false" || p === "0") return "no";
+    return "";
+  }
+
+  /* «Оплачено?» при «доставлено».
+     Почта — нет. Одна доставка и ПП1 — да, пока на этой доставке не paid=yes.
+     ПП2 — нет, только если на ПП1 уже paid=yes (siblingPaid).
+     ПП1 «не оплачено» или отметки ещё нет — спрашивать.
+     Розница спрашивает. БП и партнёр — нет. */
+  function courierShouldAskPaid(c) {
+    if (!c) return false;
+    if (courierMailMethod(c)) return false;
+    if (ownPaidFlag_(c) === "yes") return false;
+    var ot = "";
+    try { ot = resolveOrderType(c); } catch (eOt) { ot = ""; }
+    if (!ot && isPpRow_(c)) ot = "pp";
+    var seg = String(c.segment || "").trim().toUpperCase();
+    var isRetail = ot === "retail" || seg === "Р" || seg === "РОЗНИЦА";
+    var isPp = ot === "pp" || seg === "ПП" || seg === "АФК";
+    if (isRetail && !isPp) return true;
+    if (!isPp) return false;
+    var n = Number(c.deliveriesN) || 0;
+    var slot = courierPaySlot_(c);
+    if (n >= 2 && slot >= 2) {
+      var sib = c.siblingPaid == null ? "" : ownPaidFlag_({ paid: c.siblingPaid });
+      if (sib === "yes") return false;
+      return true;
+    }
+    if (c.ppPaid === true) return false;
+    return true;
+  }
+
+  function mailTrackClientText(track) {
+    return "Здравствуйте!\nОтправили ваш заказик\nВот трэк код для отслеживания: " + String(track || "").trim();
+  }
+
   function deferredMode(it) {
     var m = String((it && it.mode) || "").trim().toLowerCase();
     if (m) return m;
@@ -1087,6 +1137,9 @@
     revenueSum: revenueSum,
     courierStopMoney: courierStopMoney,
     courierCollectSum: courierCollectSum,
+    courierMailMethod: courierMailMethod,
+    courierShouldAskPaid: courierShouldAskPaid,
+    mailTrackClientText: mailTrackClientText,
     deferredMode: deferredMode,
     tasksSub: tasksSub,
     finishPlain: finishPlain,

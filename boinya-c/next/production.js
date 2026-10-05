@@ -1666,10 +1666,25 @@
     var day = currentDay("nxCourDay", "route");
     var client = cour[index];
     if (!client) return;
+    var logic = root.BoinyaWeekLogic;
+    var mail = logic && logic.courierMailMethod ? logic.courierMailMethod(client) : "";
     var paidAnswer = null;
-    var segPay = String(client.segment || "").trim().toUpperCase();
-    var ask = segPay === "ПП" || segPay === "Р" || segPay === "РОЗНИЦА" || client.askPaid;
-    if (delivered && ask && String(client.paid || "").toLowerCase() !== "yes" && !client.ppPaid) {
+    var track = "";
+    if (delivered && mail) {
+      var mailTitle = mail === "euro" ? "Европочта" : "Белпочта";
+      var entered = null;
+      if (sh().askTrackCode) {
+        entered = await sh().askTrackCode({
+          title: mailTitle,
+          text: "Клиент " + client.name + ". Трек-код отправления. Оплату не спрашиваем."
+        });
+      } else {
+        entered = await sh().prompt({ title: mailTitle, text: "Трек-код", ok: "Доставлено" });
+      }
+      if (entered == null) { paintRoute(); return; }
+      track = String(entered).trim();
+      if (!track) { paintRoute(); sh().toast("Нужен трек-код"); return; }
+    } else if (delivered && logic && logic.courierShouldAskPaid && logic.courierShouldAskPaid(client)) {
       var picked = await sh().choice({
         title: "Оплата",
         text: "Клиент " + client.name + ". Оплачено?",
@@ -1684,13 +1699,19 @@
     }
     client.delivered = !!delivered;
     if (paidAnswer) client.paid = paidAnswer;
+    if (track) client.mailTrack = track;
+    if (mail) client.mailMethod = mail;
     courFlags[String(client.name || "").trim().toUpperCase()] = { delivered: !!delivered, ts: Date.now() };
     if (!delivered) courDetail = true;
     paintRoute();
     try {
       var body = { action: "setDelivered", day: day, client: client.name, delivered: !!delivered };
       if (paidAnswer) body.paid = paidAnswer;
+      if (track) body.track = track;
+      if (mail) body.mail = mail;
+      if (cour && cour._date) body.date = cour._date;
       if (client.matchKey) body.matchKey = client.matchKey;
+      if (client.phone) body.phone = client.phone;
       var delRes = await api().apiPost(body);
       if (!delRes || (delRes.status !== "success" && delRes.status !== "sent_opaque")) throw new Error("save");
     } catch (e) {

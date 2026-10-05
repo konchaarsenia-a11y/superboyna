@@ -124,3 +124,51 @@ test("воркер чередует слот и не держит мёртвую
   assert.doesNotMatch(src, /prior\.count <= 0/);
   assert.match(src, /suggestPpDeliverySlotD1_\(\{/);
 });
+
+test("ПП1 оплачено — на ПП2 оплату не спрашиваем", function () {
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "yes", paid: ""
+  }), false);
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 2, ppSlot: "1/2", paid: ""
+  }), true);
+});
+
+test("ПП1 не оплачено или без отметки — на ПП2 спрашиваем", function () {
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "no"
+  }), true);
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: ""
+  }), true);
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 2, deliverySlot: 2, paid: ""
+  }), true);
+});
+
+test("одна доставка ПП и розница спрашивают, БП нет, своя оплата закрывает вопрос", function () {
+  assert.equal(L.courierShouldAskPaid({ segment: "ПП", deliveriesN: 1, ppSlot: "1" }), true);
+  assert.equal(L.courierShouldAskPaid({ segment: "Р", source: "retail" }), true);
+  assert.equal(L.courierShouldAskPaid({ segment: "БП", source: "bp" }), false);
+  assert.equal(L.courierShouldAskPaid({ segment: "ПП", deliveriesN: 2, ppSlot: "2/2", paid: "yes", siblingPaid: "no" }), false);
+});
+
+test("почта не спрашивает оплату, обычный курьер спрашивает", function () {
+  assert.equal(L.courierMailMethod({ note: "подъезд 2 [ЕВРОПОЧТА]" }), "euro");
+  assert.equal(L.courierMailMethod({ deliveryMethod: "bel" }), "bel");
+  assert.equal(L.courierMailMethod({ note: "европочта в тексте без тега" }), "");
+  assert.equal(L.courierMailMethod({ note: "[КУРЬЕР]" }), "");
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 1, note: "[БЕЛПОЧТА]", paid: ""
+  }), false);
+  assert.equal(L.courierShouldAskPaid({
+    segment: "ПП", deliveriesN: 1, note: "[КУРЬЕР]", paid: ""
+  }), true);
+});
+
+test("текст трека клиенту", function () {
+  assert.equal(
+    L.mailTrackClientText("BY123"),
+    "Здравствуйте!\nОтправили ваш заказик\nВот трэк код для отслеживания: BY123"
+  );
+});

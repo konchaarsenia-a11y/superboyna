@@ -3,7 +3,7 @@
  * ВАЖНО: app.main.js / app.html / bridge / config — network-first.
  * Старый cache-first + ignoreSearch залипал на мёртвом JS → delete/move «не работают».
  */
-const SW_VER = "boinya-c-sw-v15-71124100";
+const SW_VER = "boinya-c-sw-v15-71124200";
 const SHELL = "boinya-c-shell-v15";
 const API_CACHE = "boinya-c-api-v15";
 

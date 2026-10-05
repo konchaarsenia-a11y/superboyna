@@ -8360,6 +8360,10 @@ function handleTelegramUpdate_(update) {
         handleSurveySentCallback_(cq0);
         return;
       }
+      if (/^mtrack:/i.test(cqData)) {
+        handleMailTrackCallback_(cq0);
+        return;
+      }
       if (/^ppafk:/i.test(cqData)) {
         handlePpAfkCallback_(cq0);
         return;
@@ -10616,6 +10620,47 @@ function telegramSendMarkup_(chatId, text, replyMarkup) {
     muteHttpExceptions: true
   });
   try { return JSON.parse(res.getContentText()); } catch (e) { return { ok: false, error: String(e) }; }
+}
+
+function boinyaWorkerUrl_() {
+  var u = "";
+  try {
+    u = String(PropertiesService.getScriptProperties().getProperty("BOINYA_WORKER_URL") || "").trim();
+  } catch (eU) { u = ""; }
+  if (!u) u = "https://boinya-c.konchaarsenia.workers.dev";
+  return u.replace(/\/$/, "");
+}
+
+/** Кнопка «Отправить трэк код»: Worker шлёт клиенту текст и снимает спиннер кнопки. */
+function handleMailTrackCallback_(cq) {
+  var data = String((cq && cq.data) || "");
+  var token = data.replace(/^mtrack:/i, "").trim();
+  var cbId = String((cq && cq.id) || "");
+  var fromId = "";
+  try { fromId = String((cq.from && cq.from.id) || ""); } catch (eFrom) { fromId = ""; }
+  var secret = "";
+  try { secret = String(PropertiesService.getScriptProperties().getProperty("WORKER_SHARED_SECRET") || ""); } catch (eSec) { secret = ""; }
+  var out = null;
+  try {
+    var res = UrlFetchApp.fetch(boinyaWorkerUrl_(), {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "fulfillMailTrack",
+        token: token,
+        callbackQueryId: cbId,
+        managerTelegramId: fromId,
+        _wk: secret
+      }),
+      muteHttpExceptions: true
+    });
+    out = JSON.parse(res.getContentText() || "{}");
+  } catch (eFetch) {
+    out = null;
+  }
+  if (!out || out.answered !== true) {
+    try { telegramAnswerCallback_(cbId, (out && out.toast) || "Не удалось отправить трек"); } catch (eAns) {}
+  }
 }
 
 function telegramAnswerCallback_(callbackId, text) {
@@ -32156,7 +32201,9 @@ function handleSaveDeferred_(json, callback, fromPost) {
     payloadObj.createdByName = createdByName;
     payload = JSON.stringify(payloadObj);
     // подтверждение только создателю (цель получит одно сообщение в срок — без дубля «поставлено»)
-    if (!silentRemind) {
+    var skipAck = json.skipAck === true || json.skipAck === "1" || json.skipAck === 1 ||
+      payloadObj.skipAck === true || payloadObj.skipAck === "1";
+    if (!silentRemind && !skipAck) {
     try {
       var whenLabel = Utilities.formatDate(when, Session.getScriptTimeZone() || "Europe/Minsk", "dd.MM HH:mm") +
         " (по времени таблицы / Минск)";
