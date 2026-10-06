@@ -11034,6 +11034,77 @@ function nudgeSegIsPp_(seg) {
   return false;
 }
 
+/** D1 deliveries + почтовый трек за день. Пусто, если секрет или Worker недоступны. */
+function fetchD1DeliveredForNudge_(dateIso) {
+  var iso = String(dateIso || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return [];
+  var secret = "";
+  try { secret = String(PropertiesService.getScriptProperties().getProperty("WORKER_SHARED_SECRET") || ""); } catch (eSec) { secret = ""; }
+  if (!secret) return [];
+  try {
+    var res = UrlFetchApp.fetch(boinyaWorkerUrl_(), {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ action: "nudgeDeliveredDay", dateIso: iso, _wk: secret }),
+      muteHttpExceptions: true
+    });
+    var out = JSON.parse(res.getContentText() || "{}");
+    if (!out || out.status !== "success" || !out.rows) return [];
+    return out.rows;
+  } catch (eFetch) {
+    return [];
+  }
+}
+
+/** Строки D1 (галочка или трек) в общий список. Оплата не решает. */
+function absorbNudgeDeliveryRows_(rows, addName_, rememberSlot_) {
+  var n = 0;
+  for (var i = 0; i < (rows || []).length; i++) {
+    var row = rows[i] || {};
+    var flag = row.delivered;
+    var on = flag === true || flag === 1 || flag === "1" || String(flag).toLowerCase() === "true";
+    if (!on && !String(row.track || "").trim()) continue;
+    var name = String(row.client || row.name || row.matchKey || "").trim();
+    if (!name) continue;
+    var slot = row.ppSlot || row.segment || "";
+    if (rememberSlot_) {
+      rememberSlot_(name, slot);
+      if (row.matchKey) rememberSlot_(row.matchKey, slot);
+    }
+    if (addName_) addName_(name);
+    n++;
+  }
+  return n;
+}
+
+/** Текст длиннее лимита Telegram режется по строкам, имена не отбрасываются. */
+function splitNudgeTelegramText_(text, limit) {
+  var max = Number(limit) || 3500;
+  if (!(max >= 200)) max = 3500;
+  var src = String(text || "");
+  if (src.length <= max) return src ? [src] : [];
+  var lines = src.split("\n");
+  var parts = [];
+  var buf = "";
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var next = buf ? (buf + "\n" + line) : line;
+    if (next.length <= max) {
+      buf = next;
+      continue;
+    }
+    if (buf) parts.push(buf);
+    if (line.length <= max) {
+      buf = line;
+      continue;
+    }
+    buf = "";
+    for (var p = 0; p < line.length; p += max) parts.push(line.slice(p, p + max));
+  }
+  if (buf) parts.push(buf);
+  return parts;
+}
+
 /** Вчерашние доставленные: ПП (ПП1 и ПП2) и только БП1. Розница и АФК не входят. */
 function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
@@ -11086,31 +11157,26 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
     addName_(memoryLabel_(mem[mk], mk));
   }
 
-  // ПП2 часто лежит только в PP_CYCLE (slot2), дневной обход эти ключи пропускает
+  // ПП2 часто лежит только в PP_CYCLE (slot2). Строки месяца склеены: раньше ключ
+  // читался как дата и каждая доставка дописывала свою строку, которую список не видел.
   try {
     if (memory) {
       var cycleStore = getPpMonthCycleStore_(memory, ppMonthCycleKey_(yday, tz), tz);
-      for (var ck in cycleStore) {
-        if (!Object.prototype.hasOwnProperty.call(cycleStore, ck)) continue;
-        if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(ck)) continue;
-        var cent = cycleStore[ck];
-        if (!cent || typeof cent !== "object") continue;
-        var tagC = "";
-        var d2 = cent.slot2 && cent.slot2.date;
-        var d1 = cent.slot1 && cent.slot1.date;
-        if (d2 && (d2 === dateText || d2 === dateIso)) tagC = "ПП2";
-        else if (d1 && (d1 === dateText || d1 === dateIso)) tagC = "ПП1";
-        if (!tagC) continue;
-        var shownC = "";
-        if (tagC === "ПП2" && cent.slot2 && cent.slot2.client) shownC = String(cent.slot2.client).trim();
-        if (!shownC && cent.client) shownC = String(cent.client).trim();
-        if (!shownC) shownC = ck;
-        rememberSlot_(shownC, tagC);
-        rememberSlot_(ck, tagC);
-        if (!explicitlyUndelivered_(shownC) && !explicitlyUndelivered_(ck)) addName_(shownC);
+      var cycleHits = collectPpCycleNudgeHits_(cycleStore, dateText, dateIso);
+      for (var chi = 0; chi < cycleHits.length; chi++) {
+        var hitC = cycleHits[chi];
+        rememberSlot_(hitC.name, hitC.tag);
+        rememberSlot_(hitC.key, hitC.tag);
+        if (!explicitlyUndelivered_(hitC.name) && !explicitlyUndelivered_(hitC.key)) addName_(hitC.name);
       }
     }
   } catch (eCycleN) {}
+
+  // Курьерские галочки живут в D1 (ops d1-primary). Зеркало листа может отстать:
+  // ПП2 без оплаты и почта с треком тогда есть в D1 и нет в Память_Доставок.
+  try {
+    absorbNudgeDeliveryRows_(fetchD1DeliveredForNudge_(dateIso), addName_, rememberSlot_);
+  } catch (eD1N) {}
 
   // лист «Доставки», если A1 = вчера
   try {
@@ -11447,6 +11513,8 @@ function sendDeliveryDatesNudge_(slot, dateOverride) {
     };
   }
   var text = buildDeliveryDatesNudgeText_(pack, slot);
+  var textParts = splitNudgeTelegramText_(text, 3500);
+  if (!textParts.length) textParts = [text];
 
   // кнопки АФК — по одному ряду на клиента (лимит TG ~100)
   var keyboard = [];
@@ -11468,29 +11536,29 @@ function sendDeliveryDatesNudge_(slot, dateOverride) {
 
   var ok = 0;
   var fail = 0;
+  function sendNudgeParts_(chatId) {
+    var first = textParts[0];
+    var res = markup
+      ? telegramSendMarkup_(chatId, first, markup)
+      : telegramSendText_(chatId, first);
+    if (!(res && res.ok) && markup) res = telegramSendText_(chatId, first);
+    if (!(res && res.ok)) return false;
+    for (var pi = 1; pi < textParts.length; pi++) {
+      var more = telegramSendText_(chatId, textParts[pi]);
+      if (!(more && more.ok)) return false;
+    }
+    return true;
+  }
   for (var n = 0; n < ids.length; n++) {
     try {
-      var res = markup
-        ? telegramSendMarkup_(ids[n], text, markup)
-        : telegramSendText_(ids[n], text);
-      if (res && res.ok) {
-        ok++;
-      } else if (markup) {
-        var res2 = telegramSendText_(ids[n], text);
-        if (res2 && res2.ok) ok++;
-        else fail++;
-      } else {
-        fail++;
-      }
+      if (sendNudgeParts_(ids[n])) ok++;
+      else fail++;
     } catch (e) { fail++; }
   }
   try {
     var chat = notifyChatId_();
     if (chat && ids.indexOf(chat) < 0) {
-      try {
-        if (markup) telegramSendMarkup_(chat, text, markup);
-        else telegramSendText_(chat, text);
-      } catch (eC) {}
+      try { sendNudgeParts_(chat); } catch (eC) {}
     }
   } catch (eChat) {}
   function namesOf_(arr) {
@@ -12434,6 +12502,10 @@ function parseFlexibleDate_(val, tz) {
     return new Date(val.getFullYear(), val.getMonth(), val.getDate());
   }
   var s = String(val).trim();
+  // PP_CYCLE:2026-10 и WEEK_PAID:05.10.2026 V8 считает датой (1 октября / 10 мая).
+  // Тогда findMemoryRow_ не находит ключ, цикл ПП рвётся на строки по одному клиенту,
+  // и «Подбейте даты» не видит ПП2, который лежит только в slot2.
+  if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(s)) return null;
   var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
   var m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -19566,10 +19638,86 @@ function ppMonthCycleKey_(dateValue, tz) {
   return "PP_CYCLE:" + Utilities.formatDate(dateValue, tz || "Europe/Minsk", "yyyy-MM");
 }
 
+/** Склеить разорванные строки PP_CYCLE одного месяца: каждая могла остаться с одним клиентом. */
+function mergePpCycleJsonMaps_(maps) {
+  var out = {};
+  for (var m = 0; m < (maps || []).length; m++) {
+    var store = maps[m];
+    if (!store || typeof store !== "object" || Object.prototype.toString.call(store) === "[object Array]") continue;
+    for (var k in store) {
+      if (!Object.prototype.hasOwnProperty.call(store, k)) continue;
+      if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(k)) continue;
+      var ent = store[k];
+      if (!ent || typeof ent !== "object") continue;
+      var prev = out[k];
+      if (!prev) {
+        out[k] = ent;
+        continue;
+      }
+      var next = {};
+      var pk;
+      for (pk in prev) if (Object.prototype.hasOwnProperty.call(prev, pk)) next[pk] = prev[pk];
+      for (pk in ent) {
+        if (!Object.prototype.hasOwnProperty.call(ent, pk)) continue;
+        if (pk === "slot1" || pk === "slot2") {
+          if (ent[pk] && ent[pk].date) next[pk] = ent[pk];
+          else if (!next[pk]) next[pk] = ent[pk];
+        } else if (ent[pk] != null && ent[pk] !== "") next[pk] = ent[pk];
+      }
+      out[k] = next;
+    }
+  }
+  return out;
+}
+
+/** Слоты цикла, чья дата доставки — нужный день. Оплата не фильтрует. */
+function collectPpCycleNudgeHits_(store, dateText, dateIso) {
+  var hits = [];
+  if (!store || typeof store !== "object") return hits;
+  for (var ck in store) {
+    if (!Object.prototype.hasOwnProperty.call(store, ck)) continue;
+    if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(ck)) continue;
+    var cent = store[ck];
+    if (!cent || typeof cent !== "object") continue;
+    var d2 = cent.slot2 && cent.slot2.date;
+    var d1 = cent.slot1 && cent.slot1.date;
+    var tag = "";
+    if (d2 && (d2 === dateText || d2 === dateIso)) tag = "ПП2";
+    else if (d1 && (d1 === dateText || d1 === dateIso)) tag = "ПП1";
+    if (!tag) continue;
+    var shown = "";
+    if (tag === "ПП2" && cent.slot2 && cent.slot2.client) shown = String(cent.slot2.client).trim();
+    if (!shown && cent.client) shown = String(cent.client).trim();
+    if (!shown) shown = ck;
+    hits.push({ name: shown, key: ck, tag: tag });
+  }
+  return hits;
+}
+
 function getPpMonthCycleStore_(memory, monthKey, tz) {
-  var all = getMemoryJson_(memory, monthKey, tz);
-  if (!all || typeof all !== "object" || Object.prototype.toString.call(all) === "[object Array]") return {};
-  return all;
+  var maps = [];
+  var direct = null;
+  try { direct = getMemoryJson_(memory, monthKey, tz); } catch (eD) { direct = null; }
+  if (direct && typeof direct === "object" && Object.prototype.toString.call(direct) !== "[object Array]") {
+    maps.push(direct);
+  }
+  var want = String(monthKey || "").trim();
+  if (want && memory && memory.getLastRow && memory.getLastRow() >= 1) {
+    try {
+      var data = memory.getRange(1, 1, memory.getLastRow(), 2).getValues();
+      for (var i = 0; i < data.length; i++) {
+        var raw = data[i][0];
+        if (raw instanceof Date) continue;
+        if (String(raw || "").trim() !== want) continue;
+        var parsed = null;
+        try { parsed = JSON.parse(String(data[i][1] || "")); } catch (eP) { parsed = null; }
+        if (parsed && typeof parsed === "object" && Object.prototype.toString.call(parsed) !== "[object Array]") {
+          maps.push(parsed);
+        }
+      }
+    } catch (eS) {}
+  }
+  return mergePpCycleJsonMaps_(maps);
 }
 
 function getPpCycleEntry_(memory, dateValue, tz, clientName) {

@@ -1317,13 +1317,14 @@ const AUTH_ACTOR_AS_TID_RE = /^(getStats|getExpectedProfit|exportStats|listStats
 async function handleAction_(action, params, env, url, ctx) {
   const a = String(action || "");
   params = params && typeof params === "object" ? params : {};
-  // Кнопка «Отправить трэк код» приходит из Telegram в Code.gs и сюда с секретом GAS↔Worker.
-  if (a === "fulfillMailTrack") {
+  // Кнопка «Отправить трэк код» и список «Подбейте даты» приходят из Code.gs с секретом GAS↔Worker.
+  if (a === "fulfillMailTrack" || a === "nudgeDeliveredDay") {
     const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
     const got = String(params._wk || "").trim();
     if (!sec || got !== sec) {
       return { status: "error", message: "auth_required", action: a };
     }
+    if (a === "nudgeDeliveredDay") return listNudgeDeliveredDay_(params, env);
     return fulfillMailTrack_(params, env);
   }
   ["_actorTid", "_actorRole", "_wk", "_authVerified", "_unverified"].forEach(function (k) {
@@ -12994,6 +12995,91 @@ async function fulfillMailTrack_(params, env) {
   try { await putSnap_(env, "mailTrack:" + token, rec); } catch (eP) {}
   await toast("Трек отправлен клиенту");
   return { status: "success", sent: true, answered: !!cb };
+}
+
+/**
+ * Кого курьер отметил доставленным в D1 за день.
+ * Флаг deliveries ИЛИ трек почты на активном заказе (отправка без доехавшей галочки).
+ * Оплата не фильтрует: ПП2 без paid=yes тоже доставка.
+ */
+function shapeNudgeDeliveredRows_(flagRows, orderRows) {
+  const byKey = Object.create(null);
+  (orderRows || []).forEach(function (o) {
+    if (!o) return;
+    const k = String(o.match_key || "").trim();
+    if (!k) return;
+    const prev = byKey[k];
+    const active = String(o.status || "") === "active";
+    if (!prev || (active && String(prev.status || "") !== "active")) byKey[k] = o;
+  });
+  const seen = Object.create(null);
+  const rows = [];
+  function push_(key, fromTrack) {
+    const o = byKey[key] || {};
+    const meta = parseMeta_(o.meta_json);
+    const name = String(o.client || key || "").trim();
+    const mk = String(o.match_key || key || "").trim();
+    const id = (mk || name).toUpperCase();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    const note = String(o.note || "");
+    const track = String(meta.mailTrack || "").trim();
+    let mail = String(meta.mailMethod || "").trim();
+    if (!mail && /\[ЕВРОПОЧТА\]/i.test(note)) mail = "euro";
+    else if (!mail && /\[БЕЛПОЧТА\]/i.test(note)) mail = "bel";
+    rows.push({
+      client: name,
+      matchKey: mk,
+      segment: String(o.segment || meta.segment || ""),
+      ppSlot: String(meta.ppSlot || meta.deliverySlot || ""),
+      delivered: true,
+      mail: mail,
+      track: track,
+      fromTrack: !!fromTrack
+    });
+  }
+  (flagRows || []).forEach(function (r) {
+    if (!r || !r.match_key) return;
+    if (Number(r.delivered) === 0 || r.delivered === false) return;
+    push_(String(r.match_key), false);
+  });
+  Object.keys(byKey).forEach(function (k) {
+    const o = byKey[k];
+    if (String(o.status || "") !== "active") return;
+    const meta = parseMeta_(o.meta_json);
+    if (String(meta.mailTrack || "").trim()) push_(k, true);
+  });
+  return rows;
+}
+
+async function listNudgeDeliveredDay_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const iso = String((params && (params.dateIso || params.date || params.ymd)) || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { status: "error", message: "bad_date" };
+  let flags = [];
+  let orders = [];
+  try {
+    const fq = await env.DB.prepare(
+      "SELECT match_key, delivered FROM deliveries WHERE date_iso = ? AND delivered = 1"
+    )
+      .bind(iso)
+      .all();
+    flags = (fq && fq.results) || [];
+  } catch (eF) {
+    flags = [];
+  }
+  try {
+    const oq = await env.DB.prepare(
+      "SELECT client, match_key, segment, note, meta_json, status FROM orders WHERE date_iso = ?"
+    )
+      .bind(iso)
+      .all();
+    orders = (oq && oq.results) || [];
+  } catch (eO) {
+    orders = [];
+  }
+  const rows = shapeNudgeDeliveredRows_(flags, orders);
+  return { status: "success", dateIso: iso, rows: rows, count: rows.length };
 }
 
 async function setDelivered_(params, env, ctx) {
