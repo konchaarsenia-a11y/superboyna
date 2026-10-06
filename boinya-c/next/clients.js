@@ -805,6 +805,7 @@
   }
 
   function paintCalc() {
+    if (!price.packsManual) syncAutoPacks_();
     var html = '<button type="button" class="nx-link" data-act="price-back">← Назад</button>';
     if (enroll && price.mode !== "retail") {
       html += '<article class="b-card" id="enrollCard"><p class="b-lbl">Внести в ПП</p>' +
@@ -850,10 +851,10 @@
         html += '<button type="button" class="b-chip' + (String(price.coef) === v ? " b-chip--on" : "") + '" data-act="cl-coef" data-v="' + v + '">' + v + "</button>";
       });
       html += "</div>";
-      html += '<p class="b-lbl">Пакеты</p>' + packsHtml("cxP", price.packs, [["small", "мал"], ["medium", "ср"], ["large", "бол"], ["legs", "ножк"]]);
-      html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-repack" style="margin-top:8px">Пересчитать пакеты</button>';
       html += '<p class="b-lbl">Наценка фракций</p>' + fracHtml("cxF", price.fracs);
     }
+    html += '<p class="b-lbl">Пакеты <span class="b-note" data-pack-byn>' + esc(rubShort_(packagesBynNow())) + " р в цене</span></p>" + packsHtml("cxP", price.packs, [["small", "мал"], ["medium", "ср"], ["large", "бол"], ["legs", "ножк"]]);
+    html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-repack" style="margin-top:8px">Пересчитать пакеты</button>';
     html += '<p class="b-lbl">Примечание для клиента</p>' + area("cxNote", price.note, "Примечание");
     html += basketBlock();
     html += '<p class="b-lbl">Чеклист Instagram</p>' + area("cxIg", price.ig, "Вставь список из Direct");
@@ -1061,6 +1062,8 @@
       forNew: forNew ? 1 : 0
     };
     if (scheme) payload.scheme = scheme;
+    var packCounts = packCountsForApi_();
+    payload.packCounts = JSON.stringify(packCounts);
     var res = null;
     try { res = await api().apiPost(payload); } catch (e) { res = null; }
     if (!res || res.status !== "success" || res.empty) {
@@ -1074,6 +1077,7 @@
           fullFact: "1",
           forNew: forNew ? "1" : "0",
           scheme: scheme || "",
+          packCounts: payload.packCounts,
           _: String(Date.now())
         }, { timeoutMs: 25000, cacheTtlMs: 0 });
       } catch (e2) { res = null; }
@@ -1091,11 +1095,77 @@
     return Math.round(sum * 100) / 100;
   }
 
-  async function buildPpOffer(list) {
+  function packCountsForApi_() {
+    return {
+      u1: Number(price.packs.small) || 0,
+      u2: Number(price.packs.medium) || 0,
+      u3: Number(price.packs.large) || 0,
+      up4: Number(price.packs.legs) || 0
+    };
+  }
+
+  function syncAutoPacks_() {
+    if (price.packsManual) return false;
+    var rec = P().recountPacks(allItems());
+    var next = (rec && rec.counts) || {};
+    var prev = price.packs || {};
+    var same = ["small", "medium", "large", "legs"].every(function (k) {
+      return (Number(prev[k]) || 0) === (Number(next[k]) || 0);
+    });
+    price.packs = {
+      small: Number(next.small) || 0,
+      medium: Number(next.medium) || 0,
+      large: Number(next.large) || 0,
+      legs: Number(next.legs) || 0
+    };
+    return !same;
+  }
+
+  function paintPackInputs_() {
+    if (price.packsManual) return;
+    ["small", "medium", "large", "legs"].forEach(function (k) {
+      var el = document.querySelector('[data-k="cxP' + k + '"]');
+      if (!el || document.activeElement === el) return;
+      var next = String(price.packs[k] || 0);
+      if (el.value !== next) el.value = next;
+    });
+    var note = document.querySelector("[data-pack-byn]");
+    if (note) note.textContent = rubShort_(packagesBynNow()) + " р в цене";
+  }
+
+  function retailWithPacks_(list) {
+    if (!price.packsManual) syncAutoPacks_();
+    var local = retailCalcChoice_(eng(), list, price.retailDelivery);
+    var packs = packagesBynNow();
+    return {
+      mode: local.mode,
+      goods: local.goods,
+      delivery: local.delivery,
+      packagesByn: packs,
+      note: local.note,
+      total: P().retailTotalWithPacks_(local.total, packs)
+    };
+  }
+
+  function keepEnrollFact_(sub) {
+    if (!enroll) return;
+    var prev = price.fact;
+    var cur = enroll.fact;
+    var same = cur === "" || cur == null || String(cur) === String(prev) || (Number(cur) === Number(prev) && String(prev) !== "");
+    if (!same) return;
+    enroll.fact = sub;
+    var el = document.getElementById("cxEnFact");
+    if (el && document.activeElement !== el) el.value = sub === "" || sub == null ? "" : String(sub);
+  }
+
+  function basketCostKey_(list) {
+    return (list || []).map(function (it) {
+      return [it.cat || "", it.main || it.name || "", it.sub || "", it.val != null ? it.val : it.value, it.dog || ""].join("|");
+    }).join(";");
+  }
+
+  function offerFromCost_(list, cost, res) {
     var nOffer = monthN(price.deliveriesN);
-    price.deliveriesN = nOffer;
-    var res = await liveCalc(list, { scheme: price.scheme, coef: price.coef, deliveriesN: nOffer, forNew: 1 });
-    var cost = res ? P().recalcPpCostSum(res, list) : 0;
     var packagesByn = packagesBynNow();
     var quote = P().quotePp({
       scheme: price.scheme,
@@ -1110,36 +1180,49 @@
       note: price.note
     });
     var retail = eng().calcRetailBasketTotal(list, { deliveriesN: nOffer });
-    var apiOk = price.scheme !== "RAW26" || (P().raw26ApiFactUsable_ && P().raw26ApiFactUsable_(res, nOffer));
+    var apiOk = !res || price.scheme !== "RAW26" || (P().raw26ApiFactUsable_ && P().raw26ApiFactUsable_(res, nOffer));
     var fact = apiOk && res ? P().raw26ApiFactPrice_(res) : 0;
-    var sub = fact > 0 ? fact : quote.total;
-    if (fact > 0 && packagesByn) {
-      var factPacks = Number(res && res.packagesByn);
-      if (!(isFinite(factPacks) && factPacks > 0.001)) {
-        sub = Math.round((sub + packagesByn) * 100) / 100;
-      }
-    }
-    if (price.scheme === "RAW26") sub = P().capOfferSubToDisplayedRetail_(sub, retail.total) || sub;
-    var messageOpts = {
+    var factPacks = res && res.packagesByn != null && res.packagesByn !== "" ? res.packagesByn : null;
+    var sub = P().subscriptionOfferWithPacks_({
+      fact: fact,
+      factPacks: factPacks,
+      packagesByn: packagesByn,
+      quoteTotal: quote.total,
+      retailTotal: retail.total,
+      scheme: price.scheme
+    });
+    var message = P().offerMessage({
       scheme: price.scheme,
       mode: "pp",
       list: list,
-      deliveriesN: price.deliveriesN,
+      deliveriesN: nOffer,
       note: price.note,
       retailTotal: retail.total,
       subTotal: sub,
       dogCount: price.dogCount,
       dogNames: price.dogNames
-    };
-    var message = P().offerMessage(messageOpts);
+    });
     return { sub: sub, message: message, packagesByn: packagesByn, cost: cost, fact: fact };
+  }
+
+  async function buildPpOffer(list) {
+    if (!price.packsManual) syncAutoPacks_();
+    var nOffer = monthN(price.deliveriesN);
+    price.deliveriesN = nOffer;
+    var res = await liveCalc(list, { scheme: price.scheme, coef: price.coef, deliveriesN: nOffer, forNew: 1 });
+    var cost = res ? P().recalcPpCostSum(res, list) : (Number(price._cost) || 0);
+    if (cost > 0) {
+      price._cost = cost;
+      price._costKey = basketCostKey_(list);
+    }
+    return offerFromCost_(list, cost, res);
   }
 
   var ppMsgTimer = 0;
   var ppMsgSeq = 0;
 
   function schedulePpMessage() {
-    if (seg !== "calc" || price.mode === "retail") return;
+    if (seg !== "calc") return;
     clearTimeout(ppMsgTimer);
     ppMsgTimer = setTimeout(function () { refreshLiveMessage(); }, 250);
   }
@@ -1174,16 +1257,35 @@
   }
 
   async function refreshLiveMessage() {
-    if (seg !== "calc" || price.mode === "retail") return;
+    if (seg !== "calc") return;
     var list = allItems();
     if (!list.length) return;
     var seq = ++ppMsgSeq;
+    if (!price.packsManual) syncAutoPacks_();
+    paintPackInputs_();
+    if (price.mode === "retail") {
+      var local = retailWithPacks_(list);
+      if (seq !== ppMsgSeq || seg !== "calc" || price.mode !== "retail") return;
+      price.fact = local.total;
+      price.message = P().composeRetailClientMessage(list, local.total, price.note);
+      paintMessage(price.message);
+      return;
+    }
+    if (Number(price._cost) > 0 && price._costKey === basketCostKey_(list)) {
+      var quick = offerFromCost_(list, Number(price._cost), null);
+      if (seq === ppMsgSeq && seg === "calc" && price.mode !== "retail") {
+        keepEnrollFact_(quick.sub);
+        price.fact = quick.sub;
+        price.message = quick.message;
+        paintMessage(quick.message);
+      }
+    }
     var built = await buildPpOffer(list);
     if (seq !== ppMsgSeq || seg !== "calc" || price.mode === "retail") return;
     if (!(built.cost > 0) && !(built.fact > 0) && !(built.packagesByn > 0)) return;
+    keepEnrollFact_(built.sub);
     price.fact = built.sub;
     price.message = built.message;
-    if (enroll && (enroll.fact === "" || enroll.fact == null)) enroll.fact = built.sub;
     paintMessage(built.message);
   }
 
@@ -1191,7 +1293,8 @@
     var list = allItems();
     if (!list.length) { sh().toast("Сначала набери состав"); return; }
     if (price.mode === "retail") {
-      var local = retailCalcChoice_(eng(), list, price.retailDelivery);
+      var local = retailWithPacks_(list);
+      price.fact = local.total;
       price.message = P().composeRetailClientMessage(list, local.total, price.note);
       paint();
       return;
@@ -1200,9 +1303,9 @@
     ppMsgSeq++;
     sh().toast("Считаю…");
     var built = await buildPpOffer(list);
+    keepEnrollFact_(built.sub);
     price.fact = built.sub;
     price.message = built.message;
-    if (enroll && (enroll.fact === "" || enroll.fact == null)) enroll.fact = built.sub;
     paint();
   }
 
@@ -1416,6 +1519,8 @@
     if (!items.length) { sh().toast("Состав пуст"); return; }
     var ok = await sh().confirm({ title: "В лист ПП", text: "Внести " + nick + (enroll.displayName ? " (" + enroll.displayName + ")" : "") + " в лист ПП?", ok: "Внести", cancel: "Отмена" });
     if (!ok) return;
+    var built = await buildPpOffer(items);
+    if (built && (built.sub > 0 || built.packagesByn > 0)) price.fact = built.sub;
     var scheme = price.scheme || P().defaultPpSchemeForNewLocal_();
     var wishes = P().stampPpSchemeIntoWishes_(P().stampPpCoefIntoWishes_(staffWishes_(enroll.note || ""), price.coef), scheme);
     var fact = enroll.fact;
@@ -1434,6 +1539,7 @@
       phone: enroll.phone || "",
       factCost: fact,
       statedTouched: "0",
+      packCounts: packCountsForApi_(),
       basket: items,
       basket2: (Number(enroll.deliveriesN) >= 2 ? (price.baskets[2] || []) : undefined)
     };
@@ -1473,6 +1579,8 @@
       price.packs.medium = pl.packCounts.medium || pl.packCounts.u2 || 0;
       price.packs.large = pl.packCounts.large || pl.packCounts.u3 || 0;
       price.packs.legs = pl.packCounts.legs || pl.packCounts.up4 || 0;
+      var savedPacks = (Number(price.packs.small) || 0) + (Number(price.packs.medium) || 0) + (Number(price.packs.large) || 0) + (Number(price.packs.legs) || 0);
+      price.packsManual = pl.packsManual != null ? !!pl.packsManual : savedPacks > 0;
     }
     if (pl.fracRates) price.fracs = Object.assign(price.fracs, pl.fracRates);
   }
@@ -1684,13 +1792,15 @@
       if (nextMode !== price.mode) price.retailDelivery = "";
       price.mode = nextMode;
       paint();
+      schedulePpMessage();
       return true;
     }
     if (act === "cl-rdel") {
       price.retailDelivery = node.getAttribute("data-v") === "paid" ? "paid" : "free";
       var retailList = allItems();
       if (retailList.length) {
-        var retailPick = retailCalcChoice_(eng(), retailList, price.retailDelivery);
+        var retailPick = retailWithPacks_(retailList);
+        price.fact = retailPick.total;
         price.message = P().composeRetailClientMessage(retailList, retailPick.total, price.note);
       }
       paint();
@@ -2044,17 +2154,13 @@
     var nickEl = document.getElementById("cxEnNick");
     var nick = nickEl ? String(nickEl.value || "").trim() : "";
     if (!nick && enroll) nick = String(enroll.nick || "").replace(/^@+/, "").trim();
-    var paid = retailCalcChoice_(eng(), allItems(), price.retailDelivery).mode === "paid";
+    var priced = retailWithPacks_(allItems());
+    var paid = priced.mode === "paid";
     var payload = root.BoinyaOrderPayload;
     var orders = root.BoinyaOrders;
     if (!payload || !payload.retailOrderSnapshot || !orders || !orders.loadDeferred) return;
     var activeDog = Number(price.dogCount) >= 2 && Number(price.activeDog) === 2 ? 2 : 1;
-    var shown = payload.retailDisplayed({
-      activeDog: activeDog,
-      baskets: price.baskets,
-      retailPaidDelivery: paid
-    }, eng());
-    var priceInput = shown && shown.total != null && (price.baskets[activeDog] || []).length ? String(shown.total) : "";
+    var priceInput = priced.total > 0 && (price.baskets[activeDog] || []).length ? String(priced.total) : "";
     var snap = payload.retailOrderSnapshot({
       client: nick,
       baskets: price.baskets,
@@ -2075,7 +2181,7 @@
     if (nick === null) return;
     var id = editingId || ("def_" + Date.now().toString(36));
     var retail = price.mode === "retail"
-      ? retailCalcChoice_(eng(), list, price.retailDelivery)
+      ? retailWithPacks_(list)
       : eng().calcRetailBasketTotal(list, { deliveriesN: price.deliveriesN });
     var payload = {
       mode: price.mode,
@@ -2084,6 +2190,7 @@
       activeDog: price.activeDog,
       dogNames: price.dogNames,
       packCounts: price.packs,
+      packsManual: !!price.packsManual,
       note: price.note,
       lastMessage: price.message,
       deliveriesN: price.deliveriesN,

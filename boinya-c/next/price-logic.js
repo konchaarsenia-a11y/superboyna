@@ -2160,6 +2160,34 @@ var ASM_CHEW_PER_BIG = 4;
       return sub > cap + 0.001 ? cap : sub;
     }
 
+    /**
+     * Цена подписки с доплатой за пакеты.
+     * Факт сервера уже может содержать свои пакеты: подменяем их текущими
+     * (авто или ручными), затем снова режем потолком 92% от розницы.
+     * Если сервер пакеты не вернул — берём локальный итог, в нём пакеты уже есть.
+     */
+    function subscriptionOfferWithPacks_(opts) {
+      opts = opts || {};
+      var packagesByn = money2_(opts.packagesByn);
+      var quoteTotal = money2_(opts.quoteTotal);
+      var fact = Number(opts.fact);
+      var hasFact = isFinite(fact) && fact > 0;
+      var rawPacks = opts.factPacks;
+      var knownPacks = rawPacks != null && rawPacks !== "" && isFinite(Number(rawPacks));
+      var sub;
+      if (!hasFact) sub = quoteTotal;
+      else if (!knownPacks) sub = quoteTotal > 0 ? quoteTotal : money2_(fact);
+      else sub = money2_(fact + (packagesByn - Number(rawPacks)));
+      if (String(opts.scheme || "").toUpperCase() === "RAW26") {
+        sub = capOfferSubToDisplayedRetail_(sub, opts.retailTotal);
+      }
+      return sub;
+    }
+
+    function retailTotalWithPacks_(retailTotal, packagesByn) {
+      return money2_((Number(retailTotal) || 0) + (Number(packagesByn) || 0));
+    }
+
     /** Месячное N. «2», «2/мес», «2 доставки» → 2. Слот «1/2» → знаменатель 2, не 1. */
     function monthDeliveriesN_(raw) {
       if (typeof raw === "number" && isFinite(raw) && raw >= 1) return Math.max(1, Math.round(raw));
@@ -2535,6 +2563,8 @@ var ASM_CHEW_PER_BIG = 4;
     raw26RetailCapBase_: raw26RetailCapBase_,
     recoverBynFromBasketLocal_: recoverBynFromBasketLocal_,
     capOfferSubToDisplayedRetail_: capOfferSubToDisplayedRetail_,
+    subscriptionOfferWithPacks_: subscriptionOfferWithPacks_,
+    retailTotalWithPacks_: retailTotalWithPacks_,
     composePpClientMessage: composePpClientMessage,
     monthDeliveriesN_: monthDeliveriesN_,
     raw26ApiFactUsable_: raw26ApiFactUsable_,
