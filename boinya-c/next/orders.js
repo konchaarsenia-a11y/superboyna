@@ -97,7 +97,7 @@
   }
 
   function blankPicker() {
-    return { cat: "chew", q: "", name: "", sub: "", qty: 200, kind: "meat", sources: [], open: false };
+    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "meat", sources: [], open: false };
   }
 
   function esc(s) { return sh().esc(s); }
@@ -614,9 +614,12 @@
     var parsed = parseGramText_(node.value);
     if (kind === "pqty-in") {
       if (parsed.n) picker.qty = parsed.n;
-      else if (commit) {
+      else if (parsed.empty) {
+        picker.qty = "";
+        if (commit) sh().toast(gramHint_(parsed));
+      } else if (commit) {
         sh().toast(gramHint_(parsed));
-        node.value = String(picker.qty || "");
+        node.value = picker.qty == null || picker.qty === "" ? "" : String(picker.qty);
       }
       return;
     }
@@ -1061,10 +1064,19 @@
 
   function gramQtyHtml(act, value, unit, extra) {
     extra = extra || "";
+    var empty = value == null || value === "";
     return '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="' + act + '" data-dir="-1"' + extra + ' aria-label="Меньше">−</button>' +
-      '<input class="b-step__input" data-act="' + act + '-in" inputmode="numeric" enterkeyhint="done" autocomplete="off" aria-label="Граммы" value="' + esc(value == null ? "" : value) + '"' + extra + ">" +
+      '<input class="b-step__input" data-act="' + act + '-in" inputmode="numeric" enterkeyhint="done" autocomplete="off" aria-label="Граммы" placeholder="г" value="' + esc(empty ? "" : value) + '"' + extra + ">" +
       '<span class="b-step__unit">' + esc(unit) + "</span>" +
       '<button class="b-step__btn" type="button" data-act="' + act + '" data-dir="1"' + extra + ' aria-label="Больше">+</button></div>';
+  }
+
+  /** Плюс с пустого поля ставит 5 г. Минус с пустого ничего не подставляет. */
+  function gramBump_(qty, dir) {
+    var parsed = parseGramText_(qty);
+    if (!parsed.n) return Number(dir) < 0 ? "" : 5;
+    var next = gramStep_(parsed.n, dir);
+    return next <= 0 ? "" : next;
   }
 
   function pieceQty_(cat, name, unit) {
@@ -1095,8 +1107,12 @@
     var e = eng();
     var btn = "В состав";
     if (picker.cat !== "crumb" && picker.name && state.orderType === "retail") {
-      var cost = e.retailLineCost(picker.name, picker.sub, picker.qty, picker.cat, { main: picker.name });
-      if (cost && cost.found) btn += ", " + money(cost.cost) + " BYN";
+      var unitFoot = extraUnit_(picker.cat, picker.name) || e.unitForItem(picker.cat, picker.name);
+      var qtyFoot = pieceQty_(picker.cat, picker.name, unitFoot) ? Number(picker.qty) : (parseGramText_(picker.qty).n || 0);
+      if (qtyFoot >= 1) {
+        var cost = e.retailLineCost(picker.name, picker.sub, qtyFoot, picker.cat, { main: picker.name });
+        if (cost && cost.found) btn += ", " + money(cost.cost) + " BYN";
+      }
     }
     return '<button class="b-btn b-btn--main" type="button" data-act="padd">' + esc(btn) + "</button>";
   }
@@ -1367,7 +1383,17 @@
       sh().toast("Выберите фракцию");
       return;
     }
-    var row = { cat: picker.cat, main: picker.name, name: picker.name, sub: picker.sub || "", value: picker.qty || 1 };
+    var addUnit = extraUnit_(picker.cat, picker.name) || e.unitForItem(picker.cat, picker.name);
+    var addQty = picker.qty;
+    if (!pieceQty_(picker.cat, picker.name, addUnit)) {
+      var addParsed = parseGramText_(picker.qty);
+      if (!addParsed.n) { sh().toast(gramHint_(addParsed)); return; }
+      addQty = addParsed.n;
+    } else if (!(Number(addQty) >= 1)) {
+      sh().toast("Нужны штуки");
+      return;
+    }
+    var row = { cat: picker.cat, main: picker.name, name: picker.name, sub: picker.sub || "", value: addQty };
     var xu = extraUnit_(picker.cat, picker.name);
     if (xu) row.unit = xu;
     pushItem(row);
@@ -1583,10 +1609,10 @@
     var goneName = name;
     var goneKey = state.editOriginalMatchKey || "";
     state = blank();
-    sh().toast(res && res.sheetsVerified ? "Точно отменено" : "Отменяю…");
-    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) {
-      root.BoinyaWeek.noteMonth({ op: "remove", date: goneDate, client: { name: goneName, matchKey: goneKey } });
-    }
+    var goneChange = { op: "remove", date: goneDate, client: { name: goneName, matchKey: goneKey } };
+    if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "удалено", goneChange);
+    else sh().toast(res && res.sheetsVerified ? "Точно отменено" : "Отменяю…");
+    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) root.BoinyaWeek.noteMonth(goneChange);
     if (root.__nxOpenWeek) root.__nxOpenWeek();
   }
 
@@ -1738,33 +1764,32 @@
     if (savedSurvey && root.BoinyaBpWeeks && savedSurvey.advance !== "refresh" && String(savedSurvey.status || "") !== "ФИНАЛ") {
       try { await api().apiPost(root.BoinyaBpWeeks.remindBody(clientName, savedSurvey.ownerTelegramId || telegramId())); } catch (eRm) {}
     }
-    if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено");
-    else sh().toast(msgOut.text);
     var whClient = clientName;
     var whDay = weekDay || state.day || "";
     var whDate = state.deliveryDate || "";
     var whBasket = [];
     try { whBasket = eng().buildOrderSaveBasket_() || []; } catch (eWh) {}
-    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) {
-      root.BoinyaWeek.noteMonth({
-        op: "save",
-        date: whDate,
-        oldDate: state.isEdit ? (state.editOriginalDate || "") : "",
-        oldClient: state.isEdit ? (state.editOriginalClient || "") : "",
-        oldMatchKey: state.isEdit ? (state.editOriginalMatchKey || "") : "",
-        client: {
-          name: whClient,
-          matchKey: state.isEdit ? (state.editOriginalMatchKey || "") : "",
-          address: street,
-          phone: state.phone || "",
-          orderType: state.orderType,
-          orderPrice: priceShow,
-          day: whDay,
-          basket: whBasket,
-          note: book.note || ""
-        }
-      });
-    }
+    var savedChange = {
+      op: "save",
+      date: whDate,
+      oldDate: state.isEdit ? (state.editOriginalDate || "") : "",
+      oldClient: state.isEdit ? (state.editOriginalClient || "") : "",
+      oldMatchKey: state.isEdit ? (state.editOriginalMatchKey || "") : "",
+      client: {
+        name: whClient,
+        matchKey: state.isEdit ? (state.editOriginalMatchKey || "") : "",
+        address: street,
+        phone: state.phone || "",
+        orderType: state.orderType,
+        orderPrice: priceShow,
+        day: whDay,
+        basket: whBasket,
+        note: book.note || ""
+      }
+    };
+    if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено", savedChange);
+    else sh().toast(msgOut.text);
+    if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) root.BoinyaWeek.noteMonth(savedChange);
     remember();
     clearDraft();
     var keepDate = state.deliveryDate;
@@ -1975,14 +2000,14 @@
       picker.cat = node.getAttribute("data-cat");
       picker.name = "";
       picker.sub = "";
-      picker.qty = picker.cat === "chew" ? 1 : 200;
+      picker.qty = picker.cat === "chew" ? 1 : "";
       rebuildAdd(null);
       return true;
     }
     if (act === "pname") {
       picker.name = node.getAttribute("data-name");
       picker.sub = "";
-      picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : 200;
+      picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : "";
       patchPick();
       return true;
     }
@@ -1995,7 +2020,7 @@
       picker.name = nextName;
       picker.sub = nextSub;
       if (!sameHit) {
-        picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : 200;
+        picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : "";
       }
       patchPick();
       return true;
@@ -2006,8 +2031,8 @@
       var pickUnit = picker.name ? (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) : "";
       var pickPiece = pieceQty_(picker.cat, picker.name, pickUnit);
       var pickDir = Number(node.getAttribute("data-dir"));
-      var pickNext = pickPiece ? Number(picker.qty) + pickDir : gramStep_(picker.qty, pickDir);
-      picker.qty = Math.max(1, pickNext);
+      if (pickPiece) picker.qty = Math.max(1, Number(picker.qty) + pickDir);
+      else picker.qty = gramBump_(picker.qty, pickDir);
       if (picker.cat === "crumb") rebuildAdd(null);
       else patchPick();
       return true;
@@ -2326,6 +2351,7 @@
     rankCatalogName: rankCatalogName,
     catalogSearchRows: catalogSearchRows,
     gramStep_: gramStep_,
+    gramBump_: gramBump_,
     parseGramText_: parseGramText_,
     gramQtyHtml: gramQtyHtml,
     crumbBuilderHtml: crumbBuilderHtml,

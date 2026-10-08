@@ -376,7 +376,16 @@
     return false;
   }
 
-  root.BoinyaTemplates = { bind: function (a) { access = a; }, show: show, onAct: onAct, blurb: blurb, noteOf: noteOf, cardText: cardText };
+  function refreshQuiet() {
+    if (form || !document.querySelector("[data-act='tpl-add']")) return;
+    var a = document.activeElement;
+    if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
+    load(true).then(function () {
+      if (!form && document.querySelector("[data-act='tpl-add']")) paint();
+    }).catch(function () {});
+  }
+
+  root.BoinyaTemplates = { bind: function (a) { access = a; }, show: show, onAct: onAct, refreshQuiet: refreshQuiet, blurb: blurb, noteOf: noteOf, cardText: cardText };
 })(typeof window !== "undefined" ? window : globalThis);
 if (typeof module !== "undefined" && module.exports) {
   module.exports = (typeof window !== "undefined" ? window : globalThis).BoinyaTemplates;

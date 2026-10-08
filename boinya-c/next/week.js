@@ -893,27 +893,26 @@
       orderType: ot
     });
     var res = await api().apiGet(params, { timeoutMs: 35000, cacheTtlMs: 0 });
-    confirmWrite(res, "перенесено");
-    if (logic().writeAccepted(res)) {
-      noteMonth({
-        op: "move",
-        date: newDate,
-        oldDate: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
-        client: {
-          name: c.name,
-          matchKey: c.matchKey || "",
-          address: c.address || "",
-          phone: c.phone || "",
-          note: c.note || "",
-          segment: c.segment || "",
-          orderType: ot,
-          basket: c.basket || [],
-          orderPrice: c.orderPrice,
-          ppSlot: c.ppSlot || "",
-          day: newDay
-        }
-      });
-    }
+    var moveChange = {
+      op: "move",
+      date: newDate,
+      oldDate: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
+      client: {
+        name: c.name,
+        matchKey: c.matchKey || "",
+        address: c.address || "",
+        phone: c.phone || "",
+        note: c.note || "",
+        segment: c.segment || "",
+        orderType: ot,
+        basket: c.basket || [],
+        orderPrice: c.orderPrice,
+        ppSlot: c.ppSlot || "",
+        day: newDay
+      }
+    };
+    confirmWrite(res, "перенесено", moveChange);
+    if (logic().writeAccepted(res)) noteMonth(moveChange);
   }
 
   async function delOne(c) {
@@ -936,14 +935,13 @@
       calendarOnly: view.calendarOnly
     });
     var res = await api().apiGet(params, { timeoutMs: 30000, cacheTtlMs: 0 });
-    confirmWrite(res, "удалено");
-    if (logic().writeAccepted(res)) {
-      noteMonth({
-        op: "remove",
-        date: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
-        client: c
-      });
-    }
+    var delChange = {
+      op: "remove",
+      date: selectedInView() ? view.date : String((c && (c._sumDate || c.dateIso || c.date)) || view.date || "").slice(0, 10),
+      client: c
+    };
+    confirmWrite(res, "удалено", delChange);
+    if (logic().writeAccepted(res)) noteMonth(delChange);
   }
 
   async function setSlot(c, slot) {
@@ -1029,7 +1027,66 @@
     return new Promise(function (r) { setTimeout(r, ms); });
   }
 
-  function confirmWrite(res, done) {
+  function reverseChange(ch) {
+    if (!ch || ch.op === "touch") return null;
+    var date = String(ch.date || "").slice(0, 10);
+    var oldDate = String(ch.oldDate || "").slice(0, 10);
+    var client = ch.client || {};
+    if (ch.op === "remove") return { op: "save", date: date, client: client, known: true };
+    if (ch.op === "move" || (oldDate && date && oldDate !== date)) {
+      return { op: "move", date: oldDate, oldDate: date, client: client };
+    }
+    if (ch.op === "save" && ch.oldClient) {
+      return {
+        op: "save",
+        date: date,
+        client: {
+          name: ch.oldClient,
+          matchKey: ch.oldMatchKey || client.matchKey || "",
+          segment: client.segment,
+          orderType: client.orderType
+        },
+        oldClient: client.name || "",
+        oldMatchKey: client.matchKey || ""
+      };
+    }
+    if (ch.op === "save") return { op: "remove", date: date, client: client };
+    return null;
+  }
+
+  function dropPendingLike(ch) {
+    var date = String(ch.date || "").slice(0, 10);
+    var oldDate = String(ch.oldDate || "").slice(0, 10);
+    var name = logic().viewClientKey((ch.client && (ch.client.matchKey || ch.client.name)) || ch.oldClient || "");
+    pending = pending.filter(function (p) {
+      var who = logic().viewClientKey((p.client && (p.client.matchKey || p.client.name)) || "");
+      if (name && who && who !== name) return true;
+      var pd = String(p.date || "").slice(0, 10);
+      var po = String(p.oldDate || "").slice(0, 10);
+      if (date && pd !== date && po !== date && pd !== oldDate) return true;
+      return false;
+    });
+  }
+
+  function rollbackChanges(change) {
+    var list = Array.isArray(change) ? change : [change];
+    var months = {};
+    list.forEach(function (ch) {
+      if (!ch) return;
+      dropPendingLike(ch);
+      var rev = reverseChange(ch);
+      if (rev) monthStores().forEach(function (st) { logic().applyMonthChange(st, rev); });
+      if (ch.date) months[String(ch.date).slice(0, 7)] = 1;
+      if (ch.oldDate) months[String(ch.oldDate).slice(0, 7)] = 1;
+    });
+    paintMonthQuiet();
+    Object.keys(months).forEach(function (m) {
+      if (m && m.length >= 7) silentRefreshMonth(m);
+    });
+    sh().toast("Не закрепилось, вернул как было");
+  }
+
+  function confirmWrite(res, done, change) {
     sh().toast(logic().peopleToast(res, done || "сохранено"));
     var writeId = res && String(res.writeId || "").trim();
     if (!res || !writeId || res.sheetsVerified) return;
@@ -1049,7 +1106,8 @@
           return;
         }
         if (p && p.status === "error" && !p.pendingSheets && !p.pendingSheetsMirror && !p.d1Verified) {
-          sh().toast("Не закрепилось в Google-таблице" + (p.message ? (": " + p.message) : ""));
+          if (change) rollbackChanges(change);
+          else sh().toast("Не закрепилось, вернул как было");
           return;
         }
       }

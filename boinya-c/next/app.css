@@ -58,6 +58,15 @@ body.nx-kb #nxNav {
   display: none;
 }
 
+body.nx-kb .nx-sheet {
+  max-height: min(92dvh, var(--nx-vvh, 70dvh));
+}
+
+body.nx-kb #nxMain,
+body.nx-kb .nx-sheet__body {
+  scroll-padding-bottom: var(--nx-kb, 24px);
+}
+
 .nx-main {
   flex: 1;
   min-height: 0;

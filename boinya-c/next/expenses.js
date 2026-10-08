@@ -228,7 +228,22 @@
       sh().toast("Нужны дата и сумма");
       return;
     }
-    sh().toast("Сохраняю…");
+    var prevPack = pack;
+    var optimistic = {
+      id: "tmp_" + Date.now(),
+      date: draft.date,
+      amount: amount,
+      category: draft.category,
+      comment: draft.comment || "",
+      object: draft.object || "",
+      personal: !!personal,
+      actorName: (access && access.name) || ""
+    };
+    pack = Object.assign({}, pack || { expenses: [] }, {
+      expenses: ((pack && pack.expenses) || []).concat([optimistic])
+    });
+    lastHtml = "";
+    paint();
     var res = null;
     try {
       res = await api().apiPost({
@@ -243,7 +258,10 @@
       });
     } catch (e) { res = null; }
     if (!res || res.status !== "success") {
-      sh().toast("Не записалось");
+      pack = prevPack;
+      lastHtml = "";
+      paint();
+      sh().toast("Не закрепилось, вернул как было");
       return;
     }
     sh().closeAll();
@@ -257,9 +275,23 @@
   async function remove(id) {
     var ok = await sh().confirm({ title: "Удалить расход", text: "Убрать эту строку из журнала?", ok: "Удалить", danger: true });
     if (!ok) return;
+    var prevPack = pack;
+    if (pack && pack.expenses) {
+      pack = Object.assign({}, pack, {
+        expenses: pack.expenses.filter(function (row) { return String(row.id) !== String(id); })
+      });
+      lastHtml = "";
+      paint();
+    }
     var res = null;
     try { res = await api().apiPost({ action: "deleteOwnerExpense", id: id }); } catch (e) { res = null; }
-    if (!res || res.status !== "success") { sh().toast("Не удалилось"); return; }
+    if (!res || res.status !== "success") {
+      pack = prevPack;
+      lastHtml = "";
+      paint();
+      sh().toast("Не закрепилось, вернул как было");
+      return;
+    }
     pack = res;
     paint();
   }
@@ -361,9 +393,18 @@
     return false;
   }
 
+  function refreshQuiet() {
+    if (!document.getElementById("expRoot")) return;
+    var a = document.activeElement;
+    var box = document.getElementById("expRoot");
+    if (a && box.contains(a)) return;
+    showInto({ force: true });
+  }
+
   root.BoinyaExpenses = {
     bind: bind,
     showInto: showInto,
+    refreshQuiet: refreshQuiet,
     onAct: onAct,
     remindLight: remindLight,
     refreshLightCard: refreshLightCard

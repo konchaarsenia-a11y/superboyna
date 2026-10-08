@@ -762,19 +762,32 @@
     var goal = findGoal(id);
     if (!goal || goal.kind !== "task" || saving) return;
     var today = logic().periodBounds("day", new Date()).from;
+    var prev = { done: !!goal.done, doneAt: goal.doneAt || "" };
     var next = Object.assign({}, goal, {
       done: !goal.done,
       doneAt: goal.done ? "" : today
     });
+    replaceLocal(next);
+    paint(true);
     saving = true;
     var saved = await persist(next);
     saving = false;
     if (!saved) {
-      sh().toast("Не удалось сохранить");
+      replaceLocal(Object.assign({}, next, prev));
+      paint(true);
+      sh().toast("Не закрепилось, вернул как было");
       return;
     }
     replaceLocal(saved);
     paint(true);
+  }
+
+  function refreshQuiet() {
+    if (!document.getElementById("goalsRoot")) return;
+    var a = document.activeElement;
+    var rootEl = document.getElementById("goalsRoot");
+    if (a && rootEl && rootEl.contains(a) && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
+    load(++gen, true);
   }
 
   async function editTask(id) {
@@ -1042,6 +1055,7 @@
     bind: bind,
     show: show,
     leave: leave,
+    refreshQuiet: refreshQuiet,
     onAct: onAct
   };
 })(window);

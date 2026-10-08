@@ -436,6 +436,14 @@
       patch = Object.assign({}, patch);
       delete patch.surplus;
     }
+    var prevFlag = cutFlags[cutKey(it)];
+    var flagBefore = prevFlag ? {
+      laid: prevFlag.laid,
+      done: prevFlag.done,
+      outNext: prevFlag.outNext,
+      surplus: prevFlag.surplus,
+      ts: prevFlag.ts
+    } : null;
     rememberCut(it, patch);
     var params = { action: "updateCutting", day: day, row: String(it.row || ""), _: String(Date.now()) };
     if (it.name) params.name = it.name;
@@ -459,7 +467,14 @@
         if (post && post.status !== "error") ok = true;
       } catch (ePost) {}
     }
-    if (!ok) sh().toast("Галочка не сохранилась — нажми ещё раз");
+    if (!ok) {
+      if (patch.laid !== undefined) it.laid = !patch.laid;
+      if (patch.done !== undefined) it.done = !patch.done;
+      if (patch.outNext !== undefined) it.outNext = !patch.outNext;
+      if (flagBefore) cutFlags[cutKey(it)] = flagBefore;
+      else delete cutFlags[cutKey(it)];
+      sh().toast("Не закрепилось, вернул как было");
+    }
     return ok;
   }
 
@@ -646,6 +661,7 @@
       var ok = await sh().confirm({ title: "Завершить нарезку", text: "Все позиции уже отмечены. Завершить нарезку?", ok: "Завершить" });
       if (!ok) return;
     }
+    var cutSnap = cutItems.map(function (x) { return { done: !!x.done, laid: !!x.laid }; });
     ready.forEach(function (r) {
       cutItems.forEach(function (x) {
         if ((r.name && String(x.name) === String(r.name)) || Number(x.row) === Number(r.row)) {
@@ -686,7 +702,13 @@
       } catch (e2) {}
     }
     if (!res || res.status !== "success") {
-      sh().toast("Не удалось сохранить завершение нарезки");
+      cutItems.forEach(function (x, idx) {
+        if (!cutSnap[idx]) return;
+        x.done = cutSnap[idx].done;
+        x.laid = cutSnap[idx].laid;
+      });
+      paintCut();
+      sh().toast("Не закрепилось, вернул как было");
       return;
     }
     cutSession.active = false;
@@ -811,7 +833,7 @@
       row.factDryG = prev;
       row.fromFact = prev != null && prev !== "";
       row.rawKg = dryRawKg_(row.fromFact ? prev : row.planDryG, row.coef);
-      sh().toast("Не удалось сохранить вес");
+      sh().toast("Не закрепилось, вернул как было");
       paintAsm();
     }
   }
@@ -979,7 +1001,7 @@
       c.printed = prev.printed;
       asmFlags[key] = { assembled: c.assembled, printed: c.printed, ts: Date.now() };
       try { overlayCour(cour, (asm && asm.clients) || []); } catch (eOv2) {}
-      sh().toast("Не удалось сохранить");
+      sh().toast("Не закрепилось, вернул как было");
       paintAsm();
     }
   }
@@ -1725,7 +1747,7 @@
     } catch (e) {
       client.delivered = !delivered;
       courFlags[String(client.name || "").trim().toUpperCase()] = { delivered: !delivered, ts: Date.now() };
-      sh().toast("Не удалось сохранить галочку");
+      sh().toast("Не закрепилось, вернул как было");
       paintRoute();
     }
   }
@@ -2078,6 +2100,13 @@
     depotHasCoords: depotHasCoords,
     windowLabel: windowLabel,
     pauseBackground: pauseBackground,
-    resumeBackground: resumeBackground
+    resumeBackground: resumeBackground,
+    refreshQuiet: function () {
+      var a = document.activeElement;
+      if (a && a.closest && a.closest("#nxMain") && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
+      if (seg === "cut" && document.getElementById("nxCutDay")) loadCut();
+      else if (seg === "pack" && document.getElementById("nxAsmDay")) loadAsm(true);
+      else if (seg === "route" && document.getElementById("nxCourDay")) loadCour(true);
+    }
   };
 })(typeof window !== "undefined" ? window : globalThis);
