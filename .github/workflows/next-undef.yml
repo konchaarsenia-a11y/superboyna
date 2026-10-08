@@ -7,6 +7,7 @@ on:
       - "boinya-c/proxy/worker.js"
       - "Code.gs"
       - "scripts/check-next-undef.mjs"
+      - "scripts/check-worker-build.mjs"
       - "scripts/next-lint/**"
       - ".github/workflows/next-undef.yml"
   push:
@@ -16,6 +17,7 @@ on:
       - "boinya-c/proxy/worker.js"
       - "Code.gs"
       - "scripts/check-next-undef.mjs"
+      - "scripts/check-worker-build.mjs"
       - "scripts/next-lint/**"
       - ".github/workflows/next-undef.yml"
 
@@ -31,6 +33,8 @@ jobs:
         run: npm ci --prefix scripts/next-lint
       - name: no-undef in next/*.js
         run: node scripts/check-next-undef.mjs
+      - name: Worker syntax and const assign
+        run: node scripts/check-worker-build.mjs
       - name: apiGet ping smoke
         run: node boinya-c/next/boot-reload.test.mjs
       - name: notes roundtrip

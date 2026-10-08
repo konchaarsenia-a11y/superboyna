@@ -6,6 +6,7 @@
 
   var ORIGIN = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var mem = Object.create(null);
+  var memGen = 0;
   var inflight = Object.create(null);
   var busyN = 0;
   var busyTimer = null;
@@ -321,7 +322,8 @@
 
   var WRITE = /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveSubscription|saveDeferred|setDeferredReminder|requestAccess|reportBug|notifyMissedDelivery|placeTransferTask)$/i;
 
-  function remember(key, ttl, res) {
+  function remember(key, ttl, res, gen) {
+    if (gen != null && gen !== memGen) return;
     if (!(ttl > 0) || !key || !res) return;
     if (res.status && res.status !== "success") return;
     var now = Date.now();
@@ -335,6 +337,7 @@
   var MONTH_READS = ["getMonthOverview", "getCalendarMonthPeople", "getViewCompare", "getWeekDayCounts"];
 
   function bustMem(actions) {
+    memGen++;
     var want = null;
     if (actions && actions.length) {
       want = {};
@@ -390,8 +393,9 @@
 
   function refresh(params, opts, key, ttl) {
     if (key && inflight[key]) return;
+    var seenGen = memGen;
     var p = network(params, opts).then(function (res) {
-      remember(key, ttl, res);
+      remember(key, ttl, res, seenGen);
       return res;
     }).finally(function () {
       if (key && inflight[key] === p) delete inflight[key];
@@ -409,6 +413,7 @@
       });
     }
     var ttl = opts.cacheTtlMs != null ? opts.cacheTtlMs : 0;
+    var seenGen = memGen;
     var key = cacheKey(params);
     var now = Date.now();
     var hit = !opts.bypassMem && key ? mem[key] : null;
@@ -430,7 +435,7 @@
     trackStart();
     var p = runChain(retries).then(function (res) {
       if (WRITE.test(action) || isMutating(action)) noteWrite(res, action);
-      remember(key, ttl, res);
+      remember(key, ttl, res, seenGen);
       return res;
     }).finally(function () {
       if (key && inflight[key] === p) delete inflight[key];
