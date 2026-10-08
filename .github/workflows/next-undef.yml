@@ -41,3 +41,5 @@ jobs:
         run: node boinya-c/next/notes-save.test.mjs
       - name: subs gate gone
         run: node boinya-c/next/subs-gate.test.mjs
+      - name: card composition text
+        run: node boinya-c/next/card-comp.test.mjs

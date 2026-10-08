@@ -320,7 +320,7 @@
     var val = it.val != null ? it.val : it.value;
     var mix = root.BoinyaCrumbMix;
     var body;
-    var grams = lineGramHtml_(it, i, "cl-gqty");
+    var grams = view === "card" ? "" : lineGramHtml_(it, i, "cl-gqty");
     if (mix && mix.isCrumb(it) && mix.rowHtml) {
       body = '<div class="b-grow">' + mix.rowHtml(it, function (name) {
         return (eng() && eng().prettyProductName) ? eng().prettyProductName(name) : name;
