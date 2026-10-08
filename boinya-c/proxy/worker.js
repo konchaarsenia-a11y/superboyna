@@ -10784,7 +10784,7 @@ async function saveOrder_(params, env, asBooking) {
       } catch (eProtSave) {}
     }
   } catch (eWgEarly) {}
-  const meta = {
+  let meta = {
     orderPrice: params.orderPrice,
     ppSlot: sanitizePpSlotLabel_(params.ppSlot != null ? params.ppSlot : params.deliverySlot),
     deliverySlot: (function () {

@@ -168,6 +168,8 @@ const payload1 = wApi.clampPpMetaToDeliveriesN_({ ppSlot: "2", deliveriesN: 1 },
 assert(payload1.ppSlot === "1" && payload1.deliverySlot === 1, "payload N=1 still becomes slot 1");
 
 assert(worker.indexOf("clampPpOrderSlotToCard_") > 0, "save path asks the card");
+assert(sliceFn(worker, "saveOrder_").indexOf("let meta = {") > 0, "meta stays assignable for the card clamp");
+assert(sliceFn(worker, "saveOrder_").indexOf("const meta = {") < 0, "saveOrder does not freeze meta");
 assert(sliceFn(worker, "saveOrder_").indexOf("day_name != ?") < 0, "save no longer deletes every other day");
 const ordersUi = readFileSync(join(root, "boinya-c/next/orders.js"), "utf8");
 assert(ordersUi.indexOf("Одна доставка в месяц, слот ПП1") > 0, "N=1 hides the PP2 button");
