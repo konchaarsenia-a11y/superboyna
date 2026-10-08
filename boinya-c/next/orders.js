@@ -425,9 +425,13 @@
     var html = "";
     if (state.orderType === "pp") {
       html += '<button type="button" class="nx-link" data-act="from-pp">Из подписки ПП</button>';
-      html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="nx-pp-toggle" role="group" aria-label="Слот ПП">' +
-        segBtn("pp1", "ПП1", state.ppSlotManual === 1) +
-        segBtn("pp2", "ПП2", state.ppSlotManual === 2) + "</div>";
+      if (state.deliveriesN === 1) {
+        html += '<p class="b-note">Одна доставка в месяц, слот ПП1</p>';
+      } else {
+        html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="nx-pp-toggle" role="group" aria-label="Слот ПП">' +
+          segBtn("pp1", "ПП1", state.ppSlotManual === 1) +
+          segBtn("pp2", "ПП2", state.ppSlotManual === 2) + "</div>";
+      }
       html += '<p class="b-lbl">Цена ПП, BYN</p>' + field("priceInput", state.priceInput, "из листа ПП", 'inputmode="decimal"');
       if (ppFact && (ppFact.factCost != null || ppFact.statedCost != null)) {
         var fact = ppFact.factCost != null ? ppFact.factCost : ppFact.statedCost;
@@ -763,6 +767,7 @@
     if (!res || res.status !== "success") return;
     ppFact = res;
     state.deliveriesN = Number(res.deliveries) || 0;
+    if (state.deliveriesN === 1) state.ppSlotManual = 1;
     state.needManualSlot = !!(res.needManualSlot && state.deliveriesN >= 2);
     if (!(state.ppSlotManual === 1 || state.ppSlotManual === 2) && state.deliveriesN >= 2) {
       var suggested = Number(res.suggestedSlot || res.deliverySlot) || 1;

@@ -5696,36 +5696,28 @@ function handleSaveOrder(ss, json, callback, fromPost) {
 
   var clientCol = -1;
   var mgrNicks = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
+  var mgrNotes = targetSheet.getRange(block.note, 3, 1, 15).getValues()[0];
   var editClient = String(json.editClient || json.originalClient || "").trim();
   var wantMatchKey = String(json.matchKey || "").trim();
-  // 1) правка: колонка по matchKey / старому нику
-  if (wantMatchKey || editClient) {
-    for (var ie = 0; ie < 15; ie++) {
-      var nickE = mgrNicks[ie];
-      if (!nickE) continue;
-      if (wantMatchKey && clientMatchKey_(nickE) === wantMatchKey) {
-        clientCol = ie + 3;
-        break;
-      }
-      if (editClient && nicksMatch_(nickE, editClient)) {
-        clientCol = ie + 3;
-        break;
-      }
-    }
-  }
-  // 2) обычный матч по текущему нику
+  var otSave = String(json.orderType || json.source || "").trim().toLowerCase();
+  var segSave = segmentLabelFromOrderType_(otSave);
+  if (!segSave) segSave = extractSegmentFromNote_(String(json.note || ""));
+  var hasOtherSeg = false;
+  try {
+    var dateForSeg = getDayDate_(ss, json.day) || parseFlexibleDate_(json.date || json.deliveryDate, tzSo);
+    if (dateForSeg) hasOtherSeg = calendarHasOtherSegment_(ss, dateForSeg, json.client, segSave);
+  } catch (eOthSeg) {}
+  var pickedCol = weekClientColForSegment_(mgrNicks, mgrNotes, json.client, segSave, {
+    editClient: editClient,
+    matchKey: wantMatchKey,
+    isEdit: !!(json.isEdit || json.oldDay || json.editDay || editClient),
+    oldDay: json.oldDay || json.editDay || "",
+    hasOtherSegment: hasOtherSeg
+  });
+  if (pickedCol && pickedCol.col >= 3) clientCol = pickedCol.col;
+  // Новая колонка, если тип другой или клиента ещё нет.
+  // matchKey сам по себе НЕ значит «правка» (Worker всегда шлёт matchKey).
   if (clientCol === -1) {
-    for (var i = 0; i < 15; i++) {
-      if (nicksMatch_(mgrNicks[i], json.client)) {
-        clientCol = i + 3;
-        break;
-      }
-    }
-  }
-  // 3) новая колонка — если не нашли по нику/matchKey.
-  // ВАЖНО: matchKey сам по себе НЕ значит «правка» (Worker всегда шлёт matchKey).
-  // Раньше при matchKey + новый клиент → no_free_columns → лист «Будущая» не писался.
-  if (clientCol === -1 && !editClient) {
     for (var colIdx = 3; colIdx <= 17; colIdx++) {
       if (String(targetSheet.getRange(block.nick, colIdx).getValue() || "").trim() === "") {
         clientCol = colIdx;
@@ -5761,9 +5753,6 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
   // note = только текст менеджера; тип/цена/слот — в Календарь_Дат / Брони
   var cleanNote = stripTechFromNote_(String(json.note || ""));
-  var otSave = String(json.orderType || json.source || "").trim().toLowerCase();
-  var segSave = segmentLabelFromOrderType_(otSave);
-  if (!segSave) segSave = extractSegmentFromNote_(String(json.note || ""));
   var op = json.orderPrice;
   var orderPriceSave = "";
   if (segSave !== "БП" && op != null && op !== "" && !isNaN(Number(op))) {
@@ -5825,6 +5814,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   var noteToWrite = keepNonEmptySheetField_(cleanNote, existingNote, allowEmptyOverwrite || String(json.clearNote || "") === "1");
   var noCutSave = resolveNoCutFlag_(json, [json.note, cleanNote, existingNote]);
   noteToWrite = applyNoCutToNote_(noteToWrite, noCutSave);
+  if (segSave) noteToWrite = (noteToWrite ? noteToWrite + " " : "") + "[SEG:" + segSave + "]";
   if (noteToWrite) targetSheet.getRange(block.note, clientCol).setValue(noteToWrite);
   else if (allowEmptyOverwrite || String(json.clearNote || "") === "1") targetSheet.getRange(block.note, clientCol).clearContent();
 
@@ -10965,14 +10955,21 @@ function findCalendarHitForNudge_(cal, raw) {
   if (!cal || !cal.length || !raw) return null;
   var i;
   var rk = clientMatchKey_(raw) || String(raw).toUpperCase();
+  var best = null;
+  function take_(row) {
+    if (!row) return;
+    if (!best) { best = row; return; }
+    if (nudgeSegIsPp_(row.segment) && !nudgeSegIsPp_(best.segment)) best = row;
+  }
   for (i = 0; i < cal.length; i++) {
     var ck = cal[i].matchKey || clientMatchKey_(cal[i].client) || "";
-    if (rk && ck && rk === ck) return cal[i];
+    if (rk && ck && rk === ck) take_(cal[i]);
   }
+  if (best) return best;
   for (i = 0; i < cal.length; i++) {
-    if (nicksMatch_(cal[i].client, raw) || nicksMatch_(cal[i].matchKey, raw)) return cal[i];
+    if (nicksMatch_(cal[i].client, raw) || nicksMatch_(cal[i].matchKey, raw)) take_(cal[i]);
   }
-  return null;
+  return best;
 }
 
 function crmNickCellForNudge_(crmSs, name) {
@@ -12208,6 +12205,7 @@ function upsertCalendarEntry_(ss, opts) {
     if (!bd || dateKey_(bd, tz) !== dateStr) continue;
     var st = String(all[i].status || "").toLowerCase();
     if (st === "cancelled") continue;
+    if (calendarSegmentsDiffer_(all[i].segment, opts.segment)) continue;
     if (matchKey && all[i].matchKey === matchKey) { existing = all[i]; break; }
     // старые строки без суффикса собаки: матч только если display совпадает
     if (nicksMatch_(all[i].client, client)) {
@@ -12299,8 +12297,10 @@ function readCalendarForDate_(ss, deliveryDate) {
     var iso = String(all[i].dateIso || "");
     if (keyD !== want && iso !== wantIso) continue;
     var mk = clientMatchKey_(all[i].client) || all[i].matchKey || "";
-    if (mk && seen[mk]) continue;
-    if (mk) seen[mk] = true;
+    var segSeen = segmentLabelFromOrderType_(all[i].segment) || String(all[i].segment || "").trim();
+    var seenKey = mk + "|" + segSeen;
+    if (mk && seen[seenKey]) continue;
+    if (mk) seen[seenKey] = true;
     // обновим matchKey в ответе на актуальный (две собаки)
     all[i].matchKey = mk || all[i].matchKey;
     out.push(all[i]);
@@ -19670,6 +19670,128 @@ function mergePpCycleJsonMaps_(maps) {
   return out;
 }
 
+/** «7.10.2026» и «07.10.2026» — один день. ISO тоже. */
+function nudgeCycleDateHit_(raw, dateText, dateIso) {
+  if (raw == null || raw === "") return false;
+  var s = String(raw).trim();
+  if (!s) return false;
+  if (dateText && s === dateText) return true;
+  if (dateIso && s === dateIso) return true;
+  var loose = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (loose) {
+    var dd = ("0" + loose[1]).slice(-2);
+    var mm = ("0" + loose[2]).slice(-2);
+    var y = loose[3];
+    if (dateText && (dd + "." + mm + "." + y) === dateText) return true;
+    if (dateIso && (y + "-" + mm + "-" + dd) === dateIso) return true;
+  }
+  var isoLoose = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoLoose && dateIso && (isoLoose[1] + "-" + isoLoose[2] + "-" + isoLoose[3]) === dateIso) return true;
+  return false;
+}
+
+/** JSON цикла месяца, не курьерские галочки на 1-е число. */
+function ppCycleJsonLooksLike_(store) {
+  if (!store || typeof store !== "object") return false;
+  if (Object.prototype.toString.call(store) === "[object Array]") return false;
+  for (var k in store) {
+    if (!Object.prototype.hasOwnProperty.call(store, k)) continue;
+    if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(k)) continue;
+    var ent = store[k];
+    if (!ent || typeof ent !== "object") continue;
+    if (ent.slot1 || ent.slot2 || ent.deliveriesN != null) return true;
+  }
+  return false;
+}
+
+/** Date в ячейке ключа — только 1-е число месяца, и только как PP_CYCLE:yyyy-MM. */
+function ppCycleMonthKeyFromCell_(raw, tz) {
+  if (!(raw instanceof Date) || isNaN(raw.getTime())) return "";
+  var tzUse = tz || "Europe/Minsk";
+  var day = "";
+  var ym = "";
+  try {
+    day = Utilities.formatDate(raw, tzUse, "d");
+    ym = Utilities.formatDate(raw, tzUse, "yyyy-MM");
+  } catch (eCell) {
+    return "";
+  }
+  if (String(day) !== "1" || !ym) return "";
+  return "PP_CYCLE:" + ym;
+}
+
+function calendarSegmentsDiffer_(a, b) {
+  var sa = segmentLabelFromOrderType_(a) || String(a || "").trim();
+  var sb = segmentLabelFromOrderType_(b) || String(b || "").trim();
+  if (!sa || !sb) return false;
+  return sa !== sb;
+}
+
+/**
+ * Колонка недели для второй записи.
+ * Совпадение [SEG:] — та же колонка. Другой тип или другая запись в календаре — новая колонка.
+ * Колонка без метки переиспользуется, только если другого типа нет.
+ * Правка единственной колонки может сменить тип.
+ */
+function weekClientColForSegment_(nicks, notes, client, seg, opts) {
+  opts = opts || {};
+  nicks = nicks || [];
+  notes = notes || [];
+  var segWant = segmentLabelFromOrderType_(seg) || String(seg || "").trim();
+  var editClient = String(opts.editClient || "").trim();
+  var wantMatchKey = String(opts.matchKey || "").trim();
+  var isEdit = !!(opts.isEdit || editClient || opts.oldDay);
+  var matches = [];
+  var i;
+  for (i = 0; i < nicks.length && i < 15; i++) {
+    var nick = nicks[i];
+    if (!nick) continue;
+    var hit = false;
+    if (wantMatchKey && clientMatchKey_(nick) === wantMatchKey) hit = true;
+    if (editClient && nicksMatch_(nick, editClient)) hit = true;
+    if (nicksMatch_(nick, client)) hit = true;
+    if (!hit) continue;
+    var m = String(notes[i] || "").match(/\[SEG:([^\]]+)\]/i);
+    var noteSeg = m ? (segmentLabelFromOrderType_(m[1]) || String(m[1]).trim()) : "";
+    matches.push({ col: i + 3, noteSeg: noteSeg });
+  }
+  if (segWant) {
+    for (i = 0; i < matches.length; i++) {
+      if (matches[i].noteSeg && matches[i].noteSeg === segWant) return { col: matches[i].col, mode: "tagged" };
+    }
+  }
+  var otherTagged = false;
+  for (i = 0; i < matches.length; i++) {
+    if (matches[i].noteSeg && segWant && matches[i].noteSeg !== segWant) otherTagged = true;
+  }
+  if (otherTagged || opts.hasOtherSegment) {
+    if (isEdit && matches.length === 1 && !otherTagged) return { col: matches[0].col, mode: "edit-only" };
+    return { col: -1, mode: "new" };
+  }
+  if (matches.length) return { col: matches[0].col, mode: "legacy" };
+  return { col: -1, mode: "new" };
+}
+
+function calendarHasOtherSegment_(ss, dateValue, client, seg) {
+  if (!ss || !dateValue || !client) return false;
+  var tz = ss.getSpreadsheetTimeZone();
+  var want = dateKey_(dateValue, tz);
+  var wantIso = isoDateKey_(dateValue, tz);
+  var all = readAllCalendarRows_();
+  var mk = clientMatchKey_(client);
+  for (var i = 0; i < all.length; i++) {
+    if (String(all[i].status || "").toLowerCase() === "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    var keyD = bd ? dateKey_(bd, tz) : String(all[i].date || "");
+    var iso = String(all[i].dateIso || "");
+    if (keyD !== want && iso !== wantIso) continue;
+    var rowMk = all[i].matchKey || clientMatchKey_(all[i].client);
+    if (!(rowMk && mk && rowMk === mk) && !nicksMatch_(all[i].client, client)) continue;
+    if (calendarSegmentsDiffer_(all[i].segment, seg)) return true;
+  }
+  return false;
+}
+
 /** Слоты цикла, чья дата доставки — нужный день. Оплата не фильтрует. */
 function collectPpCycleNudgeHits_(store, dateText, dateIso) {
   var hits = [];
@@ -19682,8 +19804,8 @@ function collectPpCycleNudgeHits_(store, dateText, dateIso) {
     var d2 = cent.slot2 && cent.slot2.date;
     var d1 = cent.slot1 && cent.slot1.date;
     var tag = "";
-    if (d2 && (d2 === dateText || d2 === dateIso)) tag = "ПП2";
-    else if (d1 && (d1 === dateText || d1 === dateIso)) tag = "ПП1";
+    if (d2 && nudgeCycleDateHit_(d2, dateText, dateIso)) tag = Number(cent.deliveriesN) === 1 ? "ПП1" : "ПП2";
+    else if (d1 && nudgeCycleDateHit_(d1, dateText, dateIso)) tag = "ПП1";
     if (!tag) continue;
     var shown = "";
     if (tag === "ПП2" && cent.slot2 && cent.slot2.client) shown = String(cent.slot2.client).trim();
@@ -19707,10 +19829,14 @@ function getPpMonthCycleStore_(memory, monthKey, tz) {
       var data = memory.getRange(1, 1, memory.getLastRow(), 2).getValues();
       for (var i = 0; i < data.length; i++) {
         var raw = data[i][0];
-        if (raw instanceof Date) continue;
-        if (String(raw || "").trim() !== want) continue;
+        var cellKey = "";
+        if (raw instanceof Date) {
+          cellKey = ppCycleMonthKeyFromCell_(raw, tz);
+          if (!cellKey || cellKey !== want) continue;
+        } else if (String(raw || "").trim() !== want) continue;
         var parsed = null;
         try { parsed = JSON.parse(String(data[i][1] || "")); } catch (eP) { parsed = null; }
+        if (raw instanceof Date && !ppCycleJsonLooksLike_(parsed)) continue;
         if (parsed && typeof parsed === "object" && Object.prototype.toString.call(parsed) !== "[object Array]") {
           maps.push(parsed);
         }
@@ -20127,6 +20253,9 @@ function resolvePpDeliverySlot_(ss, clientName, dateValue, tz, deliveredToday, o
   var deliveriesN = lookupPpDeliveries_(clientName);
   if (!(deliveriesN >= 1)) deliveriesN = 0;
   var dateText = formatSheetDate(dateValue, tz);
+  if (deliveriesN === 1) {
+    return { slot: 1, deliveriesN: 1, cycle: cycle, deliveredBefore: 0, source: "n1" };
+  }
 
   // 1) явный слот заказа (календарь / бронь / opts)
   var forced = parseForcedPpSlot_(
@@ -20377,6 +20506,13 @@ function recordPpDeliveryCycle_(ss, dayName, clientName, dateValue, tz, paidVal)
   cycle.deliveriesN = deliveriesN;
   if (paidVal) cycle.paid = paidVal;
 
+  var dayBasket = findClientDayBasket_(ss, dayName, clientName);
+  if (deliveriesN === 1) {
+    cycle.slot1 = { date: dateText, day: dayName, basket: dayBasket, client: clientName };
+    cycle.slot2 = null;
+    savePpCycleEntry_(memory, dateValue, tz, clientName, cycle);
+    return;
+  }
   var resolved = resolvePpDeliverySlot_(ss, clientName, dateValue, tz, true);
   var slot = resolved.slot || 1;
   // явный слот с календаря/брони на эту дату
@@ -20386,9 +20522,7 @@ function recordPpDeliveryCycle_(ss, dayName, clientName, dateValue, tz, paidVal)
   } catch (eSt) {}
   // если slot1 ещё нет — это первая доставка месяца (если слот не задан явно как 2)
   if (!cycle.slot1 && slot <= 1) slot = 1;
-  else if (cycle.slot1 && cycle.slot1.date !== dateText) slot = Math.max(slot, 2);
-
-  var dayBasket = findClientDayBasket_(ss, dayName, clientName);
+  else if (cycle.slot1 && cycle.slot1.date !== dateText && deliveriesN >= 2) slot = Math.max(slot, 2);
   if (slot <= 1) {
     cycle.slot1 = { date: dateText, day: dayName, basket: dayBasket };
   } else {

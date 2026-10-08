@@ -6392,7 +6392,8 @@ function dedupeOrdersPreferSlot_(rows) {
   const order = [];
   (rows || []).forEach(function (row) {
     if (!row) return;
-    const mk = normalizeMatchKey_(row.match_key || row.client || "") || ("id:" + row.id);
+    const seg = normalizeSegmentLabel_(row.segment || "") || "";
+    const mk = (normalizeMatchKey_(row.match_key || row.client || "") || ("id:" + row.id)) + "|" + seg;
     const prev = byMk[mk];
     if (!prev) {
       byMk[mk] = row;
@@ -7262,6 +7263,12 @@ async function getClients_(params, env) {
           if (mkX && seenMk[mkX]) {
             const idx = seenIdx[mkX];
             const slot = idx != null ? rows[idx] : null;
+            const segSlot = normalizeSegmentLabel_(String((slot && slot.segment) || ""));
+            const segX = normalizeSegmentLabel_(String((rowX && rowX.segment) || ""));
+            if (slot && segSlot && segX && segSlot !== segX) {
+              rows.push(rowX);
+              continue;
+            }
             if (slot && clientPayloadSubstance_(clientFromRow_(rowX)) > 0) {
               const mergedX = mergeOrderRowsKeepNonEmpty_(slot, rowX);
               if (clientPayloadSubstance_(clientFromRow_(mergedX)) > clientPayloadSubstance_(clientFromRow_(slot))) {
@@ -10550,6 +10557,160 @@ async function attachPriorBasketForVolumeNotify_(params, env) {
   return params;
 }
 
+function orderRowDateIso_(row) {
+  return coerceDateIso_(String((row && (row.date_iso || row.dateIso || row.date)) || "")) || "";
+}
+
+function orderRowDay_(row) {
+  return String((row && (row.day_name || row.day)) || "").trim();
+}
+
+function orderRowSegment_(row) {
+  if (!row) return "";
+  if (row.segment) {
+    const direct = normalizeSegmentLabel_(row.segment);
+    if (direct) return direct;
+  }
+  const meta = row.meta_json ? parseMeta_(row.meta_json) : row.meta || null;
+  return normalizeSegmentLabel_((meta && meta.segment) || "");
+}
+
+function orderSegmentsSplit_(a, b) {
+  const sa = orderRowSegment_(a);
+  const sb = orderRowSegment_(b);
+  if (!sa || !sb) return false;
+  return sa !== sb;
+}
+
+/** Один и тот же заказ: тот же день/дата и тот же тип. Пустой тип не делит записи. */
+function orderSameRecord_(a, b) {
+  if (orderSegmentsSplit_(a, b)) return false;
+  const da = orderRowDateIso_(a);
+  const db = orderRowDateIso_(b);
+  if (da && db) return da === db;
+  const ya = orderRowDay_(a);
+  const yb = orderRowDay_(b);
+  if (!da && !db) return ya === yb;
+  if (ya && yb && ya === yb) return true;
+  return false;
+}
+
+function classicOrderId_(day, matchKey, dateIso) {
+  return (day || "CAL") + ":" + matchKey + (day ? "" : ":" + (dateIso || ""));
+}
+
+/**
+ * Куда писать save.
+ * duplicate — та же дата и тот же тип, обновляем id.
+ * insert — другой тип или другой день, старую строку не трогаем.
+ * edit — правка конкретной строки, в том числе смена её типа, если она одна.
+ */
+function pickOrderSaveTarget_(rows, incoming) {
+  incoming = incoming || {};
+  const day = String(incoming.day || "").trim();
+  const dateIso = orderRowDateIso_({ date_iso: incoming.dateIso || incoming.date || "" });
+  const seg = normalizeSegmentLabel_(incoming.segment || "");
+  const matchKey = String(incoming.matchKey || "");
+  const classic = classicOrderId_(day, matchKey, dateIso);
+  const probe = { day_name: day, date_iso: dateIso, segment: seg };
+  const oldDay = String(incoming.oldDay || incoming.editDay || "").trim();
+  const oldDate = orderRowDateIso_({ date_iso: incoming.oldDate || "" });
+  const isEdit = !!(incoming.isEdit || oldDay || oldDate);
+  let target = null;
+  let mode = "insert";
+  if (isEdit) {
+    const onOld = (rows || []).filter(function (r) {
+      if (!r) return false;
+      if (oldDate && orderRowDateIso_(r) && orderRowDateIso_(r) !== oldDate) return false;
+      if (oldDay && orderRowDay_(r) && orderRowDay_(r) !== oldDay) return false;
+      if (!oldDay && !oldDate) return orderSameRecord_(r, probe);
+      return true;
+    });
+    const segHit = onOld.filter(function (r) { return !orderSegmentsSplit_(r, probe); });
+    if (segHit.length) target = segHit[0];
+    else if (onOld.length === 1) target = onOld[0];
+    if (target) mode = "edit";
+  }
+  if (!target) {
+    const same = (rows || []).filter(function (r) { return r && orderSameRecord_(r, probe); });
+    if (same.length) {
+      target = same[0];
+      mode = "duplicate";
+    }
+  }
+  let id = target ? String(target.id) : classic;
+  if (!target) {
+    const taken = (rows || []).some(function (r) { return r && String(r.id) === classic; });
+    if (taken) id = classic + "#" + (seg || "ALT");
+    mode = "insert";
+  }
+  const written = { day_name: day, date_iso: dateIso, segment: seg };
+  const deleteIds = [];
+  (rows || []).forEach(function (r) {
+    if (!r || String(r.id) === id) return;
+    if (orderSameRecord_(r, written)) deleteIds.push(String(r.id));
+  });
+  return { id: id, mode: mode, deleteIds: deleteIds };
+}
+
+/** N=1 с карточки ПП всегда слот 1. Карточку не переписывает. */
+function clampPpMetaToDeliveriesN_(meta, cardN, cardFound) {
+  meta = meta || {};
+  if (cardFound && Number(cardN) === 1) {
+    meta.deliveriesN = 1;
+    meta.deliverySlot = 1;
+    meta.ppSlot = "1";
+    meta.ppHint = "ПП N=1";
+    return meta;
+  }
+  if (cardFound && Number(cardN) >= 2) {
+    const n = Number(cardN);
+    let slot = parseForcedPpSlotD1_(meta.ppSlot != null ? meta.ppSlot : meta.deliverySlot, n);
+    if (!(slot >= 1)) slot = 1;
+    if (slot > n) slot = n;
+    meta.deliveriesN = n;
+    meta.deliverySlot = slot;
+    meta.ppSlot = formatPpSlotLabelD1_(slot, n);
+    meta.ppHint = "ПП " + meta.ppSlot;
+    return meta;
+  }
+  if (Number(meta.deliveriesN) === 1) {
+    meta.deliverySlot = 1;
+    meta.ppSlot = "1";
+    meta.ppHint = "ПП N=1";
+  }
+  return meta;
+}
+
+async function clampPpOrderSlotToCard_(env, client, meta, seg) {
+  if (normalizeSegmentLabel_(seg) !== "ПП") return meta || {};
+  let cardN = 0;
+  let found = false;
+  try {
+    const sub = await getSubscription_({ nick: client, sheet: "ПП" }, env);
+    if (sub && sub.found && sub.deliveries != null && String(sub.deliveries) !== "") {
+      found = true;
+      cardN = Math.max(0, Number(sub.deliveries) || 0);
+    }
+  } catch (eCard) {}
+  return clampPpMetaToDeliveriesN_(meta, cardN, found);
+}
+
+function orderSiblingRemains_(rows, keepId, day, deleteIds, sameDay) {
+  const drop = Object.create(null);
+  (deleteIds || []).forEach(function (d) { drop[String(d)] = true; });
+  for (let i = 0; i < (rows || []).length; i++) {
+    const r = rows[i];
+    if (!r || String(r.id) === String(keepId) || drop[String(r.id)]) continue;
+    const d = String(r.day_name || "");
+    if (!d) continue;
+    if (sameDay) {
+      if (d === day) return true;
+    } else if (d !== day) return true;
+  }
+  return false;
+}
+
 async function saveOrder_(params, env, asBooking) {
   await ensureMetaColumn_(env);
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
@@ -10604,7 +10765,7 @@ async function saveOrder_(params, env, asBooking) {
     await attachPriorBasketForVolumeNotify_(params, env);
   } catch (ePriorB) {}
   const now = new Date().toISOString();
-  const id = (day || "CAL") + ":" + matchKey + (day ? "" : ":" + dateIso);
+  let id = (day || "CAL") + ":" + matchKey + (day ? "" : ":" + dateIso);
   const basketArr = parseBasket_(params.basket);
   const basket = JSON.stringify(basketArr);
   const segSave = segmentFromOrderParams_(params);
@@ -10666,6 +10827,9 @@ async function saveOrder_(params, env, asBooking) {
           : "ПП " + meta.ppSlot;
     }
   }
+  try {
+    meta = await clampPpOrderSlotToCard_(env, client, meta, segSave);
+  } catch (eClampPp) {}
 
   // переименование при edit: снять старый nick (UI delete может не успеть)
   if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
@@ -10679,24 +10843,35 @@ async function saveOrder_(params, env, asBooking) {
     } catch (eRen) {}
   }
 
-  // soft-delete duplicates with other key forms
-  await env.DB.prepare(
-    "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?) AND id != ?"
-  )
-    .bind(now, day || "", matchKey, client.toLowerCase(), id)
-    .run();
-
-  // календарь-only: снести только другие calendar-only на той же date_iso.
-  // Не трогать week-slot (Пн–Вс) — параллельный saveOrder/saveBooking иначе
-  // убивает только что записанный ряд (Dnevnik.mv / confettins на листе, пусто в D1).
-  if (!day && dateIso) {
+  let siblingRows = [];
+  let sameRecordIds = [];
+  try {
+    const sq = await env.DB.prepare(
+      "SELECT id, date_iso, day_name, client, match_key, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
+    )
+      .bind(matchKey, client.toLowerCase())
+      .all();
+    siblingRows = (sq && sq.results) || [];
+  } catch (eSib) {}
+  const pickedSave = pickOrderSaveTarget_(siblingRows, {
+    day: day,
+    dateIso: dateIso,
+    segment: segSave,
+    matchKey: matchKey,
+    isEdit: toBool_(params.isEdit) || !!(oldDayParam || params.oldDate || params.editDate),
+    oldDay: oldDayParam,
+    oldDate: params.oldDate || params.editDate || ""
+  });
+  id = pickedSave.id;
+  sameRecordIds = pickedSave.deleteIds || [];
+  for (let di = 0; di < sameRecordIds.length; di++) {
     try {
       await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (day_name = '' OR day_name IS NULL) AND (match_key = ? OR lower(client) = ?) AND id != ?"
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
       )
-        .bind(now, dateIso, matchKey, client.toLowerCase(), id)
+        .bind(now, sameRecordIds[di])
         .run();
-    } catch (eCalDup) {}
+    } catch (eSame) {}
   }
 
   const peeledOrderNote = peelServiceCoords_(params.note || "");
@@ -10723,7 +10898,9 @@ async function saveOrder_(params, env, asBooking) {
 
   // якорь ПП 1/2 в D1 — suggest N≥2 без GAS
   try {
-    const slotRaw = params.ppSlot != null ? params.ppSlot : params.deliverySlot;
+    const slotRaw = meta.ppSlot != null && String(meta.ppSlot).trim() !== ""
+      ? meta.ppSlot
+      : (params.ppSlot != null ? params.ppSlot : params.deliverySlot);
     if (slotRaw != null && String(slotRaw).trim() !== "" && matchKey) {
       await putSnap_(env, "ppSlotAnchor:" + matchKey, {
         mk: matchKey,
@@ -10757,30 +10934,15 @@ async function saveOrder_(params, env, asBooking) {
       });
     }
   } catch (eWg) {}
-  // клиент только на одном дне недели; иначе stale moveEpoch прячет из getClients
-  if (day && matchKey) {
-    try {
-      await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name != ? AND day_name != '' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-      )
-        .bind(now, day, matchKey, client.toLowerCase(), client.toLowerCase())
-        .run();
-    } catch (eDelOther) {}
-    // календарь-only (day_name пустой) — иначе дубль «неделя + дата»
-    try {
-      await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = '' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-      )
-        .bind(now, matchKey, client.toLowerCase(), client.toLowerCase())
-        .run();
-    } catch (eDelCal) {}
+  // Другой день и другой тип остаются. moveEpoch только если второй записи на другом дне нет.
+  if (day && matchKey && !orderSiblingRemains_(siblingRows, id, day, sameRecordIds, false)) {
     try {
       await setMoveEpochDay_(env, matchKey, day, client);
     } catch (eEpSave) {}
   }
 
-  // edit/move: tomb на старом дне — иначе heal/GAS воскресит при force getClients
-  if (oldDayParam && day && oldDayParam !== day && matchKey) {
+  // edit/move: tomb на старом дне, только если там не осталось другой записи
+  if (oldDayParam && day && oldDayParam !== day && matchKey && !orderSiblingRemains_(siblingRows, id, oldDayParam, sameRecordIds, true)) {
     try {
       await putDeleteTombstone_(env, oldDayParam, matchKey);
       if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
@@ -13002,52 +13164,60 @@ async function fulfillMailTrack_(params, env) {
  * Флаг deliveries ИЛИ трек почты на активном заказе (отправка без доехавшей галочки).
  * Оплата не фильтрует: ПП2 без paid=yes тоже доставка.
  */
+function nudgePersonKey_(raw) {
+  return String(raw || "").toUpperCase().replace(/[._\s@]/g, "");
+}
+
 function shapeNudgeDeliveredRows_(flagRows, orderRows) {
-  const byKey = Object.create(null);
+  const groups = Object.create(null);
+  function groupOf(raw) {
+    const nk = nudgePersonKey_(raw);
+    if (!nk) return null;
+    if (!groups[nk]) groups[nk] = { orders: [], delivered: false };
+    return groups[nk];
+  }
   (orderRows || []).forEach(function (o) {
     if (!o) return;
-    const k = String(o.match_key || "").trim();
-    if (!k) return;
-    const prev = byKey[k];
-    const active = String(o.status || "") === "active";
-    if (!prev || (active && String(prev.status || "") !== "active")) byKey[k] = o;
+    const g = groupOf(o.match_key || o.client);
+    if (g) g.orders.push(o);
   });
-  const seen = Object.create(null);
-  const rows = [];
-  function push_(key, fromTrack) {
-    const o = byKey[key] || {};
-    const meta = parseMeta_(o.meta_json);
-    const name = String(o.client || key || "").trim();
-    const mk = String(o.match_key || key || "").trim();
-    const id = (mk || name).toUpperCase();
-    if (!id || seen[id]) return;
-    seen[id] = true;
-    const note = String(o.note || "");
-    const track = String(meta.mailTrack || "").trim();
-    let mail = String(meta.mailMethod || "").trim();
-    if (!mail && /\[ЕВРОПОЧТА\]/i.test(note)) mail = "euro";
-    else if (!mail && /\[БЕЛПОЧТА\]/i.test(note)) mail = "bel";
-    rows.push({
-      client: name,
-      matchKey: mk,
-      segment: String(o.segment || meta.segment || ""),
-      ppSlot: String(meta.ppSlot || meta.deliverySlot || ""),
-      delivered: true,
-      mail: mail,
-      track: track,
-      fromTrack: !!fromTrack
-    });
-  }
   (flagRows || []).forEach(function (r) {
     if (!r || !r.match_key) return;
     if (Number(r.delivered) === 0 || r.delivered === false) return;
-    push_(String(r.match_key), false);
+    const g = groupOf(r.match_key);
+    if (g) g.delivered = true;
   });
-  Object.keys(byKey).forEach(function (k) {
-    const o = byKey[k];
-    if (String(o.status || "") !== "active") return;
-    const meta = parseMeta_(o.meta_json);
-    if (String(meta.mailTrack || "").trim()) push_(k, true);
+  const rows = [];
+  const seen = Object.create(null);
+  Object.keys(groups).forEach(function (nk) {
+    const g = groups[nk];
+    const actives = g.orders.filter(function (o) { return String(o.status || "") === "active"; });
+    const pool = actives.length ? actives : g.orders.slice(0, 1);
+    pool.forEach(function (o) {
+      const meta = parseMeta_(o.meta_json);
+      const track = String(meta.mailTrack || "").trim();
+      if (!g.delivered && !track) return;
+      const name = String(o.client || "").trim();
+      const mk = String(o.match_key || "").trim();
+      const seg = String(o.segment || meta.segment || "");
+      const id = ((mk || name).toUpperCase()) + "|" + seg + "|" + String(o.id || "");
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      const note = String(o.note || "");
+      let mail = String(meta.mailMethod || "").trim();
+      if (!mail && /\[ЕВРОПОЧТА\]/i.test(note)) mail = "euro";
+      else if (!mail && /\[БЕЛПОЧТА\]/i.test(note)) mail = "bel";
+      rows.push({
+        client: name,
+        matchKey: mk,
+        segment: seg,
+        ppSlot: String(meta.ppSlot || meta.deliverySlot || ""),
+        delivered: true,
+        mail: mail,
+        track: track,
+        fromTrack: !!track
+      });
+    });
   });
   return rows;
 }
