@@ -43,3 +43,5 @@ jobs:
         run: node boinya-c/next/subs-gate.test.mjs
       - name: card composition text
         run: node boinya-c/next/card-comp.test.mjs
+      - name: katya slot2 clear is one record
+        run: node scripts/test-katya-slot2.mjs

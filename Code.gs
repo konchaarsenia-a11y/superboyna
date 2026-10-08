@@ -2334,6 +2334,9 @@ function doGet(e) {
   if (action === "testDeliveryDatesNudge") {
     return handleTestDeliveryDatesNudge(callback, false, e && e.parameter);
   }
+  if (action === "clearKatyaPpSlot2") {
+    return handleClearKatyaPpSlot2(callback, false, e && e.parameter);
+  }
   if (action === "getMyAccess") {
     return handleGetMyAccess({
       telegramId: e.parameter.telegramId || "",
@@ -3203,6 +3206,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "testDeliveryDatesNudge") {
     return handleTestDeliveryDatesNudge(callback, fromPost, json);
+  }
+  if (action === "clearKatyaPpSlot2") {
+    return handleClearKatyaPpSlot2(callback, fromPost, json);
   }
   if (action === "updateCutting") {
     return handleUpdateCutting(ss, json, callback, fromPost);
@@ -19867,6 +19873,167 @@ function savePpCycleEntry_(memory, dateValue, tz, clientName, entry) {
   var id = clientMatchKey_(clientName) || String(clientName || "").trim().toUpperCase();
   store[id] = entry;
   saveMemoryJson_(memory, key, store, tz);
+}
+
+/** Одна запись цикла: один месяц и одна дата slot2. Иначе запись не трогаем. */
+function katyaSlot2Decide_(hits) {
+  hits = hits || [];
+  if (!hits.length) return { ok: false, reason: "none", logical: 0, rows: 0 };
+  var months = {};
+  var dates = {};
+  var i;
+  for (i = 0; i < hits.length; i++) {
+    months[String(hits[i].monthKey || "")] = true;
+    dates[String(hits[i].slot2Date || "")] = true;
+  }
+  var monthList = [];
+  var dateList = [];
+  var k;
+  for (k in months) if (Object.prototype.hasOwnProperty.call(months, k)) monthList.push(k);
+  for (k in dates) if (Object.prototype.hasOwnProperty.call(dates, k)) dateList.push(k);
+  if (monthList.length !== 1 || dateList.length !== 1 || !dateList[0]) {
+    return { ok: false, reason: "not_one", logical: monthList.length, rows: hits.length, months: monthList, dates: dateList };
+  }
+  return { ok: true, reason: "one", logical: 1, rows: hits.length, monthKey: monthList[0], slot2Date: dateList[0] };
+}
+
+function katyaSlot2Live_(slot2) {
+  if (!slot2 || typeof slot2 !== "object") return false;
+  if (slot2.date) return true;
+  if (slot2.day) return true;
+  if (slot2.basket && slot2.basket.length) return true;
+  return false;
+}
+
+function katyaSlot2Match_(key, ent) {
+  var nick = "katya.dehtyarenko";
+  if (!ent || typeof ent !== "object" || !katyaSlot2Live_(ent.slot2)) return false;
+  if (nicksMatch_(key, nick)) return true;
+  if (ent.client && nicksMatch_(ent.client, nick)) return true;
+  if (ent.slot2.client && nicksMatch_(ent.slot2.client, nick)) return true;
+  var want = clientMatchKey_(nick);
+  var ck = clientMatchKey_(key);
+  return !!(want && ck && want === ck);
+}
+
+function katyaSlot2Public_(row, monthKey, ent) {
+  var s2 = ent && ent.slot2;
+  var s1 = ent && ent.slot1;
+  return {
+    row: row,
+    monthKey: monthKey,
+    slot2Date: s2 && s2.date ? String(s2.date) : "",
+    slot2Day: s2 && s2.day ? String(s2.day) : "",
+    slot1Date: s1 && s1.date ? String(s1.date) : ""
+  };
+}
+
+function katyaSlot2ApplyStore_(store) {
+  var next = JSON.parse(JSON.stringify(store || {}));
+  var nulled = 0;
+  var slot1Same = true;
+  var k;
+  for (k in next) {
+    if (!Object.prototype.hasOwnProperty.call(next, k)) continue;
+    if (!katyaSlot2Match_(k, next[k])) continue;
+    var before = next[k].slot1 ? JSON.stringify(next[k].slot1) : "";
+    next[k].slot2 = null;
+    var after = next[k].slot1 ? JSON.stringify(next[k].slot1) : "";
+    if (before !== after) slot1Same = false;
+    nulled++;
+  }
+  return { store: next, nulled: nulled, slot1Same: slot1Same };
+}
+
+function katyaSlot2Scan_(memory, tz) {
+  var out = [];
+  if (!memory || !memory.getLastRow || memory.getLastRow() < 1) return out;
+  var data = memory.getRange(1, 1, memory.getLastRow(), 2).getValues();
+  var i;
+  for (i = 0; i < data.length; i++) {
+    var raw = data[i][0];
+    var monthKey = "";
+    if (raw instanceof Date) {
+      monthKey = ppCycleMonthKeyFromCell_(raw, tz);
+      if (!monthKey) continue;
+    } else {
+      var s = String(raw || "").trim();
+      if (!/^PP_CYCLE:\d{4}-\d{2}$/i.test(s)) continue;
+      monthKey = s;
+    }
+    var parsed = null;
+    try { parsed = JSON.parse(String(data[i][1] || "")); } catch (eP) { parsed = null; }
+    if (raw instanceof Date && !ppCycleJsonLooksLike_(parsed)) continue;
+    if (!parsed || typeof parsed !== "object" || Object.prototype.toString.call(parsed) === "[object Array]") continue;
+    var k;
+    for (k in parsed) {
+      if (!Object.prototype.hasOwnProperty.call(parsed, k)) continue;
+      if (!katyaSlot2Match_(k, parsed[k])) continue;
+      out.push(katyaSlot2Public_(i + 1, monthKey, parsed[k]));
+    }
+  }
+  return out;
+}
+
+/** Снимает только slot2 у katya.dehtyarenko. dry по умолчанию. Чужие ключи не меняет. */
+function handleClearKatyaPpSlot2(callback, fromPost, params) {
+  params = params || {};
+  var nickAsked = String(params.nick || params.client || "katya.dehtyarenko").trim();
+  function finish(out) {
+    return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+  }
+  if (!nicksMatch_(nickAsked, "katya.dehtyarenko")) {
+    return finish({ status: "error", message: "only_katya", dry: true });
+  }
+  var apply = params.apply === true || params.apply === 1 || params.apply === "1" ||
+    String(params.apply || "").toLowerCase() === "apply";
+  var confirm = String(params.confirm || "").trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var memory = findSheetByBaseName_(ss, "Память_Доставок");
+  if (!memory) return finish({ status: "error", message: "no_memory", dry: true });
+  var before = katyaSlot2Scan_(memory, tz);
+  var plan = katyaSlot2Decide_(before);
+  if (!apply || confirm !== "katya-slot2-only") {
+    return finish({ status: "success", dry: true, applied: false, plan: plan, before: before });
+  }
+  if (!plan.ok) {
+    return finish({ status: "error", message: "not_one_record", dry: true, applied: false, plan: plan, before: before });
+  }
+  var rows = {};
+  var ri;
+  for (ri = 0; ri < before.length; ri++) rows[before[ri].row] = true;
+  var edits = [];
+  var rowNo;
+  for (rowNo in rows) {
+    if (!Object.prototype.hasOwnProperty.call(rows, rowNo)) continue;
+    var nRow = Number(rowNo);
+    var rawJson = String(memory.getRange(nRow, 2).getValue() || "");
+    var store = null;
+    try { store = JSON.parse(rawJson); } catch (eJ) { store = null; }
+    if (!store || typeof store !== "object") {
+      return finish({ status: "error", message: "bad_row", dry: true, applied: false, row: nRow });
+    }
+    var appliedStore = katyaSlot2ApplyStore_(store);
+    if (!appliedStore.slot1Same) {
+      return finish({ status: "error", message: "slot1_moved", dry: true, applied: false });
+    }
+    if (appliedStore.nulled < 1) return finish({ status: "error", message: "row_miss", dry: true, applied: false, row: nRow });
+    edits.push({ row: nRow, json: JSON.stringify(appliedStore.store) });
+  }
+  for (ri = 0; ri < edits.length; ri++) {
+    memory.getRange(edits[ri].row, 2).setValue(edits[ri].json);
+  }
+  var after = katyaSlot2Scan_(memory, tz);
+  return finish({
+    status: "success",
+    dry: false,
+    applied: true,
+    plan: plan,
+    before: before,
+    after: after,
+    rows: edits.length
+  });
 }
 
 function parseMemoryDateLoose_(v, tz) {
