@@ -6,6 +6,37 @@ html, body {
   background: var(--b-bg);
   color: var(--b-text);
   overscroll-behavior: none;
+  touch-action: pan-x pan-y;
+}
+
+button, a, input, select, textarea, .b-step, .b-step__btn, .b-step__input {
+  touch-action: manipulation;
+}
+
+input, select, textarea {
+  font-size: 16px;
+}
+
+.b-step__input {
+  width: 4.2em;
+  min-width: 52px;
+  height: 44px;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--b-text);
+}
+
+.b-step__unit {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--b-text-2);
+  padding-right: 6px;
 }
 
 .nx {

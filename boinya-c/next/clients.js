@@ -321,18 +321,35 @@
     return name + (sub ? " · " + sub : "");
   }
 
+  function linePiece_(it) {
+    var unit = lineUnit(it);
+    return it.cat === "chew" || it.cat === "chews" || unit === "шт";
+  }
+
+  function lineGramHtml_(it, i, act) {
+    if (linePiece_(it) || !root.BoinyaOrders || !root.BoinyaOrders.gramQtyHtml) return "";
+    var mix = root.BoinyaCrumbMix;
+    var srcs = (it.sources || []).filter(function (s) { return s && (s.name || s.main); });
+    if (mix && mix.isCrumb(it) && srcs.length >= 2) return "";
+    var val = it.val != null ? it.val : it.value;
+    return root.BoinyaOrders.gramQtyHtml(act, val, lineUnit(it), ' data-i="' + i + '"');
+  }
+
   function lineHtml(it, i) {
     var val = it.val != null ? it.val : it.value;
     var mix = root.BoinyaCrumbMix;
     var body;
+    var grams = lineGramHtml_(it, i, "cl-gqty");
     if (mix && mix.isCrumb(it) && mix.rowHtml) {
       body = '<div class="b-grow">' + mix.rowHtml(it, function (name) {
         return (eng() && eng().prettyProductName) ? eng().prettyProductName(name) : name;
       }) + "</div>";
+    } else if (grams) {
+      body = '<span class="b-grow">' + esc(lineTitle(it)) + "</span>";
     } else {
       body = '<span class="b-grow">' + esc(lineTitle(it) + " · " + (val || 0) + " " + lineUnit(it)) + "</span>";
     }
-    return '<div class="b-row" style="margin-top:6px">' + body +
+    return '<div class="b-row" style="margin-top:6px">' + body + grams +
       '<button type="button" class="b-chip" data-act="cl-del-line" data-i="' + i + '">Удалить</button></div>';
   }
 
@@ -876,9 +893,11 @@
         }
         var val = it.val != null ? it.val : it.value;
         var sub = String(it.sub || "").trim();
+        var pickGrams = lineGramHtml_(it, i, "cl-pick-g");
         html += '<div class="b-row" style="margin-top:6px"><span class="b-grow"><span class="b-li__title">' + esc(it.main || it.name || "") + "</span>" +
           (sub ? '<span class="b-li__sub">' + esc(sub) + "</span>" : "") +
-          '<span class="b-li__sub">' + esc(String(val == null ? "" : val) + " " + lineUnit(it)) + "</span></span>" +
+          (pickGrams ? "" : '<span class="b-li__sub">' + esc(String(val == null ? "" : val) + " " + lineUnit(it)) + "</span>") +
+          "</span>" + pickGrams +
           '<button type="button" class="b-chip" data-act="cl-pick-del" data-i="' + i + '">Удалить</button></div>';
       });
       if (pick.text) html += '<article class="b-card" style="margin-top:12px;white-space:pre-wrap">' + esc(pick.text) + "</article>";
@@ -1631,6 +1650,53 @@
     openCard(card.nick || nick, card.subId, card.sheet);
   }
 
+  function writeLineGrams_(it, n) {
+    it.value = n;
+    it.val = n;
+    it.gramManual = true;
+    if (it.sources && it.sources.length === 1) {
+      it.sources[0].val = n;
+      it.sources[0].value = n;
+      if (it.ratio && it.ratio.length) it.ratio[0] = n;
+    }
+  }
+
+  function applyClientGrams_(node, commit) {
+    var kind = node.getAttribute("data-act");
+    var i = Number(node.getAttribute("data-i"));
+    var it = kind === "cl-pick-g-in"
+      ? (pick.result && pick.result.items ? pick.result.items[i] : null)
+      : (activeBasket() || [])[i];
+    if (!it) return;
+    var parsed = root.BoinyaOrders.parseGramText_(node.value);
+    if (parsed.n) {
+      writeLineGrams_(it, parsed.n);
+      if (kind === "cl-gqty-in" && seg === "calc") schedulePpMessage();
+    } else if (commit) {
+      sh().toast(parsed.bad === "frac" ? "Только целые граммы" : "Нужны граммы");
+      node.value = String(it.val != null ? it.val : (it.value || ""));
+    }
+  }
+
+  function stepClientGrams_(act, node) {
+    var i = Number(node.getAttribute("data-i"));
+    var fromPick = act === "cl-pick-g";
+    var list = fromPick ? (pick.result && pick.result.items) : activeBasket();
+    var it = list && list[i];
+    if (!it) return;
+    var cur = Number(it.value != null ? it.value : it.val);
+    var next = root.BoinyaOrders.gramStep_(cur, Number(node.getAttribute("data-dir")));
+    if (next <= 0) {
+      list.splice(i, 1);
+      if (!fromPick) setActiveBasket(list.slice());
+    } else writeLineGrams_(it, next);
+    if (fromPick) paintPick();
+    else {
+      paint();
+      if (seg === "calc") schedulePpMessage();
+    }
+  }
+
   function onAct(act, node) {
     if (act === "input" || act === "change") {
       if (crumbDraft && node && node.getAttribute) {
@@ -1646,9 +1712,28 @@
         if (crumbAct === "cl-cgram") {
           var gi = Number(node.getAttribute("data-i"));
           if (!crumbDraft.grams) crumbDraft.grams = [];
-          crumbDraft.grams[gi] = node.value;
+          var mixParsed = root.BoinyaOrders.parseGramText_(node.value);
+          if (mixParsed.n) crumbDraft.grams[gi] = String(mixParsed.n);
+          else if (mixParsed.empty) crumbDraft.grams[gi] = "";
+          else if (act === "change") {
+            sh().toast(mixParsed.bad === "frac" ? "Только целые граммы" : "Нужны граммы");
+            node.value = crumbDraft.grams[gi] || "";
+          }
           return true;
         }
+        if (crumbAct === "cl-cqty-in") {
+          var qtyParsed = root.BoinyaOrders.parseGramText_(node.value);
+          if (qtyParsed.n) crumbDraft.qty = qtyParsed.n;
+          else if (act === "change") {
+            sh().toast(qtyParsed.bad === "frac" ? "Только целые граммы" : "Нужны граммы");
+            node.value = String(crumbDraft.qty || "");
+          }
+          return true;
+        }
+      }
+      if (node && node.getAttribute && (node.getAttribute("data-act") === "cl-gqty-in" || node.getAttribute("data-act") === "cl-pick-g-in")) {
+        applyClientGrams_(node, act === "change");
+        return true;
       }
       return readNode(node);
     }
@@ -1739,12 +1824,18 @@
       renderCrumbPicker();
       return true;
     }
+    if (act === "cl-cqty-in" || act === "cl-gqty-in" || act === "cl-pick-g-in") return true;
     if (act === "cl-cqty") {
-      if (!crumbDraft) return true;
+      if (!crumbDraft || !node.getAttribute("data-dir")) return true;
       var crumbDir = Number(node.getAttribute("data-dir"));
       var crumbNext = root.BoinyaOrders.gramStep_(crumbDraft.qty, crumbDir);
-      crumbDraft.qty = Math.max(5, crumbNext);
+      crumbDraft.qty = Math.max(1, crumbNext);
       renderCrumbPicker();
+      return true;
+    }
+    if (act === "cl-gqty" || act === "cl-pick-g") {
+      if (!node.getAttribute("data-dir")) return true;
+      stepClientGrams_(act, node);
       return true;
     }
     if (act === "cl-cadd") { addCrumbFromDraft(); return true; }
@@ -1955,10 +2046,20 @@
       sub = await sh().choice({ title: name, text: "Фракция", options: fracs.map(function (f) { return { value: f, label: f }; }) });
       if (sub == null) return;
     }
-    var qty = await sh().prompt({ title: eng().prettyProductName(name), text: "Объём", value: cat === "chew" ? "1" : "100", ok: "В состав" });
+    var pieceAsk = cat === "chew";
+    var qty = await sh().prompt({ title: eng().prettyProductName(name), text: pieceAsk ? "Штуки" : "Граммы", value: pieceAsk ? "1" : "100", ok: "В состав" });
     if (qty == null || !String(qty).trim()) return;
+    var qtyN = 0;
+    if (pieceAsk) {
+      qtyN = Math.round(Number(String(qty).replace(",", ".")));
+      if (!(qtyN >= 1)) { sh().toast("Нужны штуки"); return; }
+    } else {
+      var gramAsk = root.BoinyaOrders.parseGramText_(qty);
+      if (!gramAsk.n) { sh().toast(gramAsk.bad === "frac" ? "Только целые граммы" : "Нужны граммы"); return; }
+      qtyN = gramAsk.n;
+    }
     var list = activeBasket().slice();
-    list.push({ cat: cat, main: name, name: name, sub: sub || "", val: Number(String(qty).replace(",", ".")) || 0, value: Number(String(qty).replace(",", ".")) || 0 });
+    list.push({ cat: cat, main: name, name: name, sub: sub || "", val: qtyN, value: qtyN, gramManual: !pieceAsk });
     setActiveBasket(list);
     sh().closeTop("ok");
     paint();

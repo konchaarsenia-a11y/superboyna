@@ -401,9 +401,11 @@
     if (crumb && srcs.length >= 2 && price) subHtml += '<span class="b-sheet__sub">' + esc(price) + "</span>";
     return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
       subHtml + "</div>" +
-      '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
-      '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
-      '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div></div>';
+      (pieceQty_(it.cat, it.main, unit)
+        ? '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
+          '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
+          '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div>'
+        : gramQtyHtml("step", grams, unit, ' data-i="' + i + '"')) + "</div>";
   }
 
   function basketLines() {
@@ -586,16 +588,52 @@
     if (root.__nxAfterOrderPaint) root.__nxAfterOrderPaint();
   }
 
-  function patchLines() {
-    var box = document.getElementById("nxLines");
-    if (box) box.innerHTML = basketLines();
+  function patchMoney() {
     var sum = document.getElementById("nxSum");
     if (sum) {
       var total = shownMoney();
       sum.textContent = state.orderType === "bp" ? "0,00 BYN" : money(total) + " BYN";
     }
+    var priceEl = document.getElementById("priceInput");
+    if (priceEl && document.activeElement !== priceEl && state.orderType === "retail" && !state.retailPriceManual) {
+      priceEl.value = state.priceInput || "";
+    }
     var k = document.querySelector(".b-sum__k");
     if (k) k.textContent = posLabel();
+  }
+
+  function patchLines() {
+    var box = document.getElementById("nxLines");
+    if (box) box.innerHTML = basketLines();
+    patchMoney();
+  }
+
+  function applyGramField_(node, commit) {
+    if (!node || !node.getAttribute) return;
+    var kind = node.getAttribute("data-act");
+    var parsed = parseGramText_(node.value);
+    if (kind === "pqty-in") {
+      if (parsed.n) picker.qty = parsed.n;
+      else if (commit) {
+        sh().toast(gramHint_(parsed));
+        node.value = String(picker.qty || "");
+      }
+      return;
+    }
+    var list = state.baskets[state.activeDog];
+    var it = list && list[Number(node.getAttribute("data-i"))];
+    if (!it) return;
+    if (parsed.n) {
+      it.value = parsed.n;
+      it.val = parsed.n;
+      it.gramManual = true;
+      syncRetail();
+      patchMoney();
+      persistDraft();
+    } else if (commit) {
+      sh().toast(gramHint_(parsed));
+      node.value = String(it.value != null ? it.value : (it.val || ""));
+    }
   }
 
   function paintAddr() {
@@ -995,7 +1033,7 @@
     return ex.unitFor_(cat, name) || "";
   }
 
-  /** Граммы: шаг 5, минимум на строке 0 (строка снимается). Штуки сюда не попадают. */
+  /** Граммы: кнопки шагают по 5. Ноль снимает строку состава. Штуки сюда не попадают. */
   function gramStep_(qty, dir) {
     qty = Number(qty);
     if (!isFinite(qty)) qty = 0;
@@ -1003,6 +1041,30 @@
     if (dir > 0) return Math.ceil((qty + 1e-6) / 5) * 5;
     var down = Math.floor((qty - 1e-6) / 5) * 5;
     return down < 0 ? 0 : down;
+  }
+
+  /** Целые граммы как ввели. Пусто, 0 и дробь не подменяют число. */
+  function parseGramText_(raw) {
+    var s = String(raw == null ? "" : raw).replace(/\s+/g, "");
+    if (!s) return { empty: true };
+    if (/[.,]/.test(s)) return { bad: "frac" };
+    if (!/^\d+$/.test(s)) return { bad: "bad" };
+    var n = Number(s);
+    if (!isFinite(n) || n < 1) return { zero: true };
+    return { n: n };
+  }
+
+  function gramHint_(parsed) {
+    if (parsed && parsed.bad === "frac") return "Только целые граммы";
+    return "Нужны граммы";
+  }
+
+  function gramQtyHtml(act, value, unit, extra) {
+    extra = extra || "";
+    return '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="' + act + '" data-dir="-1"' + extra + ' aria-label="Меньше">−</button>' +
+      '<input class="b-step__input" data-act="' + act + '-in" inputmode="numeric" enterkeyhint="done" autocomplete="off" aria-label="Граммы" value="' + esc(value == null ? "" : value) + '"' + extra + ">" +
+      '<span class="b-step__unit">' + esc(unit) + "</span>" +
+      '<button class="b-step__btn" type="button" data-act="' + act + '" data-dir="1"' + extra + ' aria-label="Больше">+</button></div>';
   }
 
   function pieceQty_(cat, name, unit) {
@@ -1110,9 +1172,12 @@
 
   function qtyHtml(e) {
     var unit = extraUnit_(picker.cat, picker.name) || e.unitForItem(picker.cat, picker.name);
-    return '<p class="b-lbl">Количество</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
-      '<span class="b-step__val">' + esc(picker.qty) + " " + esc(unit) + "</span>" +
-      '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
+    if (pieceQty_(picker.cat, picker.name, unit)) {
+      return '<p class="b-lbl">Количество</p><div class="b-step"><button class="b-step__btn" type="button" data-act="pqty" data-dir="-1">−</button>' +
+        '<span class="b-step__val">' + esc(picker.qty) + " " + esc(unit) + "</span>" +
+        '<button class="b-step__btn" type="button" data-act="pqty" data-dir="1">+</button></div>';
+    }
+    return '<p class="b-lbl">Количество</p>' + gramQtyHtml("pqty", picker.qty, unit, "");
   }
 
   function browseListHtml(e) {
@@ -1223,9 +1288,7 @@
           '<input class="b-field__input" data-act="' + a.gram + '" data-i="' + i + '" inputmode="numeric" value="' + esc(draft.grams[i] || "") + '"></label>';
       });
     } else {
-      html += '<p class="b-lbl">Граммы</p><div class="b-step"><button class="b-step__btn" type="button" data-act="' + a.qty + '" data-dir="-1">−</button>' +
-        '<span class="b-step__val">' + esc(draft.qty) + " г</span>" +
-        '<button class="b-step__btn" type="button" data-act="' + a.qty + '" data-dir="1">+</button></div>';
+      html += '<p class="b-lbl">Граммы</p>' + gramQtyHtml(a.qty, draft.qty, "г", "");
     }
     return html;
   }
@@ -1253,8 +1316,8 @@
         return;
       }
       var g = multi
-        ? (Number(String((draft.grams && draft.grams[i]) || "").replace(",", ".")) || 0)
-        : (Number(draft.qty) || 100);
+        ? ((parseGramText_((draft.grams && draft.grams[i]) || "").n) || 0)
+        : ((parseGramText_(draft.qty).n) || 0);
       src.val = g;
       src.value = g;
       sources.push(src);
@@ -1267,6 +1330,7 @@
     if (multi && ratio.some(function (n) { return !(n > 0); })) {
       return { ok: false, message: "Укажите граммы каждого источника" };
     }
+    if (!(sumG >= 1)) return { ok: false, message: "Нужны граммы" };
     return {
       ok: true,
       item: {
@@ -1275,7 +1339,7 @@
         crumbKind: draft.kind,
         sources: sources,
         ratio: ratio,
-        value: sumG || draft.qty || 100,
+        value: sumG,
         sub: ""
       }
     };
@@ -1840,10 +1904,19 @@
         picker.sources[idx] = parts[1] || "";
         rebuildAdd(null);
       }
+      if (node && node.getAttribute && (node.getAttribute("data-act") === "pqty-in" || node.getAttribute("data-act") === "step-in")) {
+        applyGramField_(node, act === "change");
+      }
       if (node && node.getAttribute && node.getAttribute("data-act") === "cgram") {
         var gi = Number(node.getAttribute("data-i"));
         if (!picker.grams) picker.grams = [];
-        picker.grams[gi] = node.value;
+        var gramParsed = parseGramText_(node.value);
+        if (gramParsed.n) picker.grams[gi] = String(gramParsed.n);
+        else if (gramParsed.empty) picker.grams[gi] = "";
+        else if (act === "change") {
+          sh().toast(gramHint_(gramParsed));
+          node.value = picker.grams[gi] || "";
+        }
       }
       if (node && node.id && node.id.indexOf("noteItem") === 0) {
         var ni = Number(node.id.replace("noteItem", ""));
@@ -1929,20 +2002,23 @@
     }
     if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); patchPick(); return true; }
     if (act === "pqty") {
+      if (!node.getAttribute("data-dir")) return true;
       var pickUnit = picker.name ? (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) : "";
       var pickPiece = pieceQty_(picker.cat, picker.name, pickUnit);
       var pickDir = Number(node.getAttribute("data-dir"));
       var pickNext = pickPiece ? Number(picker.qty) + pickDir : gramStep_(picker.qty, pickDir);
-      picker.qty = Math.max(pickPiece ? 1 : 5, pickNext);
+      picker.qty = Math.max(1, pickNext);
       if (picker.cat === "crumb") rebuildAdd(null);
       else patchPick();
       return true;
     }
+    if (act === "pqty-in" || act === "step-in") return true;
     if (act === "ckind") { picker.kind = node.getAttribute("data-kind"); picker.sources = []; picker.grams = []; rebuildAdd(null); return true; }
     if (act === "csrc-add") { picker.sources.push(""); if (!picker.grams) picker.grams = []; picker.grams.push(""); rebuildAdd(null); return true; }
     if (act === "csrc-del") { picker.sources.pop(); if (picker.grams) picker.grams.pop(); rebuildAdd(null); return true; }
     if (act === "padd") { addFromPicker(); return true; }
     if (act === "step") {
+      if (!node.getAttribute("data-dir")) return true;
       var list = state.baskets[state.activeDog];
       var i = Number(node.getAttribute("data-i"));
       var it = list[i];
@@ -1953,7 +2029,10 @@
       var curQty = Number(it.value != null ? it.value : it.val);
       var next = linePiece ? curQty + lineDir : gramStep_(curQty, lineDir);
       if (next <= 0) list.splice(i, 1);
-      else it.value = next;
+      else {
+        it.value = next;
+        it.val = next;
+      }
       syncRetail();
       patchLines();
       return true;
@@ -2247,6 +2326,8 @@
     rankCatalogName: rankCatalogName,
     catalogSearchRows: catalogSearchRows,
     gramStep_: gramStep_,
+    parseGramText_: parseGramText_,
+    gramQtyHtml: gramQtyHtml,
     crumbBuilderHtml: crumbBuilderHtml,
     crumbItemFromDraft: crumbItemFromDraft,
     monthStore: function () { return { overview: monthMap, people: {} }; }
