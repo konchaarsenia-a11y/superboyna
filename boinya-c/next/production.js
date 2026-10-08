@@ -1363,7 +1363,6 @@
   }
 
   async function loadCour(force) {
-    await loadDeparture();
     var day = currentDay("nxCourDay", "route");
     if (force) courDetail = false;
     var regJob = registerCourier();
@@ -1371,11 +1370,12 @@
     var asmRes = null;
     try {
       var pair = await Promise.all([
+        loadDeparture(),
         api().apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 }),
         api().apiGet({ action: "getAssembly", day: day }, { timeoutMs: 8000, cacheTtlMs: force ? 0 : 8000 }).catch(function () { return null; })
       ]);
-      res = pair[0];
-      asmRes = pair[1];
+      res = pair[1];
+      asmRes = pair[2];
     } catch (e) {
       sh().toast("Ошибка сети");
       paintRoute();
@@ -1482,7 +1482,7 @@
 
   async function loadDeparture() {
     try {
-      var res = await api().apiGet({ action: "listWarehouses", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 15000 });
+      var res = await api().apiGet({ action: "listWarehouses" }, { timeoutMs: 12000, cacheTtlMs: 15000 });
       applyDeparture(res);
     } catch (eDep) {}
   }

@@ -34,6 +34,8 @@
   var finish = null;
   var compareCache = {};
   var overviewCache = {};
+  var parkedRefresh = {};
+  var refreshAt = {};
   var monthPeopleCache = {};
   var peopleFlight = {};
   var compareGen = 0;
@@ -653,6 +655,7 @@
     if (opts.force) q.force = "1";
     return api().apiGet(q, { timeoutMs: 18000, cacheTtlMs: opts.force ? 0 : 20000 }).then(function (res) {
       if (res && (res.days || res.status === "success")) absorbOverview(month, res);
+      if (!pendingFor(month).length) delete dirtyMonths[month];
       view.overviewLoading = false;
       view.loading = false;
       if (quiet && weekOnScreen()) paintMonthQuiet();
@@ -772,6 +775,10 @@
 
   function silentRefreshMonth(month) {
     if (!month || !api()) return;
+    delete parkedRefresh[month];
+    var now = Date.now();
+    if (refreshAt[month] && now - refreshAt[month] < 500) return;
+    refreshAt[month] = now;
     var gen = (refreshGen[month] || 0) + 1;
     refreshGen[month] = gen;
     if (api().bustMem) api().bustMem(["getMonthOverview", "getCalendarMonthPeople", "getViewCompare", "getWeekDayCounts"]);
@@ -807,7 +814,13 @@
     }
     list.forEach(function (m) { dirtyMonths[m] = true; });
     paintMonthQuiet();
-    list.forEach(silentRefreshMonth);
+    list.forEach(function (m) {
+      if (!weekOnScreen()) {
+        parkedRefresh[m] = true;
+        return;
+      }
+      silentRefreshMonth(m);
+    });
   }
 
   async function load(opts) {
@@ -817,6 +830,11 @@
       peopleFlight = {};
     }
     var month = (view.calCursor || view.date || new Date().toISOString()).slice(0, 7);
+    if (parkedRefresh[month]) {
+      delete parkedRefresh[month];
+      opts.force = true;
+      opts.silent = true;
+    }
     view.error = "";
     var ready = logic().monthPeopleReady(monthPeopleCache[month], view.overview);
     view.listLoading = !ready && !view.monthClients.length && !view.weekClients.length;

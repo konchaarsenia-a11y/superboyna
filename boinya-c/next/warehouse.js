@@ -5,6 +5,7 @@
   var access = null;
   var view = "asOf";
   var cache = null;
+  var whStale = false;
   var whGen = 0;
   var prevGen = 0;
   var previewKey = "";
@@ -116,6 +117,8 @@
     }
     if (box && !opts.quiet && (!opts.soft || !cache)) box.innerHTML = '<p class="b-note">Загрузка…</p>';
     var mine = ++whGen;
+    var prevFlight = null;
+    try { prevFlight = sharedPreview(previewParams(), !!opts.force); } catch (ePrevEarly) { prevFlight = null; }
 
     async function fetchOnce() {
       var q = { action: "getWarehouse", view: view };
@@ -162,8 +165,7 @@
       var byRow = Object.create(null);
       if (L.warehouseNeedsPreview_(view, flags)) {
         try {
-          var prevQ = previewParams();
-          var prev = await sharedPreview(prevQ, !!opts.force);
+          var prev = prevFlight ? await prevFlight : null;
           ((prev && prev.plan) || []).forEach(function (p) {
             byRow[p.row] = p;
           });
@@ -271,8 +273,7 @@
     var a = document.activeElement;
     if (box && a && box.contains(a)) return;
     if (!box) {
-      cache = null;
-      previewHit = null;
+      whStale = true;
       return;
     }
     loadWarehouse({ force: 1, quiet: 1 });
@@ -334,6 +335,19 @@
 
   function show() {
     paintShell();
+    var stale = whStale;
+    whStale = false;
+    var today = logic().warehouseTodayIso_();
+    var canReuse = cache && cache.html && cache.view === view && cache.asOf === today;
+    if (canReuse) {
+      loadWarehouse({ soft: true, quiet: true });
+      loadWarehousePreview({ soft: true });
+      if (stale) {
+        loadWarehouse({ force: 1, quiet: 1 });
+        loadWarehousePreview({ force: 1 });
+      }
+      return;
+    }
     loadWarehouse({ soft: true });
     loadWarehousePreview({ soft: true });
   }
