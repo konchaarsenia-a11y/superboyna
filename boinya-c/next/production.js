@@ -761,7 +761,7 @@
       var coef = Number(row.coef) || 0.2;
       var raw = shown === "" ? dryRawKg_(plan, coef) : dryRawKg_(shown, coef);
       html += '<label class="b-field" style="margin-top:10px"><span class="b-note">' + esc(row.name || key) +
-        "</span><input class=\"b-field__input\" inputmode=\"decimal\" data-dry=\"" + esc(key) +
+        "</span><input class=\"b-field__input\" inputmode=\"numeric\" data-dry=\"" + esc(key) +
         "\" value=\"" + esc(shown) + "\" placeholder=\"граммы\"></label>";
       html += '<p class="b-note">План ' + esc(String(plan)) + " г · коэф " + esc(String(coef)) +
         " · сырьё " + esc(String(raw)) + " кг" + (shown === "" ? " по плану" : "") + "</p>";
@@ -777,12 +777,20 @@
     for (var i = 0; i < rows.length; i++) if (String(rows[i].key) === String(key)) row = rows[i];
     if (!row || !day) return;
     var input = document.querySelector('input[data-dry="' + String(key).replace(/"/g, "") + '"]');
-    var raw = input ? String(input.value || "").trim().replace(",", ".") : "";
+    var raw = input ? String(input.value || "").trim() : "";
     var prev = row.factDryG;
     if (raw === "") row.factDryG = null;
-    else {
+    else if (/[.,]/.test(raw) || !/^\d+$/.test(raw)) {
+      sh().toast(/[.,]/.test(raw) ? "Только целые граммы" : "Нужны граммы");
+      if (input) input.value = prev != null && prev !== "" ? String(prev) : "";
+      return;
+    } else {
       var g = Number(raw);
-      if (!isFinite(g) || g < 0) { sh().toast("Нужны граммы"); return; }
+      if (!isFinite(g) || g < 1) {
+        sh().toast("Нужны граммы");
+        if (input) input.value = prev != null && prev !== "" ? String(prev) : "";
+        return;
+      }
       row.factDryG = g;
     }
     row.fromFact = row.factDryG != null;
