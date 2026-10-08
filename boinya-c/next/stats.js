@@ -6,6 +6,8 @@
   var monthKey = "";
   var view = { mode: "month", from: "", to: "" };
   var cache = Object.create(null);
+  var loadGen = 0;
+  var statsStale = false;
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -419,54 +421,70 @@
     } catch (e) { return null; }
   }
 
+  function allSettled(list) {
+    return Promise.all(list.map(function (p) { return p || Promise.resolve(null); }));
+  }
+
   async function load(opts) {
     opts = opts || {};
     var box = document.getElementById("statsContainer");
     if (!box) return;
+    var ticket = ++loadGen;
     var key = cacheKey();
     var lab = document.getElementById("statsMonthLabel");
     if (lab) lab.textContent = periodTitle();
-    if (!opts.force && cache[key]) {
-      box.innerHTML = cache[key];
-      return;
-    }
+    if (cache[key]) box.innerHTML = cache[key];
+    if (!opts.force && cache[key]) return;
     if (view.mode === "range") {
-      box.innerHTML = '<p class="b-note">Считаю ' + esc(view.from) + "–" + esc(view.to) + "…</p>";
-      var ranged = await pullExpected(view.from, view.to);
-      if (!document.getElementById("statsContainer")) return;
+      if (!cache[key]) box.innerHTML = '<p class="b-note">Считаю ' + esc(view.from) + "–" + esc(view.to) + "…</p>";
+      var rangePrev = L().statsPrevEqualPeriod_(view.from, view.to);
+      var rangeBill = String(view.to || "").slice(0, 7);
+      var prevBill = rangePrev ? String(rangePrev.to || "").slice(0, 7) : "";
+      var rangeGot = await allSettled([
+        pullExpected(view.from, view.to),
+        rangePrev ? pullExpected(rangePrev.from, rangePrev.to) : null,
+        pullMonth(L().currentStatsMonthKey_(), !!opts.force),
+        pullSetup(rangeBill),
+        prevBill ? pullSetup(prevBill) : null,
+        pullExpenses(rangeBill),
+        prevBill ? pullExpenses(prevBill) : null
+      ]);
+      if (ticket !== loadGen || !document.getElementById("statsContainer")) return;
+      var ranged = rangeGot[0];
       if (!ranged) {
-        document.getElementById("statsContainer").innerHTML = '<p class="b-note">Не удалось посчитать период.</p>';
+        if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Не удалось посчитать период.</p>';
         return;
       }
-      var rangePrev = L().statsPrevEqualPeriod_(view.from, view.to);
-      var rangePrevRes = rangePrev ? await pullExpected(rangePrev.from, rangePrev.to) : null;
-      var monthNow = await pullMonth(L().currentStatsMonthKey_(), !!opts.force);
-      if (!document.getElementById("statsContainer")) return;
-      var rangeBill = String(view.to || "").slice(0, 7);
-      var rangeSetup = await pullSetup(rangeBill);
-      var rangePrevSetup = rangePrev ? await pullSetup(String(rangePrev.to || "").slice(0, 7)) : null;
-      var rangeExp = await pullExpenses(rangeBill);
-      var rangePrevExp = rangePrev ? await pullExpenses(String(rangePrev.to || "").slice(0, 7)) : null;
-      if (!document.getElementById("statsContainer")) return;
-      paint(ranged, rangePrevRes, {
+      var monthNow = rangeGot[2];
+      paint(ranged, rangeGot[1], {
         title: L().statsFmtDay_(view.from) + "–" + L().statsFmtDay_(view.to),
-        compare: rangePrevRes ? compareCaption(rangePrev) : "",
+        compare: rangeGot[1] ? compareCaption(rangePrev) : "",
         bpSource: (monthNow && monthNow.status === "success") ? monthNow : null,
         bpTitle: "Этот месяц",
-        setup: rangeSetup,
-        prevSetup: rangePrevSetup,
+        setup: rangeGot[3],
+        prevSetup: rangeGot[4],
         billMonth: rangeBill,
-        prevBillMonth: rangePrev ? String(rangePrev.to || "").slice(0, 7) : "",
-        expenses: rangeExp,
-        prevExpenses: rangePrevExp,
+        prevBillMonth: prevBill,
+        expenses: rangeGot[5],
+        prevExpenses: rangeGot[6],
         rangeBills: true
       });
       return;
     }
     var mk = ensureMonth();
     if (!cache[key]) box.innerHTML = '<p class="b-note">Считаю ' + esc(mk) + "…</p>";
-    var res = await pullMonth(mk, !!opts.force);
-    if (!document.getElementById("statsContainer")) return;
+    var prevWin = L().statsPrevCalendarMonth_(mk, new Date());
+    var prevBillMonth = prevWin ? String(prevWin.to || "").slice(0, 7) : "";
+    var got = await allSettled([
+      pullMonth(mk, !!opts.force),
+      prevWin ? pullExpected(prevWin.from, prevWin.to) : null,
+      pullSetup(mk),
+      prevBillMonth ? pullSetup(prevBillMonth) : null,
+      pullExpenses(mk),
+      prevBillMonth ? pullExpenses(prevBillMonth) : null
+    ]);
+    if (ticket !== loadGen || !document.getElementById("statsContainer")) return;
+    var res = got[0];
     if (!res || res.status !== "success") {
       if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Нет данных</p>';
       return;
@@ -476,25 +494,18 @@
       if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Нет данных</p>';
       return;
     }
-    var prevWin = L().statsPrevCalendarMonth_(mk, new Date());
-    var prevRes = prevWin ? await pullExpected(prevWin.from, prevWin.to) : null;
-    var setup = await pullSetup(mk);
-    var prevSetup = prevWin ? await pullSetup(String(prevWin.to || "").slice(0, 7)) : null;
-    var exp = await pullExpenses(mk);
-    var prevExp = prevWin ? await pullExpenses(String(prevWin.to || "").slice(0, 7)) : null;
-    if (!document.getElementById("statsContainer")) return;
     if (view.mode !== "month" || ensureMonth() !== mk) return;
-    paint(res, prevRes, {
+    paint(res, got[1], {
       title: res.monthLabel || L().statsMonthLabelRu_(mk),
-      compare: prevRes ? compareCaption(prevWin) : "",
+      compare: got[1] ? compareCaption(prevWin) : "",
       bpTitle: mk === L().currentStatsMonthKey_() ? "Этот месяц" : (res.monthLabel || L().statsMonthLabelRu_(mk)),
       stale: !res.factCutoff,
-      setup: setup,
-      prevSetup: prevSetup,
+      setup: got[2],
+      prevSetup: got[3],
       billMonth: mk,
-      prevBillMonth: prevWin ? String(prevWin.to || "").slice(0, 7) : "",
-      expenses: exp,
-      prevExpenses: prevExp
+      prevBillMonth: prevBillMonth,
+      expenses: got[4],
+      prevExpenses: got[5]
     });
   }
 
@@ -548,7 +559,12 @@
 
   function show() {
     shell();
-    load({});
+    var opts = {};
+    if (statsStale) {
+      statsStale = false;
+      opts.force = true;
+    }
+    load(opts);
   }
 
   function onAct(act) {
@@ -565,7 +581,7 @@
     var box = document.getElementById("statsContainer");
     var a = document.activeElement;
     if (!box) {
-      cache = Object.create(null);
+      statsStale = true;
       return;
     }
     if (a && box.contains(a)) return;

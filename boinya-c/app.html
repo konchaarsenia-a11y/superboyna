@@ -15,11 +15,11 @@
         if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
           q.set("cutover", "1");
         }
-        q.set("v", "71125250");
+        q.set("v", "71125260");
         location.replace("next.html?" + q.toString() + (u.hash || ""));
       } catch (e) {
         if (!/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
-          location.replace("next.html?cutover=1&v=71125250" + (location.hash || ""));
+          location.replace("next.html?cutover=1&v=71125260" + (location.hash || ""));
         }
       }
     })();
@@ -49,7 +49,7 @@
     /* Снести залипший SW cache-first (v11), иначе delete/move вечно на старом JS */
     (function () {
       if (!("serviceWorker" in navigator)) return;
-      var WANT = "boinya-c-sw-v17-71125250";
+      var WANT = "boinya-c-sw-v17-71125260";
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         regs.forEach(function (reg) {
           try {

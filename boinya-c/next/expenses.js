@@ -168,10 +168,9 @@
     } else {
       pullFlightMonth = month;
       var job = (async function () {
-        var nextPack = await pull(month, !!opts.force);
-        var nextRoll = await pullRoll(month);
-        if (nextPack) pack = nextPack;
-        if (nextRoll) roll = nextRoll;
+        var pair = await Promise.all([pull(month, !!opts.force), pullRoll(month)]);
+        if (pair[0]) pack = pair[0];
+        if (pair[1]) roll = pair[1];
       })();
       pullFlight = job;
       try { await job; } finally {
