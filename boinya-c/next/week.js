@@ -38,6 +38,7 @@
   var refreshAt = {};
   var monthPeopleCache = {};
   var peopleFlight = {};
+  var peopleApplyGen = {};
   var compareGen = 0;
   var COMPARE_TTL = 30000;
   var STALE_TTL = 300000;
@@ -570,11 +571,14 @@
     if (dirtyMonths[month]) opts.force = true;
     if (!opts.force && monthPeopleCache[month]) return Promise.resolve(monthPeopleCache[month]);
     if (!opts.force && peopleFlight[month]) return peopleFlight[month];
+    var ticket = (peopleApplyGen[month] || 0) + 1;
+    peopleApplyGen[month] = ticket;
     var gen = opts.gen || 0;
     var flight = api().apiGet(
       { action: "getCalendarMonthPeople", month: month },
       { timeoutMs: 12000, cacheTtlMs: opts.force ? 0 : 60000 }
     ).then(function (res) {
+      if (peopleApplyGen[month] !== ticket) return monthPeopleCache[month] || null;
       if (gen && refreshGen[month] !== gen) return monthPeopleCache[month] || null;
       if (res && res.byDate && typeof res.byDate === "object" && res.source && res.source !== "d1-error" && res.source !== "nodb") {
         if (!res.month) res.month = month;
