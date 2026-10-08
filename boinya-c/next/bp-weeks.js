@@ -1,4 +1,4 @@
-/* БП на 1 или 2 недели. Нет тега — как сейчас, 2 недели. */
+/* БП — одна неделя. Нет тега у старой записи — читаем как раньше, 2 недели, и не переписываем. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -20,16 +20,40 @@
   }
 
   function statusLabel(weeks, outcome) {
-    if (weeksOf(weeks) !== 1) return "";
     var o = outcomeOf(outcome);
-    if (o === "extend") return "продлён";
     if (o === "pp") return "перешёл в ПП";
     if (o === "done") return "завершён";
-    return "1 нед";
+    return "";
+  }
+
+  function listLabel(status, outcome) {
+    var extra = statusLabel(null, outcome);
+    return extra ? ("БП, " + extra) : "БП";
+  }
+
+  function countsInBpList(row) {
+    row = row || {};
+    var sh = String(row.sheet || row.segment || "").trim().toUpperCase();
+    if (sh === "BP") sh = "БП";
+    return sh === "БП";
+  }
+
+  function newCardFields() {
+    return {
+      sheet: "БП",
+      segment: "БП",
+      status: "БП1",
+      stage: "БП1",
+      ppStatus: "БП1",
+      bpWeeks: "1",
+      surveyKind: "final",
+      createCard: true,
+      needSurvey: true
+    };
   }
 
   function remindTitle(name) {
-    return "Предложить продление или переход на ПП: " + String(name || "").trim();
+    return "Предложить переход на ПП: " + String(name || "").trim();
   }
 
   function remindId(nick) {
@@ -124,6 +148,9 @@
     weeksOf: weeksOf,
     outcomeOf: outcomeOf,
     statusLabel: statusLabel,
+    listLabel: listLabel,
+    countsInBpList: countsInBpList,
+    newCardFields: newCardFields,
     remindTitle: remindTitle,
     remindId: remindId,
     extendPrice: extendPrice,

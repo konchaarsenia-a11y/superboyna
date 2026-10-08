@@ -29,7 +29,7 @@ test("алиас рубец доступен подбору", () => {
 test("анкета с позициями собирается для каждого типа", async () => {
   const sig = P.parseAnketSignals_(ANKETA);
   assert.ok((sig.lineItems || []).length || (sig.liked || []).length || (sig.mentioned || []).length);
-  for (const target of ["bp1", "bp2", "retail", "pp"]) {
+  for (const target of ["bp", "bp2", "retail", "pp"]) {
     const composed = P.pricePickComposeForTarget_(sig, target);
     assert.ok(composed && composed.items && composed.items.length, target);
     const text = P.pricePickOfferText_(sig, target, composed.items);
@@ -38,6 +38,12 @@ test("анкета с позициями собирается для каждо�
     const fit = await P.pricePickFitBudget_({ items: composed.items, target: target, signals: sig });
     const items = (fit && fit.items) || composed.items;
     assert.ok(items.length, target + " fit");
+    if (target === "bp" || target === "bp2") {
+      assert.equal(text.indexOf("вторую"), -1);
+      assert.equal(text.indexOf("БП2"), -1);
+      assert.equal(P.priceModeKey(target), "bp1");
+      assert.equal(P.priceModeLabel_(target), "БП");
+    }
   }
 });
 

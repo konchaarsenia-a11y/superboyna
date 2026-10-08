@@ -13,14 +13,11 @@
   var surveys = [];
   var people = [];
   var search = "";
-  var bpFilter = "all";
-  var surveyFilter = "bp2";
   var editMode = false;
   var picked = {};
   var card = null;
   var deep = false;
   var showBpForm = false;
-  var bpFormWeeks = 2;
   var showSurveyForm = false;
   var enroll = null;
   var editingId = "";
@@ -93,7 +90,7 @@
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
       surveyBp2Due: "", surveyFinalDue: "", ownerTelegramId: "", ownerName: "",
       basketBp1: [], basketBp2: [], bpTab: 1, slot: 1, econ: null,
-      bpWeeks: 2, bpOutcome: "", extendPrice: null
+      bpWeeks: "", bpWeeksSet: false, bpOutcome: "", extendPrice: null
     };
   }
 
@@ -370,16 +367,19 @@
     return html;
   }
 
+  function sheetKey_(s) {
+    var sh = String((s && (s.sheet || s.segment)) || "").trim().toUpperCase();
+    if (sh === "BP") return "БП";
+    return sh;
+  }
+
   function filteredSubs() {
     var q = String(search || "").trim().toLowerCase();
     var sheet = sheetOf(seg);
-    var rows = subs.filter(function (s) { return String(s.sheet || "") === sheet; });
+    var rows = subs.filter(function (s) { return sheetKey_(s) === sheet; });
     if (sheet === "БП") {
       rows = rows.filter(function (s) { return !isRetailMarkedSub_(s); });
       rows = groupBpSubscriptions_(rows);
-      if (bpFilter !== "all") {
-        rows = rows.filter(function (s) { return normalizeBpStage_(s.status) === bpFilter; });
-      }
     }
     if (q) {
       rows = rows.filter(function (s) {
@@ -422,12 +422,6 @@
       '<span class="b-note" style="margin:0">' + rows.length + "</span></div>";
     html += field("cxSearch", search, "Поиск по нику");
     if (seg === "bp") {
-      html += '<div class="b-row" style="margin:8px 0">';
-      ["all", "БП1", "БП2", "ФИНАЛ"].forEach(function (f) {
-        var label = f === "all" ? "Все" : f;
-        html += '<button type="button" class="b-chip' + (bpFilter === f ? " b-chip--on" : "") + '" data-act="cl-bp-filter" data-f="' + f + '">' + label + "</button>";
-      });
-      html += "</div>";
       html += actions(
         '<button type="button" class="b-btn b-btn--sec" data-act="cl-bp-add">+ Клиент БП</button>' +
         '<button type="button" class="b-btn b-btn--sec" data-act="cl-edit-mode">' + (editMode ? "Готово" : "Редактировать") + "</button>"
@@ -456,9 +450,10 @@
         (s.phone ? '<span class="sub">' + esc(s.phone) + "</span>" : "") +
         "</span>" +
         (function () {
-          var pill = s.status || "";
-          var extra = W() ? W().statusLabel(s.bpWeeks, s.bpOutcome) : "";
-          if (extra) pill = pill ? (pill + ", " + extra) : extra;
+          var pill = "";
+          if (seg === "bp" && W() && W().listLabel) pill = W().listLabel(s.status, s.bpOutcome);
+          else if (seg === "bp") pill = "БП";
+          else pill = s.status || "";
           return pill ? '<span class="pill pill--ok">' + esc(pill) + "</span>" : "";
         })() +
         mark + "</button>";
@@ -479,10 +474,6 @@
     return '<article class="b-card" style="margin-top:12px">' +
       '<p class="b-lbl">Новый клиент БП</p>' +
       field("cxBpNick", "", "Ник") +
-      '<p class="b-lbl">Срок</p><div class="b-seg">' +
-      '<button type="button" class="b-seg__item' + (bpFormWeeks !== 1 ? " b-seg__item--on" : "") + '" data-act="cl-bpw" data-n="2">2 недели</button>' +
-      '<button type="button" class="b-seg__item' + (bpFormWeeks === 1 ? " b-seg__item--on" : "") + '" data-act="cl-bpw" data-n="1">1 неделя</button></div>' +
-      '<p class="b-lbl">Этап</p><label class="b-field"><select class="b-field__input" id="cxBpStage" data-k="cxBpStage"><option>БП1</option><option>БП2</option><option>ФИНАЛ</option></select></label>' +
       '<p class="b-lbl">Дата опросника</p>' + field("cxBpDate", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
       '<p class="b-lbl">Менеджер</p><label class="b-field"><select class="b-field__input" id="cxBpOwner" data-k="cxBpOwner">' + ownerOptions("") + "</select></label>" +
       field("cxBpAddress", "", "Адрес") +
@@ -492,19 +483,8 @@
   }
 
   function paintSurvey() {
-    var kind = surveyFilter;
-    var rows = surveys.filter(function (it) {
-      var k = String(it.kind || "");
-      if (kind === "all") return true;
-      if (kind === "final") return k.indexOf("final") >= 0;
-      return k.indexOf("final") < 0;
-    });
+    var rows = surveys.slice();
     var html = segBar();
-    html += '<div class="b-row" style="margin-bottom:8px">';
-    [["bp2", "БП2"], ["final", "ПП·финал"], ["all", "Все"]].forEach(function (p) {
-      html += '<button type="button" class="b-chip' + (surveyFilter === p[0] ? " b-chip--on" : "") + '" data-act="cl-sv-filter" data-f="' + p[0] + '">' + p[1] + "</button>";
-    });
-    html += "</div>";
     html += actions(
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-add">+ Опросник</button>' +
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-edit-mode">' + (editMode ? "Готово" : "Удалить выбранных") + "</button>"
@@ -513,7 +493,7 @@
     if (showSurveyForm) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Новый опросник</p>' +
         field("cxSvNick", "", "Ник") +
-        '<label class="b-field"><select class="b-field__input" id="cxSvKind" data-k="cxSvKind"><option value="bp2">После БП1 — опросник на БП2</option><option value="final">После БП2 — финальный (→ ПП)</option></select></label>' +
+        '<p class="b-note">После БП</p>' +
         field("cxSvDue", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
         '<label class="b-field"><select class="b-field__input" id="cxSvOwner" data-k="cxSvOwner">' + ownerOptions("") + "</select></label>" +
         "</article>";
@@ -523,7 +503,7 @@
       html += '<article class="b-card" style="margin-top:8px">' +
         (editMode ? '<button type="button" class="b-chip' + (picked[id] ? " b-chip--on" : "") + '" data-act="cl-pick" data-key="' + esc(id) + '">' + (picked[id] ? "Выбран" : "Выбрать") + "</button>" : "") +
         '<p class="b-li__title" style="margin:8px 0 0">' + esc(it.nick || "Без ника") + "</p>" +
-        '<p class="b-note">' + esc((it.kind || "") + " · " + (it.dueDate || "") + " · " + (it.status || "")) + "</p>" +
+        '<p class="b-note">' + esc("После БП " + (it.dueDate || "") + " " + (it.status || "")) + "</p>" +
         '<label class="b-field"><select class="b-field__input" id="svOwn' + i + '" data-k="svOwn' + i + '" data-i="' + i + '">' + ownerOptions(it.ownerTelegramId) + "</select></label>" +
         actions(
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-owner" data-i="' + i + '">Сохранить отв.</button>' +
@@ -717,20 +697,17 @@
       '<p class="b-lbl">Порода</p>' + field("cxBreed", c.dogBreed, "Порода") +
       '<p class="b-lbl">Вес, кг</p>' + field("cxWeight", c.dogWeight, "кг"));
     var subFields = '<p class="b-lbl">Лист</p><p class="b-note">' + esc(c.sheet || "ПП") + "</p>" +
-      '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус") +
+      (c.sheet === "БП"
+        ? '<p class="b-lbl">Статус</p><p class="b-note">БП</p>'
+        : '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус")) +
       '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
       (c.sheet === "ПП" ? '<p class="b-note" id="cxDelivLine">' + esc(delivLine(c.deliveries)) + "</p>" : "") +
       '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
     if (c.sheet === "БП") {
       var wkLab = W() ? W().statusLabel(c.bpWeeks, c.bpOutcome) : "";
-      subFields += '<p class="b-lbl">Срок</p><p class="b-note">' + esc(wkLab || "2 недели") + "</p>";
-      if (W() && W().weeksOf(c.bpWeeks) === 1 && W().outcomeOf(c.bpOutcome) !== "done" && W().outcomeOf(c.bpOutcome) !== "pp") {
-        var ep = c.extendPrice;
-        var epText = (ep != null && ep !== "" && isFinite(Number(ep))) ? (sh().money(ep) + " BYN") : "нет состава";
-        subFields += '<p class="b-lbl">Цена за продление</p><p class="b-note">' + esc(epText) + "</p>";
-      }
-      subFields += '<p class="b-lbl">Опросник БП2</p>' + field("cxSv2", c.surveyBp2Due, "", 'type="date"') +
-        '<p class="b-lbl">Финал</p>' + field("cxSvF", c.surveyFinalDue, "", 'type="date"');
+      if (wkLab) subFields += '<p class="b-lbl">Итог</p><p class="b-note">' + esc(wkLab) + "</p>";
+      subFields += '<p class="b-lbl">Опросник</p>' + field("cxSv2", c.surveyBp2Due, "", 'type="date"') +
+        '<p class="b-lbl">Дата опросника</p>' + field("cxSvF", c.surveyFinalDue, "", 'type="date"');
     }
     subFields += '<p class="b-lbl">Пожелания</p>' + area("cxWishes", c.wishes, "Пожелания");
     html += groupBox("Подписка", subFields);
@@ -742,10 +719,10 @@
           '<button type="button" class="b-seg__item' + (c.slot === 2 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="2">Доставка 2</button></div>';
       }
     }
-    if (c.sheet === "БП") {
-      priceBits += '<p class="b-lbl">Состав БП</p><div class="b-seg">' +
-        '<button type="button" class="b-seg__item' + (c.bpTab === 1 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="1">Состав БП1</button>' +
-        '<button type="button" class="b-seg__item' + (c.bpTab === 2 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="2">Состав БП2</button></div>';
+    if (c.sheet === "БП" && c.basketBp2 && c.basketBp2.length) {
+      priceBits += '<p class="b-lbl">Состав</p><div class="b-seg">' +
+        '<button type="button" class="b-seg__item' + (c.bpTab !== 2 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="1">Состав</button>' +
+        '<button type="button" class="b-seg__item' + (c.bpTab === 2 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="2">Ещё состав</button></div>';
     }
     priceBits += basketBlock();
     if (c.sheet === "ПП") {
@@ -771,11 +748,9 @@
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-delete">Удалить</button>'
     );
     if (c.sheet === "БП") {
-      var oneOpen = W() && W().weeksOf(c.bpWeeks) === 1 && !W().outcomeOf(c.bpOutcome);
-      var bpActs = "";
-      if (oneOpen) bpActs += '<button type="button" class="b-btn b-btn--main" data-act="cl-bp-extend">Продлить</button>';
-      bpActs += '<button type="button" class="b-btn b-btn--main" data-act="cl-to-pp">Переход → расчёт ПП</button>';
-      if (oneOpen) bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-bp-done">Завершён</button>';
+      var closed = W() && (W().outcomeOf(c.bpOutcome) === "done" || W().outcomeOf(c.bpOutcome) === "pp");
+      var bpActs = '<button type="button" class="b-btn b-btn--main" data-act="cl-to-pp">Переход → расчёт ПП</button>';
+      if (!closed) bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-bp-done">Завершён</button>';
       bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-touch">Отметить контакт</button>';
       html += actions(bpActs);
     }
@@ -883,8 +858,9 @@
   function paintPick() {
     var html = '<button type="button" class="nx-link" data-act="price-back">← Назад</button>';
     html += '<p class="b-lbl">Тип</p><div class="b-row">';
-    [["bp1", "БП1"], ["bp2", "БП2"], ["retail", "Розница"], ["pp", "Подписка"]].forEach(function (p) {
-      html += '<button type="button" class="b-chip' + (pick.type === p[0] ? " b-chip--on" : "") + '" data-act="cl-pick-type" data-t="' + p[0] + '">' + p[1] + "</button>";
+    [["bp", "БП"], ["retail", "Розница"], ["pp", "Подписка"]].forEach(function (p) {
+      var pickOn = pick.type === p[0] || (p[0] === "bp" && (pick.type === "bp1" || pick.type === "bp2"));
+      html += '<button type="button" class="b-chip' + (pickOn ? " b-chip--on" : "") + '" data-act="cl-pick-type" data-t="' + p[0] + '">' + p[1] + "</button>";
     });
     html += "</div>";
     html += '<p class="b-lbl">Анкета</p>' + area("cxAnketa", pick.anketa, "Текст анкеты");
@@ -1391,7 +1367,7 @@
       force: "1",
       _: String(Date.now())
     }, { timeoutMs: 22000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не открылось"); return; }
+    if (!res || res.status !== "success" || res.found === false) { sh().toast((res && res.message) || "Не открылось"); return; }
     card = blankCard();
     Object.keys(card).forEach(function (k) {
       if (k === "status") return;
@@ -1406,12 +1382,26 @@
     card.basket2 = eng().mapApiBasketToLocal(res.basket2 || []);
     card.basketBp1 = eng().mapApiBasketToLocal(res.basketBp1 || []);
     card.basketBp2 = eng().mapApiBasketToLocal(res.basketBp2 || []);
+    if (card.sheet === "БП" || String(sheet || "") === "БП") {
+      if (!card.basketBp1.length && card.basket.length) card.basketBp1 = card.basket.slice();
+    }
     card.scheme = P().parsePpSchemeFromWishes_(res.wishes || "") || res.ppScheme || res.scheme || (card.sheet === "ПП" ? "LEGACY" : "");
     var coef = P().parsePpCoefFromWishes_(res.wishes || "");
     card.serviceGeo = serviceGeoOf_(res.wishes || "", res.serviceGeo);
     if (coef) card.coef = String(coef);
+    var parsedBp = W() ? W().parseWishes(res.wishes || "") : null;
     card.wishes = staffWishes_(res.wishes || "");
-    if (res.bpWeeks != null && res.bpWeeks !== "") card.bpWeeks = res.bpWeeks;
+    if (parsedBp && parsedBp.bpWeeksSet) {
+      card.bpWeeks = parsedBp.bpWeeks;
+      card.bpWeeksSet = true;
+      if (!card.bpOutcome && parsedBp.bpOutcome) card.bpOutcome = parsedBp.bpOutcome;
+    }
+    if (res.bpWeeksSet === true || res.bpWeeksSet === "1" || res.bpWeeksSet === 1) {
+      card.bpWeeksSet = true;
+      if (res.bpWeeks != null && res.bpWeeks !== "") card.bpWeeks = res.bpWeeks;
+    } else if (!card.bpWeeksSet && res.bpWeeks != null && res.bpWeeks !== "") {
+      card.bpWeeks = res.bpWeeks;
+    }
     if (res.bpOutcome != null) card.bpOutcome = res.bpOutcome;
     if (res.extendPrice != null && res.extendPrice !== "") card.extendPrice = res.extendPrice;
     var addr = splitAddr(card.address || "");
@@ -1488,7 +1478,7 @@
       body.ownerName = ownerName;
       body.basketBp1 = card.basketBp1;
       body.basketBp2 = card.basketBp2;
-      body.bpWeeks = String(W() ? W().weeksOf(card.bpWeeks) : (Number(card.bpWeeks) === 1 ? 1 : 2));
+      if (card.bpWeeksSet) body.bpWeeks = String(card.bpWeeks);
       body.bpOutcome = card.bpOutcome || "";
     }
     var res = await api().apiPost(body);
@@ -1681,10 +1671,7 @@
       loadSubs(true).then(paint);
       return true;
     }
-    if (act === "cl-bp-filter") { bpFilter = node.getAttribute("data-f"); paint(); return true; }
-    if (act === "cl-bp-add") { showBpForm = true; bpFormWeeks = 2; loadPeople().then(paint); return true; }
-    if (act === "cl-bpw") { bpFormWeeks = Number(node.getAttribute("data-n")) === 1 ? 1 : 2; paint(); return true; }
-    if (act === "cl-bp-extend") { extendBp(); return true; }
+    if (act === "cl-bp-add") { showBpForm = true; loadPeople().then(paint); return true; }
     if (act === "cl-bp-done") { doneBp(); return true; }
     if (act === "cl-bp-cancel") { showBpForm = false; paint(); return true; }
     if (act === "cl-bp-save") { saveBp(); return true; }
@@ -1756,7 +1743,7 @@
       if (!crumbDraft) return true;
       var crumbDir = Number(node.getAttribute("data-dir"));
       var crumbNext = root.BoinyaOrders.gramStep_(crumbDraft.qty, crumbDir);
-      crumbDraft.qty = Math.max(10, crumbNext);
+      crumbDraft.qty = Math.max(5, crumbNext);
       renderCrumbPicker();
       return true;
     }
@@ -1832,7 +1819,6 @@
     }
     if (act === "cl-enroll-cancel") { enroll = null; paint(); return true; }
     if (act === "cl-enroll-go") { enrollGo(); return true; }
-    if (act === "cl-sv-filter") { surveyFilter = node.getAttribute("data-f"); paint(); return true; }
     if (act === "cl-sv-add") { showSurveyForm = true; loadPeople().then(paint); return true; }
     if (act === "cl-sv-cancel") { showSurveyForm = false; paint(); return true; }
     if (act === "cl-sv-save") { saveSurvey(); return true; }
@@ -1876,38 +1862,63 @@
     var nick = (document.getElementById("cxBpNick") || {}).value || "";
     nick = String(nick).trim();
     if (!nick) { sh().toast("Укажи ник"); return; }
-    var status = normalizeBpStage_((document.getElementById("cxBpStage") || {}).value || "БП1");
-    var surveyKind = bpStageSurveyKind_(status);
+    var fresh = W() && W().newCardFields ? W().newCardFields() : { status: "БП1", surveyKind: "final", bpWeeks: "1" };
     var ownerId = (document.getElementById("cxBpOwner") || {}).value || "";
     if (!ownerId) { sh().toast("Выбери ответственного менеджера"); return; }
     var ownerName = "";
     people.forEach(function (p) { if (String(p.telegramId) === String(ownerId)) ownerName = p.name || ""; });
     var surveyDate = (document.getElementById("cxBpDate") || {}).value || ymdPlusDaysLocal_("", 4);
+    var wishes = staffWishes_((document.getElementById("cxBpWishes") || {}).value || "");
+    var address = (document.getElementById("cxBpAddress") || {}).value || "";
+    var phone = (document.getElementById("cxBpPhone") || {}).value || "";
     var payload = {
       action: "ensureBpFromOrder",
       nick: nick,
+      label: nick,
       createCard: "1",
       needSurvey: "1",
-      status: status,
+      status: fresh.status || "БП1",
+      ppStatus: fresh.ppStatus || fresh.status || "БП1",
+      stage: fresh.stage || "БП1",
+      sheet: "БП",
+      segment: "БП",
       surveyDate: surveyDate,
-      surveyKind: surveyKind,
-      wishes: staffWishes_((document.getElementById("cxBpWishes") || {}).value || ""),
-      address: (document.getElementById("cxBpAddress") || {}).value || "",
-      phone: (document.getElementById("cxBpPhone") || {}).value || "",
+      surveyKind: fresh.surveyKind || "final",
+      wishes: wishes,
+      address: address,
+      phone: phone,
       ownerTelegramId: ownerId,
       ownerName: ownerName,
       basket: "[]",
-      bpWeeks: String(bpFormWeeks === 1 ? 1 : 2)
+      bpWeeks: "1"
     };
     var res = await api().apiGet(payload, { timeoutMs: 60000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast("Не создалось: " + ((res && res.message) || "Deploy")); return; }
-    if (bpFormWeeks === 1 && status === "БП1" && W()) {
+    if (!res || (res.status !== "success" && res.status !== "accepted")) { sh().toast("Не создалось: " + ((res && res.message) || "нет ответа")); return; }
+    if (W()) {
       try { await api().apiPost(W().remindBody(nick, ownerId)); } catch (eRm) {}
     }
-    sh().toast("БП, " + status);
+    subs = subs.filter(function (s) {
+      return !(sheetKey_(s) === "БП" && String(s.nick || "").trim().toUpperCase() === nick.toUpperCase());
+    });
+    subs.unshift({
+      nick: nick,
+      label: nick,
+      sheet: "БП",
+      segment: "БП",
+      status: "БП1",
+      bpWeeks: 1,
+      bpWeeksSet: true,
+      phone: phone,
+      address: address,
+      wishes: wishes,
+      ownerTelegramId: ownerId,
+      ownerName: ownerName,
+      surveyFinalDue: surveyDate
+    });
+    sh().toast("Клиент БП сохранён");
     showBpForm = false;
-    await loadSubs(true);
     paint();
+    loadSubs(true).then(function () { if (view === "list" && seg === "bp") paint(); });
   }
 
   async function delPicked() {
@@ -2058,25 +2069,16 @@
     if (saved) sh().toast(toast);
   }
 
-  async function extendBp() {
-    if (!card) return;
-    var price = card.extendPrice;
-    var text = "Отметить, что клиент оплатил цену за продление";
-    if (price != null && price !== "" && isFinite(Number(price))) text += " (" + sh().money(price) + " BYN)";
-    text += "?\nДальше БП идёт второй неделей, до БП2 и финала.";
-    await markBpOutcome("extend", "Продлить", text, "Продление отмечено");
-  }
-
   async function doneBp() {
     if (!card) return;
-    await markBpOutcome("done", "Завершён", "Завершить БП на 1 неделе? Вторая неделя не ставится.", "БП завершён");
+    await markBpOutcome("done", "Завершён", "Завершить БП? Новых доставок по этой карточке не будет", "БП завершён");
   }
 
   async function toPp() {
     if (!card) return;
     var ok = await sh().confirm({ title: "БП → ПП", text: "Перевести «" + (card.label || card.nick) + "» с БП в ПП?\nПопадёт в статистику «стало ПП», затем откроется расчёт.", ok: "Перевести", cancel: "Отмена" });
     if (!ok) return;
-    if (card.sheet === "БП" && W() && W().weeksOf(card.bpWeeks) === 1) {
+    if (card.sheet === "БП") {
       card.bpOutcome = "pp";
       try {
         await api().apiPost({
@@ -2088,7 +2090,6 @@
           segment: "БП",
           ppStatus: card.status || "БП1",
           wishes: card.wishes || "",
-          bpWeeks: "1",
           bpOutcome: "pp",
           ownerTelegramId: card.ownerTelegramId || "",
           surveyBp2Due: card.surveyBp2Due || "",
@@ -2218,7 +2219,7 @@
   async function saveSurvey() {
     var nick = String((document.getElementById("cxSvNick") || {}).value || "").trim();
     if (!nick) { sh().toast("Укажи ник"); return; }
-    var kind = (document.getElementById("cxSvKind") || {}).value || "bp2";
+    var kind = "final";
     var due = String((document.getElementById("cxSvDue") || {}).value || ymdPlusDaysLocal_("", 4)).slice(0, 10);
     var ownerId = (document.getElementById("cxSvOwner") || {}).value || "";
     var ownerName = "";
@@ -2228,9 +2229,9 @@
       nick: nick,
       kind: kind,
       dueDate: due,
-      stage: kind === "final" ? "ФИНАЛ" : "БП2",
+      stage: "БП",
       status: "planned",
-      templateId: kind === "final" ? "survey_final" : "survey_bp2",
+      templateId: "survey_final",
       ownerTelegramId: ownerId,
       ownerName: ownerName,
       _: String(Date.now())
@@ -2243,12 +2244,7 @@
   }
 
   function surveyByIndex(i) { return surveys.filter(surveyVisible)[i]; }
-  function surveyVisible(it) {
-    var k = String(it.kind || "");
-    if (surveyFilter === "all") return true;
-    if (surveyFilter === "final") return k.indexOf("final") >= 0;
-    return k.indexOf("final") < 0;
-  }
+  function surveyVisible() { return true; }
 
   async function surveyStatus(i, status) {
     var it = surveyByIndex(i);
@@ -2261,7 +2257,7 @@
       action: "saveSurvey",
       id: it.id || "",
       nick: it.nick || "",
-      kind: it.kind || "bp2",
+      kind: it.kind || "final",
       dueDate: String(it.dueDate || "").slice(0, 10),
       stage: it.stage || "",
       status: status,
@@ -2288,7 +2284,7 @@
       action: "saveSurvey",
       id: it.id || "",
       nick: it.nick || "",
-      kind: it.kind || "bp2",
+      kind: it.kind || "final",
       dueDate: String(it.dueDate || "").slice(0, 10),
       stage: it.stage || "",
       status: it.status || "planned",
@@ -2334,7 +2330,7 @@
     await new Promise(function (r) { setTimeout(r, 0); });
     try {
       var sig = P().parseAnketSignals_(pick.anketa || "");
-      var target = pick.type === "retail" ? "retail" : (pick.type === "bp1" ? "bp1" : (pick.type === "bp2" ? "bp2" : "pp"));
+      var target = pick.type === "retail" ? "retail" : ((pick.type === "bp" || pick.type === "bp1" || pick.type === "bp2") ? "bp" : "pp");
       var composed = P().pricePickComposeForTarget_(sig, target);
       var fit = null;
       try { fit = await P().pricePickFitBudget_({ items: composed.items, target: target, signals: sig }); } catch (eFit) { fit = null; }

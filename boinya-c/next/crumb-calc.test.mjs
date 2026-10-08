@@ -46,7 +46,8 @@ test("крошка рубца 100 г и микс попадают в соста�
   assert.equal(quote.goods, 17);
 
   const draft = { kind: "meat", sources: ["ЛЁГКОЕ", "РУБЕЦ Т"], grams: ["60", "40"], qty: 100 };
-  draft.qty = Math.max(10, api.gramStep_(draft.qty, -1));
+  draft.qty = Math.max(5, api.gramStep_(draft.qty, -1));
+  assert.equal(draft.qty, 95);
   assert.deepEqual(draft.sources, ["ЛЁГКОЕ", "РУБЕЦ Т"]);
   const two = api.crumbItemFromDraft(draft);
   assert.equal(two.ok, true);

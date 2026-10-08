@@ -256,13 +256,11 @@
       bpBlock(monthTitle, monthBp || legacy.bpMonth) +
       bpBlock("За всё время", lifeBp || legacy.bpLife);
     var bpInfo = periodRes.bp || {};
-    var weekMarked = (Number(bpInfo.oneWeek) || 0) + (Number(bpInfo.extended) || 0) + (Number(bpInfo.toPp) || 0) + (Number(bpInfo.doneWeek) || 0);
-    if (weekMarked > 0) {
-      html += line("1 нед", String(bpInfo.oneWeek || 0));
-      html += line("Продлён", String(bpInfo.extended || 0));
-      html += line("Перешёл в ПП", String(bpInfo.toPp || 0));
-      html += line("Завершён", String(bpInfo.doneWeek || 0));
-    }
+    var bpClients = (Number(bpInfo.bp1) || 0) + (Number(bpInfo.bp2) || 0) + (Number(bpInfo.final) || 0);
+    var weekClients = (Number(bpInfo.oneWeek) || 0) + (Number(bpInfo.extended) || 0) + (Number(bpInfo.toPp) || 0) + (Number(bpInfo.doneWeek) || 0);
+    if (bpClients || weekClients) html += line("Клиенты БП", String(bpClients || weekClients));
+    if (Number(bpInfo.toPp) > 0) html += line("Перешёл в ПП", String(bpInfo.toPp));
+    if (Number(bpInfo.doneWeek) > 0) html += line("Завершён", String(bpInfo.doneWeek));
     if (econ && econ.note) html += '<p class="b-note">' + esc(econ.note) + "</p>";
     else html += '<p class="b-note">Чистые и окупаемость появятся, когда бэкенд пришлёт состав доставок. Пока их нет, это не ноль.</p>';
     html += "</article>";

@@ -31729,7 +31729,7 @@ function queueBpOneWeekRemind_(ownerTid, nick) {
   ownerTid = String(ownerTid || "").trim();
   nick = String(nick || "").trim();
   if (!ownerTid || !nick) return "";
-  var title = "Предложить продление или переход на ПП: " + nick;
+  var title = "Предложить переход на ПП: " + nick;
   var id = bpOneWeekRemindId_(nick);
   var sh = deferredSheet_();
   var now = new Date();
