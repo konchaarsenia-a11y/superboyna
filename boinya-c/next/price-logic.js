@@ -493,7 +493,8 @@ var ASM_CHEW_PER_BIG = 4;
     }
 
     function pricePickTargetScale_(target, signals) {
-      var kind = target === "bp1" ? 0.7 : (target === "bp2" ? 1.15 : 1);
+      target = priceModeKey(target);
+      var kind = target === "bp1" ? 0.7 : 1;
       var qty = signals.qty === "low" ? 1.15 : (signals.qty === "high" ? 0.9 : 1);
       var w = 1;
       if (signals.weightKg > 0) w = Math.max(0.55, Math.min(1.6, signals.weightKg / 12));
@@ -554,6 +555,7 @@ var ASM_CHEW_PER_BIG = 4;
     }
 
     function pricePickLungAnchor_(signals, target) {
+      target = priceModeKey(target);
       var lung = 40;
       var kg = signals.weightKg || 0;
       var budget = signals.budgetByn || 0;
@@ -583,6 +585,7 @@ var ASM_CHEW_PER_BIG = 4;
     }
 
     function pricePickOfferLines_(signals, target) {
+      target = priceModeKey(target);
       var ban = pricePickBanned_(signals);
       var list = [];
       var trial = target === "bp1" || target === "bp2";
@@ -1229,9 +1232,9 @@ var ASM_CHEW_PER_BIG = 4;
       items = items || [];
       var name = prof.name || "";
       var lower = function (n) { return pricePickSkuTitle_(n).toLowerCase(); };
-      var boxWord = target === "bp2" ? "вторую пробную коробку"
-        : (target === "bp1" ? "первую пробную коробку"
-          : (target === "retail" ? "набор" : "набор на подписку"));
+      target = priceModeKey(target);
+      var boxWord = target === "bp1" ? "пробную коробку"
+        : (target === "retail" ? "набор" : "набор на подписку");
       var lines = [];
       lines.push("Спасибо за ответы! Очень рады знакомству" + (name ? " — привет, " + name + " 🐾" : " 🐾"));
       lines.push("Собрали " + boxWord + ":");
@@ -1314,9 +1317,7 @@ var ASM_CHEW_PER_BIG = 4;
       var waitLine = "Ждём отзыв — очень интересно, что " + (name || "ваш хвостик") + " оценит больше всего!";
       lines.push("");
       if (target === "bp1") {
-        lines.push("Как вам такой состав? " + waitLine + " По реакции соберём вторую коробку.");
-      } else if (target === "bp2") {
-        lines.push("Смотрим, что закрепилось после первой коробки, и дальше подстроим. Как вам такой состав? " + waitLine);
+        lines.push("Как вам такой состав? " + waitLine);
       } else if (target === "retail") {
         lines.push("Как вам такой вариант? Если понравится, можно перейти на подписку с тем же составом. " + waitLine);
       } else {
@@ -1534,7 +1535,7 @@ var ASM_CHEW_PER_BIG = 4;
         var v = Number(copy.value != null ? copy.value : copy.val) || 0;
         var nv;
         if (piece) nv = Math.max(1, Math.round(v * f));
-        else nv = Math.max(Math.min(v, 10), Math.round((v * f) / 5) * 5);
+        else nv = Math.max(Math.min(v, 5), Math.round((v * f) / 5) * 5);
         copy.value = nv;
         copy.val = nv;
         return copy;
@@ -1566,7 +1567,8 @@ var ASM_CHEW_PER_BIG = 4;
     async function pricePickFitBudget_(payload) {
       if (!payload || !payload.items || !payload.items.length) return null;
       var target = payload.target;
-      if (target !== "pp" && target !== "retail" && target !== "bp1" && target !== "bp2") return null;
+      if (target !== "pp" && target !== "retail" && target !== "bp" && target !== "bp1" && target !== "bp2" && target !== "bp_1" && target !== "bp_2") return null;
+      target = priceModeKey(target);
       var sig = payload.signals || {};
       var b = sig.budget;
       if (!b || !(b.max > 0)) return null;
@@ -1628,7 +1630,7 @@ var ASM_CHEW_PER_BIG = 4;
         goodsOnly: goodsOnly,
         budget: b,
         basis: r.basis,
-        trial: target === "bp1" || target === "bp2",
+        trial: target === "bp1",
         approx: r.approx,
         inRange: val(r) <= b.max
       };
@@ -2258,15 +2260,13 @@ var ASM_CHEW_PER_BIG = 4;
     function priceModeKey(mode) {
       var m = String(mode || "").toLowerCase();
       if (m === "retail" || m === "ret") return "retail";
-      if (m === "bp1" || m === "bp_1") return "bp1";
-      if (m === "bp2" || m === "bp_2" || m === "bp") return "bp2";
+      if (m === "bp" || m === "bp1" || m === "bp_1" || m === "bp2" || m === "bp_2") return "bp1";
       return "pp";
     }
 
     function priceModeLabel_(mode) {
       var k = priceModeKey(mode);
-      if (k === "bp1") return "БП1";
-      if (k === "bp2") return "БП2";
+      if (k === "bp1") return "БП";
       if (k === "retail") return "Розница";
       return "Подписка";
     }

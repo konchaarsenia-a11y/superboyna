@@ -260,11 +260,17 @@
     var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
     var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
     var charts = res.charts || {};
-    var bpStages = charts.bpStages || [
+    var rawStages = charts.bpStages || [
       { label: "БП1", value: bp.bp1 || 0 },
       { label: "БП2", value: bp.bp2 || 0 },
       { label: "Финал", value: bp.final || 0 }
     ];
+    var bpClients = 0;
+    rawStages.forEach(function (s) { bpClients += Number(s && s.value) || 0; });
+    if (!bpClients) {
+      bpClients = (Number(bp.bp1) || 0) + (Number(bp.bp2) || 0) + (Number(bp.final) || 0);
+    }
+    var bpStages = [{ label: "БП", value: bpClients }];
     return {
       oldDeploy: !res.factCutoff,
       monthLabel: res.monthLabel || res.title || "Месяц",

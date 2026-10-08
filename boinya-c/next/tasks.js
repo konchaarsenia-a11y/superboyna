@@ -90,36 +90,13 @@
   }
 
   async function refresh() {
-    var pair = await Promise.all([
-      api().apiGet({
-        action: "listDeferred",
-        telegramId: tid(),
-        status: "open",
-        light: "1"
-      }, { timeoutMs: 12000, cacheTtlMs: 8000 }),
-      api().apiGet({ action: "listBpIdle", days: "7" }, { timeoutMs: 15000, cacheTtlMs: 8000 }).catch(function () { return null; })
-    ]);
-    var res = pair[0];
+    var res = await api().apiGet({
+      action: "listDeferred",
+      telegramId: tid(),
+      status: "open",
+      light: "1"
+    }, { timeoutMs: 12000, cacheTtlMs: 8000 });
     items = (res && res.items) || [];
-    try {
-      var idle = pair[1];
-      var extra = (idle && (idle.idle || idle.items)) || [];
-      var seen = {};
-      items.forEach(function (it) { seen[String(it.id)] = true; });
-      extra.forEach(function (it) {
-        var id = "bpidle:" + String(it.nick || it.label || it.id || "");
-        if (seen[id]) return;
-        items.unshift({
-          id: id,
-          mode: "bp_idle",
-          title: "БП2 простой >7д",
-          nick: it.nick || "",
-          client: it.nick || "",
-          status: "open",
-          note: it.note || it.wishes || ""
-        });
-      });
-    } catch (eIdle) {}
     if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
       return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
     }).length);
@@ -176,7 +153,7 @@
     } else if (sub === "orders") {
       buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-resume" data-id="' + esc(id) + '">Открыть</button>';
     }
-    if (sub === "remind" && /Предложить продление/.test(String(it.title || ""))) {
+    if (sub === "remind" && /Предложить (продление|переход)/.test(String(it.title || ""))) {
       var bpNick = it.clientNick || it.nick || it.client || (pl && pl.client) || "";
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-bp" data-nick="' + esc(bpNick) + '">Открыть БП</button>';
     }

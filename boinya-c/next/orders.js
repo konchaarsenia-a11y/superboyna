@@ -92,7 +92,7 @@
       editOriginalMatchKey: "",
       survey: null,
       deferredId: "",
-      bpWeeks: 2
+      bpWeeks: 1
     };
   }
 
@@ -433,9 +433,6 @@
       }
     }
     if (state.orderType === "bp") {
-      html += '<p class="b-lbl">Срок БП</p><div class="b-seg">' +
-        segBtn("bpw1", "1 неделя", Number(state.bpWeeks) === 1) +
-        segBtn("bpw2", "2 недели", Number(state.bpWeeks) !== 1) + "</div>";
       html += '<p class="b-lbl">Кто привёл</p><label class="b-field"><select class="b-field__input" id="ppPartner" data-k="ppPartner">' +
         '<option value="">— выберите партнёра —</option>' +
         partners.map(function (p) {
@@ -998,22 +995,14 @@
     return ex.unitFor_(cat, name) || "";
   }
 
-  /** Граммы: до 50 шаг 10, с 50 шаг 50. 75 → 50 или 100. Штуки сюда не попадают. */
+  /** Граммы: шаг 5, минимум на строке 0 (строка снимается). Штуки сюда не попадают. */
   function gramStep_(qty, dir) {
     qty = Number(qty);
     if (!isFinite(qty)) qty = 0;
     dir = Number(dir) < 0 ? -1 : 1;
-    if (dir > 0) {
-      if (qty < 50) {
-        var up = Math.ceil((qty + 1e-6) / 10) * 10;
-        if (up > 50) up = 50;
-        return up;
-      }
-      return Math.ceil((qty + 1e-6) / 50) * 50;
-    }
-    if (qty <= 50) return Math.floor((qty - 1e-6) / 10) * 10;
-    var down = Math.floor((qty - 1e-6) / 50) * 50;
-    return down < 50 ? 50 : down;
+    if (dir > 0) return Math.ceil((qty + 1e-6) / 5) * 5;
+    var down = Math.floor((qty - 1e-6) / 5) * 5;
+    return down < 0 ? 0 : down;
   }
 
   function pieceQty_(cat, name, unit) {
@@ -1424,55 +1413,59 @@
       return { telegramId: pick, name: name };
     }
     var due = ymdPlus(state.deliveryDate || "", 4);
-    var BW = root.BoinyaBpWeeks;
-    var weeksPick = BW ? BW.weeksOf(state.bpWeeks) : (Number(state.bpWeeks) === 1 ? 1 : 2);
+    var fresh = root.BoinyaBpWeeks && root.BoinyaBpWeeks.newCardFields ? root.BoinyaBpWeeks.newCardFields() : {
+      status: "БП1", stage: "БП1", surveyKind: "final", bpWeeks: "1"
+    };
     if (!existing) {
       var createBp = await sh().confirm({
         title: "Карточка БП",
-        text: "«" + clientName + "» ещё нет в БП.\nСоздать карточку БП1 на " + (weeksPick === 1 ? "1 неделю" : "2 недели") + "?\nОпросник — через 4 дня после получения.",
+        text: "«" + clientName + "» ещё нет в БП\nСоздать карточку БП?\nОпросник — через 4 дня после получения",
         ok: "Создать"
       });
       if (!createBp) return null;
       var ownNew = await ensureOwner(null);
       if (!ownNew || !ownNew.telegramId) { sh().toast("Нужен ответственный менеджер"); return false; }
-      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownNew.telegramId, ownerName: ownNew.name, subId: "", advance: "new", bpWeeks: weeksPick };
+      return {
+        createCard: true,
+        needSurvey: true,
+        status: fresh.status || "БП1",
+        stage: fresh.stage || "БП1",
+        surveyDate: due,
+        surveyKind: fresh.surveyKind || "final",
+        ownerTelegramId: ownNew.telegramId,
+        ownerName: ownNew.name,
+        subId: "",
+        advance: "new",
+        bpWeeks: "1"
+      };
     }
-    var storedWeeks = BW ? BW.weeksOf(existing.bpWeeks) : (Number(existing.bpWeeks) === 1 ? 1 : 2);
-    var storedOut = BW ? BW.outcomeOf(existing.bpOutcome) : "";
-    var st = bpStage(existing.ppStatus || existing.status || existing.stage || "БП1");
+    var storedOut = root.BoinyaBpWeeks ? root.BoinyaBpWeeks.outcomeOf(existing.bpOutcome) : "";
+    if (storedOut === "done") { sh().toast("БП уже завершён"); return null; }
+    if (storedOut === "pp") { sh().toast("Клиент уже переведён в ПП"); return null; }
+    var keepStatus = existing.ppStatus || existing.status || existing.stage || "БП1";
     var seed = { telegramId: existing.ownerTelegramId || "", name: existing.ownerName || "" };
-    if (storedWeeks === 1 && storedOut !== "extend") {
-      if (storedOut === "done") { sh().toast("БП на 1 неделю уже завершён"); return null; }
-      if (storedOut === "pp") { sh().toast("Клиент уже переведён в ПП"); return null; }
-      var stay1 = await sh().confirm({
-        title: "БП на 1 неделю",
-        text: "«" + clientName + "» на 1 неделе.\nВторая неделя не ставится, пока не отметите продление в карточке.\nОбновить состав 1-й доставки и опросник на " + due + "?",
-        ok: "Обновить 1 неделю"
-      });
-      if (!stay1) return null;
-      var ownStay = await ensureOwner(seed);
-      if (!ownStay || !ownStay.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "БП1", stage: "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: ownStay.telegramId, ownerName: ownStay.name, subId: existing.subId || "", advance: "refresh_first", bpWeeks: 1 };
-    }
-    if (st === "ФИНАЛ") {
-      var upd = await sh().confirm({ title: "Финал БП", text: "«" + clientName + "» уже в Финале БП.\nОбновить состав 2-й доставки и дату финального опросника на " + due + "?", ok: "Обновить" });
-      if (!upd) return null;
-      var ownFin = await ensureOwner(seed);
-      if (!ownFin || !ownFin.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: ownFin.telegramId, ownerName: ownFin.name, subId: existing.subId || "", advance: "refresh_final", bpWeeks: storedWeeks };
-    }
-    var go2 = await sh().confirm({ title: "Вторая доставка?", text: "«" + clientName + "» уже в БП (" + st + ").\nЭто 2-я доставка?\n→ Финал + финальный опросник на " + due + ".", ok: "Да, финал", alt: "Нет" });
-    if (go2 === true) {
-      var own2 = await ensureOwner(seed);
-      if (!own2 || !own2.telegramId) return false;
-      return { createCard: true, needSurvey: true, status: "ФИНАЛ", stage: "ФИНАЛ", surveyDate: due, surveyKind: "final", ownerTelegramId: own2.telegramId, ownerName: own2.name, subId: existing.subId || "", advance: "to_final", bpWeeks: storedWeeks };
-    }
-    if (go2 === false) return null;
-    var stay = await sh().confirm({ title: "Оставить этап", text: "Оставить этап " + st + " и обновить состав 1-й доставки?\nОпросник после 1-й → " + due + ".", ok: "Оставить" });
+    var stay = await sh().confirm({
+      title: "Карточка БП",
+      text: "«" + clientName + "» уже в БП\nОбновить состав и опросник на " + due + "?",
+      ok: "Обновить"
+    });
     if (!stay) return null;
-    var own1 = await ensureOwner(seed);
-    if (!own1 || !own1.telegramId) return false;
-    return { createCard: true, needSurvey: true, status: st === "БП2" ? "БП2" : "БП1", stage: st === "БП2" ? "БП2" : "БП1", surveyDate: due, surveyKind: "bp2", ownerTelegramId: own1.telegramId, ownerName: own1.name, subId: existing.subId || "", advance: "refresh_first", bpWeeks: storedWeeks };
+    var ownStay = await ensureOwner(seed);
+    if (!ownStay || !ownStay.telegramId) return false;
+    var refresh = {
+      createCard: true,
+      needSurvey: true,
+      status: keepStatus,
+      stage: keepStatus,
+      surveyDate: due,
+      surveyKind: "final",
+      ownerTelegramId: ownStay.telegramId,
+      ownerName: ownStay.name,
+      subId: existing.subId || "",
+      advance: "refresh"
+    };
+    if (existing.bpWeeksSet) refresh.bpWeeks = existing.bpWeeks;
+    return refresh;
   }
 
   function saveMessage(res) {
@@ -1575,8 +1568,9 @@
       try {
         peek = await api().apiGet({ action: "getSubscription", nick: clientName, segment: "БП", sheet: "БП", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
       } catch (e) {}
-      var known = peek && peek.status === "success" ? bpStage(peek.ppStatus || peek.status || peek.stage || "") : "";
-      var later = known === "БП2" || known === "ФИНАЛ";
+      if (!state.ppPartner && peek && peek.found !== false && peek.ppPartner) {
+        state.ppPartner = String(peek.ppPartner).trim();
+      }
       if (!state.ppPartner) {
         var mem = loadMemory()[clientName.toUpperCase()];
         if (mem && mem.ppPartner) state.ppPartner = mem.ppPartner;
@@ -1585,7 +1579,7 @@
         var lp = await api().apiGet({ action: "lookupBpPartner", nick: clientName, _: String(Date.now()) }, { timeoutMs: 10000, cacheTtlMs: 0 });
         if (lp && lp.status === "success" && lp.ppPartner) state.ppPartner = String(lp.ppPartner).trim();
       }
-      if (!state.ppPartner && !later) {
+      if (!state.ppPartner) {
         await sh().alert({ text: "Для БП обязательно укажите партнёра (кто привёл). Или выберите «Другое»." });
         return;
       }
@@ -1677,7 +1671,7 @@
     var msgOut = saveMessage(res);
     saving = false;
     if (!msgOut.ok) { sh().toast(msgOut.text); paint(); return; }
-    if (savedSurvey && root.BoinyaBpWeeks && root.BoinyaBpWeeks.weeksOf(savedSurvey.bpWeeks) === 1 && savedSurvey.advance !== "to_final" && savedSurvey.advance !== "refresh_final" && savedSurvey.status !== "ФИНАЛ") {
+    if (savedSurvey && root.BoinyaBpWeeks && savedSurvey.advance !== "refresh" && String(savedSurvey.status || "") !== "ФИНАЛ") {
       try { await api().apiPost(root.BoinyaBpWeeks.remindBody(clientName, savedSurvey.ownerTelegramId || telegramId())); } catch (eRm) {}
     }
     if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено");
@@ -1939,7 +1933,7 @@
       var pickPiece = pieceQty_(picker.cat, picker.name, pickUnit);
       var pickDir = Number(node.getAttribute("data-dir"));
       var pickNext = pickPiece ? Number(picker.qty) + pickDir : gramStep_(picker.qty, pickDir);
-      picker.qty = Math.max(pickPiece ? 1 : 10, pickNext);
+      picker.qty = Math.max(pickPiece ? 1 : 5, pickNext);
       if (picker.cat === "crumb") rebuildAdd(null);
       else patchPick();
       return true;
@@ -2030,8 +2024,6 @@
     if (id === "del1") { state.retailPaidDelivery = true; if (!state.retailPriceManual) syncRetail(); paint(); return true; }
     if (id === "cup0") { state.partnerCouponsEnabled = false; paint(); return true; }
     if (id === "cup1") { state.partnerCouponsEnabled = true; paint(); return true; }
-    if (id === "bpw1") { state.bpWeeks = 1; paint(); return true; }
-    if (id === "bpw2") { state.bpWeeks = 2; paint(); return true; }
     return false;
   }
 

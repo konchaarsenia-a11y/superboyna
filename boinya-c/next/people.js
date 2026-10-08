@@ -69,7 +69,7 @@
     missed_delivery: "Не получил доставку",
     week_done: "Неделя завершена",
     access_req: "Запрос доступа",
-    survey: "Опросники БП2 / ПП",
+    survey: "Опросники БП и ПП",
     partner_order: "Новая заявка партнёра",
     partner_suggest: "Предложение партнёра",
     gb_lead: "Заявка GOOD BOY с сайта"

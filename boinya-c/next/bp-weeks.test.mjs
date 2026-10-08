@@ -21,16 +21,26 @@ test("без тега срок 2 недели", () => {
   assert.equal(W.parseWishes("просто текст").bpWeeksSet, false);
   assert.equal(W.statusLabel(2, ""), "");
   assert.equal(W.statusLabel(undefined, ""), "");
+  assert.equal(W.statusLabel(1, ""), "");
+  assert.equal(W.listLabel("БП2", ""), "БП");
+  assert.equal(W.listLabel("БП1", "pp"), "БП, перешёл в ПП");
+  assert.equal(W.countsInBpList({ sheet: "БП", status: "БП2" }), true);
+  assert.equal(W.countsInBpList({ sheet: "BP", status: "ФИНАЛ" }), true);
+  assert.equal(W.countsInBpList({ sheet: "ПП", status: "БП1" }), false);
+  var card = W.newCardFields();
+  assert.equal(card.sheet, "БП");
+  assert.equal(card.status, "БП1");
+  assert.equal(card.bpWeeks, "1");
+  assert.equal(card.surveyKind, "final");
 });
 
 test("тег 1 недели и исход", () => {
   var stamped = W.stampWishes("любит лёгкое", { bpWeeks: 1 });
   assert.match(stamped, /\[BPW:1\]/);
   assert.equal(W.parseWishes(stamped).bpWeeks, 1);
-  assert.equal(W.statusLabel(1, ""), "1 нед");
   var ext = W.stampWishes(stamped, { bpOutcome: "extend" });
   assert.match(ext, /\[BPOUT:extend\]/);
-  assert.equal(W.statusLabel(1, "extend"), "продлён");
+  assert.equal(W.statusLabel(1, "extend"), "");
   assert.equal(W.statusLabel(1, "pp"), "перешёл в ПП");
   assert.equal(W.statusLabel(1, "done"), "завершён");
   assert.equal(W.strip(ext).indexOf("BPW"), -1);
@@ -48,7 +58,7 @@ test("цена за продление это две недели по форм�
   var body = W.remindBody("Марго", "100");
   assert.equal(body.silent, "1");
   assert.equal(body.mode, "remind");
-  assert.equal(body.title, "Предложить продление или переход на ПП: Марго");
+  assert.equal(body.title, "Предложить переход на ПП: Марго");
   assert.equal(body.id, W.remindId("Марго"));
   var payload = JSON.parse(body.payload);
   assert.equal(payload.remindSilent, true);
@@ -58,15 +68,37 @@ test("цена за продление это две недели по форм�
   assert.equal(src.indexOf("·"), -1);
 });
 
-test("заказ и карточка показывают тумблер и действия", () => {
+test("заказ и карточка без второй недели БП", () => {
   var orders = fs.readFileSync(path.join(here, "orders.js"), "utf8");
   var clients = fs.readFileSync(path.join(here, "clients.js"), "utf8");
-  assert.match(orders, /1 неделя/);
-  assert.match(orders, /2 недели/);
-  assert.match(clients, /Цена за продление/);
-  assert.match(clients, /cl-bp-extend/);
+  var stats = fs.readFileSync(path.join(here, "stats.js"), "utf8");
+  assert.equal(orders.indexOf("1 неделя"), -1);
+  assert.equal(orders.indexOf("2 недели"), -1);
+  assert.equal(orders.indexOf("Вторая доставка"), -1);
+  assert.match(orders, /surveyKind: "final"/);
+  assert.match(orders, /bpWeeks: "1"/);
+  assert.equal(clients.indexOf("Цена за продление"), -1);
+  assert.equal(clients.indexOf("cl-bp-extend"), -1);
+  assert.equal(clients.indexOf("Состав БП2"), -1);
+  assert.equal(clients.indexOf(">БП2<"), -1);
+  assert.match(clients, /Клиент БП/);
   assert.match(clients, /cl-bp-done/);
-  assert.match(clients, /cl-bpw/);
+  assert.match(clients, /ensureBpFromOrder/);
+  assert.equal(stats.indexOf("1 нед"), -1);
+  assert.equal(stats.indexOf("Продлён"), -1);
+  assert.match(stats, /Клиенты БП/);
+});
+
+test("карточка БП пишется в D1 на обоих путях", () => {
+  var worker = fs.readFileSync(path.join(here, "../proxy/worker.js"), "utf8");
+  assert.match(worker, /function rememberBpCardFromOrder_/);
+  assert.match(worker, /rememberBpCardFromOrder_\(jobParams, env\)/);
+  assert.match(worker, /ensureBpFromOrder/);
+  assert.match(worker, /sheet: "БП"/);
+  var fn = worker.split("async function rememberBpCardFromOrder_")[1].split("\nasync function ")[0];
+  assert.match(fn, /bpWeeks/);
+  assert.match(fn, /surveyKind/);
+  assert.equal(fn.indexOf("delete "), -1);
 });
 
 test("Code.gs хранит bp weeks и не шлёт telegram на это напоминание", () => {
@@ -76,6 +108,8 @@ test("Code.gs хранит bp weeks и не шлёт telegram на это нап
   assert.match(gs, /remindSilent/);
   var fn = gs.split("function queueBpOneWeekRemind_")[1].split("\nfunction ")[0];
   assert.equal(fn.indexOf("telegramSendText_"), -1);
+  assert.match(fn, /Предложить переход на ПП/);
+  assert.equal(fn.indexOf("Предложить продление"), -1);
   assert.match(gs, /payload\.remindSilent/);
   assert.match(gs, /oneWeek:/);
 });
