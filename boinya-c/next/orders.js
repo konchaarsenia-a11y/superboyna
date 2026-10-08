@@ -129,16 +129,6 @@
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
 
-  function bpStage(raw) {
-    var u = String(raw || "").trim().toUpperCase();
-    if (!u) return "БП1";
-    if (/ФИНАЛ|FINAL|БП2_FINAL|БП2FINAL/.test(u)) return "ФИНАЛ";
-    if (/БП1_SURVEY|БП1SURVEY|ОПРОС/.test(u)) return "БП2";
-    if (/\bБП2\b/.test(u) || /^БП2/.test(u) || u.indexOf("БП2") >= 0) return "БП2";
-    if (/ДУМА/.test(u)) return "ФИНАЛ";
-    return "БП1";
-  }
-
   function typeLabel(id) {
     for (var i = 0; i < TYPES.length; i++) if (TYPES[i].id === id) return TYPES[i].label;
     return id;

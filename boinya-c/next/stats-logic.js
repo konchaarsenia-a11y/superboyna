@@ -260,11 +260,7 @@
     var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
     var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
     var charts = res.charts || {};
-    var rawStages = charts.bpStages || [
-      { label: "БП1", value: bp.bp1 || 0 },
-      { label: "БП2", value: bp.bp2 || 0 },
-      { label: "Финал", value: bp.final || 0 }
-    ];
+    var rawStages = Array.isArray(charts.bpStages) ? charts.bpStages : [];
     var bpClients = 0;
     rawStages.forEach(function (s) { bpClients += Number(s && s.value) || 0; });
     if (!bpClients) {

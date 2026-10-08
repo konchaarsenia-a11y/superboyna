@@ -157,22 +157,6 @@
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
 
-  function normalizeBpStage_(raw) {
-    var u = String(raw || "").trim().toUpperCase();
-    if (!u) return "БП1";
-    if (/ФИНАЛ|FINAL|БП2_FINAL|БП2FINAL/.test(u)) return "ФИНАЛ";
-    if (/БП1_SURVEY|БП1SURVEY|ОПРОС/.test(u)) return "БП2";
-    if (/\bБП2\b/.test(u) || /^БП2/.test(u) || u.indexOf("БП2") >= 0) return "БП2";
-    if (/ДУМА/.test(u)) return "ФИНАЛ";
-    return "БП1";
-  }
-
-  function bpStageSurveyKind_(stage) {
-    var st = normalizeBpStage_(stage);
-    if (st === "ФИНАЛ") return "final";
-    return "bp2";
-  }
-
   function isRetailMarkedSub_(s) {
     if (!s) return false;
     var segm = String(s.segment || "").trim().toUpperCase();
@@ -270,7 +254,7 @@
 
   function activeBasket() {
     if (view === "card" && card) {
-      if (card.sheet === "БП") return card.bpTab === 2 ? card.basketBp2 : card.basketBp1;
+      if (card.sheet === "БП") return card.basketBp1;
       if (Number(card.deliveries) >= 2 && card.slot === 2) return card.basket2;
       return card.basket;
     }
@@ -279,10 +263,8 @@
 
   function setActiveBasket(list) {
     if (view === "card" && card) {
-      if (card.sheet === "БП") {
-        if (card.bpTab === 2) card.basketBp2 = list;
-        else card.basketBp1 = list;
-      } else if (Number(card.deliveries) >= 2 && card.slot === 2) card.basket2 = list;
+      if (card.sheet === "БП") card.basketBp1 = list;
+      else if (Number(card.deliveries) >= 2 && card.slot === 2) card.basket2 = list;
       else card.basket = list;
       return;
     }
@@ -712,11 +694,6 @@
           '<button type="button" class="b-seg__item' + (c.slot === 1 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="1">Доставка 1</button>' +
           '<button type="button" class="b-seg__item' + (c.slot === 2 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="2">Доставка 2</button></div>';
       }
-    }
-    if (c.sheet === "БП" && c.basketBp2 && c.basketBp2.length) {
-      priceBits += '<p class="b-lbl">Состав</p><div class="b-seg">' +
-        '<button type="button" class="b-seg__item' + (c.bpTab !== 2 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="1">Состав</button>' +
-        '<button type="button" class="b-seg__item' + (c.bpTab === 2 ? " b-seg__item--on" : "") + '" data-act="cl-bptab" data-n="2">Ещё состав</button></div>';
     }
     priceBits += basketBlock();
     if (c.sheet === "ПП") {
@@ -1373,7 +1350,10 @@
     card.basket = eng().mapApiBasketToLocal(res.basket || []);
     card.basket2 = eng().mapApiBasketToLocal(res.basket2 || []);
     card.basketBp1 = eng().mapApiBasketToLocal(res.basketBp1 || []);
-    card.basketBp2 = eng().mapApiBasketToLocal(res.basketBp2 || []);
+    card.basketBp2 = eng().mapApiBasketToLocal(Array.isArray(res.basketBp2) ? res.basketBp2 : []);
+    card.basketBp2Keep = Array.isArray(res.basketBp2)
+      ? card.basketBp2.map(function (it) { return Object.assign({}, it); })
+      : null;
     if (card.sheet === "БП" || String(sheet || "") === "БП") {
       if (!card.basketBp1.length && card.basket.length) card.basketBp1 = card.basket.slice();
     }
@@ -1454,7 +1434,7 @@
       statedCost: card.sheet === "ПП" ? (card.statedCost || "") : "",
       calcFactCost: card.sheet === "ПП" ? (card.calcFactCost || card.statedCost || "") : "",
       statedTouched: card.statedTouched ? "1" : "0",
-      basket: card.sheet === "БП" ? (card.bpTab === 2 ? card.basketBp2 : card.basketBp1) : card.basket,
+      basket: card.sheet === "БП" ? card.basketBp1 : card.basket,
       basket2: Number(card.deliveries) >= 2 ? card.basket2 : undefined,
       coef: card.sheet === "ПП" ? String(card.coef || "") : "",
       scheme: card.sheet === "ПП" ? (card.scheme || "") : "",
@@ -1469,7 +1449,7 @@
       body.ownerTelegramId = card.ownerTelegramId || "";
       body.ownerName = ownerName;
       body.basketBp1 = card.basketBp1;
-      body.basketBp2 = card.basketBp2;
+      if (card.basketBp2Keep && card.basketBp2Keep.length) body.basketBp2 = card.basketBp2Keep;
       if (card.bpWeeksSet) body.bpWeeks = String(card.bpWeeks);
       body.bpOutcome = card.bpOutcome || "";
     }
@@ -1754,7 +1734,6 @@
       return true;
     }
     if (act === "cl-slot") { if (card) card.slot = Number(node.getAttribute("data-n")) || 1; paint(); return true; }
-    if (act === "cl-bptab") { if (card) card.bpTab = Number(node.getAttribute("data-n")) === 2 ? 2 : 1; paint(); return true; }
     if (act === "cl-deep") { deep = !deep; paint(); return true; }
     if (act === "cl-coef") {
       var cv = node.getAttribute("data-v");
@@ -2165,7 +2144,7 @@
     } catch (e) {}
     sh().toast(res && res.status === "success" ? "В ПП · учтено в статистике БП→ПП" : "Переход записан в статистику · открой расчёт");
     price = blankPrice();
-    price.baskets[1] = (card.basketBp2 && card.basketBp2.length) ? card.basketBp2.slice() : (card.basketBp1 || []).slice();
+    price.baskets[1] = (card.basketBp1 || []).slice();
     price.note = card.wishes || "";
     enroll = { id: "", displayName: card.label || "", nick: card.nick || "", note: card.wishes || "", address: card.address || "", phone: card.phone || "", deliveriesN: card.deliveries || 2, fact: "" };
     view = "list";
