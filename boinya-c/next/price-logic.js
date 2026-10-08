@@ -509,28 +509,6 @@ var ASM_CHEW_PER_BIG = 4;
       return kind * qty * w * b;
     }
 
-    function pricePickSwapForBp2_(items, disliked, fracPref) {
-      if (!disliked || !disliked.length) return items;
-      var subs = ["ПОЧКИ", "БАРАНЬЕ ЛЁГКОЕ", "СЕРДЦЕ", "ТРАХЕЯ"];
-      var have = {};
-      (items || []).forEach(function (it) {
-        have[String(it.main || it.name || "").toUpperCase()] = true;
-      });
-      var ban = {};
-      disliked.forEach(function (n) { ban[String(n).toUpperCase()] = true; });
-      var out = (items || []).slice();
-      for (var i = 0; i < subs.length; i++) {
-        var up = subs[i].toUpperCase();
-        if (have[up] || ban[up]) continue;
-        var add = pricePickItemFromSku_(subs[i], null, fracPref);
-        if (add) {
-          out.push(add);
-          break;
-        }
-      }
-      return out;
-    }
-
     function pricePickOrderSections_(items) {
       var order = { dressura: 0, chew: 1, veg: 2, other: 3, crumb: 4 };
       return (items || []).slice().sort(function (a, b) {
@@ -568,11 +546,7 @@ var ASM_CHEW_PER_BIG = 4;
         if (fromUse > 80) fromUse = 80;
         lung = target === "bp1" ? pricePickRound5_(fromUse / 1.3, 15) : fromUse;
       }
-      var trial = target === "bp1" || target === "bp2";
-      if (target === "bp2") {
-        if (signals.qty === "high") lung = Math.max(10, lung - 5);
-        else if (!(signals.monthlyLungG > 0)) lung = pricePickRound5_(lung * 1.5, 10);
-      }
+      var trial = target === "bp1";
       if (!trial) {
         if (signals.monthlyLungG > 0) lung = Math.min(350, signals.monthlyLungG);
         else if (budget > 0 && budget < 45) lung = 30;
@@ -588,7 +562,7 @@ var ASM_CHEW_PER_BIG = 4;
       target = priceModeKey(target);
       var ban = pricePickBanned_(signals);
       var list = [];
-      var trial = target === "bp1" || target === "bp2";
+      var trial = target === "bp1";
       var lung = pricePickLungAnchor_(signals, target);
       var frac = signals.fracPref || "";
       function allow(name) { return !ban[String(name).toUpperCase()]; }
@@ -599,22 +573,21 @@ var ASM_CHEW_PER_BIG = 4;
 
       if (allow("ЛЁГКОЕ")) pricePickPushSku_(list, "ЛЁГКОЕ", lung, frac);
       var heartG = trial
-        ? pricePickRound5_(lung * (target === "bp2" ? 0.3 : 0.4), 5)
+        ? pricePickRound5_(lung * 0.4, 5)
         : pricePickRound5_(lung * 0.32, 10);
       if (signals.puppy && trial && lung <= 20) heartG = Math.max(heartG, 10);
-      if (allow("СЕРДЦЕ") && !(target === "bp2" && signals.puppy && signals.qty === "high")) {
+      if (allow("СЕРДЦЕ")) {
         pricePickPushSku_(list, "СЕРДЦЕ", heartG, frac);
       }
       var sideName = "РУБЕЦ Т";
-      if (!allow(sideName) || (target === "bp2" && (signals.liked || []).indexOf("РУБЕЦ Т") < 0)) sideName = "ПОЧКИ";
+      if (!allow(sideName)) sideName = "ПОЧКИ";
       if (signals.puppy && trial) sideName = "";
       if (sideName && allow(sideName)) {
         var sideG = trial ? pricePickRound5_(lung * 0.25, 5) : pricePickRound5_(lung * 0.16, 10);
-        if (target === "bp2" && sideName === "ПОЧКИ") sideG = Math.max(sideG, 15);
         pricePickPushSku_(list, sideName, sideG, frac);
       }
 
-      var chewCap = trial ? (target === "bp2" ? 3 : 2) : 3;
+      var chewCap = trial ? 2 : 3;
       var chewWant = [];
       function wantChew(name) {
         if (!name || !allow(name) || chewWant.indexOf(name) >= 0) return;
@@ -623,7 +596,6 @@ var ASM_CHEW_PER_BIG = 4;
       (signals.must || []).forEach(wantChew);
       (signals.liked || []).forEach(wantChew);
       if (signals.rootPcs) wantChew("БЫЧИЙ КОРЕНЬ");
-      if (target === "bp2") (signals.tried || []).forEach(wantChew);
       var chewDefaults = signals.puppy
         ? ["ТРАХЕЯ", "СТАНОВАЯ ЖИЛА", "ЛОП ХРЯЩ ШТ.", "АОРТА", "УХО Г", "НОСЫ ШТ.", "БЫЧИЙ КОРЕНЬ"]
         : ["ЛОП ХРЯЩ ШТ.", "АОРТА", "ТРАХЕЯ", "СТАНОВАЯ ЖИЛА", "УХО Г", "НОСЫ ШТ.", "БЫЧИЙ КОРЕНЬ"];
@@ -637,7 +609,7 @@ var ASM_CHEW_PER_BIG = 4;
         if (hit.cat === "other") return;
         var pcs = 1;
         var sub = "";
-        if (name === "СТАНОВАЯ ЖИЛА") pcs = target === "bp2" ? 4 : 2;
+        if (name === "СТАНОВАЯ ЖИЛА") pcs = 2;
         if (name === "БЫЧИЙ КОРЕНЬ") {
           sub = signals.rootFrac || "";
           if (!trial) pcs = signals.rootPcs ? Math.max(1, Math.min(8, signals.rootPcs)) : (signals.budgetByn > 100 ? 4 : 2);
@@ -649,9 +621,7 @@ var ASM_CHEW_PER_BIG = 4;
       });
 
       var vegG = trial ? ((signals.puppy || lung <= 40) ? 5 : 10) : (lung >= 200 ? 100 : (signals.budgetByn > 0 && signals.budgetByn < 45 ? 10 : 40));
-      if (target === "bp2" && signals.puppy) vegG = vegG * 2;
       var vegNames = signals.puppy ? ["ЯБЛОКИ", "ТЫКВА"] : ["ТЫКВА", "БАТАТ"];
-      if (target === "bp2" && !signals.puppy) vegNames = ["ТЫКВА", "БАНАНЫ"];
       (signals.liked || []).forEach(function (n) {
         var hit = buildIgKnownMap()[String(n).toUpperCase()];
         if (hit && hit.cat === "veg" && vegNames.indexOf(hit.name) < 0) vegNames.unshift(hit.name);
@@ -770,26 +740,6 @@ var ASM_CHEW_PER_BIG = 4;
           ]
         },
         {
-          id: "canon-jay-bp2",
-          source: "direct",
-          target: "bp2",
-          weightKg: 35,
-          puppy: false,
-          noChicken: false,
-          noFish: true,
-          likeLung: true,
-          likeRoot: false,
-          hateTrachea: true,
-          anketaText: "Выжла 35 кг, вторая коробка: лёгкое, почки, корень, тыква и банан.",
-          items: [
-            row("dressura", "ЛЁГКОЕ", 60, "Мелкое"),
-            row("dressura", "ПОЧКИ", 15, "Мелкое"),
-            row("chew", "БЫЧИЙ КОРЕНЬ", 1, "СРЕД"),
-            row("veg", "ТЫКВА", 10, ""),
-            row("veg", "БАНАНЫ", 10, "")
-          ]
-        },
-        {
           id: "canon-twix-bp1",
           source: "direct",
           target: "bp1",
@@ -809,51 +759,6 @@ var ASM_CHEW_PER_BIG = 4;
             row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
             row("veg", "ТЫКВА", 10, ""),
             row("veg", "БАТАТ", 10, "")
-          ]
-        },
-        {
-          id: "canon-twix-bp2",
-          source: "direct",
-          target: "bp2",
-          weightKg: 11,
-          puppy: false,
-          noChicken: true,
-          noFish: false,
-          likeLung: true,
-          likeRoot: false,
-          hateTrachea: false,
-          anketaText: "Беспородная 11 кг, вторая коробка, без курицы, больше лёгкого.",
-          items: [
-            row("dressura", "ЛЁГКОЕ", 75, "Среднее"),
-            row("dressura", "СЕРДЦЕ", 25, "Среднее"),
-            row("dressura", "ПОЧКИ", 20, "Среднее"),
-            row("chew", "ТРАХЕЯ", 1, ""),
-            row("chew", "СТАНОВАЯ ЖИЛА", 4, ""),
-            row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
-            row("veg", "ЯБЛОКИ", 10, ""),
-            row("veg", "МОРКОВЬ", 10, "")
-          ]
-        },
-        {
-          id: "canon-cheddar-bp2",
-          source: "direct",
-          target: "bp2",
-          weightKg: 8.3,
-          puppy: false,
-          noChicken: true,
-          noFish: false,
-          likeLung: true,
-          likeRoot: true,
-          hateTrachea: false,
-          anketaText: "Такса 8.3 кг, нужны корень и лёгкое, не рубец, без курицы и птицы, малые корни, 700 г лёгкого.",
-          items: [
-            row("dressura", "ЛЁГКОЕ", 70, "Среднее"),
-            row("dressura", "СЕРДЦЕ", 20, "Ломтики"),
-            row("dressura", "ПОЧКИ", 20, "Ломтики"),
-            row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
-            row("chew", "БЫЧИЙ КОРЕНЬ", 1, "МАЛ"),
-            row("other", "ВЫМЯ", 10, ""),
-            row("other", "СЕМЕННИКИ", 10, "")
           ]
         },
         {
