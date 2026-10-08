@@ -1,0 +1,22 @@
+# Сухое чтение D1 и getMe/getChat бота партнёров. Сообщений не шлёт.
+name: pp2-partner-read
+
+on:
+  workflow_dispatch:
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Self-test
+        run: node scripts/pp2-partner-read.mjs --self-test
+      - name: Read D1 and partner bot
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PARTNER_BOT_TOKEN: ${{ secrets.PARTNER_BOT_TOKEN }}
+        run: node scripts/pp2-partner-read.mjs

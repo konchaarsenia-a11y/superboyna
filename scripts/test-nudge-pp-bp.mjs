@@ -56,6 +56,7 @@ const names = [
   "deliveryDatesNudgeIsEmpty_",
   "parseFlexibleDate_",
   "mergePpCycleJsonMaps_",
+  "nudgeCycleDateHit_",
   "collectPpCycleNudgeHits_",
   "absorbNudgeDeliveryRows_",
   "splitNudgeTelegramText_"
@@ -63,7 +64,7 @@ const names = [
 const api = new Function(
   prelude +
     names.map(sliceFn).join("\n") +
-    "\nreturn { nudgePpSlotTag_, nudgeSegIsPp_, normalizeBpStage_, classifyDeliveredClientForNudge_, buildDeliveryDatesNudgeText_, deliveryDatesNudgeIsEmpty_, parseFlexibleDate_, mergePpCycleJsonMaps_, collectPpCycleNudgeHits_, absorbNudgeDeliveryRows_, splitNudgeTelegramText_ };"
+    "\nreturn { nudgePpSlotTag_, nudgeSegIsPp_, normalizeBpStage_, classifyDeliveredClientForNudge_, buildDeliveryDatesNudgeText_, deliveryDatesNudgeIsEmpty_, parseFlexibleDate_, mergePpCycleJsonMaps_, nudgeCycleDateHit_, collectPpCycleNudgeHits_, absorbNudgeDeliveryRows_, splitNudgeTelegramText_ };"
 )();
 
 const tag = api.nudgePpSlotTag_;
@@ -164,7 +165,7 @@ assert(indexSrc.indexOf("idx.bpStage") < 0, "CRM index does not store later BP s
 const listSrc = sliceFn("listYesterdayDeliveredForNudge_");
 assert(listSrc.indexOf("collectPpCycleNudgeHits_") > 0, "PP cycle slot2 is read for yesterday");
 assert(listSrc.indexOf("fetchD1DeliveredForNudge_") > 0, "nudge unions D1 delivered rows");
-assert(sliceFn("collectPpCycleNudgeHits_").indexOf('tag = "ПП2"') > 0, "cycle slot2 tag is ПП2");
+assert(sliceFn("collectPpCycleNudgeHits_").indexOf('? "ПП1" : "ПП2"') > 0, "cycle slot2 tag is ПП2 unless the card is N=1");
 assert(listSrc.indexOf("ppSlotRaw") > 0, "nudge reads the raw slot cell before it is wiped");
 assert(listSrc.indexOf('meta.kind === "retail"') > 0, "retail is still skipped");
 
@@ -198,6 +199,20 @@ const hits = api.collectPpCycleNudgeHits_(merged, "05.10.2026", "2026-10-05");
 const hitNames = hits.map((h) => h.name + ":" + h.tag).sort();
 assert(hitNames.indexOf("ANDREI:ПП1") >= 0, "first cycle fragment still yields PP1");
 assert(hitNames.indexOf("snowygodness:ПП2") >= 0, "second cycle fragment PP2 without paid is included");
+assert(api.nudgeCycleDateHit_("7.10.2026", "07.10.2026", "2026-10-07") === true, "cycle date without a leading zero still hits");
+assert(api.nudgeCycleDateHit_("07.10.2026", "07.10.2026", "2026-10-07") === true, "padded cycle date still hits");
+const looseHits = api.collectPpCycleNudgeHits_(
+  { KATYA: { slot2: { date: "7.10.2026", client: "katya.dehtyarenko" } } },
+  "07.10.2026",
+  "2026-10-07"
+);
+assert(looseHits.length === 1 && looseHits[0].tag === "ПП2", "PP2 cycle date 7.10 matches 07.10");
+const n1Hits = api.collectPpCycleNudgeHits_(
+  { KATYA: { deliveriesN: 1, slot1: { date: "05.10.2026" }, slot2: { date: "07.10.2026", client: "katya.dehtyarenko" } } },
+  "07.10.2026",
+  "2026-10-07"
+);
+assert(n1Hits.length === 1 && n1Hits[0].tag === "ПП1", "stored slot2 with N=1 is labeled ПП1");
 
 const absorbed = [];
 const slots = {};
@@ -246,7 +261,7 @@ function sliceWorker(name) {
   throw new Error("unclosed worker " + name);
 }
 const shape = new Function(
-  sliceWorker("parseMeta_") + "\n" + sliceWorker("shapeNudgeDeliveredRows_") + "\nreturn shapeNudgeDeliveredRows_;"
+  sliceWorker("parseMeta_") + "\n" + sliceWorker("nudgePersonKey_") + "\n" + sliceWorker("shapeNudgeDeliveredRows_") + "\nreturn shapeNudgeDeliveredRows_;"
 )();
 const shaped = shape(
   [{ match_key: "SNOWYGODNESS", delivered: 1 }],
@@ -283,6 +298,31 @@ assert(shaped.find((r) => r.client === "snowygodness").ppSlot === "2/2", "D1 PP2
 assert(shaped.find((r) => r.matchKey === "ANDREIPRIGUNOV").client === "Andreiprigunov", "active order wins over a deleted duplicate");
 assert(shaped.find((r) => r.matchKey === "ANDREIPRIGUNOV").mail === "euro", "euro post tag is kept");
 assert(shaped.find((r) => r.matchKey === "ANDREIPRIGUNOV").fromTrack === true, "mail track is a delivery even beside the flag");
+const both = shape(
+  [{ match_key: "KATYADEHTYARENKO", delivered: 1 }],
+  [
+    {
+      client: "katya.dehtyarenko",
+      match_key: "KATYADEHTYARENKO",
+      segment: "ПАРТНЁР",
+      status: "active",
+      id: "p",
+      note: "",
+      meta_json: "{}"
+    },
+    {
+      client: "katya.dehtyarenko",
+      match_key: "KATYADEHTYARENKO",
+      segment: "ПП",
+      status: "active",
+      id: "s",
+      note: "",
+      meta_json: JSON.stringify({ ppSlot: "2/2" })
+    }
+  ]
+);
+assert(both.length === 2, "partner row does not hide an active PP2 row");
+assert(both.some((r) => r.segment === "ПП" && r.ppSlot === "2/2"), "PP2 slot stays on its own row");
 assert(workerSrc.indexOf('a === "nudgeDeliveredDay"') > 0, "worker exposes nudgeDeliveredDay behind the GAS secret");
 
 if (failed) {
