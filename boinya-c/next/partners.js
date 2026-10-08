@@ -744,9 +744,21 @@
     return false;
   }
 
+  function refreshQuiet() {
+    if (!document.getElementById("phBody")) return;
+    var a = document.activeElement;
+    var box = document.getElementById("phBody");
+    if (a && box.contains(a)) return;
+    loadHub({ force: true });
+    loadSuggest({ force: true });
+    if (tab === "orders") loadOrders({ force: true });
+    if (tab === "bp") loadBp({ force: true });
+  }
+
   root.BoinyaPartners = {
     bind: function (a) { access = a; },
     show: show,
+    refreshQuiet: refreshQuiet,
     onAct: onAct
   };
 })(typeof window !== "undefined" ? window : globalThis);

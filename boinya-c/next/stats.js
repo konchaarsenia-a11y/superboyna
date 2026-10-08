@@ -561,10 +561,22 @@
     return false;
   }
 
+  function refreshQuiet() {
+    var box = document.getElementById("statsContainer");
+    var a = document.activeElement;
+    if (!box) {
+      cache = Object.create(null);
+      return;
+    }
+    if (a && box.contains(a)) return;
+    load({ force: true });
+  }
+
   root.BoinyaStats = {
     bind: function (a) { access = a; },
     show: show,
     onAct: onAct,
+    refreshQuiet: refreshQuiet,
     preview: renderScreen
   };
 })(typeof window !== "undefined" ? window : globalThis);

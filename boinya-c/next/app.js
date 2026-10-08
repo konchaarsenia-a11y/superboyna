@@ -1004,7 +1004,35 @@
     }
   }
 
+  var pokeTimer = 0;
+  function pokeOne(skip, getter) {
+    if (skip) return;
+    try {
+      var mod = getter();
+      if (mod && mod.refreshQuiet) mod.refreshQuiet();
+    } catch (eM) {}
+  }
+  function pokeNow() {
+    try { if (wk() && wk().noteMonth) wk().noteMonth({ op: "touch" }); } catch (eW) {}
+    try { if (tasksMod() && tasksMod().refresh) tasksMod().refresh(); } catch (eT) {}
+    var onMore = route.tab === "more";
+    pokeOne(route.tab === "production", prod);
+    pokeOne(route.tab === "warehouse", wh);
+    pokeOne(route.tab === "clients", clients);
+    pokeOne(route.tab === "goals", goalsMod);
+    pokeOne(route.tab === "goals", expensesMod);
+    pokeOne(onMore && moreView === "stats", stats);
+    pokeOne(onMore && moreView === "partners", partners);
+    pokeOne(onMore && moreView === "price", retail);
+    pokeOne(onMore && moreView === "templates", tpl);
+    pokeOne(onMore && (moreView === "staff" || moreView === "people" || moreView === "settings"), people);
+  }
+
   function start() {
+    root.__nxAfterWrite = function () {
+      clearTimeout(pokeTimer);
+      pokeTimer = setTimeout(pokeNow, 80);
+    };
     root.__nxOrderVisible = function () {
       return route.tab === "orders" && route.seg === "new" && q().get("shot") !== "states";
     };

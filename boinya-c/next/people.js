@@ -610,7 +610,10 @@
   async function showStaff(force, gen) {
     sh().dock("");
     var painted = false;
-    if (!force) {
+    if (force && people.length) {
+      paintStaff();
+      painted = true;
+    } else if (!force) {
       var cached = readScreenCache();
       if (cached) {
         people = cached.people;
@@ -950,5 +953,13 @@
     paint();
   }
 
-  root.BoinyaPeople = { show: show, onAct: onAct, parseDepotCoords: parseDepotCoords };
+  function refreshQuiet() {
+    try { localStorage.removeItem(CACHE_KEY); } catch (e) {}
+    var a = document.activeElement;
+    if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
+    if (document.querySelector("[data-act='p-reload']")) show({ view: "staff", force: true });
+    else if (document.getElementById("whAddr")) show({ view: "settings", force: true });
+  }
+
+  root.BoinyaPeople = { show: show, onAct: onAct, refreshQuiet: refreshQuiet, parseDepotCoords: parseDepotCoords };
 })(window);

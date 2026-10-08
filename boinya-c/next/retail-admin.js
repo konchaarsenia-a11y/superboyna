@@ -138,7 +138,7 @@
     opts = opts || {};
     var box = document.getElementById("retailPriceAdminList");
     var st = document.getElementById("retailPriceAdminStatus");
-    if (box && opts.force) box.innerHTML = '<p class="b-note">Загрузка…</p>';
+    if (box && opts.force && !opts.quiet) box.innerHTML = '<p class="b-note">Загрузка…</p>';
     var res = null;
     try {
       var q = { action: "getRetailPriceList", telegramId: tid() };
@@ -238,6 +238,14 @@
     load({ soft: true });
   }
 
+  function refreshQuiet() {
+    if (!document.getElementById("retailPriceAdminList")) return;
+    var a = document.activeElement;
+    var box = document.getElementById("retailPriceAdminList");
+    if (a && box && box.contains(a)) return;
+    load({ force: true, quiet: true });
+  }
+
   function onAct(act, node) {
     if (act === "rp-reload") { load({ force: true }); return true; }
     if (act === "rp-save") { save(); return true; }
@@ -257,6 +265,7 @@
   root.BoinyaRetailAdmin = {
     bind: function (a) { access = a; },
     show: show,
+    refreshQuiet: refreshQuiet,
     onAct: onAct
   };
 })(typeof window !== "undefined" ? window : globalThis);

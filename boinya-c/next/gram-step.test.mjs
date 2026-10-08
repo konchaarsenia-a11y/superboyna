@@ -17,6 +17,7 @@ const sandbox = {
 sandbox.window = sandbox;
 vm.runInNewContext(src, sandbox, { filename: "orders.js" });
 const step = sandbox.BoinyaOrders.gramStep_;
+const bump = sandbox.BoinyaOrders.gramBump_;
 const parse = sandbox.BoinyaOrders.parseGramText_;
 const P = require("./price-logic.js");
 
@@ -29,6 +30,15 @@ test("кнопки граммов шагают по 5, с 5 вниз в ноль
   assert.equal(step(1, 1), 5);
   assert.equal(step(1, -1), 0);
   assert.equal(step(100, -1), 95);
+});
+
+test("пустое поле не подставляет 200, плюс ставит 5", () => {
+  assert.equal(bump("", 1), 5);
+  assert.equal(bump(null, 1), 5);
+  assert.equal(bump("", -1), "");
+  assert.equal(bump(5, 1), 10);
+  assert.equal(bump(5, -1), "");
+  assert.equal(src.includes("qty: 200"), false);
 });
 
 test("ручной ввод хранит целое как написали", () => {
@@ -47,13 +57,16 @@ test("поле граммов в подборе, строке и крошке, �
   assert.match(src, /function gramQtyHtml/);
   assert.match(src, /inputmode="numeric"/);
   assert.match(src, /data-act="' \+ act \+ '-in"/);
-  assert.match(src, /picker\.qty = Math\.max\(1, pickNext\)/);
+  assert.match(src, /gramBump_\(picker\.qty, pickDir\)/);
+  assert.match(src, /placeholder="г"/);
+  assert.match(src, /picker\.cat === "chew" \? 1 : ""/);
   assert.match(src, /if \(next <= 0\) list\.splice\(i, 1\)/);
   assert.match(src, /it\.gramManual = true/);
   assert.match(src, /pieceQty_\(picker\.cat, picker\.name, unit\)/);
   assert.match(src, /b-step__val/);
   const clients = fs.readFileSync(path.join(here, "clients.js"), "utf8");
-  assert.match(clients, /Math\.max\(1, crumbNext\)/);
+  assert.match(clients, /gramBump_\(crumbDraft\.qty, crumbDir\)/);
+  assert.match(clients, /qty: ""/);
   assert.match(clients, /cl-gqty/);
   assert.match(clients, /cl-pick-g/);
   assert.match(clients, /parseGramText_/);

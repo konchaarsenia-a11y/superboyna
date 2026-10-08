@@ -290,20 +290,75 @@
     return !!(a.closest && a.closest("#nxMain, #nxScrim, .nx-sheet"));
   }
 
+  function kbMetrics() {
+    var vv = window.visualViewport;
+    var stable = window.innerHeight;
+    try {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (tg && tg.viewportStableHeight) stable = Number(tg.viewportStableHeight) || stable;
+    } catch (e) {}
+    var vh = vv ? vv.height : stable;
+    var top = vv ? (vv.offsetTop || 0) : 0;
+    var overlap = Math.max(0, stable - vh - top, window.innerHeight - vh - top);
+    return { overlap: overlap, vh: vh };
+  }
+
+  function scrollHost(node) {
+    var p = node && node.parentElement;
+    while (p) {
+      if (p.id === "nxMain" || (p.classList && p.classList.contains("nx-sheet__body"))) return p;
+      p = p.parentElement;
+    }
+    return document.getElementById("nxMain");
+  }
+
+  function liftField(node) {
+    node = node && textField(node) ? node : document.activeElement;
+    if (!textField(node)) return;
+    var m = kbMetrics();
+    var pad = m.overlap > 48 ? Math.round(m.overlap + 20) : 0;
+    document.documentElement.style.setProperty("--nx-kb", pad ? pad + "px" : "0px");
+    document.documentElement.style.setProperty("--nx-vvh", Math.max(120, Math.round(m.vh)) + "px");
+    var host = scrollHost(node);
+    var hosts = document.querySelectorAll("#nxMain, .nx-sheet__body");
+    var i;
+    for (i = 0; i < hosts.length; i++) {
+      hosts[i].style.paddingBottom = hosts[i] === host && pad ? pad + "px" : "";
+    }
+    try { node.scrollIntoView({ block: "center", inline: "nearest" }); } catch (e) {}
+  }
+
+  function clearLift() {
+    document.documentElement.style.setProperty("--nx-kb", "0px");
+    var hosts = document.querySelectorAll("#nxMain, .nx-sheet__body");
+    var i;
+    for (i = 0; i < hosts.length; i++) hosts[i].style.paddingBottom = "";
+  }
+
   function syncKeyboard() {
-    document.body.classList.toggle("nx-kb", fieldFocused() || viewportSquashed());
+    var on = fieldFocused() || viewportSquashed();
+    document.body.classList.toggle("nx-kb", on);
+    if (on) liftField();
+    else clearLift();
   }
 
   function bindKeyboard() {
     document.addEventListener("focusin", function (e) {
       var t = e.target;
       if (!textField(t)) return;
-      if (t.closest && t.closest("#nxMain, #nxScrim, .nx-sheet")) document.body.classList.add("nx-kb");
+      if (!(t.closest && t.closest("#nxMain, #nxScrim, .nx-sheet"))) return;
+      document.body.classList.add("nx-kb");
+      liftField(t);
+      setTimeout(function () { if (document.activeElement === t) liftField(t); }, 80);
+      setTimeout(function () { if (document.activeElement === t) liftField(t); }, 360);
     });
     document.addEventListener("focusout", function () {
       setTimeout(syncKeyboard, 60);
     });
-    if (window.visualViewport) window.visualViewport.addEventListener("resize", syncKeyboard);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", syncKeyboard);
+      window.visualViewport.addEventListener("scroll", syncKeyboard);
+    }
   }
 
   function chrome(opts) {

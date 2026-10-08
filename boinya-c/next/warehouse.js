@@ -110,12 +110,11 @@
     syncLabels();
     var asOf = L.warehouseTodayIso_();
     var box = document.getElementById("warehouseContainer");
-    if (!box) return;
-    if (opts.soft && cache && cache.view === view && cache.asOf === asOf) {
-      applyStock(cache.html);
+    if (opts.soft && !opts.force && cache && cache.view === view && cache.asOf === asOf) {
+      if (box) applyStock(cache.html);
       return;
     }
-    if (!opts.soft || !cache) box.innerHTML = '<p class="b-note">Загрузка…</p>';
+    if (box && !opts.quiet && (!opts.soft || !cache)) box.innerHTML = '<p class="b-note">Загрузка…</p>';
     var mine = ++whGen;
 
     async function fetchOnce() {
@@ -140,9 +139,11 @@
       }
       if (attempt < 2) await new Promise(function (r) { setTimeout(r, 600 + attempt * 500); });
     }
-    if (mine !== whGen || !alive("warehouseContainer")) return;
+    if (mine !== whGen) return;
+    if (!alive("warehouseContainer") && !opts.quiet) return;
 
     if (!res || res.status !== "success") {
+      if (!alive("warehouseContainer")) return;
       if (cache && cache.html) {
         applyStock(cache.html);
         try { sh().toast("Склад: показан кэш"); } catch (eT) {}
@@ -168,7 +169,8 @@
           });
         } catch (ePrev) {}
       }
-      if (mine !== whGen || !alive("warehouseContainer")) return;
+      if (mine !== whGen) return;
+    if (!alive("warehouseContainer") && !opts.quiet) return;
       var caption = view === "weekStart" ? "F+B" : L.formatWarehouseDayLabel_(asOf);
       var html = '<div class="b-note" style="margin-bottom:8px">' + esc(caption) + "</div>";
       html += (res.items || []).map(function (it) {
@@ -176,7 +178,7 @@
         return stockCard(it, shown);
       }).join("") || '<p class="b-note">Пусто</p>';
       cache = { html: html, view: view, asOf: asOf };
-      applyStock(html);
+      if (alive("warehouseContainer")) applyStock(html);
     } catch (eRender) {
       if (alive("warehouseContainer")) {
         document.getElementById("warehouseContainer").innerHTML = '<p class="b-note">Ошибка отрисовки склада</p>';
@@ -249,10 +251,32 @@
 
   async function saveArrival(row) {
     var el = document.getElementById("arr_" + row);
-    var qty = Number(el && el.value) || 0;
-    await api().apiPost({ action: "setWarehouseArrival", row: row, qty: qty, telegramId: tid() });
+    var typed = el ? String(el.value || "") : "";
+    var qty = Number(typed) || 0;
+    var res = null;
+    try {
+      res = await api().apiPost({ action: "setWarehouseArrival", row: row, qty: qty, telegramId: tid() });
+    } catch (e) { res = null; }
+    if (!res || (res.status && res.status !== "success" && res.status !== "accepted")) {
+      sh().toast("Не закрепилось, вернул как было");
+      return;
+    }
     sh().toast("Дозакуп сохранён");
-    loadWarehouse({ force: 1 });
+    loadWarehouse({ force: 1, quiet: 1 });
+    loadWarehousePreview({ force: 1 });
+  }
+
+  function refreshQuiet() {
+    var box = document.getElementById("warehouseContainer");
+    var a = document.activeElement;
+    if (box && a && box.contains(a)) return;
+    if (!box) {
+      cache = null;
+      previewHit = null;
+      return;
+    }
+    loadWarehouse({ force: 1, quiet: 1 });
+    loadWarehousePreview({ force: 1 });
   }
 
   async function composeBuy() {
@@ -334,6 +358,7 @@
     bind: function (a) { access = a; },
     show: show,
     onAct: onAct,
+    refreshQuiet: refreshQuiet,
     contextLine: contextLine
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -347,11 +347,24 @@
     });
   }
 
-  function noteWrite(res) {
+  function isMutating(action) {
+    action = String(action || "");
+    if (!action) return false;
+    if (WRITE.test(action)) return true;
+    if (/^(get|list|suggest|poll|ping|compose|resolve|unlock|export)/i.test(action)) return false;
+    if (/^partner(List|Hub)/i.test(action)) return false;
+    if (action === "warehousePreview") return false;
+    return /^(save|set|update|delete|remove|add|cancel|finish|start|close|move|place|mark|notify|partner|request|report|prepare)/i.test(action);
+  }
+
+  function noteWrite(res, action) {
     if (!res || res.status === "error") return res;
-    if (res.status === "success" || res.status === "accepted" || res.writeId || res.sheetsVerified || res.pendingSheets || res.d1Verified) {
-      bustMem(MONTH_READS);
-    }
+    var ok = res.status === "success" || res.status === "accepted" || res.writeId || res.sheetsVerified || res.pendingSheets || res.d1Verified || res.wrote;
+    if (!ok) return res;
+    bustMem(null);
+    try {
+      if (typeof root.__nxAfterWrite === "function") root.__nxAfterWrite(String(action || ""));
+    } catch (e) {}
     return res;
   }
 
@@ -416,7 +429,7 @@
     }
     trackStart();
     var p = runChain(retries).then(function (res) {
-      if (WRITE.test(action)) noteWrite(res);
+      if (WRITE.test(action) || isMutating(action)) noteWrite(res, action);
       remember(key, ttl, res);
       return res;
     }).finally(function () {
@@ -436,7 +449,7 @@
     }
     trackStart();
     return postWrite(payload, 25000).then(function (res) {
-      noteWrite(res);
+      if (isMutating(String(payload.action || ""))) noteWrite(res, payload.action);
       return res;
     }).finally(trackEnd);
   }

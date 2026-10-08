@@ -100,6 +100,8 @@
     if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
       return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
     }).length);
+    var title = document.getElementById("nxSheetTitle");
+    if (title && String(title.textContent || "").indexOf("Задачи") === 0) paintSheet();
   }
 
   function bind(acc) { access = acc; }
@@ -216,6 +218,7 @@
       remindAtMs: String(when.getTime())
     });
     sh().toast(L().peopleToast(res, "напоминание"));
+    try { await refresh(); } catch (eR) {}
   }
 
   async function addRemind() {
@@ -454,23 +457,23 @@
       newDay: newDay,
       cutRaw: cut === "alt" ? "no" : "yes"
     }), { timeoutMs: 35000, cacheTtlMs: 0 });
-    sh().toast(L().peopleToast(placed, "перенесено"));
-    if (L().writeAccepted(placed)) {
-      if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) {
-        root.BoinyaWeek.noteMonth({
-          op: "move",
-          date: newDate,
-          oldDate: p.dateIso || p.date || "",
-          client: {
-            name: task.clientNick || p.client || "",
-            matchKey: p.matchKey || "",
-            address: p.address || "",
-            phone: p.phone || "",
-            note: p.note || "",
-            segment: p.segment || ""
-          }
-        });
+    var xferChange = {
+      op: "move",
+      date: newDate,
+      oldDate: p.dateIso || p.date || "",
+      client: {
+        name: task.clientNick || p.client || "",
+        matchKey: p.matchKey || "",
+        address: p.address || "",
+        phone: p.phone || "",
+        note: p.note || "",
+        segment: p.segment || ""
       }
+    };
+    if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(placed, "перенесено", xferChange);
+    else sh().toast(L().peopleToast(placed, "перенесено"));
+    if (L().writeAccepted(placed)) {
+      if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) root.BoinyaWeek.noteMonth(xferChange);
       await refresh();
       sh().closeAll();
     }

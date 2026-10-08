@@ -1348,7 +1348,7 @@
   function pickerCat(cat) {
     markAddCat(cat);
     if (cat === "crumb") {
-      crumbDraft = { kind: "meat", sources: [], grams: [], qty: 100 };
+      crumbDraft = { kind: "meat", sources: [], grams: [], qty: "" };
       renderCrumbPicker();
       return;
     }
@@ -1724,9 +1724,12 @@
         if (crumbAct === "cl-cqty-in") {
           var qtyParsed = root.BoinyaOrders.parseGramText_(node.value);
           if (qtyParsed.n) crumbDraft.qty = qtyParsed.n;
-          else if (act === "change") {
+          else if (qtyParsed.empty) {
+            crumbDraft.qty = "";
+            if (act === "change") sh().toast("Нужны граммы");
+          } else if (act === "change") {
             sh().toast(qtyParsed.bad === "frac" ? "Только целые граммы" : "Нужны граммы");
-            node.value = String(crumbDraft.qty || "");
+            node.value = crumbDraft.qty == null || crumbDraft.qty === "" ? "" : String(crumbDraft.qty);
           }
           return true;
         }
@@ -1828,8 +1831,7 @@
     if (act === "cl-cqty") {
       if (!crumbDraft || !node.getAttribute("data-dir")) return true;
       var crumbDir = Number(node.getAttribute("data-dir"));
-      var crumbNext = root.BoinyaOrders.gramStep_(crumbDraft.qty, crumbDir);
-      crumbDraft.qty = Math.max(1, crumbNext);
+      crumbDraft.qty = root.BoinyaOrders.gramBump_(crumbDraft.qty, crumbDir);
       renderCrumbPicker();
       return true;
     }
@@ -2463,10 +2465,22 @@
   function setSearch(q) { search = q || ""; focusNick = q || ""; }
   function currentSeg() { return seg; }
 
+  function refreshQuiet() {
+    if (view === "card" || view === "calc" || view === "pick") return;
+    var a = document.activeElement;
+    if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
+    if (!document.querySelector("[data-act='cseg']") && !document.querySelector("[data-act='cl-refresh']")) return;
+    var job = seg === "survey" ? loadSurveys() : loadSubs(true);
+    Promise.resolve(job).then(function () {
+      if (view === "list") paint();
+    }).catch(function () {});
+  }
+
   root.BoinyaClients = {
     bind: bind,
     show: show,
     onAct: onAct,
+    refreshQuiet: refreshQuiet,
     segs: segs,
     armEnroll: armEnroll,
     armEdit: armEdit,
