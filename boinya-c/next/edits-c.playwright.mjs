@@ -258,8 +258,6 @@ async function main() {
 
     {
       const b = await boot(browser, q + "&tab=clients&seg=pp");
-      await b.page.locator("#cxPass").fill("1");
-      await b.page.getByRole("button", { name: "Открыть" }).click();
       await b.page.getByRole("button", { name: /Мира/ }).click();
       await b.page.getByRole("button", { name: "Сохранить" }).waitFor();
       await b.page.locator("#cxEnt").waitFor();

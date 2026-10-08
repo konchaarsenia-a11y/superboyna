@@ -155,11 +155,6 @@ async function main() {
   await a.page.locator(".nx-cal").waitFor();
   await overflow(a.page, "month-360");
   await a.page.getByRole("button", { name: "Клиенты" }).click();
-  await a.page.getByText("Подписки").waitFor();
-  await overflow(a.page, "gate-360");
-  await shot(a.page, "next-clients-gate.png");
-  await a.page.locator("#cxPass").fill("1");
-  await a.page.getByRole("button", { name: "Открыть" }).click();
   await a.page.getByText("Рекс").first().waitFor();
   await overflow(a.page, "list-360");
   await shot(a.page, "next-clients-list.png");
@@ -244,8 +239,6 @@ async function main() {
   await b.page.getByRole("button", { name: "Завершить" }).waitFor();
   await overflow(b.page, "week-390");
   await b.page.getByRole("button", { name: "Клиенты" }).click();
-  await b.page.locator("#cxPass").fill("1");
-  await b.page.getByRole("button", { name: "Открыть" }).click();
   await b.page.getByText("Рекс").first().waitFor();
   await overflow(b.page, "list-390");
   await b.page.getByRole("button", { name: "Расчёт и подбор" }).click();

@@ -105,8 +105,6 @@ async function main() {
 
   const a = await open("http://127.0.0.1:8771/next.html?as=owner");
   await a.page.getByRole("button", { name: "Клиенты" }).click();
-  await a.page.locator("#cxPass").fill("1");
-  await a.page.getByRole("button", { name: "Открыть" }).click();
   await a.page.getByRole("button", { name: "Опросник" }).waitFor();
   const segs = await a.page.locator(".b-seg").innerText();
   if (!/Опросник/.test(segs) || /Расчёт/.test(segs) || /Подбор/.test(segs)) throw new Error("segs " + segs);

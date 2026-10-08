@@ -2,7 +2,6 @@
 (function (root) {
   "use strict";
 
-  var SS = "superboyna_subs_unlocked_session";
   var access = null;
   var seg = "pp";
   var view = "list";
@@ -11,6 +10,7 @@
   var subsError = "";
   var listScroll = 0;
   var surveys = [];
+  var surveysLoading = false;
   var people = [];
   var search = "";
   var editMode = false;
@@ -92,25 +92,6 @@
       basketBp1: [], basketBp2: [], bpTab: 1, slot: 1, econ: null,
       bpWeeks: "", bpWeeksSet: false, bpOutcome: "", extendPrice: null
     };
-  }
-
-  function unlocked() {
-    if (root._subsUnlocked) return true;
-    try {
-      if (sessionStorage.getItem(SS) === "1") {
-        root._subsUnlocked = true;
-        return true;
-      }
-    } catch (e) {}
-    return false;
-  }
-
-  function setUnlocked(ok) {
-    root._subsUnlocked = !!ok;
-    try {
-      if (ok) sessionStorage.setItem(SS, "1");
-      else sessionStorage.removeItem(SS);
-    } catch (e) {}
   }
 
   function canSubs() {
@@ -426,8 +407,13 @@
   }
 
   async function loadSurveys() {
-    var res = await api().apiGet({ action: "listSurvey", activeOnly: "1" }, { timeoutMs: 45000, cacheTtlMs: 0 });
-    surveys = (res && res.items) || [];
+    surveysLoading = true;
+    try {
+      var res = await api().apiGet({ action: "listSurvey", activeOnly: "1" }, { timeoutMs: 45000, cacheTtlMs: 0 });
+      surveys = (res && res.items) || [];
+    } finally {
+      surveysLoading = false;
+    }
   }
 
   function paintList() {
@@ -529,22 +515,13 @@
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="cancelled">Отмена</button>'
         ) + "</article>";
     });
-    if (!rows.length) html += '<p class="b-note">Опросников нет.</p>';
+    if (surveysLoading && !rows.length) html += sh().skeleton(3);
+    else if (!rows.length) html += '<p class="b-note">Опросников нет.</p>';
     if (showSurveyForm) {
       sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-sv-cancel">Отмена</button>' +
         '<button type="button" class="b-btn b-btn--main" data-act="cl-sv-save">Сохранить</button></div>');
     } else sh().dock("");
     sh().main(html);
-  }
-
-  function paintGate() {
-    sh().dock("");
-    sh().main(segBar() +
-      '<article class="b-card"><p class="b-li__title" style="margin:0">Подписки</p>' +
-      '<p class="b-note">Пароль на этот заход. Потом список откроется сам.</p>' +
-      field("cxPass", "", "Пароль", 'type="password"') +
-      actions('<button type="button" class="b-btn b-btn--main" data-act="cl-unlock">Открыть</button><button type="button" class="b-btn b-btn--sec" data-act="cl-gate-cancel">Отмена</button>') +
-      "</article>");
   }
 
   function packsHtml(prefix, counts, keys) {
@@ -914,10 +891,6 @@
   }
 
   function paint() {
-    if ((seg === "pp" || seg === "afk" || seg === "bp" || seg === "survey") && canSubs() && !unlocked()) {
-      paintGate();
-      return;
-    }
     if (view === "card" && card) { paintCard(); return; }
     if (seg === "survey") { paintSurvey(); return; }
     if (seg === "calc") { paintCalc(); return; }
@@ -931,9 +904,10 @@
     if (!tool && !items.some(function (s) { return s.id === nextSeg; })) nextSeg = (items[0] && items[0].id) || "pp";
     if (nextSeg !== seg) { view = "list"; card = null; }
     seg = nextSeg;
-    if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list" && !subs.length) subsLoading = true;
+    if ((seg === "pp" || seg === "afk" || seg === "bp") && canSubs() && view === "list" && !subs.length) subsLoading = true;
+    if (seg === "survey" && canSubs() && !surveys.length) surveysLoading = true;
     paint();
-    if ((seg === "pp" || seg === "afk" || seg === "bp") && unlocked() && view === "list") {
+    if ((seg === "pp" || seg === "afk" || seg === "bp") && canSubs() && view === "list") {
       loadPeople().catch(function () {});
       if (seg === "pp") {
         loadPpMoney().then(function () {
@@ -944,7 +918,7 @@
         if (view === "list" && (seg === "pp" || seg === "afk" || seg === "bp")) paint();
       });
     }
-    if (seg === "survey" && unlocked()) {
+    if (seg === "survey" && canSubs()) {
       try { await loadPeople(); await loadSurveys(); } catch (e) {}
       paint();
     }
@@ -956,7 +930,6 @@
     if (!k) return false;
     var v = node.value;
     if (k === "cxSearch") { search = v; return true; }
-    if (k === "cxPass") return true;
     if (!card && view !== "card" && seg !== "calc" && seg !== "pick") return k.indexOf("cx") === 0;
     if (k === "cxLabel" && card) card.label = v;
     if (k === "cxNick" && card) card.nick = v;
@@ -1564,7 +1537,6 @@
     editingId = "";
     seg = "pp";
     view = "list";
-    setUnlocked(true);
     try { await loadSubs(true); } catch (e) {}
     paint();
   }
@@ -1744,14 +1716,6 @@
       if (act !== "cl-open") return false;
     }
     if (act === "cseg") return false;
-    if (act === "cl-unlock") { unlockGo(); return true; }
-    if (act === "cl-gate-cancel") {
-      setUnlocked(false);
-      var inp = document.getElementById("cxPass");
-      if (inp) inp.value = "";
-      if (root.__nxOpenNew) root.__nxOpenNew();
-      return true;
-    }
     if (act === "cl-refresh") {
       ppMoney = null;
       ppMoneyState = "";
@@ -1928,27 +1892,6 @@
     }
     if (act === "cl-pick-calc") { pickIntoCalc(); return true; }
     return false;
-  }
-
-  async function unlockGo() {
-    var inp = document.getElementById("cxPass");
-    var val = inp ? String(inp.value || "").trim() : "";
-    var res = null;
-    try {
-      res = await api().apiGet({ action: "unlockSubs", password: val, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
-    } catch (e) { res = null; }
-    if (!res || res.status !== "success" || !res.unlocked) {
-      var msg = "Неверный пароль";
-      if (!res) msg = "Нет связи";
-      else if (res.message === "password_not_configured") msg = "Пароль не настроен на сервере";
-      else if (res.message === "forbidden_role" || res.message === "no_access") msg = "Нет доступа к подпискам";
-      sh().toast(msg);
-      if (inp) { inp.value = ""; }
-      return;
-    }
-    setUnlocked(true);
-    sh().toast("Ок");
-    show(seg);
   }
 
   async function saveBp() {

@@ -425,8 +425,6 @@ async function main() {
   // 13. клиенты после карточки
   {
     const b = await boot(browser, "as=owner&tab=clients&seg=pp&scheme=dark");
-    await b.page.locator("#cxPass").fill("1");
-    await b.page.getByRole("button", { name: "Открыть" }).click();
     await b.page.locator("[data-nick='mira_test']").waitFor({ timeout: 8000 });
     await b.page.locator("[data-nick='mira_test']").click();
     await b.page.getByRole("button", { name: "Сохранить" }).waitFor({ timeout: 8000 });
