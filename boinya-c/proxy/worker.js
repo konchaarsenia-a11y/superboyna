@@ -1280,6 +1280,7 @@ function isWriteAction_(a) {
     a === "partnerListAdmin" ||
     a === "partnerGetMe" ||
     a === "partnerListMyOrders" ||
+    a === "partnerCalcPrice" ||
     a === "partnerListSuggestions" ||
     a === "composeWarehouseBuyMessage" ||
     a === "previewWeekCloseWarehouse" ||
@@ -14066,60 +14067,84 @@ const PARTNER_CATALOG_STATIC = [
   }
 ];
 
-/** Сумма граммов одного заказа партнёра. Одна константа на все точки. */
-const MAX_ORDER_GRAMS = 200;
+/**
+ * Лакомства партнёрки → корзина ПП. Купон / NFC / баннер в цену не входят (0 BYN).
+ * sub «Ломтики» — базовая фракция (ставка 0). Пакеты явно 0.
+ */
+const PARTNER_TREAT_PP_MAP_ = {
+  vr_t_heart: { name: "СЕРДЦЕ", sub: "Ломтики", cat: "dressura" },
+  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" }
+};
+const PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 
-function partnerCatalogById_(id) {
-  const want = String(id || "").trim();
-  if (!want) return null;
-  for (let i = 0; i < PARTNER_CATALOG_STATIC.length; i++) {
-    if (String(PARTNER_CATALOG_STATIC[i].id) === want) return PARTNER_CATALOG_STATIC[i];
+function partnerTreatsToPpBasket_(basket) {
+  const out = [];
+  const arr = Array.isArray(basket) ? basket : [];
+  for (let i = 0; i < arr.length; i++) {
+    const line = arr[i] || {};
+    const map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    if (!map) continue;
+    const qty = Number(line.qty != null ? line.qty : line.val != null ? line.val : line.value) || 0;
+    if (!(qty > 0)) continue;
+    out.push({
+      name: map.name,
+      main: map.name,
+      sub: map.sub,
+      cat: map.cat,
+      val: qty,
+      value: qty
+    });
   }
-  return null;
+  return out;
 }
 
-function partnerResolveLineMeta_(line) {
-  const cat = partnerCatalogById_(line && line.id);
-  const unit = String((cat && cat.unit) || (line && line.unit) || "").trim().toLowerCase();
-  const type = String((cat && cat.type) || (line && line.type) || "").trim().toLowerCase();
-  return { unit: unit, type: type, qty: Number(line && line.qty) || 0 };
+function partnerMoney_(n) {
+  const x = Number(n);
+  if (!isFinite(x) || x < 0) return 0;
+  return Math.round(x * 100) / 100;
+}
+
+function partnerBynLabel_(n) {
+  const x = partnerMoney_(n);
+  const txt = Math.abs(x - Math.round(x)) < 0.001 ? String(Math.round(x)) : x.toFixed(2);
+  return txt + " BYN";
 }
 
 /**
- * Граммы одной строки. Qty весовой позиции уже в граммах.
- * Штуки (купон / NFC / баннер) в лимит не входят: конвертации шт→г нет и для лимита она не используется.
- * Единица из каталога важнее unit, который прислал клиент.
+ * Разовая розница: calcPricePpD1_ (mode pp, fullFact, RAW26, deliveriesN=1).
+ * Сумма клиенту = clientPrice. Сырьё наружу не отдаём.
  */
-function partnerLineWeightGrams_(line) {
-  const meta = partnerResolveLineMeta_(line);
-  if (!(meta.qty > 0)) return 0;
-  if (meta.unit.indexOf("шт") >= 0) return 0;
-  if (meta.type === "coupon") return 0;
-  const u = meta.unit;
-  const isGram = u === "г" || u === "гр" || u === "грамм" || u === "граммов" || u === "g" || u === "gr";
-  if (isGram || meta.type === "treat") return meta.qty;
-  return 0;
-}
-
-function partnerOrderWeightGrams_(basket) {
-  const arr = Array.isArray(basket) ? basket : [];
-  let sum = 0;
-  for (let i = 0; i < arr.length; i++) sum += partnerLineWeightGrams_(arr[i]);
-  return sum;
-}
-
-function partnerOrderGramsReject_(basket) {
-  const grams = partnerOrderWeightGrams_(basket);
-  if (grams > MAX_ORDER_GRAMS) {
-    return {
-      status: "error",
-      code: "max_order_grams",
-      message: "Максимум " + MAX_ORDER_GRAMS + " г на один заказ",
-      grams: grams,
-      maxGrams: MAX_ORDER_GRAMS
-    };
+async function partnerQuoteTreatsByn_(basket, env, ctx) {
+  const ppBasket = partnerTreatsToPpBasket_(basket);
+  if (!ppBasket.length) {
+    return { status: "success", totalByn: 0, currency: "BYN", scheme: "RAW26", deliveriesN: 1, treats: 0 };
   }
-  return null;
+  const priced = await calcPricePpD1_(
+    {
+      mode: "pp",
+      scheme: "RAW26",
+      fullFact: "1",
+      forNew: "1",
+      deliveriesN: 1,
+      packCounts: PARTNER_PP_PACK_ZERO_,
+      basket: ppBasket
+    },
+    env,
+    ctx
+  );
+  if (!priced || priced.status !== "success") {
+    return { status: "error", message: "price_unavailable" };
+  }
+  const total = partnerMoney_(priced.clientPrice != null ? priced.clientPrice : priced.factCost);
+  if (!(total > 0)) return { status: "error", message: "price_unavailable" };
+  return {
+    status: "success",
+    totalByn: total,
+    currency: "BYN",
+    scheme: priced.scheme || "RAW26",
+    deliveriesN: 1,
+    treats: ppBasket.length
+  };
 }
 
 function partnerNormUserWorker_(raw) {
@@ -17452,20 +17477,6 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eP) {
         d1P = { status: "error", message: String((eP && eP.message) || eP) };
       }
-      // Лимит граммов уже решён в D1 — не звать GAS, иначе зеркало запишет заказ.
-      if (
-        /^partnerSubmitOrder$/i.test(a) &&
-        d1P &&
-        d1P.status === "error" &&
-        String(d1P.code || "") === "max_order_grams"
-      ) {
-        return Object.assign({}, d1P, {
-          cutover: true,
-          fromD1: true,
-          partnerCanon: partnerCanonLabel_(env),
-          action: a
-        });
-      }
       // Worker шлёт TG сразу; GAS зеркало без повторных пушей + тот же order id (без дубля в Заказах)
       if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
         params = Object.assign({}, params, {
@@ -18070,6 +18081,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "composeWarehouseBuyMessage" ||
     a === "partnerListAdmin" ||
     a === "partnerListMyOrders" ||
+    a === "partnerCalcPrice" ||
     a === "gbBootstrap" ||
     a === "previewWeekCloseWarehouse"
   ) {
@@ -18122,6 +18134,23 @@ async function handleCutover_(a, params, env, ctx) {
     if (isPartnerD1PrimaryCanon_(env) && a === "partnerListMyOrders") {
       const ordFast = await partnerListMyOrdersD1_(params, env, ctx);
       if (ordFast) return ordFast;
+    }
+    if (/^partnerCalcPrice$/i.test(a)) {
+      let basketQ = params && (params.basket || params.basketJson);
+      if (typeof basketQ === "string") {
+        try {
+          basketQ = JSON.parse(basketQ);
+        } catch (eQb) {
+          basketQ = [];
+        }
+      }
+      if (!Array.isArray(basketQ)) basketQ = [];
+      const quote = await partnerQuoteTreatsByn_(basketQ, env, ctx);
+      return Object.assign({}, quote, {
+        cutover: true,
+        fromD1: quote && quote.status === "success",
+        action: "partnerCalcPrice"
+      });
     }
     if (isGbD1PrimaryCanon_(env) && a === "gbBootstrap") {
       return gbBootstrapD1_(params, env);
@@ -26757,11 +26786,17 @@ async function partnerNotifyOrderFastWorker_(order, env) {
   const partnerTid = String(order.telegramId || "").trim();
   const tasks = [];
   // Партнёру «Заявка отправлена» — PARTNER/GOODBOY bot (не текст снабжению)
+  const sumLine =
+    order && order.totalByn != null && isFinite(Number(order.totalByn))
+      ? "\nСумма: " + partnerBynLabel_(order.totalByn)
+      : "";
   if (partnerTid) {
     const text =
       "✅ Заявка отправлена\n" +
       loc +
-      "\nСкоро придёт уведомление о дате доставки\n" +
+      "\nСкоро придёт уведомление о дате доставки" +
+      sumLine +
+      "\n" +
       lines;
     if (getPartnerBotTokenWorker_(env)) {
       tasks.push(telegramSendPartnerBot_(env, partnerTid, text));
@@ -26780,6 +26815,7 @@ async function partnerNotifyOrderFastWorker_(order, env) {
       (order.userName || order.username || order.telegramId || "") +
       "\n" +
       lines +
+      sumLine +
       (order.note ? "\n📝 " + order.note : "") +
       "\n\nНазначьте дату: Партнёры → Заказы";
     for (let i = 0; i < recipients.length; i++) {
@@ -27829,7 +27865,9 @@ async function partnerEnqueueDeferredD1Worker_(order, env) {
     partnerTelegramId: order.telegramId || "",
     partnerUsername: order.username || "",
     partnerName: order.userName || "",
-    orderStatus: order.status || "new"
+    orderStatus: order.status || "new",
+    totalByn: order.totalByn != null ? order.totalByn : null,
+    currency: "BYN"
   };
   let ownerTid = "";
   try {
@@ -28203,8 +28241,6 @@ async function mutatePartnerD1_(action, params, env) {
         if (!reason) return { status: "error", message: "nfc_need_reason" };
       }
     }
-    const gramsReject = partnerOrderGramsReject_(basket);
-    if (gramsReject) return gramsReject;
     let allowed = false;
     let networkId = String((params && params.networkId) || "").trim();
     let locationName = String((params && params.locationName) || "").trim();
@@ -28311,6 +28347,16 @@ async function mutatePartnerD1_(action, params, env) {
         partnerIsExcludedPoint_(locationId, networkId)) {
       return { status: "error", message: "forbidden_point" };
     }
+    let quote = null;
+    try {
+      quote = await partnerQuoteTreatsByn_(basket, env, null);
+    } catch (eQuote) {
+      quote = { status: "error", message: "price_unavailable" };
+    }
+    if (!quote || quote.status !== "success" || !isFinite(Number(quote.totalByn))) {
+      return { status: "error", message: "price_unavailable" };
+    }
+    const totalByn = partnerMoney_(quote.totalByn);
     const id = partnerUid_("po");
     const order = {
       id: id,
@@ -28331,7 +28377,9 @@ async function mutatePartnerD1_(action, params, env) {
       deliverTimeFrom: "",
       deliverTimeTo: "",
       deliverTimeLabel: "",
-      deferredId: ""
+      deferredId: "",
+      totalByn: totalByn,
+      currency: "BYN"
     };
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
     pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];

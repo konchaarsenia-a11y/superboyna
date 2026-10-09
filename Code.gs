@@ -2493,6 +2493,11 @@ function doGet(e) {
       recipients: e.parameter.recipients ? decodeURIComponent(e.parameter.recipients) : "[]"
     }, callback, false);
   }
+  if (action === "partnerCalcPrice") {
+    return handlePartnerCalcPrice({
+      basket: e.parameter.basket ? decodeURIComponent(e.parameter.basket) : (e.parameter.basketJson ? decodeURIComponent(e.parameter.basketJson) : "[]")
+    }, callback, false);
+  }
   if (action === "partnerSubmitOrder") {
     return handlePartnerSubmitOrder({
       telegramId: e.parameter.telegramId || "",
@@ -3344,6 +3349,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSetNotifyRecipients") {
     return handlePartnerSetNotifyRecipients(json, callback, fromPost);
+  }
+  if (action === "partnerCalcPrice") {
+    return handlePartnerCalcPrice(json, callback, fromPost);
   }
   if (action === "partnerSubmitOrder") {
     return handlePartnerSubmitOrder(json, callback, fromPost);
@@ -21691,8 +21699,14 @@ function handleCalcPrice(json, callback, fromPost) {
         wishes: json.wishes,
         forNew: json.forNew === true || json.forNew === "1" || json.forNew === 1
       });
+      // Без packCounts — как раньше, пакеты из сборки. Явный объект (в т.ч. нули) не пересобираем.
+      var packOptCp = json.packCounts || null;
+      if (typeof packOptCp === "string") {
+        try { packOptCp = JSON.parse(packOptCp); } catch (ePcCp) { packOptCp = null; }
+      }
+      if (!packOptCp || typeof packOptCp !== "object") packOptCp = null;
       var fact = computePpFactFromCost_(
-        rawCost, basket, json.deliveriesN || json.deliveries, coefIn, null, schemeFact, lines, null
+        rawCost, basket, json.deliveriesN || json.deliveries, coefIn, packOptCp, schemeFact, lines, null
       );
       for (var fk in fact) {
         if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
@@ -25076,7 +25090,8 @@ var PARTNER_ACCESS_HEADERS_ = ["id", "username", "telegramId", "name", "networkI
 var PARTNER_ORDER_HEADERS_ = [
   "id", "dateIso", "locationId", "locationName", "networkId", "telegramId",
   "userName", "username", "basketJson", "status", "createdAt",
-  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId", "note"
+  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId", "note",
+  "totalByn"
 ];
 
 function partnerNormUser_(u) {
@@ -26763,9 +26778,6 @@ function partnerCatalogStatic_() {
   ];
 }
 
-/** Сумма граммов одного заказа партнёра. Одна константа на все точки. */
-var MAX_ORDER_GRAMS = 200;
-
 function partnerCatalogById_(id) {
   var want = String(id || "").trim();
   if (!want) return null;
@@ -26776,48 +26788,104 @@ function partnerCatalogById_(id) {
   return null;
 }
 
-function partnerResolveLineMeta_(line) {
-  var cat = partnerCatalogById_(line && line.id);
-  var unit = String((cat && cat.unit) || (line && line.unit) || "").trim().toLowerCase();
-  var type = String((cat && cat.type) || (line && line.type) || "").trim().toLowerCase();
-  return { unit: unit, type: type, qty: Number(line && line.qty) || 0 };
+/**
+ * Лакомства партнёрки → корзина ПП. Купон / NFC / баннер в цену не входят (0 BYN).
+ * sub «Ломтики» — базовая фракция (ставка 0, алиас «Целое»): сырьё у сердца и лёгкого
+ * одинаковое по всем фракциям, наценка фракции при ломтиках = 0.
+ */
+var PARTNER_TREAT_PP_MAP_ = {
+  vr_t_heart: { name: "СЕРДЦЕ", sub: "Ломтики", cat: "dressura" },
+  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" }
+};
+/** Партнёр не пакует дойпаки подписки — пакеты явно 0, не из сборки корзины. */
+var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
+
+function partnerTreatsToPpBasket_(basket) {
+  var out = [];
+  var arr = Array.isArray(basket) ? basket : [];
+  for (var i = 0; i < arr.length; i++) {
+    var line = arr[i] || {};
+    var map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    if (!map) continue;
+    var qty = Number(line.qty != null ? line.qty : (line.val != null ? line.val : line.value)) || 0;
+    if (!(qty > 0)) continue;
+    out.push({
+      name: map.name,
+      main: map.name,
+      sub: map.sub,
+      cat: map.cat,
+      val: qty,
+      value: qty
+    });
+  }
+  return out;
+}
+
+function partnerMoney_(n) {
+  var x = Number(n);
+  if (!isFinite(x) || x < 0) return 0;
+  return Math.round(x * 100) / 100;
+}
+
+function partnerBynLabel_(n) {
+  var x = partnerMoney_(n);
+  var txt = Math.abs(x - Math.round(x)) < 0.001 ? String(Math.round(x)) : x.toFixed(2);
+  return txt + " BYN";
 }
 
 /**
- * Граммы одной строки. Qty весовой позиции уже в граммах.
- * Штуки (купон / NFC / баннер) в лимит не входят: конвертации шт→г нет и для лимита она не используется.
- * Единица из каталога важнее unit, который прислал клиент.
+ * Разовая розница по канону ПП: mode pp, fullFact, scheme RAW26, deliveriesN=1.
+ * Формула — computePpFactFromCost_ / те же линии, что handleCalcPrice. Сумма = clientPrice.
  */
-function partnerLineWeightGrams_(line) {
-  var meta = partnerResolveLineMeta_(line);
-  if (!(meta.qty > 0)) return 0;
-  if (meta.unit.indexOf("шт") >= 0) return 0;
-  if (meta.type === "coupon") return 0;
-  var u = meta.unit;
-  var isGram = u === "г" || u === "гр" || u === "грамм" || u === "граммов" || u === "g" || u === "gr";
-  if (isGram || meta.type === "treat") return meta.qty;
-  return 0;
-}
-
-function partnerOrderWeightGrams_(basket) {
-  var arr = Array.isArray(basket) ? basket : [];
-  var sum = 0;
-  for (var i = 0; i < arr.length; i++) sum += partnerLineWeightGrams_(arr[i]);
-  return sum;
-}
-
-function partnerOrderGramsReject_(basket) {
-  var grams = partnerOrderWeightGrams_(basket);
-  if (grams > MAX_ORDER_GRAMS) {
-    return {
-      status: "error",
-      code: "max_order_grams",
-      message: "Максимум " + MAX_ORDER_GRAMS + " г на один заказ",
-      grams: grams,
-      maxGrams: MAX_ORDER_GRAMS
-    };
+function partnerQuoteTreatsByn_(basket) {
+  var ppBasket = partnerTreatsToPpBasket_(basket);
+  if (!ppBasket.length) {
+    return { status: "success", totalByn: 0, currency: "BYN", scheme: "RAW26", deliveriesN: 1, treats: 0 };
   }
-  return null;
+  var priceInfo = readPriceCosts_("pp");
+  var lines = [];
+  var totalCost = 0;
+  for (var i = 0; i < ppBasket.length; i++) {
+    var lineCp = ppLineFromBasketItemGs_(ppBasket[i], priceInfo.costs);
+    if (!lineCp) continue;
+    totalCost += lineCp.cost;
+    lines.push(lineCp);
+  }
+  var rawCost = Math.round(totalCost * 100) / 100;
+  if (!lines.length || !(rawCost > 0)) {
+    return { status: "error", message: "price_unavailable" };
+  }
+  var fact = computePpFactFromCost_(
+    rawCost,
+    ppBasket,
+    1,
+    null,
+    PARTNER_PP_PACK_ZERO_,
+    "RAW26",
+    lines,
+    null
+  );
+  var total = partnerMoney_(fact.clientPrice != null ? fact.clientPrice : fact.factCost);
+  if (!(total > 0)) return { status: "error", message: "price_unavailable" };
+  return {
+    status: "success",
+    totalByn: total,
+    currency: "BYN",
+    scheme: fact.scheme || "RAW26",
+    deliveriesN: 1,
+    treats: ppBasket.length
+  };
+}
+
+function handlePartnerCalcPrice(json, callback, fromPost) {
+  var basket = partnerParseBasket_(json && (json.basket || json.basketJson));
+  var quote;
+  try {
+    quote = partnerQuoteTreatsByn_(basket);
+  } catch (eQ) {
+    quote = { status: "error", message: "price_unavailable" };
+  }
+  return fromPost ? jsonpText(callback, quote) : jsonp(callback, quote);
 }
 
 function partnerParseBasket_(raw) {
@@ -26839,10 +26907,14 @@ function partnerNotifyNewOrder_(order) {
       }
       return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "") + extra;
     }).join("\n");
+    var sumLine = (order && order.totalByn != null && isFinite(Number(order.totalByn)))
+      ? ("\nСумма: " + partnerBynLabel_(order.totalByn))
+      : "";
     var text = "🛍 Новая заявка партнёра " + (order.id || "") + "\n" +
       (order.locationName || order.locationId || "") + "\n" +
       (order.userName || order.username || order.telegramId || "") + "\n" +
       lines +
+      sumLine +
       (order.note ? ("\n📝 " + order.note) : "") +
       "\n\nНазначьте дату: Партнёры → Заказы";
     partnerTelegramSendMany_(ids, text);
@@ -26975,7 +27047,9 @@ function partnerEnqueueDeferred_(order) {
     deliverTimeLabel: order.deliverTimeLabel || "",
     partnerTelegramId: order.telegramId || "",
     partnerUsername: order.username || "",
-    partnerName: order.userName || ""
+    partnerName: order.userName || "",
+    totalByn: order.totalByn != null ? order.totalByn : null,
+    currency: "BYN"
   };
   var ownerTid = "";
   try {
@@ -27035,8 +27109,11 @@ function partnerNotifyPartnerStatus_(order, kind) {
     ((order && order.deliverTimeLabel) ? (", " + order.deliverTimeLabel) : "");
   var text = "";
   if (kind === "received" || kind === "submitted") {
+    var sumRec = (order && order.totalByn != null && isFinite(Number(order.totalByn)))
+      ? ("\nСумма: " + partnerBynLabel_(order.totalByn) + "\n")
+      : "\n";
     text = "✅ Заявка отправлена\n" + loc + "\n" +
-      "Скоро придёт уведомление о дате доставки\n" +
+      "Скоро придёт уведомление о дате доставки" + sumRec +
       partnerBasketLines_(order.basket);
   } else if (kind === "accepted" || kind === "scheduled") {
     text = "✅ Дата доставки назначена\n" + loc + "\n" +
@@ -27094,10 +27171,6 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       }
     }
   }
-  var gramsReject = partnerOrderGramsReject_(basket);
-  if (gramsReject) {
-    return fromPost ? jsonpText(callback, gramsReject) : jsonp(callback, gramsReject);
-  }
 
   var isOwner = false;
   try { isOwner = partnerRequireOwner_(tid); } catch (eO) { isOwner = false; }
@@ -27134,6 +27207,17 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       }
     }
   }
+  var quote = null;
+  try {
+    quote = partnerQuoteTreatsByn_(basket);
+  } catch (eQuote) {
+    quote = { status: "error", message: "price_unavailable" };
+  }
+  if (!quote || quote.status !== "success" || !isFinite(Number(quote.totalByn))) {
+    var badPrice = { status: "error", message: "price_unavailable" };
+    return fromPost ? jsonpText(callback, badPrice) : jsonp(callback, badPrice);
+  }
+  var totalByn = partnerMoney_(quote.totalByn);
   var id = String((json && (json.clientOrderId || json.id || json.orderId)) || "").trim();
   if (!/^po_[a-z0-9]+$/i.test(id)) {
     id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
@@ -27160,7 +27244,9 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deliverDateLabel: "",
     deliverTimeFrom: "",
     deliverTimeTo: "",
-    deliverTimeLabel: ""
+    deliverTimeLabel: "",
+    totalByn: totalByn,
+    currency: "BYN"
   };
   // не плодить строку, если Worker уже прокинул тот же id
   var shOrders = getPartnerOrdersSheet_();
@@ -27176,6 +27262,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
   }
   order.deferredId = deferredId;
+  var priceCol = PARTNER_ORDER_HEADERS_.length;
   if (!alreadyRow) {
     shOrders.appendRow([
       order.id,
@@ -27193,8 +27280,18 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       order.deliverTimeFrom,
       order.deliverTimeTo,
       deferredId,
-      orderNote
+      orderNote,
+      order.totalByn
     ]);
+  } else {
+    try {
+      for (var pr = 1; pr < vals.length; pr++) {
+        if (String(vals[pr][0] || "") === id) {
+          shOrders.getRange(pr + 1, priceCol).setValue(order.totalByn);
+          break;
+        }
+      }
+    } catch (ePx) {}
   }
   // Пуши: Worker шлёт сразу; GAS — только если Worker не просил skip
   var skipN = String((json && (json.skipPartnerNotify || json.skipNotify)) || "") === "1";
@@ -27258,6 +27355,11 @@ function handlePartnerListMyOrders(json, callback, fromPost) {
       deferredId: String(data[r][14] || ""),
       note: String(data[r][15] || "").trim()
     });
+    var rawTotal = data[r][16];
+    if (rawTotal !== "" && rawTotal != null && isFinite(Number(String(rawTotal).replace(",", ".")))) {
+      out[out.length - 1].totalByn = partnerMoney_(String(rawTotal).replace(",", "."));
+      out[out.length - 1].currency = "BYN";
+    }
     if (out.length >= 100) break;
   }
   var ok = { status: "success", orders: out };

@@ -1,6 +1,6 @@
 # Good Boy · партнёрское пополнение
 
-Telegram Mini App для **партнёрских сетей**: бесплатная заявка на лакомства и купоны.
+Telegram Mini App для **партнёрских сетей**: заявка на лакомства и купоны. Лакомства (сердце / лёгкое) — разовый розничный заказ по формуле подписки (ПП, схема RAW26, одна доставка). Купоны, NFC и баннер — 0 BYN. Статус оплаты не ведём.
 
 **Живой URL Mini App (предпочтительно, без index-redirect):**  
 https://konchaarsenia-a11y.github.io/superboyna/varka/app.html  
@@ -15,7 +15,7 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 **Стиль:** как Instagram [@goodboy_rb](https://www.instagram.com/goodboy_rb/) — чёрный фон, крем, оранжевый акцент, логотип Good Boy.
 
-**Бесплатно** — цен нет.
+**Цена лакомств** — сервер считает сам (`partnerCalcPrice` и повторно `partnerSubmitOrder`). Клиентскую сумму не принимаем. В корзине мини-аппа строка «Сумма: … BYN».
 
 ## Привязка Mini App к боту (BotFather)
 
@@ -44,7 +44,9 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 | `Partner_Orders` | Заявки партнёров |
 | `Предложения_партнёров` | «Предложить партнёра»: дата, тип, форма, автор, точка, статус `новое` |
 
-API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
+API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
+
+**Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`. Пакеты `{u1,u2,u3,up4}=0` (дойпаки подписки не собираем). Фракция «Ломтики» — ставка 0, поэтому наценка фракции тоже 0. Сумма = `clientPrice` канона `computePpFactFromCost_` / `calcPricePpD1_`. Колонка `totalByn` — последняя в `Partner_Orders`. В D1 то же поле на заявке, в payload отложенного и в пуше «новая заявка».
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
@@ -145,7 +147,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лимит 200 г на заказ:** `MAX_ORDER_GRAMS = 200` для всех точек. Весовые позиции суммируются в граммах; штуки (купон / NFC / баннер) не входят. UI + Worker + `partnerSubmitOrder`. Старые заявки не трогаем. Pages varka `3.3.58` · **нужен Worker Deploy** + **Deploy Code.gs**
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`. NFC / купон / баннер = 0 BYN. Лимит 200 г снят. Сумма `totalByn` в листе и D1. Pages varka `3.3.61` · **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
