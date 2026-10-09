@@ -45,7 +45,8 @@
         '<p class="b-note" id="retailPriceAdminStatus">—</p>' +
       "</div>" +
       '<div class="b-card" style="margin-top:12px" id="retailPriceAdminList"><p class="b-note">Загрузка…</p></div>' +
-      '<div class="b-card" style="margin-top:12px" id="retailPriceExtraList"></div>'
+      '<div class="b-card" style="margin-top:12px" id="retailPriceExtraList"></div>' +
+      (isOwner() ? '<div class="b-card" style="margin-top:12px" id="rawCostAdmin"><p class="b-note">Себес…</p></div>' : "")
     );
   }
 
@@ -146,6 +147,7 @@
       res = await api().apiGet(q, { timeoutMs: 20000, cacheTtlMs: opts.force ? 0 : 60000 });
     } catch (e) { res = null; }
     if (!document.getElementById("retailPriceAdminList")) return;
+    loadRawCosts();
     box = document.getElementById("retailPriceAdminList");
     st = document.getElementById("retailPriceAdminStatus");
     if (res && res.status === "success" && eng() && eng().applyRetailPriceMapToUi_) {
@@ -233,6 +235,86 @@
     }
   }
 
+  function costRows(items, note) {
+    var box = document.getElementById("rawCostAdmin");
+    if (!box || !isOwner()) return;
+    var today = new Date().toISOString().slice(0, 10);
+    var rows = (items || []).map(function (it) {
+      var costVal = it.cost == null || it.cost === "" ? "" : String(it.cost);
+      var shrinkVal = it.shrink == null || it.shrink === "" ? "" : String(it.shrink);
+      var hist = (it.history || []).map(function (h) {
+        var c = h.cost == null || h.cost === "" ? "пусто" : String(h.cost);
+        var shv = h.shrink == null || h.shrink === "" ? "" : ", усушка " + h.shrink;
+        return String(h.effectiveFrom || "").slice(0, 10) + " · " + c + shv;
+      }).join("; ");
+      var builtin = it.builtin == null || it.builtin === "" ? "в таблице пусто" : ("в коде " + it.builtin);
+      return '<div class="nx-line" style="align-items:flex-start">' +
+        '<div class="b-grow"><b>' + esc(it.sku) + '</b><div class="b-note">' + esc(builtin) + "</div>" +
+        (hist ? '<div class="b-note">версии: ' + esc(hist) + "</div>" : "") +
+        "</div>" +
+        '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="cost" placeholder="себес" value="' + esc(costVal) + '"></label>' +
+        '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="shrink" placeholder="усушка" value="' + esc(shrinkVal) + '"></label>' +
+        '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>' +
+        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>' +
+        "</div>";
+    }).join("");
+    box.innerHTML = '<p class="b-lbl" style="margin-top:0">Себес сырья</p>' +
+      '<p class="b-note">Новая версия действует с даты. Расчёт, экономика, статистика и внос берут себес на дату записи. Старые карточки не переписываются.</p>' +
+      '<p class="b-note">' + esc(note || "Усушка хранится отдельно и в цену не входит.") + "</p>" +
+      '<p class="b-note">Колонки: себес, усушка, дата действия.</p>' +
+      (rows || '<p class="b-note">Пусто</p>');
+  }
+
+  async function loadRawCosts() {
+    var box = document.getElementById("rawCostAdmin");
+    if (!box || !isOwner()) return;
+    var res = null;
+    try {
+      res = await api().apiGet({ action: "listRawCosts", telegramId: tid(), _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    } catch (eC) { res = null; }
+    if (!document.getElementById("rawCostAdmin")) return;
+    if (!res || res.status !== "success") {
+      box.innerHTML = '<p class="b-lbl" style="margin-top:0">Себес сырья</p><p class="b-note">Не загрузился.</p>';
+      return;
+    }
+    costRows(res.items || [], res.shrinkNote || "");
+  }
+
+  function costFields(sku) {
+    var out = { cost: "", shrink: "", from: "" };
+    var nodes = document.querySelectorAll("[data-rc-sku]");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      if (nodes[i].getAttribute("data-rc-sku") !== sku) continue;
+      var f = nodes[i].getAttribute("data-rc-field");
+      if (f === "cost" || f === "shrink" || f === "from") out[f] = nodes[i].value;
+    }
+    return out;
+  }
+
+  async function saveCost(sku) {
+    if (!isOwner()) { sh().toast("Только владелец"); return; }
+    var f = costFields(sku);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.from || "")) { sh().toast("Нужна дата"); return; }
+    var res = null;
+    try {
+      res = await api().apiPost({
+        action: "saveRawCost",
+        telegramId: tid(),
+        sku: sku,
+        cost: f.cost,
+        shrink: f.shrink,
+        effectiveFrom: f.from
+      });
+    } catch (eS) { res = null; }
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Себес не сохранился");
+      return;
+    }
+    sh().toast("Себес " + sku + " с " + f.from);
+    await loadRawCosts();
+  }
+
   function show() {
     paint();
     load({ soft: true });
@@ -242,7 +324,8 @@
     if (!document.getElementById("retailPriceAdminList")) return;
     var a = document.activeElement;
     var box = document.getElementById("retailPriceAdminList");
-    if (a && box && box.contains(a)) return;
+    var costs = document.getElementById("rawCostAdmin");
+    if (a && ((box && box.contains(a)) || (costs && costs.contains(a)))) return;
     load({ force: true, quiet: true });
   }
 
@@ -250,6 +333,7 @@
     if (act === "rp-reload") { load({ force: true }); return true; }
     if (act === "rp-save") { save(); return true; }
     if (act === "rp-add") { openAdd(); return true; }
+    if (act === "rc-save") { saveCost(node && node.getAttribute("data-sku")); return true; }
     if (act === "rp-add-save") { savePosition(); return true; }
     if (act === "rp-cat" || act === "rp-unit") {
       if (!node || !node.parentNode) return true;

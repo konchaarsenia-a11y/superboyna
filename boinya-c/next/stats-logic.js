@@ -80,21 +80,21 @@
   }
   function statsPpDeliveryLabel_(src) {
     var sch = statsPpSchemeOf_(src);
-    if (sch === "RAW26") return "Топливо доставок ПП (4×N, тариф 9 RAW26)";
+    if (sch === "RAW26") return "Доставка ПП (7.60×N: бензин 4 + сборщик 3 + 0.60)";
     if (sch === "LEGACY") return "Топливо доставок ПП (4×N, тариф 6 LEGACY)";
     return "Топливо доставок ПП (4×N)";
   }
   function statsPpCostFootnote_(src) {
     var sch = statsPpSchemeOf_(src);
-    if (sch === "RAW26") return "Затраты ПП: состав без наценки + recover (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (9−4)×N — в чистом. ";
+    if (sch === "RAW26") return "Затраты ПП: сырьё + 3.30/100г + 0.80/шт + 7.60×N + пакеты. Чистое от указанной цены. Фракции и множитель в себес не входят. ";
     if (sch === "LEGACY") return "Затраты ПП: состав без наценки + 11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (6−4)×N — в чистом. ";
     return "Затраты ПП: состав без наценки + recover/11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и остаток тарифа — в чистом. ";
   }
   function statsPpFeeEchoLine_(src) {
     var sch = statsPpSchemeOf_(src);
-    if (sch === "RAW26") return "Тариф клиенту RAW26: recover 3.90/100г + доставка 9×N. В статистике затрат: топливо 4×N.";
-    if (sch === "LEGACY") return "Тариф клиенту LEGACY: +11 + 6×N. В статистике затрат: топливо 4×N.";
-    if (sch === "MIXED") return "Тариф смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N. В статистике затрат: топливо 4×N.";
+    if (sch === "RAW26") return "Тариф клиенту RAW26: recover 3.30/100г + 0.80/шт + доставка 7.60×N. Себес тот же путь, без множителя и фракций.";
+    if (sch === "LEGACY") return "Тариф клиенту LEGACY: +11 + 6×N.";
+    if (sch === "MIXED") return "Тариф смешанный: RAW26 3.30/100г + 0.80/шт + 7.60×N / LEGACY +11 + 6×N.";
     return "";
   }
 

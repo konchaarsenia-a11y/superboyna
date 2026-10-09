@@ -63,7 +63,7 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
+        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "КРОЛИК", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
         fractions: {
           "ИНДЕЙКА": ["Ломтики", "Полоски", "Мелкое"],
           "БАРАНЬЯ ПЕЧЕНЬ": ["Ломтики", "Полоски", "Мелкое"]
@@ -649,20 +649,48 @@
 
     function crumbKindRateUi_(kind) {
       var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
-      if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
-      if (k === "meat" || /мяс/.test(k)) return 17;
-      if (k === "hypo" || /гипо/.test(k)) return 20;
+      if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 17;
+      if (k === "meat" || /мяс/.test(k)) return 19;
+      if (k === "hypo" || /гипо/.test(k)) return 22;
       return 0;
+    }
+
+    function crumbRetailKindOfNameUi_(name) {
+      var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) return "hypo";
+      if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) return "veg";
+      return "meat";
     }
 
     function retailGoodsFromCrumbItemUi_(it, val) {
       val = Number(val) || 0;
       if (val <= 0) return 0;
+      var sources = it && it.sources;
+      if (sources && sources.length) {
+        var ratiosMix = it.ratio || [];
+        var rsumMix = 0;
+        var rmi;
+        for (rmi = 0; rmi < sources.length; rmi++) rsumMix += Number(ratiosMix[rmi]) || 0;
+        if (rsumMix <= 0) rsumMix = sources.length;
+        var sumPg = 0;
+        var sumG = 0;
+        for (var smi = 0; smi < sources.length; smi++) {
+          var srcM = sources[smi] || {};
+          var gM = val * ((Number(ratiosMix[smi]) || 1) / rsumMix);
+          var rateM = crumbKindRateUi_(crumbRetailKindOfNameUi_(srcM.name || srcM.main || ""));
+          sumG += gM;
+          sumPg += rateM * gM;
+        }
+        if (sumG > 0) {
+          return Math.round((val / 100) * Math.ceil(sumPg / sumG) * 100) / 100;
+        }
+      }
       var crumbRate = crumbKindRateUi_((it && (it.crumbKind || it.sub || it.name || it.main)) || "");
+      if (!(crumbRate > 0)) crumbRate = crumbKindRateUi_(crumbRetailKindOfNameUi_(it && (it.name || it.main)));
       if (crumbRate > 0) {
         return Math.round((val / 100) * crumbRate * 100) / 100;
       }
-      var sources = it && it.sources;
+      sources = it && it.sources;
       if (sources && sources.length) {
         var ratios = it.ratio || [];
         var rsum = 0;
@@ -1434,7 +1462,6 @@
       return parts.join(" || ");
     }
 
-    /** Строка из листа / D1 → те же карточки, что в форме заказа. */
     function parseOrderNotes(raw) {
       var s = String(raw || "").trim();
       if (!s) return [];
@@ -1516,12 +1543,19 @@
       return (tag + (clean ? " " + clean : "")).trim();
     }
 
-    function stripGeoTags(note) {
-      return String(note || "")
-        .replace(/\[GEO:[^\]]+\]/gi, "")
-        .replace(/\[YMAPS:[^\]]+\]/gi, "")
+    function peelServiceCoords_(text) {
+      var G = (typeof globalThis !== "undefined" && globalThis.BoinyaWishesGeo) || null;
+      if (G && G.peel) return G.peel(text);
+      var s = String(text || "")
+        .replace(/\[GEO:[^\]]+\]/gi, " ")
+        .replace(/\[YMAPS:[^\]]+\]/gi, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
+      return { text: s, geo: null, geos: [] };
+    }
+
+    function stripGeoTags(note) {
+      return peelServiceCoords_(note).text;
     }
 
     function orderTypeToSegment_(ot) {

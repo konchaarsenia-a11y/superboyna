@@ -55,14 +55,16 @@
   }
 
   function closeOf(roll, pack, monthKey) {
-    if (!roll || roll.ok === false || roll.revenue == null || !formulas() || !formulas().formulaClose_) return null;
-    return formulas().formulaClose_({
-      monthKey: monthKey || "",
-      revenue: roll.revenue,
-      S: roll.S, G: roll.G, P: roll.P, N: roll.N,
-      rows: (pack && pack.expenses) || [],
-      repairs: (pack && pack.amort) || []
-    });
+    try {
+      if (!roll || roll.ok === false || roll.revenue == null || !formulas() || !formulas().formulaClose_) return null;
+      return formulas().formulaClose_({
+        monthKey: monthKey || "",
+        revenue: roll.revenue,
+        S: roll.S, G: roll.G, P: roll.P, N: roll.N,
+        rows: (pack && pack.expenses) || [],
+        repairs: (pack && pack.amort) || []
+      });
+    } catch (eClose) { return null; }
   }
 
   function convText(conv) {
@@ -113,19 +115,21 @@
   function formulas() { return root.BoinyaFormulas; }
 
   function monthOf(roll, setup) {
-    roll = roll || {};
-    setup = setup || {};
-    if (!formulas() || roll.ok === false || roll.revenue == null) return null;
-    return formulas().formulaMonth_({
-      revenue: roll.revenue,
-      S: roll.S, G: roll.G, P: roll.P, N: roll.N,
-      rent: setup.rentEntered ? setup.rent : "",
-      lightBill: setup.lightBill,
-      packBill: setup.packBill,
-      amort: setup.amort,
-      smm: setup.smm,
-      other: setup.other
-    });
+    try {
+      roll = roll || {};
+      setup = setup || {};
+      if (!formulas() || roll.ok === false || roll.revenue == null) return null;
+      return formulas().formulaMonth_({
+        revenue: roll.revenue,
+        S: roll.S, G: roll.G, P: roll.P, N: roll.N,
+        rent: setup.rentEntered ? setup.rent : "",
+        lightBill: setup.lightBill,
+        packBill: setup.packBill,
+        amort: setup.amort,
+        smm: setup.smm,
+        other: setup.other
+      });
+    } catch (eMonth) { return null; }
   }
 
   function renderScreen(periodRes, prevRes, meta) {
@@ -360,8 +364,14 @@
   function paint(periodRes, prev, meta) {
     var box = document.getElementById("statsContainer");
     if (!box) return;
-    var html = renderScreen(periodRes, prev, meta);
-    cache[cacheKey()] = html;
+    var key = cacheKey();
+    var html = "";
+    try { html = renderScreen(periodRes, prev, meta); }
+    catch (ePaint) {
+      if (cache[key]) { box.innerHTML = cache[key]; return; }
+      html = '<p class="b-note">Часть статистики не посчиталась.</p>';
+    }
+    cache[key] = html;
     var lab = document.getElementById("statsMonthLabel");
     if (lab) lab.textContent = meta.title || periodTitle();
     box.innerHTML = html;
@@ -434,7 +444,6 @@
     var lab = document.getElementById("statsMonthLabel");
     if (lab) lab.textContent = periodTitle();
     if (cache[key]) box.innerHTML = cache[key];
-    if (!opts.force && cache[key]) return;
     if (view.mode === "range") {
       if (!cache[key]) box.innerHTML = '<p class="b-note">Считаю ' + esc(view.from) + "–" + esc(view.to) + "…</p>";
       var rangePrev = L().statsPrevEqualPeriod_(view.from, view.to);
@@ -452,7 +461,9 @@
       if (ticket !== loadGen || !document.getElementById("statsContainer")) return;
       var ranged = rangeGot[0];
       if (!ranged) {
-        if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Не удалось посчитать период.</p>';
+        var rangeBox = document.getElementById("statsContainer");
+        if (cache[key] && rangeBox) rangeBox.innerHTML = cache[key];
+        else if (rangeBox) rangeBox.innerHTML = '<p class="b-note">Не удалось посчитать период.</p>';
         return;
       }
       var monthNow = rangeGot[2];
@@ -475,6 +486,26 @@
     if (!cache[key]) box.innerHTML = '<p class="b-note">Считаю ' + esc(mk) + "…</p>";
     var prevWin = L().statsPrevCalendarMonth_(mk, new Date());
     var prevBillMonth = prevWin ? String(prevWin.to || "").slice(0, 7) : "";
+    function paintMonth(res, pack) {
+      if (ticket !== loadGen || !document.getElementById("statsContainer")) return false;
+      if (!res || res.status !== "success") return false;
+      var resMonth = String(res.monthKey || "").trim();
+      if (resMonth && /^\d{4}-\d{2}$/.test(resMonth) && resMonth !== mk) return false;
+      if (view.mode !== "month" || ensureMonth() !== mk) return false;
+      paint(res, pack[1], {
+        title: res.monthLabel || L().statsMonthLabelRu_(mk),
+        compare: pack[1] ? compareCaption(prevWin) : "",
+        bpTitle: mk === L().currentStatsMonthKey_() ? "Этот месяц" : (res.monthLabel || L().statsMonthLabelRu_(mk)),
+        stale: !res.factCutoff,
+        setup: pack[2],
+        prevSetup: pack[3],
+        billMonth: mk,
+        prevBillMonth: prevBillMonth,
+        expenses: pack[4],
+        prevExpenses: pack[5]
+      });
+      return true;
+    }
     var got = await allSettled([
       pullMonth(mk, !!opts.force),
       prevWin ? pullExpected(prevWin.from, prevWin.to) : null,
@@ -484,29 +515,16 @@
       prevBillMonth ? pullExpenses(prevBillMonth) : null
     ]);
     if (ticket !== loadGen || !document.getElementById("statsContainer")) return;
-    var res = got[0];
-    if (!res || res.status !== "success") {
-      if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Нет данных</p>';
+    if (!paintMonth(got[0], got)) {
+      var miss = document.getElementById("statsContainer");
+      if (cache[key] && miss) miss.innerHTML = cache[key];
+      else if (miss) miss.innerHTML = '<p class="b-note">Нет данных</p>';
       return;
     }
-    var resMonth = String(res.monthKey || "").trim();
-    if (resMonth && /^\d{4}-\d{2}$/.test(resMonth) && resMonth !== mk) {
-      if (!cache[key]) document.getElementById("statsContainer").innerHTML = '<p class="b-note">Нет данных</p>';
-      return;
-    }
-    if (view.mode !== "month" || ensureMonth() !== mk) return;
-    paint(res, got[1], {
-      title: res.monthLabel || L().statsMonthLabelRu_(mk),
-      compare: got[1] ? compareCaption(prevWin) : "",
-      bpTitle: mk === L().currentStatsMonthKey_() ? "Этот месяц" : (res.monthLabel || L().statsMonthLabelRu_(mk)),
-      stale: !res.factCutoff,
-      setup: got[2],
-      prevSetup: got[3],
-      billMonth: mk,
-      prevBillMonth: prevBillMonth,
-      expenses: got[4],
-      prevExpenses: got[5]
-    });
+    if (opts.force) return;
+    var fresh = await pullMonth(mk, true);
+    if (ticket !== loadGen) return;
+    if (fresh && fresh.status === "success") paintMonth(fresh, got);
   }
 
   function shift(delta) {
@@ -514,7 +532,7 @@
     if (!step.ok) { sh().toast(step.toast); return; }
     view = { mode: "month", from: "", to: "" };
     monthKey = step.next;
-    load({ force: true });
+    load({});
   }
 
   async function exportTsv() {
@@ -570,7 +588,7 @@
   function onAct(act) {
     if (act === "st-prev") { shift(-1); return true; }
     if (act === "st-next") { shift(1); return true; }
-    if (act === "st-reload") { cache = Object.create(null); load({ force: true }); return true; }
+    if (act === "st-reload") { load({ force: true }); return true; }
     if (act === "st-export") { exportTsv(); return true; }
     if (act === "st-range-open") { openRange(); return true; }
     if (act === "st-range") { range(); return true; }
@@ -585,7 +603,7 @@
       return;
     }
     if (a && box.contains(a)) return;
-    load({ force: true });
+    load({});
   }
 
   root.BoinyaStats = {
