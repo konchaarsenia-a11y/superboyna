@@ -3,6 +3,7 @@
   "use strict";
 
   var access = null;
+  var pane = "price";
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -27,10 +28,29 @@
     return n;
   }
 
+  function segBar() {
+    if (!isOwner()) return "";
+    function item(id, label) {
+      return '<button type="button" class="b-seg__item' + (pane === id ? " b-seg__item--on" : "") + '" data-act="rp-pane" data-seg="' + id + '">' + esc(label) + "</button>";
+    }
+    return '<div class="b-seg" style="margin-bottom:16px">' + item("price", "Прайс") + item("cost", "Себестоимость") + "</div>";
+  }
+
   function paint() {
+    if (!isOwner()) pane = "price";
+    if (pane === "cost") {
+      sh().dock("");
+      sh().main(
+        '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
+        segBar() +
+        '<div class="b-card" id="rawCostAdmin"><p class="b-note">Себес…</p></div>'
+      );
+      return;
+    }
     sh().dock('<button type="button" class="b-btn b-btn--main" data-act="rp-save">Сохранить</button>');
     sh().main(
       '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
+      segBar() +
       '<div class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Прайс розницы</p>' +
         '<p class="b-note">Рабочие цены для новых расчётов и заказов. Уже сохранённые заказы (orderPrice) не меняются.</p>' +
@@ -45,8 +65,7 @@
         '<p class="b-note" id="retailPriceAdminStatus">—</p>' +
       "</div>" +
       '<div class="b-card" style="margin-top:12px" id="retailPriceAdminList"><p class="b-note">Загрузка…</p></div>' +
-      '<div class="b-card" style="margin-top:12px" id="retailPriceExtraList"></div>' +
-      (isOwner() ? '<div class="b-card" style="margin-top:12px" id="rawCostAdmin"><p class="b-note">Себес…</p></div>' : "")
+      '<div class="b-card" style="margin-top:12px" id="retailPriceExtraList"></div>'
     );
   }
 
@@ -316,20 +335,34 @@
   }
 
   function show() {
+    if (!isOwner()) pane = "price";
     paint();
-    load({ soft: true });
+    if (pane === "cost") loadRawCosts();
+    else load({ soft: true });
   }
 
   function refreshQuiet() {
-    if (!document.getElementById("retailPriceAdminList")) return;
     var a = document.activeElement;
+    if (pane === "cost") {
+      var costs = document.getElementById("rawCostAdmin");
+      if (!costs || (a && costs.contains(a))) return;
+      loadRawCosts();
+      return;
+    }
+    if (!document.getElementById("retailPriceAdminList")) return;
     var box = document.getElementById("retailPriceAdminList");
-    var costs = document.getElementById("rawCostAdmin");
-    if (a && ((box && box.contains(a)) || (costs && costs.contains(a)))) return;
+    if (a && box && box.contains(a)) return;
     load({ force: true, quiet: true });
   }
 
   function onAct(act, node) {
+    if (act === "rp-pane") {
+      var next = node && node.getAttribute("data-seg");
+      if (!isOwner() || (next !== "price" && next !== "cost") || next === pane) return true;
+      pane = next;
+      show();
+      return true;
+    }
     if (act === "rp-reload") { load({ force: true }); return true; }
     if (act === "rp-save") { save(); return true; }
     if (act === "rp-add") { openAdd(); return true; }
