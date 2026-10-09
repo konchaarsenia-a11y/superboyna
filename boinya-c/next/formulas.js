@@ -1,4 +1,6 @@
-/* Формулы владельца 2026-10-02. Канон: boinya-c/docs/FORMULAS_2026-10-02.md */
+/* Формулы. Актуальный канон: artifacts/product-costs/PRICING-2026-10-09.md
+   Подписка: себес = сырьё + 3.30/100г + 0.80/шт + 7.60×N + пакеты.
+   Розница: 3.90/100г + 0.90/шт + доставка 9 (порог 80). Старые карточки не переписываются. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -23,35 +25,49 @@
     var G = num_(input.G);
     var P = num_(input.P);
     var N = num_(input.N);
+    var packs = num_(input.packages);
     var g = G / 100;
     var raw = kopeck_(S);
     var cut = kopeck_(2.5 * g + 0.5 * P);
     var assembly = kopeck_(3 * N);
     var light = kopeck_(0.8 * g + 0.3 * P);
-    var pack = kopeck_(0.6 * g + 0.1 * P + 1.4 * N);
     var road = kopeck_(4 * N);
-    var cost = kopeck_(raw + cut + assembly + light + pack + road);
+    var cleanSlice = kopeck_(0.6 * N);
+    var pack = kopeck_(packs);
+    var recover = kopeck_(cut + light);
+    var delivery = kopeck_(road + assembly + cleanSlice);
+    var cost = kopeck_(raw + recover + delivery + pack);
     var wage = kopeck_(cut + assembly);
     return {
       S: raw, G: G, P: P, N: N,
       raw: raw, cut: cut, assembly: assembly, light: light, pack: pack, road: road,
+      cleanSlice: cleanSlice, recover: recover, delivery: delivery,
       cost: cost, wage: wage
     };
   }
 
   function formulaRetail_(input) {
     input = input || {};
-    var parts = formulaParts_(input);
+    var S = num_(input.S);
+    var G = num_(input.G);
+    var P = num_(input.P);
+    var N = num_(input.N);
     var R = num_(input.R);
-    var per = parts.N > 0 ? R / parts.N : R;
-    var delivery = per < 80 ? kopeck_(9 * parts.N) : 0;
+    var g = G / 100;
+    var raw = kopeck_(S);
+    var cut = kopeck_(2.5 * g + 0.5 * P);
+    var light = kopeck_(0.8 * g + 0.3 * P);
+    var packIn = kopeck_(0.6 * g + 0.1 * P);
+    var recover = kopeck_(3.9 * g + 0.9 * P);
+    var per = N > 0 ? R / N : R;
+    var delivery = R > 0 && per < 80 ? kopeck_(9 * N) : 0;
+    var cost = kopeck_(raw + recover + delivery);
     var price = kopeck_(R + delivery);
-    var margin = kopeck_(price - parts.cost);
+    var margin = kopeck_(price - cost);
     return {
-      S: parts.S, G: parts.G, P: parts.P, N: parts.N,
-      raw: parts.raw, cut: parts.cut, assembly: parts.assembly,
-      light: parts.light, pack: parts.pack, road: parts.road,
-      cost: parts.cost, wage: parts.wage,
+      S: raw, G: G, P: P, N: N,
+      raw: raw, cut: cut, assembly: kopeck_(3 * N), light: light, pack: packIn, road: kopeck_(4 * N),
+      cost: cost, wage: kopeck_(cut + 3 * N), recover: recover,
       R: kopeck_(R), delivery: delivery, price: price, margin: margin
     };
   }
@@ -62,26 +78,33 @@
     var R = num_(input.R);
     var F = num_(input.F);
     var packs = num_(input.packages);
+    var mIn = num_(input.M != null ? input.M : input.coef);
+    var M = mIn > 0 ? mIn : 2.6;
     var g = parts.G / 100;
     var n = parts.N > 0 ? parts.N : 0;
-    var goodsRaw = kopeck_(kopeck_(parts.S * 2.6) + kopeck_(3.9 * g) + kopeck_(0.5 * parts.P));
+    var goodsRaw = kopeck_(kopeck_(parts.S * M) + kopeck_(3.3 * g) + kopeck_(0.8 * parts.P));
     var per = n > 0 ? R / n : R;
     var retailDelivery = R > 0 && per < 80 ? kopeck_(9 * n) : 0;
     var rDisplay = kopeck_(R + retailDelivery);
     var cap = rDisplay > 0 ? kopeck_(0.92 * rDisplay) : 0;
-    var uncapped = kopeck_(goodsRaw + kopeck_(9 * n) + F + packs);
+    var uncapped = kopeck_(goodsRaw + kopeck_(7.6 * n) + F + packs);
     var price = cap > 0 && uncapped > cap ? cap : uncapped;
     var ceiling = uncapped > price ? kopeck_(uncapped - price) : 0;
-    var margin = kopeck_(price - parts.cost);
-    var marginCheck = kopeck_(kopeck_(1.6 * parts.S) - kopeck_(0.4 * parts.P) + kopeck_(0.6 * n) + F + packs - ceiling);
+    var statedIn = input.stated;
+    var stated = (statedIn != null && statedIn !== "" && isFinite(Number(statedIn)))
+      ? kopeck_(statedIn)
+      : Math.round(price);
+    var margin = kopeck_(stated - parts.cost);
+    var marginCheck = kopeck_(kopeck_((M - 1) * parts.S) + F + packs - ceiling);
     return {
-      S: parts.S, G: parts.G, P: parts.P, N: parts.N,
+      S: parts.S, G: parts.G, P: parts.P, N: parts.N, M: M,
       raw: parts.raw, cut: parts.cut, assembly: parts.assembly,
       light: parts.light, pack: parts.pack, road: parts.road,
+      cleanSlice: parts.cleanSlice, recover: parts.recover, delivery: parts.delivery,
       cost: parts.cost, wage: parts.wage,
       R: kopeck_(R), F: kopeck_(F), rDisplay: rDisplay, retailDelivery: retailDelivery,
       goods: goodsRaw, goodsRaw: goodsRaw, cap: cap, ceiling: ceiling,
-      price: price, margin: margin, marginCheck: marginCheck
+      price: price, stated: stated, margin: margin, marginCheck: marginCheck
     };
   }
 
@@ -150,17 +173,17 @@
 
   function settlePp_(list) {
     var yes = [];
-    var open = [];
+    var rest = [];
     var gi;
     for (gi = 0; gi < list.length; gi++) {
       if (list[gi].paid === "yes") yes.push(list[gi]);
-      else if (list[gi].paid !== "no") open.push(list[gi]);
+      else rest.push(list[gi]);
     }
-    var pool = (yes.length ? yes : open).slice().sort(function (x, y) {
-      var xs = x.slot >= 1 ? x.slot : 9;
-      var ys = y.slot >= 1 ? y.slot : 9;
-      if (xs !== ys) return xs - ys;
-      return String(x.iso) < String(y.iso) ? -1 : 1;
+    var pool = (yes.length ? yes : rest).slice().sort(function (x, y) {
+      var xs = x.slot >= 1 ? x.slot : (yes.length ? 9 : 0);
+      var ys = y.slot >= 1 ? y.slot : (yes.length ? 9 : 0);
+      if (xs !== ys) return yes.length ? xs - ys : ys - xs;
+      return String(x.iso) < String(y.iso) ? (yes.length ? -1 : 1) : (yes.length ? 1 : -1);
     });
     var pay = pool.length ? pool[0] : null;
     var got = [];

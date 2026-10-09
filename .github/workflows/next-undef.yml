@@ -45,3 +45,5 @@ jobs:
         run: node boinya-c/next/card-comp.test.mjs
       - name: katya slot2 clear is one record
         run: node scripts/test-katya-slot2.mjs
+      - name: pricing canon 2026-10-09
+        run: node scripts/test-pricing-2026-10-09.mjs

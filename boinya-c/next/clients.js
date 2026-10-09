@@ -815,6 +815,9 @@
     var tailEnroll = price.mode === "retail"
       ? '<button type="button" class="b-btn b-btn--sec" data-act="cl-order-open">Внести заказ</button>'
       : '<button type="button" class="b-btn b-btn--sec" data-act="cl-enroll-open">Внести в ПП</button>';
+    if (price.mode !== "retail" && access && access.role === "owner") {
+      html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-econ" style="margin-top:8px">Экономика</button>';
+    }
     html += '<div id="cxCalcTail">' + actions(
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-defer">В отложенное</button>' +
       tailEnroll
@@ -906,7 +909,19 @@
     var k = node.getAttribute("data-k") || "";
     if (!k) return false;
     var v = node.value;
-    if (k === "cxSearch") { search = v; return true; }
+    if (k === "cxSearch") {
+      search = v;
+      if (view === "list") {
+        var caret = node.selectionStart;
+        paint();
+        var again = document.getElementById("cxSearch");
+        if (again) {
+          again.focus();
+          try { again.setSelectionRange(caret, caret); } catch (eCaret) {}
+        }
+      }
+      return true;
+    }
     if (!card && view !== "card" && seg !== "calc" && seg !== "pick") return k.indexOf("cx") === 0;
     if (k === "cxLabel" && card) card.label = v;
     if (k === "cxNick" && card) card.nick = v;
@@ -1324,8 +1339,42 @@
     schedulePpMessage();
   }
 
+  function previewCardFromList(nick, subId, sheet) {
+    var hit = null;
+    (subs || []).forEach(function (s) {
+      if (hit) return;
+      var sameId = subId && String(s.subId || "") === String(subId);
+      var sameNick = nick && String(s.nick || "") === String(nick);
+      var sameSheet = !sheet || String(s.sheet || "") === String(sheet);
+      if ((sameId || sameNick) && sameSheet) hit = s;
+    });
+    if (!hit) return false;
+    card = blankCard();
+    Object.keys(hit).forEach(function (k) {
+      if (k === "status") return;
+      if (hit[k] != null && hit[k] !== "") card[k] = hit[k];
+    });
+    card.status = hit.ppStatus || hit.stage || hit.status || "";
+    card.sheet = sheet || hit.sheet || "ПП";
+    card.nick = hit.nick || nick || "";
+    card.label = hit.label || hit.nick || nick || "";
+    card.subId = hit.subId || subId || "";
+    card.basket = eng().mapApiBasketToLocal(hit.basket || []);
+    card.basket2 = eng().mapApiBasketToLocal(hit.basket2 || []);
+    card.basketBp1 = eng().mapApiBasketToLocal(hit.basketBp1 || []);
+    view = "card";
+    deep = false;
+    return true;
+  }
+
   async function openCard(nick, subId, sheet) {
-    sh().toast("Открываю…");
+    var shown = previewCardFromList(nick, subId, sheet);
+    if (shown) {
+      sh().resetScroll();
+      paint();
+    } else {
+      sh().toast("Открываю…");
+    }
     try {
     var res = await api().apiGet({
       action: "getSubscription",
@@ -1333,9 +1382,8 @@
       subId: subId || "",
       segment: sheet,
       sheet: sheet,
-      force: "1",
       _: String(Date.now())
-    }, { timeoutMs: 22000, cacheTtlMs: 0 });
+    }, { timeoutMs: 22000, cacheTtlMs: shown ? 20000 : 0 });
     if (!res || res.status !== "success" || res.found === false) { sh().toast((res && res.message) || "Не открылось"); return; }
     card = blankCard();
     Object.keys(card).forEach(function (k) {
@@ -1465,7 +1513,7 @@
       s.address = card.address || s.address;
       s.status = card.status || s.status;
     });
-    loadSubs(true).then(function () {
+    loadSubs(false).then(function () {
       if (view === "list") paint();
     });
     return true;
@@ -1517,8 +1565,8 @@
     editingId = "";
     seg = "pp";
     view = "list";
-    try { await loadSubs(true); } catch (e) {}
     paint();
+    loadSubs(false).then(function () { if (view === "list") paint(); });
   }
 
   function applyPayload(pl) {
@@ -2060,24 +2108,83 @@
     sh().toast("Скопировано");
   }
 
+  function money2(n) {
+    var x = Number(n);
+    if (!isFinite(x)) return "0";
+    return (Math.round(x * 100) / 100).toFixed(2);
+  }
+
+  function econHtml(fact, lines, stated) {
+    fact = fact || {};
+    var n = Number(fact.deliveriesN) || 1;
+    var raw = Number(fact.rawCost) || 0;
+    var recover = Number(fact.recoverByn) || 0;
+    var delivery = Number(fact.deliveryByn) || 0;
+    var packs = Number(fact.packagesByn) || 0;
+    var cost = Math.round((raw + recover + delivery + packs) * 100) / 100;
+    var statedN = Number(String(stated == null ? "" : stated).replace(",", "."));
+    if (!isFinite(statedN) || statedN <= 0) statedN = Math.round(Number(fact.factCost) || 0);
+    var clean = Math.round((statedN - cost) * 100) / 100;
+    var g = 0;
+    var pcs = 0;
+    var lineRows = "";
+    (lines || []).forEach(function (L) {
+      var val = Number(L.val != null ? L.val : L.value) || 0;
+      if (L.piece) pcs += val;
+      else g += val;
+      var title = (L.name || "") + (L.sub ? " · " + L.sub : "");
+      lineRows += '<div class="nx-line"><span>' + esc(title) + "</span><b>" + esc(money2(L.cost)) + "</b></div>";
+    });
+    var cutG = Math.round(2.5 * (g / 100) * 100) / 100;
+    var lightG = Math.round(0.8 * (g / 100) * 100) / 100;
+    var cutP = Math.round(0.5 * pcs * 100) / 100;
+    var lightP = Math.round(0.3 * pcs * 100) / 100;
+    var html = "";
+    if (lineRows) html += '<p class="b-lbl">Себес позиций</p>' + lineRows;
+    html += '<div class="nx-line"><span>Сырьё</span><b>' + esc(money2(raw)) + "</b></div>";
+    html += '<p class="b-lbl">Recover</p>';
+    html += '<div class="nx-line"><span>Нарезчик, ' + esc(String(g)) + ' г</span><b>' + esc(money2(cutG)) + "</b></div>";
+    html += '<div class="nx-line"><span>Свет, граммы</span><b>' + esc(money2(lightG)) + "</b></div>";
+    html += '<div class="nx-line"><span>Нарезчик, ' + esc(String(pcs)) + ' шт</span><b>' + esc(money2(cutP)) + "</b></div>";
+    html += '<div class="nx-line"><span>Свет, штуки</span><b>' + esc(money2(lightP)) + "</b></div>";
+    html += '<div class="nx-line"><span>Recover всего</span><b>' + esc(money2(recover)) + "</b></div>";
+    html += '<p class="b-lbl">Доставка</p>';
+    html += '<div class="nx-line"><span>Бензин 4×' + n + "</span><b>" + esc(money2(4 * n)) + "</b></div>";
+    html += '<div class="nx-line"><span>Сборщик 3×' + n + "</span><b>" + esc(money2(3 * n)) + "</b></div>";
+    html += '<div class="nx-line"><span>В чистое 0.60×' + n + "</span><b>" + esc(money2(0.6 * n)) + "</b></div>";
+    html += '<div class="nx-line"><span>Доставка</span><b>' + esc(money2(delivery)) + "</b></div>";
+    html += '<div class="nx-line"><span>Пакеты</span><b>' + esc(money2(packs)) + "</b></div>";
+    html += '<div class="nx-line"><span>Себес</span><b>' + esc(money2(cost)) + "</b></div>";
+    html += '<div class="nx-line"><span>Фактическая</span><b>' + esc(money2(fact.factCost)) + "</b></div>";
+    html += '<div class="nx-line"><span>Указанная</span><b>' + esc(money2(statedN)) + "</b></div>";
+    html += '<div class="nx-line"><span>Чистое</span><b>' + esc(money2(clean)) + "</b></div>";
+    html += '<p class="b-note">Чистое = указанная − себес. Фракции и множитель в себес не входят.</p>';
+    return html;
+  }
+
   async function econ() {
-    if (!card) return;
-    var nCard = monthN((document.getElementById("cxN") || {}).value || card.deliveries);
-    card.deliveries = nCard;
-    var list = card.basket || [];
-    var res = await liveCalc(list, { scheme: card.scheme, coef: card.coef, deliveriesN: nCard, forNew: 0 });
+    var onCard = !!(card && view === "card");
+    var list = onCard ? (card.basket || []) : allItems();
+    if (!list.length) { sh().toast("Состав пуст"); return; }
+    var scheme = onCard ? (card.scheme || "RAW26") : (price.scheme || "RAW26");
+    var coef = onCard ? card.coef : price.coef;
+    var nDel = onCard ? monthN((document.getElementById("cxN") || {}).value || card.deliveries) : monthN(price.deliveriesN);
+    if (onCard) card.deliveries = nDel;
+    var res = await liveCalc(list, { scheme: scheme, coef: coef, deliveriesN: nDel, forNew: onCard ? 0 : 1 });
     var cost = res ? P().recalcPpCostSum(res, list) : 0;
-    var pc = card.packCounts || {};
+    var pc = onCard ? (card.packCounts || {}) : packCountsForApi_();
     var packagesByn = P().packagesBynFromUCountsLocal_(pc);
-    var q = P().quotePp({ scheme: card.scheme || "RAW26", coef: card.coef, deliveriesN: nCard, costSum: cost, list: list, packagesByn: packagesByn, fracRates: card.fracs || fracRates() });
-    card.calcFactCost = q.total;
-    card.econ = q.fact;
-    var f = q.fact || {};
+    var q = P().quotePp({ scheme: scheme, coef: coef, deliveriesN: nDel, costSum: cost, list: list, packagesByn: packagesByn, fracRates: (onCard ? card.fracs : price.fracs) || fracRates() });
+    var stated = onCard ? card.statedCost : "";
+    if (onCard) {
+      card.calcFactCost = q.total;
+      card.econ = q.fact;
+    }
     sh().openSheet({
       title: "Экономика",
-      html: '<p class="b-note">себест ' + esc(f.rawCost) + " · recover " + esc(f.recoverByn) + " · доставка " + esc(f.deliveryByn) + " · факт " + esc(f.factCost) + (f.retailCapped ? " · cap " + esc(f.retailCapAt) : "") + (f.cleanAfterCap != null ? " · чистыми " + esc(f.cleanBeforeCap) + " → " + esc(f.cleanAfterCap) : "") + "</p>"
+      html: econHtml(q.fact || {}, (res && res.lines) || [], stated)
     });
-    paint();
+    if (onCard) paint();
   }
 
   async function recalcCard() {

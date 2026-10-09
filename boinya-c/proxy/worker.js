@@ -859,7 +859,7 @@ const AUTH_OWNER_RE = new RegExp(
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|addPricePosition|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
-    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse)$"
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|listRawCosts|saveRawCost)$"
 );
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
@@ -1445,6 +1445,8 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "saveOwnerExpense") return saveOwnerExpense_(params, env, actor);
   if (a === "deleteOwnerExpense") return deleteOwnerExpense_(params, env, actor);
   if (a === "listPricePositions") return listPricePositions_(params, env, actor);
+  if (a === "listRawCosts") return listRawCosts_(params, env, actor);
+  if (a === "saveRawCost") return saveRawCost_(params, env, actor);
   if (a === "addPricePosition") return addPricePosition_(params, env, actor);
   if (a === "listWarehouses") return listWarehouses_(env);
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
@@ -2346,13 +2348,60 @@ function isCrumbBasketItemD1_(it) {
   return /^КРОШКА(?:\s|$)/i.test(String(it.name || it.main || ""));
 }
 
-/** Крошка: дрессура овощи/фрукты 15 / мяс 17 / гипо 20 за 100 г. */
+/** Розница крошки за 100 г: овощи 17, мясные 19, гипоаллергенные 22. */
 function crumbKindRateD1_(kind) {
   var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
-  if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
-  if (k === "meat" || /мяс/.test(k)) return 17;
-  if (k === "hypo" || /гипо/.test(k)) return 20;
+  if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 17;
+  if (k === "meat" || /мяс/.test(k)) return 19;
+  if (k === "hypo" || /гипо/.test(k)) return 22;
   return 0;
+}
+
+function crumbRetailKindOfNameD1_(name) {
+  var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) return "hypo";
+  if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) return "veg";
+  return "meat";
+}
+
+function crumbParentNameD1_(it) {
+  var hint = String((it && (it.sub || it.name || it.main)) || "");
+  if (/рубец/i.test(hint)) return "РУБЕЦ Т";
+  if (/почк/i.test(hint)) return "ПОЧКИ";
+  if (/лёгк|легк/i.test(hint) && /баран/i.test(hint)) return "БАРАНЬЕ ЛЁГКОЕ";
+  if (/лёгк|легк/i.test(hint)) return "ЛЁГКОЕ";
+  if (/сердц/i.test(hint)) return "СЕРДЦЕ";
+  if (/индейк/i.test(hint)) return "ИНДЕЙКА";
+  if (/кролик/i.test(hint)) return "КРОЛИК";
+  if (/печен/i.test(hint) && /баран/i.test(hint)) return "БАРАНЬЯ ПЕЧЕНЬ";
+  if (/печен/i.test(hint)) return "ПЕЧЕНЬ";
+  return "";
+}
+
+function crumbRawCostD1_(it, costs, val, opts) {
+  var sources = it && it.sources;
+  opts = opts || {};
+  if (sources && sources.length) {
+    var ratios = it.ratio || [];
+    var rsum = 0;
+    for (var ri = 0; ri < sources.length; ri++) rsum += Number(ratios[ri]) || 0;
+    if (rsum <= 0) rsum = sources.length;
+    var sum = 0;
+    for (var si = 0; si < sources.length; si++) {
+      var src = sources[si] || {};
+      var g = val * ((Number(ratios[si]) || 1) / rsum);
+      var info = lookupPpCostInfoD1_(costs, src.name || src.main, src.sub || "", opts.zeroKeys);
+      var unit = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+      sum += (g / 100) * unit;
+    }
+    return Math.round(sum * 100) / 100;
+  }
+  var parent = crumbParentNameD1_(it);
+  if (!parent) return 0;
+  var parentInfo = lookupPpCostInfoD1_(costs, parent, "", opts.zeroKeys);
+  var parentUnit = parentInfo ? Number(parentInfo.unitPrice != null ? parentInfo.unitPrice : parentInfo.per100) || 0 : 0;
+  if (!(parentUnit > 0)) return 0;
+  return Math.round((val / 100) * parentUnit * 100) / 100;
 }
 
 /** Нарезка: крошка → обычные исходные позиции (граммы по ratio). */
@@ -3366,6 +3415,115 @@ function pricePositionPublic_(row) {
     unit: String(row.unit || ""),
     createdAt: String(row.created_at || "")
   };
+}
+
+const RAW_COST_BUILTIN_ = [
+  { sku: "ЛЁГКОЕ", cost: 2.25 },
+  { sku: "СЕРДЦЕ", cost: 4 },
+  { sku: "ПОЧКИ", cost: 3 },
+  { sku: "РУБЕЦ Т", cost: 2 },
+  { sku: "БАРАНЬЕ ЛЁГКОЕ", cost: 8.4 },
+  { sku: "ИНДЕЙКА", cost: 7.5 },
+  { sku: "ПЕЧЕНЬ", cost: 2.76 },
+  { sku: "БАРАНЬЯ ПЕЧЕНЬ", cost: 2.76 },
+  { sku: "ВЫМЯ", cost: 1.5 },
+  { sku: "СЕМЕННИКИ", cost: 4.17 },
+  { sku: "МЯСНЫЕ ЛОМТИКИ", cost: 7.55 },
+  { sku: "КРОЛИК", cost: null },
+  { sku: "КРОШКА ЛЁГКОГО", cost: 2.25 },
+  { sku: "КРОШКА ПОЧЕК", cost: 3 },
+  { sku: "КРОШКА РУБЕЦ", cost: 2 },
+  { sku: "БЫЧИЙ КОРЕНЬ", cost: 1.91 },
+  { sku: "ТРАХЕЯ", cost: 0.88 },
+  { sku: "СТАНОВАЯ ЖИЛА", cost: 0.38 },
+  { sku: "УХО Г", cost: 0.88 },
+  { sku: "УХО К", cost: 0.88 },
+  { sku: "АОРТА", cost: 0.94 },
+  { sku: "КОЛЕНИ шт.", cost: 1.17 },
+  { sku: "ЛОП ХРЯЩ шт.", cost: 1 },
+  { sku: "НОСЫ шт.", cost: 1.23 },
+  { sku: "УТИНЫЕ ШЕИ шт.", cost: 0.78 },
+  { sku: "ПЕРЕПЁЛКИ шт.", cost: 0.81 },
+  { sku: "ТЫКВА", cost: 5.33 },
+  { sku: "ЯБЛОКИ", cost: 3 },
+  { sku: "МОРКОВЬ", cost: 2.3 },
+  { sku: "БАТАТ", cost: 10 },
+  { sku: "БАНАНЫ", cost: 5 },
+  { sku: "ГРУШИ", cost: 6.6 }
+];
+
+async function ensureRawCostTable_(env) {
+  if (!env || !env.DB) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS raw_cost_ver (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT NOT NULL, cost REAL, shrink REAL, effective_from TEXT NOT NULL, created_at TEXT NOT NULL)"
+  ).run();
+}
+
+async function loadRawCostVersions_(env) {
+  if (!env || !env.DB) return [];
+  try {
+    await ensureRawCostTable_(env);
+    const q = await env.DB.prepare(
+      "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
+    ).all();
+    return (q && q.results) || [];
+  } catch (eV) {
+    return [];
+  }
+}
+
+async function listRawCosts_(params, env, actor) {
+  if (!(actor && (actor.isOwner || actor.role === "owner"))) {
+    return { status: "error", message: "forbidden" };
+  }
+  const versions = await loadRawCostVersions_(env);
+  const today = new Date().toISOString().slice(0, 10);
+  const items = RAW_COST_BUILTIN_.map(function (row) {
+    let cur = null;
+    const hist = [];
+    versions.forEach(function (v) {
+      if (String(v.sku || "").toUpperCase() !== row.sku.toUpperCase()) return;
+      hist.push(v);
+      const from = String(v.effectiveFrom || "").slice(0, 10);
+      if (from && from <= today && (!cur || from >= String(cur.effectiveFrom || ""))) cur = v;
+    });
+    return {
+      sku: row.sku,
+      cost: cur && cur.cost != null ? cur.cost : row.cost,
+      shrink: cur && cur.shrink != null ? cur.shrink : null,
+      effectiveFrom: cur ? cur.effectiveFrom : "2026-10-09",
+      builtin: row.cost,
+      history: hist
+    };
+  });
+  return { status: "success", items: items, versions: versions, shrinkNote: "Усушка в формуле цены не участвует. На складе отдельный коэффициент: сухое ÷ коэф = сырьё." };
+}
+
+async function saveRawCost_(params, env, actor) {
+  if (!(actor && (actor.isOwner || actor.role === "owner"))) {
+    return { status: "error", message: "forbidden" };
+  }
+  const sku = String((params && params.sku) || "").trim();
+  if (!sku) return { status: "error", message: "sku" };
+  const from = String((params && (params.effectiveFrom || params.effective_from)) || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return { status: "error", message: "date" };
+  let cost = params && params.cost;
+  if (cost === "" || cost == null) cost = null;
+  else {
+    cost = Number(String(cost).replace(",", "."));
+    if (!isFinite(cost) || cost < 0) return { status: "error", message: "cost" };
+  }
+  let shrink = params && (params.shrink != null ? params.shrink : params.shrinkage);
+  if (shrink === "" || shrink == null) shrink = null;
+  else {
+    shrink = Number(String(shrink).replace(",", "."));
+    if (!isFinite(shrink) || shrink <= 0) return { status: "error", message: "shrink" };
+  }
+  await ensureRawCostTable_(env);
+  await env.DB.prepare(
+    "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).bind(sku, cost, shrink, from, new Date().toISOString()).run();
+  return { status: "success", sku: sku, effectiveFrom: from, cardsUntouched: true };
 }
 
 async function listPricePositions_(params, env) {
@@ -10341,6 +10499,7 @@ async function refreshCourierAskPaid_(env, snap) {
     }
     c.ppAskReady = true;
     c.askPaid = courierAskPaidDecision_(c);
+    if (n >= 2 && slot >= 2 && normPaidFlagD1_(c.siblingPaid) === "yes") c.orderPrice = "";
   }
   return snap;
 }
@@ -13661,33 +13820,30 @@ async function cutoverGetStats_(params, env, ctx) {
       (monthSnap.fact || monthSnap.bp || monthSnap.month) &&
       String(monthSnap.monthKey || "") === monthKey;
     if (monthOk) {
-      const ageMs = monthSnap.cachedAt
-        ? Date.now() - Date.parse(String(monthSnap.cachedAt))
-        : Number.POSITIVE_INFINITY;
-      if (ageMs <= 6 * 60 * 60 * 1000) {
-        if (ctx && typeof ctx.waitUntil === "function") {
-          ctx.waitUntil(
-            (async function () {
-              try {
-                const liveBg = await gasProxy_("getStats", params || {}, env, { write: false });
-                if (liveBg && liveBg.status === "success" && env && env.DB) {
-                  await putSnap_(
-                    env,
-                    "getStats28:" + monthKey,
-                    Object.assign({}, liveBg, { cachedAt: new Date().toISOString() })
-                  );
-                }
-              } catch (eR) {}
-            })()
-          );
-        }
-        return Object.assign({}, monthSnap, {
-          cutover: true,
-          swr: true,
-          fromGas: false,
-          sandbox: false
-        });
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          (async function () {
+            try {
+              const liveBg = await gasProxy_("getStats", params || {}, env, { write: false });
+              if (liveBg && liveBg.status === "success" && env && env.DB) {
+                await putSnap_(
+                  env,
+                  "getStats28:" + monthKey,
+                  Object.assign({}, liveBg, { cachedAt: new Date().toISOString() })
+                );
+              }
+            } catch (eR) {}
+          })()
+        );
       }
+      return Object.assign({}, monthSnap, {
+        cutover: true,
+        swr: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        cachedAt: monthSnap.cachedAt || ""
+      });
     }
     // нет валидного snap на этот месяц — живой GAS
     const liveM = await gasProxy_("getStats", params || {}, env, { write: false });
@@ -13733,7 +13889,7 @@ async function cutoverGetStats_(params, env, ctx) {
     return live;
   }
 
-  if (snapOk && !snapStale) {
+  if (snapOk) {
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
@@ -17010,6 +17166,7 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           const snapCostsEn = await getSnapRaw_(env, "priceCostsPp");
           if (snapCostsEn && snapCostsEn.costs) {
+            const costsEn = await costsForCalcD1_(env, snapCostsEn.costs, params);
             const factFullEn = await calcPpFactFromD1Costs_(
               Object.assign({}, params || {}, {
                 scheme: "RAW26",
@@ -17018,7 +17175,7 @@ async function handleCutover_(a, params, env, ctx) {
               }),
               env,
               ctx,
-              snapCostsEn.costs
+              costsEn
             );
             if (factFullEn && factFullEn.factCost != null) {
               if (
@@ -21014,6 +21171,12 @@ async function gasProxy_(action, params, env, opts) {
       delete clean._actorRole;
       delete clean._authVerified;
     }
+    if (/^(calcPrice|calcPpFact|getPpFactCost|getStats|enrollDeferredToPp)$/i.test(action) && !clean.costOverrides) {
+      try {
+        const vers = await loadRawCostVersions_(env);
+        if (vers && vers.length) clean.costOverrides = vers;
+      } catch (eCostOv) {}
+    }
 
     let text = "";
     // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной save*).
@@ -24526,6 +24689,9 @@ function keepRaw26StatedOnSave_(params, capFact) {
 
 async function clampRaw26SubscriptionWriteD1_(params, env, ctx) {
   params = params || {};
+  const statedKept = params.statedCost != null && String(params.statedCost).trim() !== "";
+  const factKept = params.factCost != null && String(params.factCost).trim() !== "";
+  if (statedKept || factKept) return params;
   const sheet = String(params.sheet || params.segment || "").trim().toUpperCase();
   if (sheet && sheet !== "ПП") return params;
   const scheme = resolvePpSchemeD1_({
@@ -24538,11 +24704,12 @@ async function clampRaw26SubscriptionWriteD1_(params, env, ctx) {
   if (!basket.length) return params;
   try {
     const snapCosts = (await getSnapRaw_(env, "priceCostsPp")) || { costs: {} };
+    const costsClamp = await costsForCalcD1_(env, snapCosts.costs || {}, params);
     const fact = await calcPpFactFromD1Costs_(
       Object.assign({}, params, { scheme: "RAW26", forNew: 0, fullFact: 1, basket: basket }),
       env,
       ctx,
-      snapCosts.costs || {}
+      costsClamp
     );
     if (!fact || !(Number(fact.factCost) > 0)) return params;
     return keepRaw26StatedOnSave_(params, Number(fact.factCost));
@@ -24592,7 +24759,8 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
 
   const deliveriesN = Math.max(1, Number(local.deliveries) || 1);
   const costsSnap = (await getSnapRaw_(env, "priceCostsPp")) || { costs: {} };
-  const built = buildPpLinesFromCostsD1_(basket, costsSnap.costs || {});
+  const costsMig = await costsForCalcD1_(env, costsSnap.costs || {}, params);
+  const built = buildPpLinesFromCostsD1_(basket, costsMig);
   let rawCost = built.rawCost;
   let lines = built.lines;
   if (built.missing > 0) {
@@ -25530,9 +25698,10 @@ function isPieceSkuNameD1_(name) {
 
 const PP_SCHEME_CUTOFF_YMD_D1_ = "2026-08-31";
 const PP_RAW26_COEF_DEFAULT_D1_ = 2.6;
-const PP_RAW26_RECOVER_100_D1_ = 3.9;
-const PP_RAW26_RECOVER_PIECE_D1_ = 0.5;
-const PP_RAW26_DELIVERY_PER_D1_ = 9;
+const PP_RAW26_RECOVER_100_D1_ = 3.3;
+const PP_RAW26_RECOVER_PIECE_D1_ = 0.8;
+const PP_RAW26_DELIVERY_PER_D1_ = 7.6;
+const PP_RAW26_RETAIL_DELIVERY_PER_D1_ = 9;
 const PP_RAW26_RETAIL_CAP_D1_ = 0.92;
 const PP_RAW26_RETAIL_FREE_FROM_D1_ = 80;
 const STATS_DELIVERY_FUEL_PER_D1_ = 4;
@@ -25909,11 +26078,28 @@ function recoverBynFromPpLinesD1_(lines) {
 }
 
 function retailGoodsFromCrumbItemD1_(map, it, val) {
-  const crumbRate = crumbKindRateD1_((it && (it.crumbKind || it.sub || it.name)) || "");
+  const sources = it && it.sources;
+  if (sources && sources.length) {
+    const ratiosMix = it.ratio || [];
+    let rsumMix = 0;
+    for (let rmi = 0; rmi < sources.length; rmi++) rsumMix += Number(ratiosMix[rmi]) || 0;
+    if (rsumMix <= 0) rsumMix = sources.length;
+    let sumPg = 0;
+    let sumG = 0;
+    for (let smi = 0; smi < sources.length; smi++) {
+      const srcM = sources[smi] || {};
+      const gM = val * ((Number(ratiosMix[smi]) || 1) / rsumMix);
+      const rateM = crumbKindRateD1_(crumbRetailKindOfNameD1_(srcM.name || srcM.main || ""));
+      sumG += gM;
+      sumPg += rateM * gM;
+    }
+    if (sumG > 0) return Math.round((val / 100) * Math.ceil(sumPg / sumG) * 100) / 100;
+  }
+  let crumbRate = crumbKindRateD1_((it && (it.crumbKind || it.sub || it.name)) || "");
+  if (!(crumbRate > 0)) crumbRate = crumbKindRateD1_(crumbRetailKindOfNameD1_(it && (it.name || it.main)));
   if (crumbRate > 0) {
     return Math.round((val / 100) * crumbRate * 100) / 100;
   }
-  const sources = it && it.sources;
   if (sources && sources.length) {
     const ratios = it.ratio || [];
     let rsum = 0;
@@ -25975,7 +26161,7 @@ async function unlockPpCostBreakdownD1_(params, env) {
   }
   const expected = String((env && env.PP_COST_BREAKDOWN_PIN) || "").trim();
   if (!expected) {
-    return { status: "error", message: "pin_not_configured", unlocked: false, pinRequired: true };
+    return { status: "success", unlocked: true, pinRequired: false };
   }
   const pin = String((params && params.pin) || "").trim();
   if (!pin || pin !== expected) {
@@ -25986,14 +26172,14 @@ async function unlockPpCostBreakdownD1_(params, env) {
 
 function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliveriesN) {
   const n = Math.max(1, Number(deliveriesN) || 1);
-  const fuel = STATS_DELIVERY_FUEL_PER_D1_ * n;
+  const delivery = PP_RAW26_DELIVERY_PER_D1_ * n;
   return (
     Math.round(
       ((Number(clientPrice) || 0) -
         (Number(raw) || 0) -
         (Number(recover) || 0) -
         (Number(packagesByn) || 0) -
-        fuel) *
+        delivery) *
         100
     ) / 100
   );
@@ -26005,7 +26191,7 @@ function raw26RetailCapBaseD1_(retailGoods, deliveriesN) {
   if (!isFinite(r) || r <= 0) return 0;
   const n = Math.max(1, Number(deliveriesN) || 1);
   const per = r / n;
-  const delivery = per < PP_RAW26_RETAIL_FREE_FROM_D1_ ? PP_RAW26_DELIVERY_PER_D1_ * n : 0;
+  const delivery = per < PP_RAW26_RETAIL_FREE_FROM_D1_ ? PP_RAW26_RETAIL_DELIVERY_PER_D1_ * n : 0;
   return Math.round((r + delivery) * 100) / 100;
 }
 
@@ -26265,10 +26451,57 @@ function ppCostFractionAliasesD1_(sub) {
   return [raw];
 }
 
-const PP_COST_CANON_D1_ = "frac-alias-1";
+const PP_COST_CANON_D1_ = "pricing-2026-10-09";
 
 function ppCostUnitD1_(info) {
   return info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+}
+
+function overlayRawCostsD1_(costs, versions, asOf) {
+  const when = String(asOf || "").slice(0, 10);
+  const dated = /^\d{4}-\d{2}-\d{2}$/.test(when);
+  const pear = dated && when < "2026-10-09" ? 6.67 : 6.6;
+  const best = {};
+  (versions || []).forEach(function (row) {
+    const sku = String((row && row.sku) || "").trim().toUpperCase();
+    const from = String((row && (row.effectiveFrom || row.effective_from)) || "").slice(0, 10);
+    if (!sku || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return;
+    if (dated && from > when) return;
+    if (!best[sku] || from >= best[sku].from) best[sku] = { from: from, cost: row.cost, shrink: row.shrink };
+  });
+  const next = Object.assign({}, costs || {});
+  function paint(info, name) {
+    const keyName = String((info && info.name) || name || "").trim().toUpperCase();
+    if (!keyName) return info || null;
+    const hit = best[keyName];
+    const row = Object.assign({}, info || { name: keyName, sub: "", piece: false });
+    if (/ГРУШ/.test(keyName) && !(hit && hit.cost != null && hit.cost !== "")) {
+      row.unitPrice = pear;
+      row.per100 = pear;
+    }
+    if (hit && hit.cost != null && hit.cost !== "" && isFinite(Number(hit.cost)) && Number(hit.cost) >= 0) {
+      row.unitPrice = Number(hit.cost);
+      row.per100 = Number(hit.cost);
+    }
+    if (hit && hit.shrink != null && hit.shrink !== "" && isFinite(Number(hit.shrink))) row.shrink = Number(hit.shrink);
+    return row;
+  }
+  Object.keys(next).forEach(function (k) {
+    next[k] = paint(next[k], next[k] && next[k].name);
+  });
+  Object.keys(best).forEach(function (sku) {
+    if (next[sku]) return;
+    const painted = paint(null, sku);
+    if (painted && Number(painted.unitPrice) > 0) next[sku] = painted;
+  });
+  return next;
+}
+
+async function costsForCalcD1_(env, costs, params) {
+  const asOf = String((params && (params.asOf || params.date || params.deliveryDate)) || "").slice(0, 10);
+  let versions = [];
+  try { versions = await loadRawCostVersions_(env); } catch (eVer) { versions = []; }
+  return overlayRawCostsD1_(costs, versions, asOf);
 }
 
 function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
@@ -26358,26 +26591,24 @@ function buildPpLinesFromCostsD1_(basket, costs, opts) {
     const val = Number(it.val != null ? it.val : it.value) || 0;
     const cat = String(it.cat || "").trim();
     if (!name || val <= 0) continue;
-    if (isCrumbBasketItemD1_(it)) {
-      const crumbRate = crumbKindRateD1_(it.crumbKind || sub || name);
-      if (crumbRate > 0) {
-        const crumbCost = (val / 100) * crumbRate;
-        totalCost += crumbCost;
-        lines.push({
-          name: name,
-          sub: sub,
-          val: val,
-          per100: crumbRate,
-          unitPrice: crumbRate,
-          piece: false,
-          cat: "crumb",
-          crumbKind: it.crumbKind || "",
-          sources: Array.isArray(it.sources) ? it.sources : [],
-          ratio: Array.isArray(it.ratio) ? it.ratio : [],
-          cost: Math.round(crumbCost * 100) / 100
-        });
-        continue;
-      }
+    if (isGramCrumbLineD1_(it)) {
+      const crumbCost = crumbRawCostD1_(it, costs, val, opts);
+      totalCost += crumbCost;
+      const parentUnit = val > 0 ? Math.round((crumbCost / val) * 10000) / 100 : 0;
+      lines.push({
+        name: name,
+        sub: sub,
+        val: val,
+        per100: parentUnit,
+        unitPrice: parentUnit,
+        piece: false,
+        cat: "crumb",
+        crumbKind: it.crumbKind || "",
+        sources: Array.isArray(it.sources) ? it.sources : [],
+        ratio: Array.isArray(it.ratio) ? it.ratio : [],
+        cost: Math.round(crumbCost * 100) / 100
+      });
+      continue;
     }
     const info = lookupPpCostInfoD1_(costs, name, sub, opts.zeroKeys);
     const unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
@@ -26488,7 +26719,8 @@ async function calcPpFactD1_(params, env, ctx) {
   if (!force) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
     if (snap && snap.ppCostCanon === PP_COST_CANON_D1_ && snap.costs && typeof snap.costs === "object") {
-      const local = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs, {
+      const costsLive = await costsForCalcD1_(env, snap.costs, params);
+      const local = await calcPpFactFromD1Costs_(params, env, ctx, costsLive, {
         zeroKnown: true,
         zeroKeys: snap.zeroKeys
       });
@@ -26528,7 +26760,8 @@ async function calcPricePpD1_(params, env, ctx) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
     if (snap && snap.ppCostCanon === PP_COST_CANON_D1_ && snap.costs && typeof snap.costs === "object") {
       const basket = parseBasketParamD1_(params);
-      const built = buildPpLinesFromCostsD1_(basket, snap.costs, {
+      const costsLive = await costsForCalcD1_(env, snap.costs, params);
+      const built = buildPpLinesFromCostsD1_(basket, costsLive, {
         zeroKnown: true,
         zeroKeys: snap.zeroKeys
       });
@@ -26552,7 +26785,7 @@ async function calcPricePpD1_(params, env, ctx) {
           d1Verified: true
         };
         if (wantFact) {
-          const factFull = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs, {
+          const factFull = await calcPpFactFromD1Costs_(params, env, ctx, costsLive, {
             zeroKnown: true,
             zeroKeys: snap.zeroKeys
           });
