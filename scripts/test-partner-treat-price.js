@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Varka treats are a one-off PP RAW26 quote.
+ * Varka treats are a one-off PP RAW26 quote with PARTNER_VARKA_COEF = 2.3.
+ * Subscription stays on PP_RAW26_COEF_DEFAULT_ = 2.6.
  * Coupons / NFC / banner stay 0. Gram cap is gone.
  * Formula stays in computePpFactFromCost_ / calcPricePpD1_ — this file only checks the wiring.
  */
@@ -61,16 +62,23 @@ const headerNames = headers.match(/"([^"]+)"/g).map(function (s) { return s.slic
 if (headerNames[headerNames.length - 1] !== "totalByn") fail("totalByn must be the last Partner_Orders column");
 if (headerNames.indexOf("note") !== headerNames.length - 2) fail("note must stay immediately before totalByn");
 
-["vr_t_heart", "vr_t_lung", "Ломтики", "PARTNER_PP_PACK_ZERO_"].forEach(function (bit) {
+["vr_t_heart", "vr_t_lung", "Ломтики", "PARTNER_PP_PACK_ZERO_", "PARTNER_VARKA_COEF"].forEach(function (bit) {
   if (workerSrc.indexOf(bit) < 0 || gasSrc.indexOf(bit) < 0) fail("missing " + bit);
 });
+if (!/var PARTNER_VARKA_COEF = 2\.3;/.test(gasSrc)) fail("GAS PARTNER_VARKA_COEF must be 2.3");
+if (!/const PARTNER_VARKA_COEF = 2\.3;/.test(workerSrc)) fail("Worker PARTNER_VARKA_COEF must be 2.3");
+if (!/var PP_RAW26_COEF_DEFAULT_ = 2\.6;/.test(gasSrc)) fail("subscription coef must stay 2.6");
+if (!/const PP_RAW26_COEF_DEFAULT_D1_ = 2\.6;/.test(workerSrc)) fail("D1 subscription coef must stay 2.6");
 
 const gasQuote = extractFn_(gasSrc, "partnerQuoteTreatsByn_");
 if (!/computePpFactFromCost_\(/.test(gasQuote)) fail("GAS quote must call computePpFactFromCost_");
 if (!/"RAW26"/.test(gasQuote) || !/PARTNER_PP_PACK_ZERO_/.test(gasQuote)) {
   fail("GAS quote must be RAW26 with zero packs");
 }
-if (!/ppBasket,\s*1,/.test(gasQuote)) fail("GAS quote must pass deliveriesN=1");
+if (!/ppBasket,\s*1,\s*PARTNER_VARKA_COEF,/.test(gasQuote)) {
+  fail("GAS quote must pass PARTNER_VARKA_COEF as coef");
+}
+if (/PP_RAW26_COEF_DEFAULT_/.test(gasQuote)) fail("GAS quote must not use the subscription coef");
 if (!/clientPrice/.test(gasQuote)) fail("GAS quote must use clientPrice");
 const gasCalc = extractFn_(gasSrc, "handleCalcPrice");
 if (!/packOptCp/.test(gasCalc)) fail("handleCalcPrice must pass explicit packCounts into the fact");
@@ -81,6 +89,8 @@ if (!/mode:\s*"pp"/.test(workerQuote)) fail("Worker quote mode must be pp");
 if (!/fullFact:\s*"1"/.test(workerQuote)) fail("Worker quote must set fullFact=1");
 if (!/scheme:\s*"RAW26"/.test(workerQuote)) fail("Worker quote scheme must be RAW26");
 if (!/deliveriesN:\s*1/.test(workerQuote)) fail("Worker quote deliveriesN must be 1");
+if (!/coef:\s*PARTNER_VARKA_COEF/.test(workerQuote)) fail("Worker quote must pass coef PARTNER_VARKA_COEF");
+if (/PP_RAW26_COEF_DEFAULT_D1_/.test(workerQuote)) fail("Worker quote must not use the subscription coef");
 if (!/packCounts:\s*PARTNER_PP_PACK_ZERO_/.test(workerQuote)) fail("Worker quote must pass zero packs");
 if (!/clientPrice/.test(workerQuote)) fail("Worker quote must use clientPrice");
 
@@ -97,6 +107,20 @@ if (gasSubmit.indexOf("order.totalByn") < 0) fail("GAS row must store totalByn")
 if (workerSrc.indexOf('a === "partnerCalcPrice"') < 0) fail("partnerCalcPrice must be a read");
 if (extractFn_(workerSrc, "isWriteAction_").indexOf('a === "partnerCalcPrice"') < 0) {
   fail("isWriteAction_ must treat partnerCalcPrice as read");
+}
+const workerPriceAction = workerSrc.slice(
+  workerSrc.indexOf("if (/^partnerCalcPrice$/i.test(a)) {"),
+  workerSrc.indexOf("if (/^partnerCalcPrice$/i.test(a)) {") + 900
+);
+if (workerPriceAction.indexOf("partnerQuoteTreatsByn_") < 0) {
+  fail("partnerCalcPrice must quote through partnerQuoteTreatsByn_");
+}
+if (/calcPricePpD1_|PP_RAW26_COEF_DEFAULT_/.test(workerPriceAction)) {
+  fail("partnerCalcPrice must not price with the subscription coef itself");
+}
+const gasPriceAction = extractFn_(gasSrc, "handlePartnerCalcPrice");
+if (gasPriceAction.indexOf("partnerQuoteTreatsByn_") < 0) {
+  fail("GAS partnerCalcPrice must quote through partnerQuoteTreatsByn_");
 }
 
 const mapSrc =

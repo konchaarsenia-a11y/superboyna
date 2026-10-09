@@ -26799,6 +26799,8 @@ var PARTNER_TREAT_PP_MAP_ = {
 };
 /** Партнёр не пакует дойпаки подписки — пакеты явно 0, не из сборки корзины. */
 var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
+/** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_ = 2.6. */
+var PARTNER_VARKA_COEF = 2.3;
 
 function partnerTreatsToPpBasket_(basket) {
   var out = [];
@@ -26835,12 +26837,21 @@ function partnerBynLabel_(n) {
 
 /**
  * Разовая розница по канону ПП: mode pp, fullFact, scheme RAW26, deliveriesN=1.
+ * Наценка — PARTNER_VARKA_COEF (2.3), не дефолт подписки 2.6.
  * Формула — computePpFactFromCost_ / те же линии, что handleCalcPrice. Сумма = clientPrice.
  */
 function partnerQuoteTreatsByn_(basket) {
   var ppBasket = partnerTreatsToPpBasket_(basket);
   if (!ppBasket.length) {
-    return { status: "success", totalByn: 0, currency: "BYN", scheme: "RAW26", deliveriesN: 1, treats: 0 };
+    return {
+      status: "success",
+      totalByn: 0,
+      currency: "BYN",
+      scheme: "RAW26",
+      deliveriesN: 1,
+      treats: 0,
+      coef: PARTNER_VARKA_COEF
+    };
   }
   var priceInfo = readPriceCosts_("pp");
   var lines = [];
@@ -26859,7 +26870,7 @@ function partnerQuoteTreatsByn_(basket) {
     rawCost,
     ppBasket,
     1,
-    null,
+    PARTNER_VARKA_COEF,
     PARTNER_PP_PACK_ZERO_,
     "RAW26",
     lines,
@@ -26873,7 +26884,8 @@ function partnerQuoteTreatsByn_(basket) {
     currency: "BYN",
     scheme: fact.scheme || "RAW26",
     deliveriesN: 1,
-    treats: ppBasket.length
+    treats: ppBasket.length,
+    coef: PARTNER_VARKA_COEF
   };
 }
 

@@ -14076,6 +14076,8 @@ const PARTNER_TREAT_PP_MAP_ = {
   vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" }
 };
 const PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
+/** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_D1_ = 2.6. */
+const PARTNER_VARKA_COEF = 2.3;
 
 function partnerTreatsToPpBasket_(basket) {
   const out = [];
@@ -14112,12 +14114,21 @@ function partnerBynLabel_(n) {
 
 /**
  * Разовая розница: calcPricePpD1_ (mode pp, fullFact, RAW26, deliveriesN=1).
- * Сумма клиенту = clientPrice. Сырьё наружу не отдаём.
+ * Наценка — PARTNER_VARKA_COEF (2.3), не дефолт подписки 2.6. D1 и запасной GAS
+ * читают params.coef. Сумма клиенту = clientPrice. Сырьё наружу не отдаём.
  */
 async function partnerQuoteTreatsByn_(basket, env, ctx) {
   const ppBasket = partnerTreatsToPpBasket_(basket);
   if (!ppBasket.length) {
-    return { status: "success", totalByn: 0, currency: "BYN", scheme: "RAW26", deliveriesN: 1, treats: 0 };
+    return {
+      status: "success",
+      totalByn: 0,
+      currency: "BYN",
+      scheme: "RAW26",
+      deliveriesN: 1,
+      treats: 0,
+      coef: PARTNER_VARKA_COEF
+    };
   }
   const priced = await calcPricePpD1_(
     {
@@ -14126,6 +14137,7 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
       fullFact: "1",
       forNew: "1",
       deliveriesN: 1,
+      coef: PARTNER_VARKA_COEF,
       packCounts: PARTNER_PP_PACK_ZERO_,
       basket: ppBasket
     },
@@ -14143,7 +14155,8 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
     currency: "BYN",
     scheme: priced.scheme || "RAW26",
     deliveriesN: 1,
-    treats: ppBasket.length
+    treats: ppBasket.length,
+    coef: PARTNER_VARKA_COEF
   };
 }
 

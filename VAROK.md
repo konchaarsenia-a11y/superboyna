@@ -1,6 +1,6 @@
 # Good Boy · партнёрское пополнение
 
-Telegram Mini App для **партнёрских сетей**: заявка на лакомства и купоны. Лакомства (сердце / лёгкое) — разовый розничный заказ по формуле подписки (ПП, схема RAW26, одна доставка). Купоны, NFC и баннер — 0 BYN. Статус оплаты не ведём.
+Telegram Mini App для **партнёрских сетей**: заявка на лакомства и купоны. Лакомства (сердце / лёгкое) — разовый розничный заказ по формуле подписки (ПП, схема RAW26, одна доставка), но с отдельной наценкой `PARTNER_VARKA_COEF = 2.3`. Подписка остаётся на 2.6. Купоны, NFC и баннер — 0 BYN. Статус оплаты не ведём.
 
 **Живой URL Mini App (предпочтительно, без index-redirect):**  
 https://konchaarsenia-a11y.github.io/superboyna/varka/app.html  
@@ -46,7 +46,7 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
 
-**Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`. Пакеты `{u1,u2,u3,up4}=0` (дойпаки подписки не собираем). Фракция «Ломтики» — ставка 0, поэтому наценка фракции тоже 0. Сумма = `clientPrice` канона `computePpFactFromCost_` / `calcPricePpD1_`. Колонка `totalByn` — последняя в `Partner_Orders`. В D1 то же поле на заявке, в payload отложенного и в пуше «новая заявка».
+**Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.3**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6** и в этот расчёт не подставляется. GAS передаёт 2.3 четвёртым аргументом в `computePpFactFromCost_`. Worker передаёт `coef: PARTNER_VARKA_COEF` в `calcPricePpD1_` (D1 и запасной путь в GAS). Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0` (дойпаки подписки не собираем). Фракция «Ломтики» — ставка 0, поэтому наценка фракции тоже 0. Сумма = `clientPrice` канона. Колонка `totalByn` — последняя в `Partner_Orders`. В D1 то же поле на заявке, в payload отложенного и в пуше «новая заявка». Розничный потолок 0.92×R по-прежнему может срезать товар до потолка: на короткой корзине цифра может не сдвинуться от смены 2.6 → 2.3.
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
@@ -147,7 +147,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`. NFC / купон / баннер = 0 BYN. Лимит 200 г снят. Сумма `totalByn` в листе и D1. Pages varka `3.3.61` · **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.3` (подписка остаётся 2.6). NFC / купон / баннер = 0 BYN. Лимит 200 г снят. Сумма `totalByn` в листе и D1. Pages varka `3.3.61` · **не задеплоено** (Pages, Worker, Code.gs)
 - [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)
