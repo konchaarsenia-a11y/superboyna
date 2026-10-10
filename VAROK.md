@@ -1,6 +1,6 @@
 # Good Boy · партнёрское пополнение
 
-Telegram Mini App для **партнёрских сетей**: заявка на лакомства и купоны. Лакомства (сердце / лёгкое) — разовый заказ по формуле подписки (ПП, схема RAW26, канон 09.10.2026, одна доставка), но с отдельной наценкой `PARTNER_VARKA_COEF = 2.2`. Подписка остаётся на 2.6. Купоны, NFC и баннер — 0 BYN. Статус оплаты не ведём.
+Telegram Mini App для **партнёрских сетей**: заявка на лакомства и купоны. Лакомства (сердце / лёгкое) — разовый заказ по формуле подписки (ПП, схема RAW26, канон 09.10.2026), но с наценкой `PARTNER_VARKA_COEF = 2.2` и доставкой `PARTNER_VARKA_DELIVERY_BYN = 4` за заказ. Подписка остаётся на 2.6 и доставке 7.60. Минимум лакомств — 200 г; заказ только из NFC, баннера или купонов можно. Купоны, NFC и баннер — 0 BYN. Статус оплаты не ведём.
 
 **Живой URL Mini App (предпочтительно, без index-redirect):**  
 https://konchaarsenia-a11y.github.io/superboyna/varka/app.html  
@@ -46,7 +46,9 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
 
-**Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.2**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6**. Recover 3.30 за 100 г и 0.80 за жевалку, доставка подписки 7.60 и потолок 0.92×R берутся из общего канона 09.10 (`computePpFactFromCost_` / `calcPricePpD1_`), в партнёрке не переписаны. GAS передаёт 2.2 четвёртым аргументом. Worker передаёт `coef: PARTNER_VARKA_COEF` в `calcPricePpD1_` (D1 и запасной путь в GAS). Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0`. Фракция «Ломтики» — ставка 0. Сумма заявки = цена клиенту до рубля (`clientDisplayPrice`). Колонка `totalByn` — последняя в `Partner_Orders`. В D1 то же поле на заявке, в payload отложенного и в пуше «новая заявка». Потолок считается до округления: база — розница товара плюс розничная доставка 9, если товар на доставку ниже 80.
+**Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.2**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6**, доставка подписки **7.60**. В заявке Varka доставка заменяется на `PARTNER_VARKA_DELIVERY_BYN = 4` (за заказ, не ×N). Потолок 0.92×R не меняется: база — розница товара плюс розничная доставка 9, если товар на доставку ниже 80. Recover 3.30 за 100 г и 0.80 за жевалку берутся из канона 09.10. GAS передаёт 2.2 четвёртым аргументом в `computePpFactFromCost_`, затем `partnerApplyVarkaDelivery_`. Worker так же через `calcPricePpD1_`. Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0`. Фракция «Ломтики» — ставка 0. Сумма заявки = цена клиенту до рубля (`clientDisplayPrice`). Колонка `totalByn` — последняя в `Partner_Orders`.
+
+**Минимум 200 г** — сумма граммов сердца и лёгкого. NFC, баннер и купон в граммы не входят. Заказ без лакомств (только NFC / баннер / купон) проходит. Меньше 200 г лакомств: кнопка «Минимум 200 г» неактивна, сервер отвечает `min_treat_grams`. Под суммой текст: «Минимальный заказ — 200 г. Чем больше заказ, тем дешевле выходит цена за 100 г».
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
@@ -147,7 +149,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2` (подписка остаётся 2.6, канон 09.10: recover 3.30/0.80, доставка 7.60, клиенту до рубля). NFC / купон / баннер = 0 BYN. Лимит 200 г снят. Сумма `totalByn` в листе и D1. Pages varka `3.3.61` · **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум лакомств 200 г; NFC / баннер / купон без лакомств можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Pages varka `3.3.62` · **не задеплоено** (Pages, Worker, Code.gs)
 - [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)

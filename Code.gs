@@ -26957,6 +26957,10 @@ var PARTNER_TREAT_PP_MAP_ = {
 var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 /** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_ = 2.6. */
 var PARTNER_VARKA_COEF = 2.2;
+/** Доставка только для Varka, фикс за заказ. Подписка остаётся на PP_RAW26_DELIVERY_PER_ = 7.60. */
+var PARTNER_VARKA_DELIVERY_BYN = 4;
+/** Минимум граммов лакомств. 0 г (только NFC / баннер / купон) — можно. */
+var PARTNER_VARKA_MIN_TREAT_GRAMS = 200;
 
 function partnerTreatsToPpBasket_(basket) {
   var out = [];
@@ -26991,11 +26995,62 @@ function partnerBynLabel_(n) {
   return txt + " BYN";
 }
 
+function partnerTreatGrams_(basket) {
+  var sum = 0;
+  var arr = Array.isArray(basket) ? basket : [];
+  for (var i = 0; i < arr.length; i++) {
+    var line = arr[i] || {};
+    if (!PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()]) continue;
+    var qty = Number(line.qty != null ? line.qty : (line.val != null ? line.val : line.value)) || 0;
+    if (qty > 0) sum += qty;
+  }
+  return sum;
+}
+
+function partnerMinTreatReject_(basket) {
+  var grams = partnerTreatGrams_(basket);
+  if (grams > 0 && grams < PARTNER_VARKA_MIN_TREAT_GRAMS) {
+    return {
+      status: "error",
+      message: "min_treat_grams",
+      minGrams: PARTNER_VARKA_MIN_TREAT_GRAMS,
+      grams: grams
+    };
+  }
+  return null;
+}
+
+/**
+ * Подмена только доставки. Товар, пакеты, фракции и потолок 0.92×R — из computePpFactFromCost_.
+ */
+function partnerApplyVarkaDelivery_(fact) {
+  fact = fact || {};
+  var goods = Number(fact.goodsBeforeCap);
+  if (!isFinite(goods)) goods = Number(fact.goodsByn) || 0;
+  var packs = Number(fact.packagesBeforeCap);
+  if (!isFinite(packs)) packs = Number(fact.packagesByn) || 0;
+  var frac = Number(fact.fractionBeforeCap);
+  if (!isFinite(frac)) frac = Number(fact.fractionMarkup) || 0;
+  var cap = Number(fact.retailCapAt);
+  if (!isFinite(cap) || cap < 0) cap = 0;
+  var before = Math.round((goods + PARTNER_VARKA_DELIVERY_BYN + packs + frac) * 100) / 100;
+  var capped = cap > 0 && before > cap + 0.001;
+  var factCost = capped ? Math.round(cap * 100) / 100 : before;
+  fact.deliveryByn = PARTNER_VARKA_DELIVERY_BYN;
+  fact.factBeforeCap = before;
+  fact.factCost = factCost;
+  fact.factAfterCap = factCost;
+  fact.retailCapped = !!capped;
+  fact.clientPrice = factCost;
+  fact.clientDisplayPrice = formatClientMessagePrice_(factCost, false);
+  return fact;
+}
+
 /**
  * Разовая розница по канону ПП 09.10: mode pp, fullFact, scheme RAW26, deliveriesN=1.
  * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6.
- * Recover, доставка и потолок — из computePpFactFromCost_, здесь их не дублируем.
- * Сумма заявки = цена клиенту (clientDisplayPrice, до рубля).
+ * Доставка — PARTNER_VARKA_DELIVERY_BYN (4 за заказ), не 7.60 подписки.
+ * Потолок 0.92×R остаётся из computePpFactFromCost_. Сумма = цена клиенту до рубля.
  */
 function partnerQuoteTreatsByn_(basket) {
   var ppBasket = partnerTreatsToPpBasket_(basket);
@@ -27033,6 +27088,7 @@ function partnerQuoteTreatsByn_(basket) {
     lines,
     null
   );
+  fact = partnerApplyVarkaDelivery_(fact);
   var shown = fact.clientDisplayPrice != null ? fact.clientDisplayPrice : fact.clientPrice;
   var total = partnerMoney_(shown != null ? shown : fact.factCost);
   if (!(total > 0)) return { status: "error", message: "price_unavailable" };
@@ -27043,7 +27099,9 @@ function partnerQuoteTreatsByn_(basket) {
     scheme: fact.scheme || "RAW26",
     deliveriesN: 1,
     treats: ppBasket.length,
-    coef: PARTNER_VARKA_COEF
+    coef: PARTNER_VARKA_COEF,
+    deliveryByn: PARTNER_VARKA_DELIVERY_BYN,
+    retailCapped: !!fact.retailCapped
   };
 }
 
@@ -27376,6 +27434,10 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
         break;
       }
     }
+  }
+  var shortTreats = partnerMinTreatReject_(basket);
+  if (shortTreats) {
+    return fromPost ? jsonpText(callback, shortTreats) : jsonp(callback, shortTreats);
   }
   var quote = null;
   try {

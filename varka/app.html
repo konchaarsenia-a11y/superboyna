@@ -496,6 +496,10 @@
       color: var(--accent2);
     }
     .order-total.err { color: var(--danger); }
+    .order-min-note {
+      margin: 0 2px; font-size: 12px; font-weight: 600; line-height: 1.35;
+      color: var(--muted);
+    }
     .cart-sum {
       flex: 1; background: linear-gradient(145deg, var(--bg2), var(--bg3));
       border: 1px solid var(--line);
@@ -738,6 +742,7 @@
         <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
       </div>
       <div class="order-total" id="orderTotalHint"></div>
+      <p class="order-min-note" id="orderMinNote" hidden>Минимальный заказ — 200 г. Чем больше заказ, тем дешевле выходит цена за 100 г</p>
     </div>
   </div>
 
@@ -753,7 +758,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.61";
+  var APP_VER = "3.3.62";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -1828,10 +1833,32 @@
     return state.point;
   }
 
+  var PARTNER_MIN_TREAT_GRAMS_ = 200;
+
+  function treatGrams_(basket) {
+    var sum = 0;
+    (basket || cartBasket_()).forEach(function (line) {
+      if (!line) return;
+      if (line.type !== "treat" && line.id !== "vr_t_heart" && line.id !== "vr_t_lung") return;
+      sum += Number(line.qty) || 0;
+    });
+    return sum;
+  }
+
+  function treatOrderShort_() {
+    var grams = treatGrams_();
+    return grams > 0 && grams < PARTNER_MIN_TREAT_GRAMS_;
+  }
+
   function updateCartButton_() {
     var b = document.getElementById("btnSubmit");
     var n = cartCount();
     if (!b) return;
+    if (treatOrderShort_()) {
+      b.textContent = "Минимум 200 г";
+      b.disabled = true;
+      return;
+    }
     if (state.orderStep === "ready" && state.point) {
       b.textContent = "Отправить";
       b.disabled = n <= 0;
@@ -1848,6 +1875,10 @@
 
   function onCartPrimary() {
     if (cartCount() <= 0) return;
+    if (treatOrderShort_()) {
+      softToast_("Минимальный заказ лакомств — 200 г");
+      return;
+    }
     if (state.orderStep === "catalog" || !state.orderStep) {
       var inspectPt = isInspectLocaUser_() ? currentInspectLoca_() : null;
       state.point = inspectPt || null;
@@ -2310,8 +2341,15 @@
     return basket;
   }
 
+  function paintOrderMinNote_() {
+    var note = document.getElementById("orderMinNote");
+    if (!note) return;
+    note.hidden = cartCount() <= 0;
+  }
+
   function paintOrderTotal_() {
     var el = document.getElementById("orderTotalHint");
+    paintOrderMinNote_();
     if (!el) return;
     if (cartCount() <= 0) {
       el.textContent = "";
@@ -2752,6 +2790,11 @@
       softToast_("Добавьте позиции в заявку");
       return;
     }
+    if (treatOrderShort_()) {
+      softToast_("Минимальный заказ лакомств — 200 г");
+      updateCartButton_();
+      return;
+    }
     if (!state.point) {
       softToast_("Выберите точку");
       goPointsForOrder_();
@@ -2816,6 +2859,7 @@
       if (!res || res.status !== "success") {
         var errText = (res && res.message) || "Не удалось отправить заявку";
         if (res && res.message === "price_unavailable") errText = "Не удалось посчитать сумму";
+        if (res && res.message === "min_treat_grams") errText = "Минимальный заказ лакомств — 200 г";
         softToast_(errText);
         submitBusy_ = false;
         updateCartButton_();

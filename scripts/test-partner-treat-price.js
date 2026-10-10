@@ -52,7 +52,12 @@ if (/partnerOrderGramsReject_/.test(workerSrc) || /partnerOrderGramsReject_/.tes
 if (/Бесплатная заявка|бесплатно/.test(varkaSrc)) fail("varka still says the order is free");
 if (!/id="orderTotalHint"/.test(varkaSrc)) fail("varka must show the sum under the order");
 if (!/action:\s*"partnerCalcPrice"/.test(varkaSrc)) fail("varka must quote via partnerCalcPrice");
-if (!/APP_VER = "3\.3\.61"/.test(varkaSrc)) fail("varka version must be 3.3.61");
+if (!/APP_VER = "3\.3\.62"/.test(varkaSrc)) fail("varka version must be 3.3.62");
+if (!/Минимальный заказ — 200 г\. Чем больше заказ, тем дешевле выходит цена за 100 г/.test(varkaSrc)) {
+  fail("varka must show the 200 g minimum note");
+}
+if (!/Минимум 200 г/.test(varkaSrc)) fail("varka submit button must explain the 200 g minimum");
+if (!/treatOrderShort_/.test(varkaSrc)) fail("varka must block a short treat order");
 
 const headers = extractBetween_(gasSrc, "var PARTNER_ORDER_HEADERS_ = [", "];");
 if (!/"totalByn"\s*\]/.test(headers) && !/totalByn"\s*\n\]/.test(headers)) {
@@ -74,6 +79,10 @@ if (!/var PP_RAW26_RECOVER_PIECE_ = 0\.80;/.test(gasSrc)) fail("subscription pie
 if (!/var PP_RAW26_DELIVERY_PER_ = 7\.60;/.test(gasSrc)) fail("subscription delivery must stay 7.60");
 if (!/const PP_RAW26_RECOVER_100_D1_ = 3\.3;/.test(workerSrc)) fail("D1 recover must stay 3.3");
 if (!/const PP_RAW26_DELIVERY_PER_D1_ = 7\.6;/.test(workerSrc)) fail("D1 delivery must stay 7.6");
+if (!/var PARTNER_VARKA_DELIVERY_BYN = 4;/.test(gasSrc)) fail("GAS Varka delivery must be 4");
+if (!/const PARTNER_VARKA_DELIVERY_BYN = 4;/.test(workerSrc)) fail("Worker Varka delivery must be 4");
+if (!/var PARTNER_VARKA_MIN_TREAT_GRAMS = 200;/.test(gasSrc)) fail("GAS min treat grams must be 200");
+if (!/const PARTNER_VARKA_MIN_TREAT_GRAMS = 200;/.test(workerSrc)) fail("Worker min treat grams must be 200");
 
 const gasQuote = extractFn_(gasSrc, "partnerQuoteTreatsByn_");
 if (!/computePpFactFromCost_\(/.test(gasQuote)) fail("GAS quote must call computePpFactFromCost_");
@@ -85,6 +94,7 @@ if (!/ppBasket,\s*1,\s*PARTNER_VARKA_COEF,/.test(gasQuote)) {
 }
 if (/PP_RAW26_COEF_DEFAULT_/.test(gasQuote)) fail("GAS quote must not use the subscription coef");
 if (!/clientDisplayPrice/.test(gasQuote)) fail("GAS quote must use the ruble client price");
+if (!/partnerApplyVarkaDelivery_\(/.test(gasQuote)) fail("GAS quote must apply Varka delivery");
 const gasCalc = extractFn_(gasSrc, "handleCalcPrice");
 if (!/packOptCp/.test(gasCalc)) fail("handleCalcPrice must pass explicit packCounts into the fact");
 
@@ -98,12 +108,15 @@ if (!/coef:\s*PARTNER_VARKA_COEF/.test(workerQuote)) fail("Worker quote must pas
 if (/PP_RAW26_COEF_DEFAULT_D1_/.test(workerQuote)) fail("Worker quote must not use the subscription coef");
 if (!/packCounts:\s*PARTNER_PP_PACK_ZERO_/.test(workerQuote)) fail("Worker quote must pass zero packs");
 if (!/clientDisplayPrice/.test(workerQuote)) fail("Worker quote must use the ruble client price");
+if (!/partnerApplyVarkaDelivery_\(/.test(workerQuote)) fail("Worker quote must apply Varka delivery");
 
 const gasSubmit = extractFn_(gasSrc, "handlePartnerSubmitOrder");
 const workerSubmitStart = workerSrc.indexOf('if (/^partnerSubmitOrder$/i.test(a)) {');
 const workerSubmit = workerSrc.slice(workerSubmitStart, workerSubmitStart + 8000);
 if (gasSubmit.indexOf("partnerQuoteTreatsByn_") < 0) fail("GAS submit must reprice");
 if (workerSubmit.indexOf("partnerQuoteTreatsByn_") < 0) fail("Worker submit must reprice");
+if (gasSubmit.indexOf("partnerMinTreatReject_") < 0) fail("GAS submit must enforce the 200 g minimum");
+if (workerSubmit.indexOf("partnerMinTreatReject_") < 0) fail("Worker submit must enforce the 200 g minimum");
 if (/json\.totalByn|params\.totalByn/.test(gasSubmit + workerSubmit)) {
   fail("submit must not trust a client total");
 }
@@ -150,6 +163,32 @@ if (mixed[1].name !== "ЛЁГКОЕ" || mixed[1].sub !== "Ломтики" || mix
 }
 if (box.partnerTreatsToPpBasket_([{ id: "vr_c_nfc", qty: 2 }]).length !== 0) {
   fail("nfc-only basket must quote as no treats");
+}
+
+const minLine = (gasSrc.match(/var PARTNER_VARKA_MIN_TREAT_GRAMS = \d+;/) || [])[0];
+if (!minLine) fail("min grams constant line missing");
+const gramSrc =
+  extractBetween_(gasSrc, "var PARTNER_TREAT_PP_MAP_", "function partnerMoney_") +
+  minLine + "\n" +
+  extractFn_(gasSrc, "partnerTreatGrams_") +
+  "\n" +
+  extractFn_(gasSrc, "partnerMinTreatReject_");
+const boxG = {};
+vm.createContext(boxG);
+vm.runInContext(gramSrc, boxG);
+if (boxG.partnerTreatGrams_([
+  { id: "vr_t_heart", qty: 100 },
+  { id: "vr_c_nfc", qty: 2 },
+  { id: "vr_c_banner", qty: 1 }
+]) !== 100) fail("nfc and banner must not add grams");
+const short = boxG.partnerMinTreatReject_([{ id: "vr_t_lung", qty: 150 }]);
+if (!short || short.message !== "min_treat_grams" || short.grams !== 150) fail("150 g must be rejected");
+if (boxG.partnerMinTreatReject_([{ id: "vr_t_heart", qty: 200 }])) fail("200 g must pass");
+if (boxG.partnerMinTreatReject_([{ id: "vr_t_heart", qty: 100 }, { id: "vr_t_lung", qty: 100 }])) {
+  fail("100+100 must pass");
+}
+if (boxG.partnerMinTreatReject_([{ id: "vr_c_nfc", qty: 1 }, { id: "vr_c_banner", qty: 1 }])) {
+  fail("nfc and banner without treats must pass");
 }
 
 const workerMap =

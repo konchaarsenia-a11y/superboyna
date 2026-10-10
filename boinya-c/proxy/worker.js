@@ -14234,6 +14234,10 @@ const PARTNER_TREAT_PP_MAP_ = {
 const PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 /** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_D1_ = 2.6. */
 const PARTNER_VARKA_COEF = 2.2;
+/** Доставка только для Varka, фикс за заказ. Подписка остаётся на PP_RAW26_DELIVERY_PER_D1_ = 7.6. */
+const PARTNER_VARKA_DELIVERY_BYN = 4;
+/** Минимум граммов лакомств. 0 г (только NFC / баннер / купон) — можно. */
+const PARTNER_VARKA_MIN_TREAT_GRAMS = 200;
 
 function partnerTreatsToPpBasket_(basket) {
   const out = [];
@@ -14268,11 +14272,62 @@ function partnerBynLabel_(n) {
   return txt + " BYN";
 }
 
+function partnerTreatGrams_(basket) {
+  let sum = 0;
+  const arr = Array.isArray(basket) ? basket : [];
+  for (let i = 0; i < arr.length; i++) {
+    const line = arr[i] || {};
+    if (!PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()]) continue;
+    const qty = Number(line.qty != null ? line.qty : line.val != null ? line.val : line.value) || 0;
+    if (qty > 0) sum += qty;
+  }
+  return sum;
+}
+
+function partnerMinTreatReject_(basket) {
+  const grams = partnerTreatGrams_(basket);
+  if (grams > 0 && grams < PARTNER_VARKA_MIN_TREAT_GRAMS) {
+    return {
+      status: "error",
+      message: "min_treat_grams",
+      minGrams: PARTNER_VARKA_MIN_TREAT_GRAMS,
+      grams: grams
+    };
+  }
+  return null;
+}
+
+/**
+ * Подмена только доставки. Товар, пакеты, фракции и потолок 0.92×R — из calcPricePpD1_.
+ */
+function partnerApplyVarkaDelivery_(fact) {
+  fact = fact || {};
+  let goods = Number(fact.goodsBeforeCap);
+  if (!isFinite(goods)) goods = Number(fact.goodsByn) || 0;
+  let packs = Number(fact.packagesBeforeCap);
+  if (!isFinite(packs)) packs = Number(fact.packagesByn) || 0;
+  let frac = Number(fact.fractionBeforeCap);
+  if (!isFinite(frac)) frac = Number(fact.fractionMarkup) || 0;
+  let cap = Number(fact.retailCapAt);
+  if (!isFinite(cap) || cap < 0) cap = 0;
+  const before = Math.round((goods + PARTNER_VARKA_DELIVERY_BYN + packs + frac) * 100) / 100;
+  const capped = cap > 0 && before > cap + 0.001;
+  const factCost = capped ? Math.round(cap * 100) / 100 : before;
+  fact.deliveryByn = PARTNER_VARKA_DELIVERY_BYN;
+  fact.factBeforeCap = before;
+  fact.factCost = factCost;
+  fact.factAfterCap = factCost;
+  fact.retailCapped = !!capped;
+  fact.clientPrice = factCost;
+  fact.clientDisplayPrice = formatClientMessagePriceD1_(factCost, false);
+  return fact;
+}
+
 /**
  * Разовая розница: calcPricePpD1_ (mode pp, fullFact, RAW26, deliveriesN=1).
  * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6. D1 и запасной GAS
- * читают params.coef. Recover, доставка и потолок — из канона ПП, здесь их не дублируем.
- * Сумма заявки = цена клиенту (clientDisplayPrice, до рубля). Сырьё наружу не отдаём.
+ * читают params.coef. Доставка заявки — PARTNER_VARKA_DELIVERY_BYN (4), не 7.60.
+ * Потолок 0.92×R остаётся из канона. Сумма = цена клиенту до рубля. Сырьё наружу не отдаём.
  */
 async function partnerQuoteTreatsByn_(basket, env, ctx) {
   const ppBasket = partnerTreatsToPpBasket_(basket);
@@ -14304,6 +14359,7 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
   if (!priced || priced.status !== "success") {
     return { status: "error", message: "price_unavailable" };
   }
+  partnerApplyVarkaDelivery_(priced);
   const shown = priced.clientDisplayPrice != null ? priced.clientDisplayPrice : priced.clientPrice;
   const total = partnerMoney_(shown != null ? shown : priced.factCost);
   if (!(total > 0)) return { status: "error", message: "price_unavailable" };
@@ -14314,7 +14370,9 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
     scheme: priced.scheme || "RAW26",
     deliveriesN: 1,
     treats: ppBasket.length,
-    coef: PARTNER_VARKA_COEF
+    coef: PARTNER_VARKA_COEF,
+    deliveryByn: PARTNER_VARKA_DELIVERY_BYN,
+    retailCapped: !!priced.retailCapped
   };
 }
 
@@ -28595,6 +28653,8 @@ async function mutatePartnerD1_(action, params, env) {
         partnerIsExcludedPoint_(locationId, networkId)) {
       return { status: "error", message: "forbidden_point" };
     }
+    const shortTreats = partnerMinTreatReject_(basket);
+    if (shortTreats) return shortTreats;
     let quote = null;
     try {
       quote = await partnerQuoteTreatsByn_(basket, env, null);
