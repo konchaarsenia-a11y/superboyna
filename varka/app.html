@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>Good Boy · партнёры</title>
+  <title>Good Boy — партнёры</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -625,7 +625,7 @@
         <div class="title">Куда доставить</div>
         <button class="chip" type="button" onclick="showCatalogTab()">К каталогу</button>
       </div>
-      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки · выберите точку для заявки</div>
+      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки — выберите точку для заявки</div>
       <div id="pointsCartHint" class="okmsg" style="display:none;"></div>
       <div id="pointsList"></div>
     </div>
@@ -911,7 +911,7 @@
       type: "coupon",
       kind: "nfc",
       name: "Купон NFC",
-      hint: "приложить к телефону клиента · 1 на точку",
+      hint: "приложить к телефону клиента — 1 на точку",
       unit: "шт",
       active: true
     },
@@ -1242,7 +1242,7 @@
       return;
     }
     var pt = currentInspectLoca_() || state.point;
-    if (pt) loc.textContent = "Проверка · " + pointLine_(pt);
+    if (pt) loc.textContent = "Проверка — " + pointLine_(pt);
     else loc.textContent = "Выберите локу для проверки или лакомства";
   }
 
@@ -1867,7 +1867,7 @@
       b.textContent = state.point ? "Отправить" : "Выберите точку";
       b.disabled = n <= 0 || !state.point;
     } else {
-      b.textContent = "Далее · точка";
+      b.textContent = "Далее — точка";
       b.disabled = n <= 0;
     }
   }
@@ -2043,10 +2043,10 @@
         if (address && pointAddrRedundant_(p.name, address)) return address;
         return String(p.name || address || "").trim();
       }).filter(Boolean).slice(0, 6).join(", ");
-      meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
+      meta.textContent = (state.me.username ? ("@" + state.me.username + " — ") : "") +
         n + " точ." +
-        (ptsLab ? (" · " + ptsLab) : "") +
-        (REMOTE_IS_OWNER_ ? " · owner" : "");
+        (ptsLab ? (" — " + ptsLab) : "") +
+        (REMOTE_IS_OWNER_ ? " — owner" : "");
     }
     var ot = document.getElementById("orderTitle");
     if (ot) ot.textContent = "Заявка";
@@ -2093,7 +2093,7 @@
     if (sub) {
       sub.textContent = inspect
         ? "Выберите локу — заказы и заявка по ней. Varka недоступна."
-        : "Только ваши точки · выберите точку для заявки";
+        : "Только ваши точки — выберите точку для заявки";
     }
     var box = document.getElementById("pointsList");
     var hint = document.getElementById("pointsCartHint");
@@ -2182,7 +2182,7 @@
       clearNfcExtra_();
     }
     var loc = document.getElementById("orderLocName");
-    if (loc) loc.textContent = isInspectLocaUser_() ? ("Проверка · " + pointLine_(pt)) : pointLine_(pt);
+    if (loc) loc.textContent = isInspectLocaUser_() ? ("Проверка — " + pointLine_(pt)) : pointLine_(pt);
     renderInspectLocaSelects_();
     goPointsForOrder_();
     updateCartButton_();
@@ -2739,7 +2739,7 @@
       var q = Number(state.cart[it.id]) || 0;
       var unit = unitFor_(it);
       var ste = renderQtyControls_(it, q);
-      var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
+      var selected = q ? (" — " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
       var hint = String(it.hint || "").trim();
       var kind = String(it.kind || "").toLowerCase();
       if (it.id === "vr_c_banner") {
@@ -2751,8 +2751,8 @@
       }
       if (it.id === "vr_c_nfc" || kind === "nfc" || isNfcItem_(it)) {
         var reasonLab = nfcReasonLabel_(nfcExtraReason_);
-        var nfcSub = hint || "приложить к телефону клиента · 1 на точку";
-        if (q >= 2 && reasonLab) nfcSub = "2 шт · " + reasonLab;
+        var nfcSub = hint || "приложить к телефону клиента — 1 на точку";
+        if (q >= 2 && reasonLab) nfcSub = "2 шт — " + reasonLab;
         else if (q >= 2 || nfcPickReasonOpen_) nfcSub = "выберите причину второго";
         else if (q === 1) nfcSub = "1 на точку";
         return '<div class="coupon-card qty-item" style="flex-wrap:wrap;align-items:flex-start;">' +
@@ -3009,7 +3009,7 @@
         ? ("@" + esc(state.me.username))
         : esc(state.me.name || "—");
       var modeLine = REMOTE_IS_OWNER_
-        ? "<br><span class=\"muted\">Режим владельца · все активные точки</span>"
+        ? "<br><span class=\"muted\">Режим владельца — все активные точки</span>"
         : "";
       info.innerHTML = whoLine + modeLine +
         "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
@@ -3161,8 +3161,8 @@
     box.innerHTML = list.map(function (a) {
       return '<div class="item"><div class="meta"><div class="title">' + esc(a.name) +
         ' <span class="badge">staff</span></div><div class="unit">TG ' + esc(a.telegramId) +
-        " · " + esc(a.pointName) +
-        (a.status === "pending" ? " · ожидает" : "") +
+        " — " + esc(a.pointName) +
+        (a.status === "pending" ? " — ожидает" : "") +
         "</div></div></div>";
     }).join("");
   }
@@ -3674,7 +3674,7 @@
       else if (bits.userName) parts.push(bits.userName);
       if (bits.locationName) parts.push(bits.locationName);
       if (bits.networkName) parts.push(bits.networkName);
-      who.textContent = parts.length ? ("Отправим от: " + parts.join(" · ")) : "Автор подставится из вашего входа.";
+      who.textContent = parts.length ? ("Отправим от: " + parts.join(" — ")) : "Автор подставится из вашего входа.";
     }
     show("screenSuggest");
     try { document.getElementById("suggestName").focus(); } catch (eF) {}
