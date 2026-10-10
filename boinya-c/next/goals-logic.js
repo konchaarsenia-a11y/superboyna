@@ -216,16 +216,35 @@
     return { ok: true, value: n };
   }
 
+  function clientsRead_(snap) {
+    var list = snap && snap.subscriptions;
+    if (!Array.isArray(list)) return { ok: false };
+    var seen = {};
+    var n = 0;
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i] || {};
+      var nick = String(s.nick || s.label || "").trim();
+      if (!nick) continue;
+      if (/^себестоим/i.test(nick) || /^стоимость\s*100/i.test(nick)) continue;
+      var key = nick.toUpperCase();
+      if (seen[key]) continue;
+      seen[key] = 1;
+      n++;
+    }
+    return { ok: true, value: n };
+  }
+
   var METRICS = [
     { id: "turnover", label: "Оборот", unit: "BYN", read: turnoverRead_ },
-    { id: "income", label: "Приход", unit: "BYN", read: incomeRead_ },
-    { id: "ppClients", label: "Клиенты ПП", unit: "", read: ppRead_ },
+    { id: "clean", label: "Чистое", unit: "BYN", read: incomeRead_ },
+    { id: "clients", label: "Клиенты", unit: "", read: clientsRead_ },
     { id: "newClients", label: "Новые клиенты", unit: "", read: newClientsRead_ },
-    { id: "kg", label: "Кг продано", unit: "кг", read: kgRead_ },
-    { id: "orders", label: "Заказы", unit: "", read: ordersRead_ }
+    { id: "ppClients", label: "Подписки ПП", unit: "", read: ppRead_ },
+    { id: "orders", label: "Доставки", unit: "", read: ordersRead_ }
   ];
 
   function metricById(id) {
+    if (id === "income") id = "clean";
     for (var i = 0; i < METRICS.length; i++) {
       if (METRICS[i].id === id) return METRICS[i];
     }

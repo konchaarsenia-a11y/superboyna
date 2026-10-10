@@ -212,7 +212,7 @@
     if (!closed) {
       html += line("Аренда", "нет данных");
     } else {
-      html += line("Аренда", moneyText(closed.rent) + (closed.rentDefault ? " по умолчанию" : ""));
+      html += line("Аренда", closed.rentDefault ? "не введено" : moneyText(closed.rent));
       if (closed.project.coupon > 0) html += line("Купоны", moneyText(closed.project.coupon));
       if (closed.project.tool > 0) html += line("Инструмент", moneyText(closed.project.tool));
       if (closed.project.smm > 0) html += line("SMM", moneyText(closed.project.smm));
@@ -486,6 +486,9 @@
     if (!cache[key]) box.innerHTML = '<p class="b-note">Считаю ' + esc(mk) + "…</p>";
     var prevWin = L().statsPrevCalendarMonth_(mk, new Date());
     var prevBillMonth = prevWin ? String(prevWin.to || "").slice(0, 7) : "";
+    var monthFirst = await pullMonth(mk, false);
+    if (ticket !== loadGen || !document.getElementById("statsContainer")) return;
+    paintMonth(monthFirst, [monthFirst, null, null, null, null, null]);
     function paintMonth(res, pack) {
       if (ticket !== loadGen || !document.getElementById("statsContainer")) return false;
       if (!res || res.status !== "success") return false;
@@ -521,10 +524,6 @@
       else if (miss) miss.innerHTML = '<p class="b-note">Нет данных</p>';
       return;
     }
-    if (opts.force) return;
-    var fresh = await pullMonth(mk, true);
-    if (ticket !== loadGen) return;
-    if (fresh && fresh.status === "success") paintMonth(fresh, got);
   }
 
   function shift(delta) {

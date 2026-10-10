@@ -989,6 +989,14 @@
     }
     sh().hideGate();
     settleRoute();
+    if (ax().tabHas(access, "orderScreen") || ax().tabHas(access, "subsScreen") || ax().tabHas(access, "retailPriceScreen") || ax().tabHas(access, "priceScreen")) {
+      try {
+        await Promise.race([
+          ord().bootPrices(),
+          new Promise(function (resolve) { setTimeout(resolve, 3000); })
+        ]);
+      } catch (ePrice) {}
+    }
     paintSameOrRender();
     if (access.role === "owner" && expensesMod()) {
       expensesMod().bind(access);

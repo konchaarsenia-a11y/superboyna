@@ -1701,7 +1701,7 @@
     var paidAnswer = null;
     var track = "";
     if (delivered && mail) {
-      var mailTitle = mail === "euro" ? "Европочта" : "Белпочта";
+      var mailTitle = mail === "euro" ? "Европочта" : mail === "bel" ? "Белпочта" : "Почта";
       var entered = null;
       if (sh().askTrackCode) {
         entered = await sh().askTrackCode({
@@ -1739,6 +1739,8 @@
       if (paidAnswer) body.paid = paidAnswer;
       if (track) body.track = track;
       if (mail) body.mail = mail;
+      var trackPhoto = sh().takeTrackPhoto ? sh().takeTrackPhoto() : "";
+      if (trackPhoto) body.photoBase64 = trackPhoto;
       if (cour && cour._date) body.date = cour._date;
       if (client.matchKey) body.matchKey = client.matchKey;
       if (client.phone) body.phone = client.phone;

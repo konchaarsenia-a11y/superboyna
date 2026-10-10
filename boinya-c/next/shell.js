@@ -1088,7 +1088,47 @@
     });
   }
 
-  /* Трек почты: ручной ввод, вставка из буфера, штрихкод с фото (BarcodeDetector). */
+  var lastTrackPhoto = "";
+
+  function stashTrackPhoto_(file) {
+    lastTrackPhoto = "";
+    if (!file || typeof Image === "undefined") return Promise.resolve("");
+    return new Promise(function (resolve) {
+      var img = new Image();
+      var url = "";
+      try { url = URL.createObjectURL(file); } catch (eU) { resolve(""); return; }
+      img.onload = function () {
+        var w = img.width || 1;
+        var h = img.height || 1;
+        var max = 1000;
+        if (w > max) { h = Math.round(h * max / w); w = max; }
+        var data = "";
+        try {
+          var c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          c.getContext("2d").drawImage(img, 0, 0, w, h);
+          data = c.toDataURL("image/jpeg", 0.6);
+        } catch (eC) { data = ""; }
+        try { URL.revokeObjectURL(url); } catch (eR) {}
+        if (data && data.length < 500000) lastTrackPhoto = data;
+        resolve(lastTrackPhoto);
+      };
+      img.onerror = function () {
+        try { URL.revokeObjectURL(url); } catch (eR2) {}
+        resolve("");
+      };
+      img.src = url;
+    });
+  }
+
+  function takeTrackPhoto() {
+    var data = lastTrackPhoto;
+    lastTrackPhoto = "";
+    return data;
+  }
+
+  /* Трек почты: ручной ввод, вставка из буфера, штрихкод с фото (BarcodeDetector, без внешнего ключа). */
   function askTrackCode(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
@@ -1140,6 +1180,7 @@
           var picked = node.files && node.files[0];
           if (!picked) return;
           toast("Смотрю фото…");
+          stashTrackPhoto_(picked);
           trackFromPhoto_(picked).then(function (code) {
             var inp = el("nxTrack");
             if (code && inp) {
@@ -1201,6 +1242,7 @@
     choice: choice,
     prompt: prompt,
     askTrackCode: askTrackCode,
+    takeTrackPhoto: takeTrackPhoto,
     pickDate: pickDate,
     pickDateTime: pickDateTime,
     pickRemindAt: pickRemindAt,

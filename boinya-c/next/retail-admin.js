@@ -263,7 +263,7 @@
       var shrinkVal = it.shrink == null || it.shrink === "" ? "" : String(it.shrink);
       var hist = (it.history || []).map(function (h) {
         var c = h.cost == null || h.cost === "" ? "пусто" : String(h.cost);
-        var shv = h.shrink == null || h.shrink === "" ? "" : ", усушка " + h.shrink;
+        var shv = h.shrink == null || h.shrink === "" ? "" : ", выход " + h.shrink;
         return String(h.effectiveFrom || "").slice(0, 10) + " · " + c + shv;
       }).join("; ");
       var builtin = it.builtin == null || it.builtin === "" ? "в таблице пусто" : ("в коде " + it.builtin);
@@ -272,15 +272,16 @@
         (hist ? '<div class="b-note">версии: ' + esc(hist) + "</div>" : "") +
         "</div>" +
         '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="cost" placeholder="себес" value="' + esc(costVal) + '"></label>' +
-        '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="shrink" placeholder="усушка" value="' + esc(shrinkVal) + '"></label>' +
+        '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="shrink" placeholder="выход" value="' + esc(shrinkVal) + '"></label>' +
         '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>' +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>' +
         "</div>";
     }).join("");
     box.innerHTML = '<p class="b-lbl" style="margin-top:0">Себес сырья</p>' +
-      '<p class="b-note">Новая версия действует с даты. Расчёт, экономика, статистика и внос берут себес на дату записи. Старые карточки не переписываются.</p>' +
-      '<p class="b-note">' + esc(note || "Усушка хранится отдельно и в цену не входит.") + "</p>" +
-      '<p class="b-note">Колонки: себес, усушка, дата действия.</p>' +
+      '<p class="b-note">Новая версия действует с даты в экономике и статистике. Цена клиенту не меняется, пока не нажать «Обновить прайс». Старые карточки не переписываются.</p>' +
+      '<p class="b-note">' + esc(note || "") + "</p>" +
+      '<p class="b-note">Колонки: себес за 100 г готового, выход (коэф склада, например 0.2), дата. Если вписать только выход — себес пересчитается. Если вписать и себес — он уже при новом выходе.</p>' +
+      '<button type="button" class="b-btn b-btn--main" data-act="rc-publish" style="margin:8px 0">Обновить прайс</button>' +
       (rows || '<p class="b-note">Пусто</p>');
   }
 
@@ -330,8 +331,30 @@
       sh().toast((res && res.message) || "Себес не сохранился");
       return;
     }
-    sh().toast("Себес " + sku + " с " + f.from);
+    sh().toast("Себес " + sku + " с " + f.from + (res.scaled ? " (выход пересчитал)" : "") + ". Прайс клиенту тот же.");
     await loadRawCosts();
+  }
+
+  async function publishPrices() {
+    if (!isOwner()) { sh().toast("Только владелец"); return; }
+    var ok = await sh().confirm({
+      title: "Обновить прайс",
+      text: "Розница пересчитается от нового себеса. Уже внесённые заказы и карточки не трогаем. Дальше обновите Instagram.",
+      ok: "Обновить"
+    });
+    if (!ok) return;
+    var res = null;
+    try {
+      res = await api().apiPost({ action: "publishRetailFromCosts", telegramId: tid() });
+    } catch (eP) { res = null; }
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Прайс не обновился");
+      return;
+    }
+    sh().toast(res.changed ? ("Прайс обновлён, позиций " + res.changed + ". Обновите Instagram.") : "Себес не менялся — цены те же.");
+    pane = "price";
+    paint();
+    await load({ force: true });
   }
 
   function show() {
@@ -367,6 +390,7 @@
     if (act === "rp-save") { save(); return true; }
     if (act === "rp-add") { openAdd(); return true; }
     if (act === "rc-save") { saveCost(node && node.getAttribute("data-sku")); return true; }
+    if (act === "rc-publish") { publishPrices(); return true; }
     if (act === "rp-add-save") { savePosition(); return true; }
     if (act === "rp-cat" || act === "rp-unit") {
       if (!node || !node.parentNode) return true;

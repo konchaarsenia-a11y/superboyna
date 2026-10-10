@@ -859,7 +859,7 @@ const AUTH_OWNER_RE = new RegExp(
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|addPricePosition|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
-    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|listRawCosts|saveRawCost)$"
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|listRawCosts|saveRawCost|publishRetailFromCosts)$"
 );
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
@@ -1318,14 +1318,25 @@ async function handleAction_(action, params, env, url, ctx) {
   const a = String(action || "");
   params = params && typeof params === "object" ? params : {};
   // Кнопка «Отправить трэк код» и список «Подбейте даты» приходят из Code.gs с секретом GAS↔Worker.
-  if (a === "fulfillMailTrack" || a === "nudgeDeliveredDay") {
+  if (
+    a === "fulfillMailTrack" ||
+    a === "nudgeDeliveredDay" ||
+    a === "costMonthDigest" ||
+    a === "publishRetailFromCosts" ||
+    a === "yieldMapForDate"
+  ) {
     const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
     const got = String(params._wk || "").trim();
-    if (!sec || got !== sec) {
+    if (sec && got === sec) {
+      if (a === "nudgeDeliveredDay") return listNudgeDeliveredDay_(params, env);
+      if (a === "costMonthDigest") return costMonthDigest_(params, env);
+      if (a === "yieldMapForDate") return yieldMapForDate_(params, env);
+      if (a === "publishRetailFromCosts") return publishRetailFromCosts_(Object.assign({}, params, { _wkOk: "1" }), env);
+      return fulfillMailTrack_(params, env);
+    }
+    if (a === "fulfillMailTrack" || a === "nudgeDeliveredDay" || a === "costMonthDigest" || a === "yieldMapForDate") {
       return { status: "error", message: "auth_required", action: a };
     }
-    if (a === "nudgeDeliveredDay") return listNudgeDeliveredDay_(params, env);
-    return fulfillMailTrack_(params, env);
   }
   ["_actorTid", "_actorRole", "_wk", "_authVerified", "_unverified"].forEach(function (k) {
     delete params[k];
@@ -1353,7 +1364,10 @@ async function handleAction_(action, params, env, url, ctx) {
   if (/^partner/i.test(a) || /^gb/i.test(a) || a === "submitGoodboyTry") {
     if (actor.verified && actor.user) {
       params.telegramId = String(actor.user.id);
-      if (actor.user.username) params.username = String(actor.user.username);
+      if (actor.user.username) params.actorUsername = String(actor.user.username);
+      // partnerSaveAccess / partnerRevokeAccess: username — кому доступ, не актёр.
+      const keepTargetUser = /^(partnerSaveAccess|partnerRevokeAccess)$/i.test(a);
+      if (!keepTargetUser && actor.user.username) params.username = String(actor.user.username);
     } else if (actor.enforce) {
       params._unverified = "1";
     }
@@ -1447,6 +1461,12 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "listPricePositions") return listPricePositions_(params, env, actor);
   if (a === "listRawCosts") return listRawCosts_(params, env, actor);
   if (a === "saveRawCost") return saveRawCost_(params, env, actor);
+  if (a === "publishRetailFromCosts") {
+    if (!(actor && (actor.isOwner || actor.role === "owner")) && String(params && params._wkOk) !== "1") {
+      return { status: "error", message: "forbidden" };
+    }
+    return publishRetailFromCosts_(params, env);
+  }
   if (a === "addPricePosition") return addPricePosition_(params, env, actor);
   if (a === "listWarehouses") return listWarehouses_(env);
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
@@ -3129,7 +3149,7 @@ async function getStatsMonthSetup_(params, env) {
   const empty = {
     status: "success",
     month: month,
-    rent: 900,
+    rent: 0,
     rentEntered: false,
     rentFrom: "",
     lightBill: null,
@@ -3161,7 +3181,7 @@ async function getStatsMonthSetup_(params, env) {
     return {
       status: "success",
       month: month,
-      rent: rentRow && rentRow.rent != null ? Number(rentRow.rent) : 900,
+      rent: rentRow && rentRow.rent != null ? Number(rentRow.rent) : 0,
       rentEntered: !!(rentRow && rentRow.rent != null),
       rentFrom: rentRow ? String(rentRow.month || "") : "",
       lightBill: row && row.light_bill != null ? Number(row.light_bill) : null,
@@ -3472,17 +3492,92 @@ async function loadRawCostVersions_(env) {
   }
 }
 
+/** Склад: сырьё_кг = сухое_г / 1000 / коэф. Коэф — выход (доля, которая остаётся), по умолчанию 0.2. */
+var RAW_YIELD_DEFAULT_ = 0.2;
+
+function rawCostNormSku_(s) {
+  return String(s || "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ");
+}
+
+function rawYieldNum_(v, fallback) {
+  const y = Number(v);
+  if (y > 0 && y <= 1) return y;
+  const fb = Number(fallback);
+  if (fb > 0 && fb <= 1) return fb;
+  return RAW_YIELD_DEFAULT_;
+}
+
+function rawYieldScale_(prevCost, prevYield, nextYield) {
+  const cost = Number(prevCost);
+  const a = rawYieldNum_(prevYield, RAW_YIELD_DEFAULT_);
+  const b = rawYieldNum_(nextYield, RAW_YIELD_DEFAULT_);
+  if (!(cost > 0) || !(a > 0) || !(b > 0)) return cost;
+  return Math.round((cost * (a / b)) * 10000) / 10000;
+}
+
+function rawCostEffective_(versions, sku, dateIso, builtin) {
+  const key = rawCostNormSku_(sku);
+  const day = String(dateIso || "9999-12-31").slice(0, 10);
+  let cur = null;
+  (versions || []).forEach(function (v) {
+    if (rawCostNormSku_(v && v.sku) !== key) return;
+    const from = String((v && (v.effectiveFrom || v.effective_from)) || "").slice(0, 10);
+    if (!from || from > day) return;
+    if (!cur || from >= String(cur.effectiveFrom || cur.effective_from || "")) cur = v;
+  });
+  const cost = cur && cur.cost != null && cur.cost !== "" ? Number(cur.cost) : Number(builtin);
+  const shrink = cur && cur.shrink != null && cur.shrink !== "" ? Number(cur.shrink) : null;
+  return {
+    cost: isFinite(cost) ? cost : null,
+    yield: shrink != null && shrink > 0 && shrink <= 1 ? shrink : null,
+    from: cur ? String(cur.effectiveFrom || cur.effective_from || "").slice(0, 10) : ""
+  };
+}
+
+async function warehouseYieldMap_(env) {
+  const out = Object.create(null);
+  let wh = null;
+  try {
+    wh = await getSnapRaw_(env, "warehouse");
+  } catch (eW) {
+    wh = null;
+  }
+  const items = (wh && (wh.items || wh.rows)) || [];
+  items.forEach(function (it) {
+    const nm = rawCostNormSku_(it && it.name);
+    const c = Number(it && it.coef);
+    if (!nm || !(c > 0) || c > 1) return;
+    out[nm] = c;
+  });
+  return out;
+}
+
+function warehouseYieldForSku_(map, sku) {
+  const key = rawCostNormSku_(sku);
+  if (map && map[key]) return map[key];
+  const names = Object.keys(map || {});
+  for (let i = 0; i < names.length; i++) {
+    if (names[i].indexOf(key) === 0 || key.indexOf(names[i]) === 0) return map[names[i]];
+  }
+  return RAW_YIELD_DEFAULT_;
+}
+
 async function listRawCosts_(params, env, actor) {
   if (!(actor && (actor.isOwner || actor.role === "owner"))) {
     return { status: "error", message: "forbidden" };
   }
   const versions = await loadRawCostVersions_(env);
+  const yields = await warehouseYieldMap_(env);
   const today = new Date().toISOString().slice(0, 10);
   const items = RAW_COST_BUILTIN_.map(function (row) {
     let cur = null;
     const hist = [];
     versions.forEach(function (v) {
-      if (String(v.sku || "").toUpperCase() !== row.sku.toUpperCase()) return;
+      if (rawCostNormSku_(v.sku) !== rawCostNormSku_(row.sku)) return;
       hist.push(v);
       const from = String(v.effectiveFrom || "").slice(0, 10);
       if (from && from <= today && (!cur || from >= String(cur.effectiveFrom || ""))) cur = v;
@@ -3491,12 +3586,19 @@ async function listRawCosts_(params, env, actor) {
       sku: row.sku,
       cost: cur && cur.cost != null ? cur.cost : row.cost,
       shrink: cur && cur.shrink != null ? cur.shrink : null,
+      baseYield: warehouseYieldForSku_(yields, row.sku),
       effectiveFrom: cur ? cur.effectiveFrom : "2026-10-09",
       builtin: row.cost,
       history: hist
     };
   });
-  return { status: "success", items: items, versions: versions, shrinkNote: "Усушка в формуле цены не участвует. На складе отдельный коэффициент: сухое ÷ коэф = сырьё." };
+  return {
+    status: "success",
+    items: items,
+    versions: versions,
+    shrinkNote:
+      "Выход — тот же коэффициент склада: сырьё кг = сухое г / 1000 / выход (обычно 0.2). Смена выхода без нового себеса: себес × (выход старый / выход новый). Розница клиенту не меняется, пока не нажать «Обновить прайс»."
+  };
 }
 
 async function saveRawCost_(params, env, actor) {
@@ -3517,13 +3619,136 @@ async function saveRawCost_(params, env, actor) {
   if (shrink === "" || shrink == null) shrink = null;
   else {
     shrink = Number(String(shrink).replace(",", "."));
-    if (!isFinite(shrink) || shrink <= 0) return { status: "error", message: "shrink" };
+    if (!isFinite(shrink) || shrink <= 0 || shrink > 1) {
+      return { status: "error", message: "выход — доля как на складе, например 0.2" };
+    }
   }
+  if (cost == null && shrink == null) return { status: "error", message: "нужен себес или выход" };
+  const versions = await loadRawCostVersions_(env);
+  const yields = await warehouseYieldMap_(env);
+  const prev = rawCostEffective_(versions, sku, "9999-12-31", null);
+  const builtin = RAW_COST_BUILTIN_.filter(function (row) {
+    return rawCostNormSku_(row.sku) === rawCostNormSku_(sku);
+  })[0];
+  const prevCost = prev.cost != null ? prev.cost : builtin ? Number(builtin.cost) : null;
+  const prevYield = prev.yield != null ? prev.yield : warehouseYieldForSku_(yields, sku);
+  let scaled = false;
+  if (cost == null && shrink != null) {
+    cost = rawYieldScale_(prevCost, prevYield, shrink);
+    scaled = true;
+  }
+  if (shrink == null && prev.yield != null) shrink = prev.yield;
   await ensureRawCostTable_(env);
   await env.DB.prepare(
     "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
   ).bind(sku, cost, shrink, from, new Date().toISOString()).run();
-  return { status: "success", sku: sku, effectiveFrom: from, cardsUntouched: true };
+  return {
+    status: "success",
+    sku: sku,
+    cost: cost,
+    shrink: shrink,
+    scaled: scaled,
+    effectiveFrom: from,
+    retailFrozen: true,
+    cardsUntouched: true
+  };
+}
+
+async function costMonthDigest_(params, env) {
+  const month = String((params && params.month) || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return { status: "error", message: "month" };
+  const versions = await loadRawCostVersions_(env);
+  const changes = [];
+  versions.forEach(function (v) {
+    if (String(v.effectiveFrom || "").slice(0, 7) !== month) return;
+    changes.push({
+      sku: String(v.sku || ""),
+      cost: v.cost,
+      yield: v.shrink,
+      from: String(v.effectiveFrom || "").slice(0, 10)
+    });
+  });
+  return { status: "success", month: month, changes: changes, empty: !changes.length };
+}
+
+async function yieldMapForDate_(params, env) {
+  const day = String((params && (params.dateIso || params.date)) || new Date().toISOString()).slice(0, 10);
+  const versions = await loadRawCostVersions_(env);
+  const yields = {};
+  RAW_COST_BUILTIN_.forEach(function (row) {
+    const eff = rawCostEffective_(versions, row.sku, day, row.cost);
+    if (eff.yield) yields[rawCostNormSku_(row.sku)] = eff.yield;
+  });
+  return { status: "success", dateIso: day, yields: yields };
+}
+
+function retailKeyName_(key) {
+  const k = String(key || "");
+  const i = k.indexOf("|");
+  return rawCostNormSku_(i >= 0 ? k.slice(0, i) : k);
+}
+
+async function publishRetailFromCosts_(params, env) {
+  const versions = await loadRawCostVersions_(env);
+  const today = new Date().toISOString().slice(0, 10);
+  let snap = null;
+  try {
+    snap = await getSnapRaw_(env, "retailPrices");
+  } catch (eS) {
+    snap = null;
+  }
+  const items = Array.isArray(snap && snap.items)
+    ? snap.items.map(function (it) {
+        return Object.assign({}, it);
+      })
+    : [];
+  const hadBasis = !!(snap && snap.costBasis && typeof snap.costBasis === "object");
+  const nextBasis = hadBasis ? Object.assign({}, snap.costBasis) : {};
+  let changed = 0;
+  const lines = [];
+  RAW_COST_BUILTIN_.forEach(function (row) {
+    const eff = rawCostEffective_(versions, row.sku, today, row.cost);
+    const cur = eff.cost != null ? eff.cost : Number(row.cost);
+    const key = rawCostNormSku_(row.sku);
+    const old = hadBasis && nextBasis[key] != null ? Number(nextBasis[key]) : Number(row.cost);
+    nextBasis[key] = cur;
+    if (!(old > 0) || !(cur > 0) || Math.abs(cur - old) < 0.0001) return;
+    const ratio = cur / old;
+    let hit = 0;
+    items.forEach(function (it) {
+      if (retailKeyName_(it && it.key) !== key) return;
+      const price = Number(it.price);
+      if (!isFinite(price)) return;
+      it.price = Math.round(price * ratio * 100) / 100;
+      hit++;
+    });
+    if (hit) {
+      changed++;
+      lines.push(row.sku + ": " + old + " → " + cur);
+    }
+  });
+  if (items.length) {
+    await putSnap_(
+      env,
+      "retailPrices",
+      Object.assign({}, snap || {}, {
+        status: "success",
+        items: items,
+        costBasis: nextBasis,
+        costBasisAt: new Date().toISOString(),
+        cachedAt: new Date().toISOString(),
+        _d1SavedAt: Date.now()
+      })
+    );
+  }
+  return {
+    status: "success",
+    changed: changed,
+    anchored: !hadBasis,
+    lines: lines,
+    cardsUntouched: true,
+    reminder: "Обновите прайс в Instagram и на других площадках."
+  };
 }
 
 async function listPricePositions_(params, env) {
@@ -8645,6 +8870,17 @@ function crumbParentFromBasketName_(name) {
   return "";
 }
 
+function applyCuttingYieldMap_(items, yields) {
+  if (!yields) return items || [];
+  return (items || []).map(function (it) {
+    if (!it || it.unit === "шт") return it;
+    const y = Number(yields[rawCostNormSku_(it.name)]);
+    if (!(y > 0) || y > 1) return it;
+    const dry = Number(it.dry) || 0;
+    return Object.assign({}, it, { raw: Math.round((dry / 1000 / y) * 100) / 100, yield: y });
+  });
+}
+
 function cuttingItemsFromPeople_(people, warehouseItems) {
   function chewCutPhrase_(it) {
     if (!it || isCrumbBasketItemD1_(it)) return "";
@@ -9476,6 +9712,10 @@ async function applyCalendarWeekIfSkewed_(a, params, env, sheetCounts) {
     let items = [];
     try {
       items = cuttingItemsFromPeople_(clients, wh);
+      try {
+        const ymap = await yieldMapForDate_({ dateIso: iso }, env);
+        items = applyCuttingYieldMap_(items, ymap && ymap.yields);
+      } catch (eY) {}
     } catch (eCut) {
       items = [];
     }
@@ -9902,10 +10142,11 @@ function normPaidFlagD1_(v) {
 /* Почта — тот же признак, что в заказе: deliveryMethod euro/bel или тег в note. */
 function courierMailMethodD1_(c) {
   const method = String((c && c.deliveryMethod) || "").trim().toLowerCase();
-  if (method === "euro" || method === "bel") return method;
+  if (method === "euro" || method === "bel" || method === "other") return method;
   const note = String((c && c.note) || "");
   if (/\[ЕВРОПОЧТА\]/i.test(note)) return "euro";
   if (/\[БЕЛПОЧТА\]/i.test(note)) return "bel";
+  if (/\[ПОЧТА\]/i.test(note)) return "other";
   return "";
 }
 
@@ -10249,6 +10490,10 @@ async function rebuildCuttingDay_(env, day) {
   let items = [];
   try {
     items = cuttingItemsFromPeople_(live.clients || [], wh);
+    try {
+      const ymap = await yieldMapForDate_({ dateIso: info.iso || "" }, env);
+      items = applyCuttingYieldMap_(items, ymap && ymap.yields);
+    } catch (eY) {}
   } catch (eCut) {
     items = [];
   }
@@ -13070,25 +13315,30 @@ async function stampOrderMailTrackD1_(env, iso, aliases, fields) {
   }
 }
 
-async function mailTrackNotifyIds_(env) {
-  const base = ["827494606"];
-  String((env && env.PARTNER_OWNER_TIDS) || "")
-    .split(/[,;\s]+/)
-    .forEach(function (x) {
-      const s = String(x || "").trim();
-      if (s && base.indexOf(s) < 0) base.push(s);
-    });
+async function supplyNotifyIds_(env) {
+  let ids = [];
   try {
-    authOwnerIds_(env).forEach(function (id) {
-      if (id && base.indexOf(id) < 0) base.push(id);
-    });
-  } catch (eOwn) {}
-  try {
-    const ids = await notifyRecipientsWorker_(env, "missed_delivery", base, {});
-    return ids && ids.length ? ids : base.slice();
+    ids = await notifyRecipientsWorker_(env, "date_nudge", [], {});
   } catch (eN) {
-    return base.slice();
+    ids = [];
   }
+  if (!Array.isArray(ids)) ids = [];
+  const chatOn = notifyChatEnabledWorker_(env);
+  const chat = chatOn ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() : "";
+  if (chat && ids.indexOf(chat) < 0) ids.push(chat);
+  return ids;
+}
+
+function instagramUrlForNick_(nick) {
+  const n = String(nick || "")
+    .replace(/^@/, "")
+    .trim();
+  if (!n || /\s/.test(n)) return "https://www.instagram.com/";
+  return "https://www.instagram.com/" + encodeURIComponent(n) + "/";
+}
+
+async function mailTrackNotifyIds_(env) {
+  return supplyNotifyIds_(env);
 }
 
 async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
@@ -13113,27 +13363,14 @@ async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
   try {
     await putSnap_(env, dedupeKey, { token: token, track: track, inflight: Date.now(), notified: false });
   } catch (eLock) {}
-  let clientTid = "";
-  try {
-    clientTid = await lookupClientTelegramId_(env, {
-      name: client,
-      client: client,
-      matchKey: mk,
-      phone: String((params && params.phone) || "")
-    });
-  } catch (eTid) {
-    clientTid = "";
-  }
   const record = {
     token: token,
     track: track,
     client: client,
     matchKey: mk,
-    phone: String((params && params.phone) || ""),
     day: String((params && params.day) || ""),
     dateIso: iso,
     mail: mail,
-    clientTelegramId: clientTid,
     createdAt: new Date().toISOString(),
     sent: false
   };
@@ -13150,15 +13387,16 @@ async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
   }
   const ids = await mailTrackNotifyIds_(env);
   const label = mail === "euro" ? "Европочта" : mail === "bel" ? "Белпочта" : "Почта";
+  const copy = mailTrackClientTextD1_(track);
   const text =
-    "📦 " + label + " · трек сохранён\n" +
+    "📦 " + label + "\n" +
     "Клиент: " + (client || "—") + "\n" +
     (params.day ? "День: " + params.day + "\n" : "") +
     "Трек: " + track + "\n\n" +
-    "Кнопка отправит клиенту:\n" +
-    mailTrackClientTextD1_(track);
+    "Текст клиенту (скопируйте в Instagram):\n" +
+    copy;
   const markup = {
-    inline_keyboard: [[{ text: "Отправить трэк код", callback_data: ("mtrack:" + token).slice(0, 64) }]]
+    inline_keyboard: [[{ text: "Instagram клиента", url: instagramUrlForNick_(client) }]]
   };
   let sentN = 0;
   for (let i = 0; i < ids.length; i++) {
@@ -13167,12 +13405,26 @@ async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
       if (r && r.ok) sentN++;
     } catch (eSend) {}
   }
+  const photo = String((params && params.photoBase64) || "").trim();
+  if (photo && photo.length < 700000) {
+    for (let p = 0; p < ids.length; p++) {
+      try {
+        await telegramSendPhotoWorker_(env, ids[p], photo, "Наклейка · " + (client || ""));
+      } catch (ePh) {}
+    }
+  }
   const remindAt = mailPayRemindAtMs_(Date.now());
+  const payText =
+    "Оплата почтой\nКлиент: " +
+    (client || "—") +
+    "\nТрек: " +
+    track +
+    "\nПрошло 2 дня. Клиент оплатил?";
   let reminded = 0;
   for (let j = 0; j < ids.length; j++) {
     const tid = ids[j];
-    const id = ("mailpay_" + token + "_" + tid).slice(0, 80);
-    const title = "Проверить оплату · почта · " + (client || "клиент");
+    const id = ("mailpay_" + token + "_" + String(j)).slice(0, 80);
+    const title = payText;
     const payload = {
       mode: "remind",
       title: title,
@@ -13181,6 +13433,7 @@ async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
       forTelegramId: tid,
       track: track,
       mailPayCheck: true,
+      mailPayText: payText,
       client: client,
       skipAck: "1"
     };
@@ -13262,7 +13515,6 @@ async function telegramAnswerCallbackWorker_(env, callbackId, text) {
 async function fulfillMailTrack_(params, env) {
   const token = String((params && params.token) || "").replace(/^mtrack:/i, "").trim();
   const cb = String((params && params.callbackQueryId) || "").trim();
-  const manager = String((params && params.managerTelegramId) || "").trim();
   async function toast(text) {
     if (!cb) return;
     try { await telegramAnswerCallbackWorker_(env, cb, text); } catch (eT) {}
@@ -13277,45 +13529,8 @@ async function fulfillMailTrack_(params, env) {
     await toast("Трек не найден");
     return { status: "error", message: "not_found", answered: !!cb, toast: "Трек не найден" };
   }
-  if (rec.sent) {
-    await toast("Уже отправлено клиенту");
-    return { status: "success", already: true, answered: !!cb };
-  }
-  let tid = String(rec.clientTelegramId || "").trim();
-  if (!/^\d{5,15}$/.test(tid)) {
-    try { tid = await lookupClientTelegramId_(env, rec); } catch (eL) { tid = ""; }
-  }
-  const text = mailTrackClientTextD1_(rec.track);
-  if (!/^\d{5,15}$/.test(tid)) {
-    await toast("Нет Telegram у клиента");
-    if (manager) {
-      try {
-        await telegramSendTextWorker_(
-          env,
-          manager,
-          "Не нашёл Telegram клиента " + (rec.client || "") + ".\nПерешлите вручную:\n\n" + text,
-          null
-        );
-      } catch (eM) {}
-    }
-    return { status: "success", sent: false, reason: "no_client_telegram", answered: !!cb };
-  }
-  const send = await telegramSendTextWorker_(env, tid, text, null);
-  if (!send || send.ok === false) {
-    await toast("Клиенту не ушло");
-    if (manager) {
-      try {
-        await telegramSendTextWorker_(env, manager, "Клиенту не ушло.\nТекст:\n\n" + text, null);
-      } catch (eM2) {}
-    }
-    return { status: "error", message: "send_failed", answered: !!cb, toast: "Клиенту не ушло" };
-  }
-  rec.sent = true;
-  rec.sentAt = new Date().toISOString();
-  rec.sentTo = tid;
-  try { await putSnap_(env, "mailTrack:" + token, rec); } catch (eP) {}
-  await toast("Трек отправлен клиенту");
-  return { status: "success", sent: true, answered: !!cb };
+  await toast("Клиенту бот не пишет. Скопируйте текст в Instagram");
+  return { status: "success", sent: false, clientNotified: false, answered: !!cb };
 }
 
 /**
@@ -14366,6 +14581,8 @@ function partnerCanWriteAccess_(params) {
   const actorUser = partnerNormUserWorker_(params && params.actorUsername);
   if (isPartnerCanonOwner_({ telegramId: actorTid, username: actorUser })) return true;
   if (actorTid && actorTid === PARTNER_ARSENIY_TID) return true;
+  const role = String((params && params._actorRole) || "").toLowerCase();
+  if (role === "owner" || role === "manager") return true;
   return false;
 }
 
@@ -14379,7 +14596,8 @@ function partnerActorGrantBlock_(admin, params) {
   if (
     partnerCanWriteAccess_({
       telegramId: actorTid,
-      actorUsername: actorUser
+      actorUsername: actorUser,
+      _actorRole: params && params._actorRole
     })
   ) {
     return "";
@@ -14655,14 +14873,19 @@ function partnerBuildGetMeFromAdmin_(admin, params) {
 
   const active = partnerActiveAccessRowsForUser_(src, params);
   if (active.length) {
-    const pointIds = partnerUnionPointIds_(active).filter(function (id) {
-      return !!byId[id];
-    });
+    const pointIds = partnerUnionPointIds_(active);
     const allowedPointIds = {};
     const pointsOut = [];
     for (let p = 0; p < pointIds.length; p++) {
       allowedPointIds[pointIds[p]] = true;
-      pointsOut.push(byId[pointIds[p]]);
+      pointsOut.push(
+        byId[pointIds[p]] || {
+          id: pointIds[p],
+          networkId: "",
+          name: pointIds[p],
+          address: ""
+        }
+      );
     }
     const netNeed = {};
     pointsOut.forEach(function (pt) {
@@ -25344,6 +25567,14 @@ async function computeWarehouseWeekPlanD1_(env, opts) {
     return d.iso;
   });
 
+  let yieldByName = {};
+  try {
+    const ymap = await yieldMapForDate_({ dateIso: asOf }, env);
+    yieldByName = (ymap && ymap.yields) || {};
+  } catch (eYw) {
+    yieldByName = {};
+  }
+
   const plan = [];
   const deficits = [];
   const buyList = [];
@@ -25360,7 +25591,9 @@ async function computeWarehouseWeekPlanD1_(env, opts) {
       stock: Number(r.stock) || 0,
       arrival: Number(r.arrival) || 0
     };
-    const coef = Number(meta.coef) || Number(r.coef) || 0.2;
+    const sheetCoef = Number(meta.coef) || Number(r.coef) || 0.2;
+    const datedYield = Number(yieldByName[rawCostNormSku_(r.name)]);
+    const coef = datedYield > 0 && datedYield <= 1 ? datedYield : sheetCoef;
     const piece = !!meta.piece || isPieceSku_(r.name, "", r.unit);
     const needBlend = warehouseRawForKey_({
       planDryG: Number(needAcc.dryByKey[key]) || 0,
@@ -26910,6 +27143,26 @@ function hasTelegramToken_(env) {
 
 function getTelegramTokenWorker_(env) {
   return String((env && (env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN)) || "").trim();
+}
+
+async function telegramSendPhotoWorker_(env, chatId, photoBase64, caption) {
+  const token = getTelegramTokenWorker_(env);
+  const id = chatId != null ? String(chatId).trim() : "";
+  const raw = String(photoBase64 || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+  if (!token || !id || !raw || raw.length > 700000) return { ok: false };
+  try {
+    const bin = Uint8Array.from(atob(raw), function (c) {
+      return c.charCodeAt(0);
+    });
+    const form = new FormData();
+    form.append("chat_id", id);
+    form.append("caption", String(caption || "").slice(0, 200));
+    form.append("photo", new Blob([bin], { type: "image/jpeg" }), "track.jpg");
+    const res = await fetch("https://api.telegram.org/bot" + token + "/sendPhoto", { method: "POST", body: form });
+    return await res.json();
+  } catch (e) {
+    return { ok: false };
+  }
 }
 
 async function telegramSendTextWorker_(env, chatId, text, markup) {

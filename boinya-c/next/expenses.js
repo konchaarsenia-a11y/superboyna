@@ -19,12 +19,10 @@
   var access = null;
   var monthKey = "";
   var pack = null;
-  var roll = null;
   var draft = blank();
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
-  function formulas() { return root.BoinyaFormulas; }
   function statsLogic() { return root.BoinyaStatsLogic; }
   function esc(s) { return sh().esc(s); }
 
@@ -61,16 +59,6 @@
     } catch (e) { return null; }
   }
 
-  async function pullRoll(month) {
-    try {
-      return await api().apiGet({
-        action: "getStats",
-        period: "month",
-        month: month
-      }, { timeoutMs: 20000, cacheTtlMs: 120000 });
-    } catch (e2) { return null; }
-  }
-
   function journalRow(row) {
     var who = row.actorName ? row.actorName : "владелец";
     var extra = row.personal ? " Личное" : "";
@@ -91,47 +79,16 @@
       var i;
       for (i = 0; i < rows.length; i++) body += journalRow(rows[i]);
     }
-    var recon = "";
-    var closed = null;
-    if (formulas() && roll && roll.formula && roll.formula.revenue != null) {
-      closed = formulas().formulaClose_({
-        monthKey: ensureMonth(),
-        revenue: roll.formula.revenue,
-        S: roll.formula.S, G: roll.formula.G, P: roll.formula.P, N: roll.formula.N,
-        rows: rows,
-        repairs: (pack && pack.amort) || []
-      });
-    }
-    if (!closed) recon = '<p class="b-note">Заложенное по формуле пока нет данных</p>';
-    else {
-      var n = 0;
-      var ri;
-      for (ri = 0; ri < closed.recon.length; ri++) {
-        var item = closed.recon[ri];
-        var label = catName(item.key);
-        if (item.state === "empty") {
-          recon += '<div class="nx-line"><span>' + esc(label) + '</span><b class="nx-stat__num">не введено</b></div>';
-        } else if (!item.text) {
-          recon += '<div class="nx-line"><span>' + esc(label) + '</span><b class="nx-stat__num">сходится</b></div>';
-        } else {
-          n++;
-          recon += '<p class="b-note">' + esc(label + ". " + item.text) + "</p>";
-        }
-      }
-      if (closed.amortNote) recon += '<p class="b-note">' + esc(closed.amortNote) + "</p>";
-      if (!n) recon += '<p class="b-note">Сильных расхождений нет</p>';
-    }
-    return '<article class="b-card"><p class="b-lbl" style="margin-top:0">Расходы</p>' +
-      '<p class="b-note">Журнал владельца. Личное в проект не идёт.</p>' +
+    return '<div class="nx-goals__slice">' +
       '<div class="nx-cut-head" style="justify-content:space-between">' +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ex-prev" aria-label="Предыдущий месяц">‹</button>' +
         '<b>' + esc(title) + "</b>" +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ex-next" aria-label="Следующий месяц">›</button>' +
       "</div>" +
-      '<button type="button" class="b-btn b-btn--main" style="margin-top:12px" data-act="ex-add">Добавить расход</button>' +
-      "</article>" +
-      '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Журнал</p>' + body + "</article>" +
-      '<article class="b-card" style="margin-top:12px"><p class="b-lbl" style="margin-top:0">Сверка с себесом</p>' + recon + "</article>";
+      '<p class="b-note">Расходы проекта. Личное в статистику не идёт.</p>' +
+      body +
+      '<button type="button" class="nx-link" data-act="ex-add">Добавить расход</button>' +
+      "</div>";
   }
 
   var lastHtml = "";
@@ -168,9 +125,8 @@
     } else {
       pullFlightMonth = month;
       var job = (async function () {
-        var pair = await Promise.all([pull(month, !!opts.force), pullRoll(month)]);
-        if (pair[0]) pack = pair[0];
-        if (pair[1]) roll = pair[1];
+        var got = await pull(month, !!opts.force);
+        if (got) pack = got;
       })();
       pullFlight = job;
       try { await job; } finally {

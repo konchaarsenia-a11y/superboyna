@@ -3688,6 +3688,8 @@ function handleGetCutting(dayName, callback) {
       }
     }
   } catch (eWh) { whCoefByRow = {}; }
+  var yieldMapCutting_ = {};
+  try { yieldMapCutting_ = fetchYieldMapForCutting_(dateText) || {}; } catch (eYld) { yieldMapCutting_ = {}; }
   var items = [];
 
   for (var i = 0; i < 46; i++) {
@@ -3714,6 +3716,8 @@ function handleGetCutting(dayName, callback) {
       var wRow = getWarehouseRowForCuttingRow_(row);
       var coef = Number(whCoefByRow[wRow]) || 0;
       if (!coef) coef = 0.2;
+      var yKey = String(name || "").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+      if (yieldMapCutting_ && yieldMapCutting_[yKey]) coef = Number(yieldMapCutting_[yKey]) || coef;
       raw = (dry / 1000) / coef;
     }
     var noteInfo = rowNotes[String(row)] || null;
@@ -8246,19 +8250,21 @@ function getTelegramToken_() {
   return PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN") || "";
 }
 
-function telegramSendText_(chatId, text) {
+function telegramSendText_(chatId, text, markup) {
   var token = getTelegramToken_();
   var id = chatId != null ? String(chatId).trim() : "";
   if (!token) return { ok: false, error: "no_token_or_chat", message: "no_token", description: "Нет TELEGRAM_BOT_TOKEN в Script Properties" };
   if (!id) return { ok: false, error: "no_token_or_chat", message: "no_chat", description: "Пустой chat id курьера" };
+  var payload = {
+    chat_id: id,
+    text: String(text || "").slice(0, 3500),
+    disable_web_page_preview: false
+  };
+  if (markup) payload.reply_markup = markup;
   var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
     method: "post",
     contentType: "application/json",
-    payload: JSON.stringify({
-      chat_id: id,
-      text: String(text || "").slice(0, 3500),
-      disable_web_page_preview: false
-    }),
+    payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
   try {
@@ -8360,6 +8366,10 @@ function handleTelegramUpdate_(update) {
       }
       if (/^mtrack:/i.test(cqData)) {
         handleMailTrackCallback_(cq0);
+        return;
+      }
+      if (cqData === "costpub") {
+        handleCostPublishCallback_(cq0);
         return;
       }
       if (/^ppafk:/i.test(cqData)) {
@@ -11040,6 +11050,106 @@ function nudgeSegIsPp_(seg) {
 }
 
 /** D1 deliveries + почтовый трек за день. Пусто, если секрет или Worker недоступны. */
+function workerSecretPost_(action, extra) {
+  var secret = "";
+  try { secret = String(PropertiesService.getScriptProperties().getProperty("WORKER_SHARED_SECRET") || ""); } catch (eSec) { secret = ""; }
+  if (!secret) return null;
+  var body = extra || {};
+  body.action = action;
+  body._wk = secret;
+  try {
+    var res = UrlFetchApp.fetch(boinyaWorkerUrl_(), {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(body),
+      muteHttpExceptions: true
+    });
+    return JSON.parse(res.getContentText() || "{}");
+  } catch (eFetch) {
+    return null;
+  }
+}
+
+function dmyToIsoLoose_(s) {
+  var m = String(s || "").match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (!m) return "";
+  return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+}
+
+function fetchYieldMapForCutting_(dateText) {
+  var iso = dmyToIsoLoose_(dateText);
+  if (!iso) return {};
+  var out = workerSecretPost_("yieldMapForDate", { dateIso: iso });
+  if (!out || out.status !== "success" || !out.yields) return {};
+  return out.yields;
+}
+
+function maybeSendCostDigest_() {
+  var tz = "Europe/Minsk";
+  var now = new Date();
+  var day = Utilities.formatDate(now, tz, "d");
+  if (String(day) !== "1") return { skipped: true, reason: "not_first" };
+  var prev = new Date(now.getTime());
+  prev.setDate(0);
+  var month = Utilities.formatDate(prev, tz, "yyyy-MM");
+  var props = PropertiesService.getScriptProperties();
+  var key = "COST_DIGEST_" + month;
+  try { if (props.getProperty(key) === "1") return { skipped: true, reason: "already" }; } catch (eK) {}
+  var dig = workerSecretPost_("costMonthDigest", { month: month });
+  if (!dig || dig.status !== "success") {
+    return { skipped: true, reason: "fetch", month: month };
+  }
+  try { props.setProperty(key, "1"); } catch (eS) {}
+  if (!dig.changes || !dig.changes.length) {
+    return { skipped: true, reason: "empty", month: month };
+  }
+  var lines = ["Себес за " + month + ":"];
+  for (var i = 0; i < dig.changes.length && i < 40; i++) {
+    var c = dig.changes[i] || {};
+    var bit = String(c.sku || "");
+    if (c.cost != null && c.cost !== "") bit += " · " + c.cost;
+    if (c.yield != null && c.yield !== "") bit += " · выход " + c.yield;
+    if (c.from) bit += " · с " + c.from;
+    lines.push("• " + bit);
+  }
+  lines.push("");
+  lines.push("Кнопка пересчитает розницу от нового себеса. Потом обновите прайс в Instagram и на других площадках.");
+  var text = lines.join("\n");
+  var markup = { inline_keyboard: [[{ text: "Обновить прайс", callback_data: "costpub" }]] };
+  var ids = [];
+  try { ids = notifyRecipientsWithChat_("date_nudge"); } catch (eIds) { ids = []; }
+  var sent = 0;
+  for (var j = 0; j < ids.length; j++) {
+    try {
+      var r = telegramSendText_(ids[j], text, markup);
+      if (r && r.ok) sent++;
+    } catch (eSend) {}
+  }
+  return { ok: true, month: month, sent: sent, changes: dig.changes.length };
+}
+
+function handleCostPublishCallback_(cq) {
+  var cbId = cq && cq.id ? String(cq.id) : "";
+  try {
+    if (cbId) {
+      UrlFetchApp.fetch("https://api.telegram.org/bot" + getTelegramToken_() + "/answerCallbackQuery", {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({ callback_query_id: cbId, text: "Обновляю прайс" }),
+        muteHttpExceptions: true
+      });
+    }
+  } catch (eAns) {}
+  var pub = workerSecretPost_("publishRetailFromCosts", {});
+  var chat = cq && cq.message && cq.message.chat ? String(cq.message.chat.id) : "";
+  var text = "Прайс в мини-аппе обновлён от текущего себеса. Обновите цены в Instagram и на других площадках.";
+  if (!pub || pub.status !== "success") text = "Прайс не обновился. Откройте «Себестоимость» и нажмите «Обновить прайс».";
+  else if (!pub.changed) text = "Себес не менялся относительно прошлого прайса. Цены те же. Проверьте Instagram, если правили вручную.";
+  if (chat) {
+    try { telegramSendText_(chat, text); } catch (eT) {}
+  }
+}
+
 function fetchD1DeliveredForNudge_(dateIso) {
   var iso = String(dateIso || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return [];
@@ -11723,6 +11833,7 @@ function ensureDeliveryDatesNudgeTriggers_() {
 
 /** Обёртки для триггеров (не вызывать вручную — только clock). */
 function tickDeliveryDatesNudgeMorning_() {
+  try { maybeSendCostDigest_(); } catch (eDig) {}
   return tickDeliveryDatesNudge_();
 }
 function tickDeliveryDatesNudgeEvening_() {
@@ -33671,7 +33782,9 @@ function tickDeferredReminders_() {
       var fromLabel = remindPersonLabel_(fromTid, payload.createdByName);
       var toLabel = remindPersonLabel_(notifyTid, payload.targetName);
       var text;
-      if (mode === "remind") {
+      if (mode === "remind" && payload.mailPayCheck && payload.mailPayText) {
+        text = String(payload.mailPayText);
+      } else if (mode === "remind") {
         text = "⏰ Напоминание\n" + title;
         if (fromTid && notifyTid && fromTid !== notifyTid) {
           text += "\nОт: " + fromLabel + "\nКому: " + toLabel;
