@@ -30,9 +30,10 @@
 
     var PP_SCHEME_CUTOFF_YMD = "2026-08-31";
 var PP_RAW26_COEF_DEFAULT = 2.6;
-var PP_RAW26_RECOVER_100 = 3.90;
-var PP_RAW26_RECOVER_PIECE = 0.50;
-var PP_RAW26_DELIVERY_PER = 9;
+var PP_RAW26_RECOVER_100 = 3.30;
+var PP_RAW26_RECOVER_PIECE = 0.80;
+var PP_RAW26_DELIVERY_PER = 7.60;
+var PP_RAW26_RETAIL_DELIVERY_PER = 9;
 var PP_RAW26_RETAIL_CAP = 0.92;
 var PP_RAW26_RETAIL_FREE_FROM = 80;
 var STATS_DELIVERY_FUEL_PER = 4;
@@ -1744,10 +1745,10 @@ var ASM_CHEW_PER_BIG = 4;
 
     function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN) {
       var n = Math.max(1, Number(deliveriesN) || 1);
-      var fuel = STATS_DELIVERY_FUEL_PER * n;
+      var delivery = (typeof PP_RAW26_DELIVERY_PER === "number" ? PP_RAW26_DELIVERY_PER : 7.6) * n;
       return Math.round(
         ((Number(clientPrice) || 0) - (Number(raw) || 0) - (Number(recover) || 0) -
-          (Number(packagesByn) || 0) - fuel) * 100
+          (Number(packagesByn) || 0) - delivery) * 100
       ) / 100;
     }
 
@@ -1758,7 +1759,7 @@ var ASM_CHEW_PER_BIG = 4;
       var n = Math.max(1, Number(deliveriesN) || 1);
       var per = r / n;
       var freeFrom = (typeof PP_RAW26_RETAIL_FREE_FROM === "number") ? PP_RAW26_RETAIL_FREE_FROM : 80;
-      var fee = (typeof PP_RAW26_DELIVERY_PER === "number") ? PP_RAW26_DELIVERY_PER : 9;
+      var fee = (typeof PP_RAW26_RETAIL_DELIVERY_PER === "number") ? PP_RAW26_RETAIL_DELIVERY_PER : 9;
       var delivery = per < freeFrom ? fee * n : 0;
       return Math.round((r + delivery) * 100) / 100;
     }
@@ -2211,7 +2212,7 @@ var ASM_CHEW_PER_BIG = 4;
           capLocalAt,
           Math.round((costSum + recover) * 100) / 100
         );
-        hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +9×" + n;
+        hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +7.60×" + n;
         if (allocLocal.retailCapped) {
           total = allocLocal.factCost;
           packagesByn = allocLocal.packagesByn;
@@ -2453,6 +2454,7 @@ var ASM_CHEW_PER_BIG = 4;
     PP_RAW26_RECOVER_100: PP_RAW26_RECOVER_100,
     PP_RAW26_RECOVER_PIECE: PP_RAW26_RECOVER_PIECE,
     PP_RAW26_DELIVERY_PER: PP_RAW26_DELIVERY_PER,
+    PP_RAW26_RETAIL_DELIVERY_PER: PP_RAW26_RETAIL_DELIVERY_PER,
     PP_RAW26_RETAIL_CAP: PP_RAW26_RETAIL_CAP,
     PP_RAW26_RETAIL_FREE_FROM: PP_RAW26_RETAIL_FREE_FROM,
     PP_LEGACY_COEF_DEFAULT: PP_LEGACY_COEF_DEFAULT,

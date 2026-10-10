@@ -2,23 +2,23 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71125300
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71125320
 
 Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
 В Telegram Menu Button (бот Бойни, не @GOODBOY_LG) любая из этих ссылок открывает `next.html` и сохраняет hash с initData:
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125300`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125320`
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1&v=71125300`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html?cutover=1&v=71125320`
 
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/index.html?v=71125300`
+`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/index.html?v=71125320`
 
 ## Вход с компьютера
 
 Тот же адрес в Chrome или Safari, не из окна мини-аппа:
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71125300
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71125320
 
 Если страница открыта не внутри Telegram, вместо «только из бота» показывается вход:
 

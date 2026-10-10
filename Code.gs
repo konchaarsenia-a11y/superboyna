@@ -2230,7 +2230,9 @@ function doGet(e) {
       mode: e.parameter.mode || "",
       expected: e.parameter.expected || "",
       from: e.parameter.from || e.parameter.fromDate || e.parameter.dateFrom || "",
-      to: e.parameter.to || e.parameter.toDate || e.parameter.dateTo || ""
+      to: e.parameter.to || e.parameter.toDate || e.parameter.dateTo || "",
+      asOf: e.parameter.asOf || "",
+      costOverrides: e.parameter.costOverrides ? decodeURIComponent(e.parameter.costOverrides) : ""
     }, callback, false);
   }
   if (action === "listBugReports") {
@@ -2872,7 +2874,9 @@ function doGet(e) {
       markup: e.parameter.markup || e.parameter.coef || "",
       scheme: e.parameter.scheme || "",
       wishes: e.parameter.wishes ? decodeURIComponent(e.parameter.wishes) : "",
-      forNew: e.parameter.forNew || ""
+      forNew: e.parameter.forNew || "",
+      asOf: e.parameter.asOf || "",
+      costOverrides: e.parameter.costOverrides ? decodeURIComponent(e.parameter.costOverrides) : ""
     }, callback, false);
   }
   if (action === "calcPpFact") {
@@ -2883,7 +2887,9 @@ function doGet(e) {
       packCounts: e.parameter.packCounts ? JSON.parse(decodeURIComponent(e.parameter.packCounts)) : null,
       scheme: e.parameter.scheme || "",
       wishes: e.parameter.wishes ? decodeURIComponent(e.parameter.wishes) : "",
-      forNew: e.parameter.forNew || ""
+      forNew: e.parameter.forNew || "",
+      asOf: e.parameter.asOf || "",
+      costOverrides: e.parameter.costOverrides ? decodeURIComponent(e.parameter.costOverrides) : ""
     }, callback, false);
   }
   if (action === "unlockPpCostBreakdown") {
@@ -4184,11 +4190,9 @@ function handleGetCourier(dayName, callback) {
           } else if (deliveriesN === 1) {
             ppHint = "ПП N=1";
           }
-          // Оплата: N=1 / слот 1 — спросить пока нет yes; слот 2+ — только при явном paid=no
+          // Оплата один раз за месяц. Спрашиваем, пока нет yes. Слот 2 не спрашивает, если уже yes.
           if (deliveriesN >= 1) {
-            if (paidCycle === "yes") askPaid = false;
-            else if (deliveriesN === 1 || deliverySlot <= 1) askPaid = true;
-            else askPaid = (paidCycle === "no");
+            askPaid = String(paidCycle || "").toLowerCase() !== "yes";
           }
         } catch (ePaid) {}
       }
@@ -4208,11 +4212,9 @@ function handleGetCourier(dayName, callback) {
     }
     var ppPaidYes = isPpOrder && String(paidCycle || "").toLowerCase() === "yes";
     var orderPriceOut = client.orderPrice != null ? client.orderPrice : "";
-    // уже оплачено / слот 2+ (платил на 1-й) — цену не светим
-    if (ppPaidYes) orderPriceOut = "";
-    else if (isPpOrder && deliveriesN >= 2 && deliverySlot >= 2 && String(paidCycle || "").toLowerCase() !== "no") {
-      orderPriceOut = "";
-    }
+    // ПП2: оплата за месяц один раз. Оплачено в 1-ю — во 2-й сумму не показываем.
+    // Не оплачено — сумма остаётся на 2-й, курьер отмечает оплату. N=1 второй доставки нет.
+    if (isPpOrder && deliveriesN >= 2 && deliverySlot >= 2 && ppPaidYes) orderPriceOut = "";
     clients.push({
       name: client.name,
       address: client.address,
@@ -21494,7 +21496,7 @@ var PP_RAW_COST_OVERRIDE_BYN_ = {
   "МОРКОВЬ": { v: 2.3, piece: false },
   "БАТАТ": { v: 10.0, piece: false },
   "БАНАНЫ": { v: 5.0, piece: false },
-  "ГРУШИ": { v: 6.67, piece: false }
+  "ГРУШИ": { v: 6.60, piece: false }
 };
 
 function lookupPpCostInfoGs_(costs, name, sub) {
@@ -21539,7 +21541,81 @@ function ppCostFractionAliases_(sub) {
   return [raw];
 }
 
-var PP_COST_CANON_ = "frac-alias-1";
+var PP_COST_CANON_ = "pricing-2026-10-09";
+var PP_COST_VERSIONS_REQ_ = null;
+var PP_COST_ASOF_ = "";
+
+function applyIncomingCostScope_(json) {
+  PP_COST_VERSIONS_REQ_ = null;
+  PP_COST_ASOF_ = "";
+  json = json || {};
+  rememberCostOverrides_(json.costOverrides);
+  if (json.asOf) PP_COST_ASOF_ = String(json.asOf).slice(0, 10);
+}
+
+function rememberCostOverrides_(raw) {
+  if (raw == null || raw === "") return;
+  var rows = raw;
+  if (typeof raw === "string") {
+    try { rows = JSON.parse(raw); } catch (eOv) { rows = null; }
+  }
+  if (!rows || !rows.length) return;
+  PP_COST_VERSIONS_REQ_ = rows;
+}
+
+function pickCostVersion_(name, asOf) {
+  var rows = PP_COST_VERSIONS_REQ_;
+  if (!rows || !rows.length || !name) return null;
+  var want = String(name).trim().toUpperCase();
+  var when = asOf || "9999-12-31";
+  var best = null;
+  var i;
+  for (i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    var sku = String(row.sku || row.name || "").trim().toUpperCase();
+    if (!sku || sku !== want) continue;
+    var from = String(row.effectiveFrom || row.effective_from || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || from > when) continue;
+    if (!best || from >= String(best.effectiveFrom || "")) best = row;
+  }
+  return best;
+}
+
+function datedPpCostInfo_(info, name) {
+  var asOf = PP_COST_ASOF_ || "";
+  var ver = pickCostVersion_(name, asOf || "9999-12-31");
+  if (ver) {
+    var next = {};
+    var src = info || {};
+    var k;
+    for (k in src) if (Object.prototype.hasOwnProperty.call(src, k)) next[k] = src[k];
+    if (!info) {
+      next.name = name;
+      next.piece = false;
+      next.grams = true;
+    }
+    if (ver.cost === "" || ver.cost == null) {
+      if (!info) next.costUnset = true;
+    } else {
+      var cv = Number(ver.cost);
+      if (isFinite(cv) && cv >= 0) {
+        next.unitPrice = cv;
+        next.per100 = cv;
+      }
+    }
+    if (ver.shrink != null && ver.shrink !== "" && isFinite(Number(ver.shrink))) next.shrink = Number(ver.shrink);
+    return next;
+  }
+  if (asOf && asOf < "2026-10-09" && /ГРУШ/.test(String(name || "").toUpperCase()) && info) {
+    var old = {};
+    var ik;
+    for (ik in info) if (Object.prototype.hasOwnProperty.call(info, ik)) old[ik] = info[ik];
+    old.unitPrice = 6.67;
+    old.per100 = 6.67;
+    return old;
+  }
+  return info;
+}
 
 function writePpRawCost_(costs, key, name, sub, v, piece) {
   if (costs[key]) {
@@ -21585,6 +21661,7 @@ function applyPpRawCostOverrides_(costs) {
 }
 
 function handleCalcPrice(json, callback, fromPost) {
+  applyIncomingCostScope_(json);
   var mode = json.mode || "subscription";
   var basket = normalizeBasketArg_(json.basket);
   var m = String(mode || "").toLowerCase();
@@ -21806,20 +21883,20 @@ function packagesBynFromUCounts_(pc) {
 
 /* ----- Схемы цены ПП -----
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
- * RAW26:  товар = сырьё×coef + recover; товар = min(товар, 0.92×R), не ниже сырьё+recover
- *   цена = товар + 9×N + фракции + пакеты
- *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   R = Σрозница товара (крошка = миксер 15/17/20 как вкладка Розница).
- *   Кап только на товар. 9×N, F и пакеты всегда сверху и не режутся.
- *   Если пол сырьё+recover выше 0.92×R — товар остаётся на полу, флаг uncappedFloor.
+ * RAW26 (канон 2026-10-09): цена = min(сырьё×M + recover + 7.60×N + фракции + пакеты, 0.92×R)
+ *   recover_100г=3.30 · recover_шт=0.80 · M по умолчанию 2.6
+ *   R = розница товара + розничная доставка 9×N, если товар на доставку ниже 80
+ *   Кап на всю цену. Розничная доставка в капе остаётся 9, не 7.60.
+ *   Себес = сырьё + recover + 7.60×N + пакеты. Чистое = указанная − себес.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
 var PP_SCHEME_CUTOFF_YMD_ = "2026-08-31";
 var PP_RAW26_COEF_DEFAULT_ = 2.6;
-var PP_RAW26_RECOVER_100_ = 3.90;
-var PP_RAW26_RECOVER_PIECE_ = 0.50;
-var PP_RAW26_DELIVERY_PER_ = 9; // клиентский тариф; в getStats в затратах только STATS_DELIVERY_FUEL_PER_
+var PP_RAW26_RECOVER_100_ = 3.30;
+var PP_RAW26_RECOVER_PIECE_ = 0.80;
+var PP_RAW26_DELIVERY_PER_ = 7.60; // доставка подписки: бензин 4 + сборщик 3 + 0.60 в чистое
+var PP_RAW26_RETAIL_DELIVERY_PER_ = 9; // розница, без изменений
 var PP_RAW26_RETAIL_CAP_ = 0.92;
 var PP_RAW26_RETAIL_FREE_FROM_ = 80; // порог розницы: ниже него в показанную R входит 9×N
 var PP_LEGACY_COEF_DEFAULT_ = 2.3;
@@ -21879,13 +21956,62 @@ function isGramCrumbLineGs_(L) {
   return /^крошка$/i.test(name);
 }
 
-/** Крошка-миксер: овощи/фрукты 15 / мяс 17 / гипо 20 за 100 г (raw, не таблица фракций). */
+/** Розница крошки за 100 г: овощи 17, мясные 19, гипоаллергенные 22. */
 function crumbKindRateGs_(kind) {
   var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
-  if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
-  if (k === "meat" || /мяс/.test(k)) return 17;
-  if (k === "hypo" || /гипо/.test(k)) return 20;
+  if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 17;
+  if (k === "meat" || /мяс/.test(k)) return 19;
+  if (k === "hypo" || /гипо/.test(k)) return 22;
   return 0;
+}
+
+function crumbRetailKindOfNameGs_(name) {
+  var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) return "hypo";
+  if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) return "veg";
+  return "meat";
+}
+
+function crumbParentNameGs_(it) {
+  var hint = String((it && (it.sub || it.name || it.main)) || "");
+  if (/рубец/i.test(hint)) return "РУБЕЦ Т";
+  if (/почк/i.test(hint)) return "ПОЧКИ";
+  if (/лёгк|легк/i.test(hint) && /баран/i.test(hint)) return "БАРАНЬЕ ЛЁГКОЕ";
+  if (/лёгк|легк/i.test(hint)) return "ЛЁГКОЕ";
+  if (/сердц/i.test(hint)) return "СЕРДЦЕ";
+  if (/индейк/i.test(hint)) return "ИНДЕЙКА";
+  if (/кролик/i.test(hint)) return "КРОЛИК";
+  if (/баран.*печен|печен.*баран/i.test(hint)) return "БАРАНЬЯ ПЕЧЕНЬ";
+  if (/печен/i.test(hint)) return "ПЕЧЕНЬ";
+  return "";
+}
+
+/** Себес крошки = себес дрессуры-источника, не розничная ставка 19/17/22. */
+function crumbRawCostGs_(it, costs, val) {
+  var sources = it && it.sources;
+  if (sources && sources.length) {
+    var ratios = it.ratio || [];
+    var rsum = 0;
+    var ri;
+    for (ri = 0; ri < sources.length; ri++) rsum += Number(ratios[ri]) || 0;
+    if (rsum <= 0) rsum = sources.length;
+    var sum = 0;
+    for (var si = 0; si < sources.length; si++) {
+      var src = sources[si] || {};
+      var share = (Number(ratios[si]) || 1) / rsum;
+      var g = val * share;
+      var info = datedPpCostInfo_(lookupPpCostInfoGs_(costs, src.name || src.main, src.sub || ""), src.name || src.main);
+      var unit = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+      sum += (g / 100) * unit;
+    }
+    return Math.round(sum * 100) / 100;
+  }
+  var parent = crumbParentNameGs_(it);
+  if (!parent) return 0;
+  var parentInfo = datedPpCostInfo_(lookupPpCostInfoGs_(costs, parent, ""), parent);
+  var parentUnit = parentInfo ? Number(parentInfo.unitPrice != null ? parentInfo.unitPrice : parentInfo.per100) || 0 : 0;
+  if (!(parentUnit > 0)) return 0;
+  return Math.round((val / 100) * parentUnit * 100) / 100;
 }
 
 /** Сырьё линии: миксер 15/17/20, иначе lookup. Не путать с piece «КРОШКА ЛЁГКОГО». */
@@ -21897,23 +22023,22 @@ function ppLineFromBasketItemGs_(it, costs) {
   var cat = String(it.cat || "").trim();
   if (!name || val <= 0) return null;
   if (isGramCrumbLineGs_({ cat: cat, name: name, crumbKind: it.crumbKind, sources: it.sources })) {
-    var crumbRate = crumbKindRateGs_(it.crumbKind || sub || name);
-    if (crumbRate > 0) {
-      var crumbCost = (val / 100) * crumbRate;
-      return {
-        name: name,
-        sub: sub,
-        val: val,
-        per100: crumbRate,
-        unitPrice: crumbRate,
-        piece: false,
-        cost: Math.round(crumbCost * 100) / 100,
-        cat: "crumb",
-        crumbKind: it.crumbKind || ""
-      };
-    }
+    var crumbCost = crumbRawCostGs_(it, costs, val);
+    var parentUnit = val > 0 ? Math.round((crumbCost / val) * 10000) / 100 : 0;
+    return {
+      name: name,
+      sub: sub,
+      val: val,
+      per100: parentUnit,
+      unitPrice: parentUnit,
+      piece: false,
+      cost: crumbCost,
+      cat: "crumb",
+      crumbKind: it.crumbKind || "",
+      sources: it.sources || []
+    };
   }
-  var info = lookupPpCostInfoGs_(costs, name, sub);
+  var info = datedPpCostInfo_(lookupPpCostInfoGs_(costs, name, sub), name);
   var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
   var piece = false;
   if (info && info.piece) piece = true;
@@ -21956,11 +22081,33 @@ function recoverBynFromPpLines_(lines) {
 }
 
 function retailGoodsFromCrumbItemGs_(it, val) {
+  var sources = it && it.sources;
+  if (sources && sources.length) {
+    var ratiosMix = it.ratio || [];
+    var rsumMix = 0;
+    var rmi;
+    for (rmi = 0; rmi < sources.length; rmi++) rsumMix += Number(ratiosMix[rmi]) || 0;
+    if (rsumMix <= 0) rsumMix = sources.length;
+    var sumPg = 0;
+    var sumG = 0;
+    for (var smi = 0; smi < sources.length; smi++) {
+      var srcM = sources[smi] || {};
+      var shareM = (Number(ratiosMix[smi]) || 1) / rsumMix;
+      var gM = val * shareM;
+      var rateM = crumbKindRateGs_(crumbRetailKindOfNameGs_(srcM.name || srcM.main || ""));
+      sumG += gM;
+      sumPg += rateM * gM;
+    }
+    if (sumG > 0) {
+      var blended = Math.ceil(sumPg / sumG);
+      return Math.round((val / 100) * blended * 100) / 100;
+    }
+  }
   var crumbRate = crumbKindRateGs_(it && (it.crumbKind || it.sub || it.name));
+  if (!(crumbRate > 0)) crumbRate = crumbKindRateGs_(crumbRetailKindOfNameGs_(it && (it.name || it.main)));
   if (crumbRate > 0) {
     return Math.round((val / 100) * crumbRate * 100) / 100;
   }
-  var sources = it && it.sources;
   if (sources && sources.length) {
     var ratios = it.ratio || [];
     var rsum = 0;
@@ -22019,19 +22166,18 @@ function raw26RetailCapBase_(retailGoods, deliveriesN) {
   if (!isFinite(r) || r <= 0) return 0;
   var n = Math.max(1, Number(deliveriesN) || 1);
   var per = r / n;
-  var delivery = per < PP_RAW26_RETAIL_FREE_FROM_ ? PP_RAW26_DELIVERY_PER_ * n : 0;
+  var delivery = per < PP_RAW26_RETAIL_FREE_FROM_ ? PP_RAW26_RETAIL_DELIVERY_PER_ * n : 0;
   return Math.round((r + delivery) * 100) / 100;
 }
 /**
- * Чистые оффера RAW26 = цена клиенту − сырьё − recover − пакеты − топливо 4×N.
- * Совпадает с getStats при нарезчике ON (фракции и 5×N остаются в чистом).
+ * Чистое = указанная − себес. Себес = сырьё + recover + доставка 7.60×N + пакеты.
  */
 function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN) {
   var n = Math.max(1, Number(deliveriesN) || 1);
-  var fuel = STATS_DELIVERY_FUEL_PER_ * n;
+  var delivery = PP_RAW26_DELIVERY_PER_ * n;
   return Math.round(
     ((Number(clientPrice) || 0) - (Number(raw) || 0) - (Number(recover) || 0) -
-      (Number(packagesByn) || 0) - fuel) * 100
+      (Number(packagesByn) || 0) - delivery) * 100
   ) / 100;
 }
 
@@ -22127,6 +22273,7 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     if (alloc.retailCapped) cutParts.push("потолок");
     out = {
       scheme: "RAW26",
+      rawCost: Math.round(raw * 100) / 100,
       factCost: alloc.factCost,
       deliveriesN: n,
       coef: coef,
@@ -22285,32 +22432,32 @@ function attachPpOfferClientPrice_(fact, statedCost, statedTouched) {
 }
 
 /**
- * Статистика (coef=1): factCost из computePpFactFromCost_ не меняет цену клиенту.
- * Из затрат убираем фракции и (тариф доставки − 4×N). Recover режет applyStatsCutterRecoverSplit_.
+ * Один путь себеса подписки: сырьё + recover + доставка 7.60×N + пакеты.
+ * Фракции и M в себес не входят. Чистое считается снаружи от указанной цены.
  */
 function splitPpFactForStats_(factPp) {
   factPp = factPp || {};
   var n = Math.max(0, Number(factPp.deliveriesN) || 0);
+  var raw = Math.round((Number(factPp.rawCost) || 0) * 100) / 100;
+  var recover = Math.round((Number(factPp.recoverByn != null ? factPp.recoverByn : factPp.fixed) || 0) * 100) / 100;
   var tariff = Math.round((Number(factPp.deliveryByn) || 0) * 100) / 100;
+  var packs = Math.round((Number(factPp.packagesByn) || 0) * 100) / 100;
   var fuel = Math.round((STATS_DELIVERY_FUEL_PER_ * n) * 100) / 100;
-  if (fuel > tariff && tariff > 0) fuel = tariff;
-  if (fuel < 0) fuel = 0;
-  var delivClean = Math.round((tariff - fuel) * 100) / 100;
-  if (delivClean < 0) delivClean = 0;
+  var cleanSlice = Math.round((0.6 * n) * 100) / 100;
   var frac = Math.round((Number(factPp.fractionMarkup) || 0) * 100) / 100;
   if (frac < 0) frac = 0;
-  var factCost = Number(factPp.factCost) || 0;
-  var costActual = Math.round((factCost - frac - delivClean) * 100) / 100;
+  var costActual = Math.round((raw + recover + tariff + packs) * 100) / 100;
   if (costActual < 0) costActual = 0;
   return {
-    factCost: factCost,
+    factCost: Number(factPp.factCost) || 0,
     costActual: costActual,
+    rawCost: raw,
     deliveryFuelByn: fuel,
-    deliveryInClean: delivClean,
+    deliveryInClean: cleanSlice,
     deliveryTariffByn: tariff,
     fractionInClean: frac,
-    packagesByn: Math.round((Number(factPp.packagesByn) || 0) * 100) / 100,
-    recoverByn: Math.round((Number(factPp.recoverByn != null ? factPp.recoverByn : factPp.fixed) || 0) * 100) / 100
+    packagesByn: packs,
+    recoverByn: recover
   };
 }
 
@@ -22355,8 +22502,8 @@ function handleUnlockPpCostBreakdown(json, callback, fromPost) {
     expected = "";
   }
   if (!expected) {
-    var unset = { status: "error", message: "pin_not_configured", unlocked: false, pinRequired: true };
-    return fromPost ? jsonpText(callback, unset) : jsonp(callback, unset);
+    var open = { status: "success", unlocked: true, pinRequired: false };
+    return fromPost ? jsonpText(callback, open) : jsonp(callback, open);
   }
   var pin = String(json.pin || "").trim();
   if (!pin || pin !== expected) {
@@ -22370,6 +22517,7 @@ function handleUnlockPpCostBreakdown(json, callback, fromPost) {
 /** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */
 function handleCalcPpFact(json, callback, fromPost) {
   json = json || {};
+  applyIncomingCostScope_(json);
   var basket = normalizeBasketArg_(json.basket);
   try {
     var priceInfo = readPriceCosts_("pp");
@@ -23522,9 +23670,11 @@ function couponsCostFromRow_(row) {
 }
 
 /** Сырая себест корзины по прайсу. modeHint: pp|retail|bp — какой лист пробовать первым. */
-function estimateBasketRawCost_(basket, modeHint) {
+function estimateBasketRawCost_(basket, modeHint, asOf) {
   basket = basket || [];
   if (!basket.length) return 0;
+  var prevAsOf = PP_COST_ASOF_;
+  if (asOf) PP_COST_ASOF_ = String(asOf).slice(0, 10);
   function sumWith_(mode) {
     var priceInfo;
     try { priceInfo = readPriceCosts_(mode); } catch (e) { return 0; }
@@ -23546,6 +23696,7 @@ function estimateBasketRawCost_(basket, modeHint) {
     t = sumWith_(order[oi]);
     if (t > 0) break;
   }
+  PP_COST_ASOF_ = prevAsOf;
   return t;
 }
 
@@ -23738,13 +23889,10 @@ function ppCyclePaidStatus_(cycleStore, ck) {
 function ppClientPaysNowForStats_(ck, paid, monthCal) {
   var price = Number(monthCal && monthCal.ppPriceByKey && monthCal.ppPriceByKey[ck]) || 0;
   var st = String(paid || "").toLowerCase();
-  var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
-  var maxSlot = Number((monthCal && monthCal.ppMaxSlotByKey && monthCal.ppMaxSlotByKey[ck]) || 0);
-  if (st === "yes") return true;
-  if (st === "no") return false;
-  if (minSlot >= 2 && (maxSlot >= 2 || !maxSlot)) return false;
+  if (st === "yes" || st === "no") return true;
   if (price > 0) return true;
-  if (minSlot >= 2) return false;
+  var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
+  if (minSlot >= 1) return true;
   return true;
 }
 
@@ -23826,10 +23974,12 @@ function foldPpRevenueOnce_(out) {
       if (flag === "yes") yes.push(g[b]);
       else if (flag !== "no") open.push(g[b]);
     }
-    var poolSrc = yes.length ? yes : open.filter(function (row) {
-      var s = Number(row.slot) || 0;
-      return s < 2;
-    });
+    var poolSrc;
+    if (yes.length) poolSrc = yes;
+    else {
+      var later = open.filter(function (row) { return (Number(row.slot) || 0) >= 2; });
+      poolSrc = later.length ? later : open;
+    }
     var pool = poolSrc.slice().sort(function (x, y) {
       var xs = x.slot >= 1 ? x.slot : 9;
       var ys = y.slot >= 1 ? y.slot : 9;
@@ -24183,29 +24333,23 @@ function formulaPpSplitCycles_(rows) {
 
 function formulaPpPayRow_(cycle) {
   var yes = [];
-  var open = [];
+  var rest = [];
   var i;
   for (i = 0; i < cycle.length; i++) {
     var row = cycle[i];
-    var paid = String(row.paid || "");
-    if (paid === "yes") yes.push(row);
-    else if (paid !== "no") {
-      var slot = formulaPpSlot_(row);
-      if (slot >= 2) continue;
-      if (slot === 0 && row !== cycle[0]) continue;
-      open.push(row);
-    }
+    if (String(row.paid || "") === "yes") yes.push(row);
+    else rest.push(row);
   }
-  var pool = (yes.length ? yes : open).slice().sort(function (a, b) {
-    var as = formulaPpSlot_(a) >= 1 ? formulaPpSlot_(a) : 9;
-    var bs = formulaPpSlot_(b) >= 1 ? formulaPpSlot_(b) : 9;
-    if (as !== bs) return as - bs;
-    return String(a.iso) < String(b.iso) ? -1 : 1;
+  var pool = (yes.length ? yes : rest).slice().sort(function (a, b) {
+    var as = formulaPpSlot_(a) >= 1 ? formulaPpSlot_(a) : (yes.length ? 9 : 0);
+    var bs = formulaPpSlot_(b) >= 1 ? formulaPpSlot_(b) : (yes.length ? 9 : 0);
+    if (as !== bs) return yes.length ? as - bs : bs - as;
+    return String(a.iso) < String(b.iso) ? (yes.length ? -1 : 1) : (yes.length ? 1 : -1);
   });
   return pool.length ? pool[0] : null;
 }
 
-/** Строка, чья цена входит в запрошенный месяц. Слот 2 без «оплатил» цену не открывает. */
+/** Строка, чья цена входит в месяц. Оплачено в 1-ю — слот 2 цену не открывает. Не оплачено — цену несёт слот 2. */
 function formulaPpMonthCarrier_(cycle, from, to) {
   function inn(iso) {
     iso = String(iso || "").slice(0, 10);
@@ -24219,7 +24363,7 @@ function formulaPpMonthCarrier_(cycle, from, to) {
     var row = cycle[i];
     if (!row.delivered || !inn(row.iso)) continue;
     var slot = formulaPpSlot_(row);
-    if (slot >= 2 && String(row.paid || "") !== "yes") continue;
+    if (slot >= 2 && pay && String(pay.paid || "") === "yes" && pay !== row) continue;
     if (!pick || String(row.iso) < String(pick.iso)) pick = row;
   }
   return pick;
@@ -24227,7 +24371,7 @@ function formulaPpMonthCarrier_(cycle, from, to) {
 
 /**
  * Сводка строк. Зеркало boinya-c/next/formulas.js formulaRollup_.
- * ПП: цена один раз на слоте оплаты внутри месяца. Слот 2 без «оплатил» цену не открывает.
+ * ПП: цена один раз. Оплачено в 1-ю — слот 2 не в обороте. Не оплачено — сумма на 2-й.
  * Одинаковый состав внутри месяца не суммируется второй раз.
  * Без состава остаётся в обороте по своей цене, себес только по известному составу.
  */
@@ -24473,11 +24617,13 @@ function collectFormulaRollup_(ss, opts) {
       });
     }
     var ri;
-    for (ri = 0; ri < rows.length; ri++) consider_(rows[ri]);
+    for (ri = 0; ri < rows.length; ri++) {
+      try { consider_(rows[ri]); } catch (eOne) { out.skippedRows = (out.skippedRows || 0) + 1; }
+    }
     for (var bk in bookByKey) {
       if (!bookByKey.hasOwnProperty(bk)) continue;
       if (seen[bk]) continue;
-      consider_(bookByKey[bk]);
+      try { consider_(bookByKey[bk]); } catch (eOneB) { out.skippedRows = (out.skippedRows || 0) + 1; }
     }
     var rolled = formulaRollupRows_(events, { from: periodFrom, to: periodTo });
     out.S = rolled.S;
@@ -24669,7 +24815,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     }
     // продукция = себест состава из заказа; купоны = qty×цена;
     // БП: в затратах только топливо 4р; остаток тарифа 6 → чистое. ПП — факт раз на человека (ниже).
-    var product = estimateBasketRawCost_(bask, src);
+    var product = estimateBasketRawCost_(bask, src, iso);
     var coupons = couponsCostFromRow_(row);
     var deliveryFee = 0;
     var deliveryTariff = 0;
@@ -24679,6 +24825,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       deliveryTariff = BP_DELIVERY_COST_BYN_;
       deliveryFee = STATS_DELIVERY_FUEL_PER_;
       deliveryInClean = statsBpDeliveryInCleanByn_(1);
+    }
+    if (src === "retail" && bask && bask.length) {
+      var retailGoodsRow = 0;
+      try { retailGoodsRow = retailGoodsBynFromBasket_(bask); } catch (eRg) { retailGoodsRow = 0; }
+      var unitsR = formulaBasketUnits_(bask, "retail");
+      lightFee = Math.round((3.9 * ((Number(unitsR.G) || 0) / 100) + 0.9 * (Number(unitsR.P) || 0)) * 100) / 100;
+      deliveryFee = retailGoodsRow > 0 && retailGoodsRow < PP_RAW26_RETAIL_FREE_FROM_ ? PP_RAW26_RETAIL_DELIVERY_PER_ : 0;
+      deliveryTariff = deliveryFee;
     }
     if (src === "pp") {
       // копить сырьё/корзину на клиента — финальный factCost в конце
@@ -24757,15 +24911,17 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     }
   }
 
-  for (var i = 0; i < rows.length; i++) ingestRow_(rows[i]);
+  for (var i = 0; i < rows.length; i++) {
+    try { ingestRow_(rows[i]); } catch (eIn) {}
+  }
   for (var bk in bookByKey) {
     if (!bookByKey.hasOwnProperty(bk)) continue;
     if (seenKeys[bk]) continue;
-    ingestRow_(bookByKey[bk]);
+    try { ingestRow_(bookByKey[bk]); } catch (eInB) {}
   }
   try { foldPpRevenueOnce_(out); } catch (eFoldPp) {}
-  // ПП затраты: один раз на клиента, когда pays-now (слот 1 / paid=yes).
-  // N=2: сразу полный месяц (состав листа + 9×N), слот 2 не добавляет денег — только bySource.pp.
+  // ПП затраты: один раз на клиента. Оплачено в 1-ю — слот 2 без суммы. Не оплачено — сумма на 2-й.
+  // N=1 второй доставки нет. Себес подписки: сырьё + 3.30/100г + 0.80/шт + 7.60×N + пакеты.
   try {
     out.ppRawByKey = out.ppRawByKey || {};
     out.ppBasketByKey = out.ppBasketByKey || {};
@@ -24810,7 +24966,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       var rawPp = Number(out.ppRawByKey[ppk]) || 0;
       if (sheetEnt && sheetEnt.basket && sheetEnt.basket.length) {
         try {
-          var rawSheet = estimateBasketRawCost_(baskPp, "pp");
+          var rawSheet = estimateBasketRawCost_(baskPp, "pp", "");
           if (rawSheet > 0) rawPp = rawSheet;
         } catch (eRaw) {}
       }
@@ -28903,21 +29059,14 @@ function applyStatsCutterRecoverSplit_(month, cutterOn) {
   month.ppRecoverInClean = 0;
   month.cutterEnabled = !!cutterOn;
   if (!cutterOn && recover > 0) {
-    if (!month.costBySource) month.costBySource = {};
-    var ppCost = Number(month.costBySource.pp) || 0;
-    var nextPp = Math.round((ppCost - recover) * 100) / 100;
-    if (nextPp < 0) nextPp = 0;
-    month.costBySource.pp = nextPp;
-    month.costActual = Math.round(((Number(month.costActual) || 0) - recover) * 100) / 100;
-    if (month.costActual < 0) month.costActual = 0;
-    month.ppRecoverInClean = recover;
+    month.ppRecoverInClean = 0;
   }
   return month;
 }
 
 /**
  * Echo тарифа ПП для UI/API (не новая математика).
- * RAW26: recover 3.90/100г + доставка 9; LEGACY: свет 11 + доставка 6.
+ * RAW26: recover 3.30/100г + доставка 7.60; LEGACY: свет 11 + доставка 6.
  * Смешанный / пустой месяц — без ppLightFeeEach/ppDeliveryFeeEach, оба тарифа в ppFeeByScheme.
  */
 function statsPpFeeEchoFromMonth_(month) {
@@ -28943,7 +29092,7 @@ function statsPpFeeEchoFromMonth_(month) {
         recoverEach: PP_RAW26_RECOVER_100_,
         deliveryEach: PP_RAW26_DELIVERY_PER_,
         fuelEach: STATS_DELIVERY_FUEL_PER_,
-        deliveryInCleanEach: Math.round((PP_RAW26_DELIVERY_PER_ - STATS_DELIVERY_FUEL_PER_) * 100) / 100
+        deliveryInCleanEach: 0.60
       }
     }
   };
@@ -28973,11 +29122,11 @@ function applyStatsPpFeeEcho_(target, month) {
 function statsPpFeeNote_(echo, extra) {
   var sch = echo && echo.ppScheme;
   var ppBit;
-  if (sch === "RAW26") ppBit = "ПП = состав без наценки + recover 3.90/100г + 9×N (RAW26).";
+  if (sch === "RAW26") ppBit = "ПП = сырьё + recover 3.30/100г + 0.80/шт + доставка 7.60×N + пакеты (RAW26).";
   else if (sch === "LEGACY") ppBit = "ПП = состав без наценки + 11 + 6×N (LEGACY).";
-  else ppBit = "ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY).";
+  else ppBit = "ПП RAW26 = сырьё + 3.30/100г + 0.80/шт + 7.60×N + пакеты, либо LEGACY +11 + 6×N.";
   extra = extra || "";
-  return ("Прибыль = оборот. Чистое = оборот − затраты. В затратах топливо 4×N (не 9/6), фракции в чистом, recover только если нарезчик вкл. Плоская ЗП нарезчика не в затратах. " + ppBit + " " + extra).replace(/\s+/g, " ").trim();
+  return ("Чистое = указанная − себес. Фракции и множитель в себес не входят. " + ppBit + " " + extra).replace(/\s+/g, " ").trim();
 }
 
 function invalidateStatsCache_() {
@@ -29212,6 +29361,7 @@ function handleSetStatsCutterEnabled(json, callback, fromPost) {
 
 function handleGetStats(json, callback, fromPost) {
   json = json || {};
+  applyIncomingCostScope_(json);
   // ожидаемая прибыль по диапазону — тот же getStats (чтобы не зависеть от отдельного action на старом Deploy)
   var mode = String(json.mode || "").toLowerCase();
   var fromRaw = json.from || json.fromDate || json.dateFrom || "";

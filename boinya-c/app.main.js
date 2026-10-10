@@ -1348,7 +1348,7 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
+        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "КРОЛИК", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
         fractions: {
           "ИНДЕЙКА": ["Ломтики", "Полоски", "Мелкое"],
           "БАРАНЬЯ ПЕЧЕНЬ": ["Ломтики", "Полоски", "Мелкое"]
@@ -3309,21 +3309,49 @@
 
     function crumbKindRateUi_(kind) {
       var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
-      if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
-      if (k === "meat" || /мяс/.test(k)) return 17;
-      if (k === "hypo" || /гипо/.test(k)) return 20;
+      if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 17;
+      if (k === "meat" || /мяс/.test(k)) return 19;
+      if (k === "hypo" || /гипо/.test(k)) return 22;
       return 0;
     }
 
-    /** Крошка-миксер: 15/17/20 как вкладка Розница / Worker retailGoods. */
+    function crumbRetailKindOfNameUi_(name) {
+      var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) return "hypo";
+      if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) return "veg";
+      return "meat";
+    }
+
+    /** Розница крошки: 19 / 17 / 22. Микс — потолок до рубля за 100 г. */
     function retailGoodsFromCrumbItemUi_(it, val) {
       val = Number(val) || 0;
       if (val <= 0) return 0;
+      var sources = it && it.sources;
+      if (sources && sources.length) {
+        var ratiosMix = it.ratio || [];
+        var rsumMix = 0;
+        var rmi;
+        for (rmi = 0; rmi < sources.length; rmi++) rsumMix += Number(ratiosMix[rmi]) || 0;
+        if (rsumMix <= 0) rsumMix = sources.length;
+        var sumPg = 0;
+        var sumG = 0;
+        for (var smi = 0; smi < sources.length; smi++) {
+          var srcM = sources[smi] || {};
+          var gM = val * ((Number(ratiosMix[smi]) || 1) / rsumMix);
+          var rateM = crumbKindRateUi_(crumbRetailKindOfNameUi_(srcM.name || srcM.main || ""));
+          sumG += gM;
+          sumPg += rateM * gM;
+        }
+        if (sumG > 0) {
+          return Math.round((val / 100) * Math.ceil(sumPg / sumG) * 100) / 100;
+        }
+      }
       var crumbRate = crumbKindRateUi_((it && (it.crumbKind || it.sub || it.name || it.main)) || "");
+      if (!(crumbRate > 0)) crumbRate = crumbKindRateUi_(crumbRetailKindOfNameUi_(it && (it.name || it.main)));
       if (crumbRate > 0) {
         return Math.round((val / 100) * crumbRate * 100) / 100;
       }
-      var sources = it && it.sources;
+      sources = it && it.sources;
       if (sources && sources.length) {
         var ratios = it.ratio || [];
         var rsum = 0;
@@ -12662,6 +12690,43 @@
       });
       return parts.join(" || ");
     }
+
+    /** Строка из листа / D1 → те же карточки, что в форме заказа. */
+    function parseOrderNotes(raw) {
+      var s = String(raw || "").trim();
+      if (!s) return [];
+      var blocks = [];
+      var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+      var m;
+      while ((m = re.exec(s))) {
+        var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+        var text = String(m[4] || "").trim();
+        if (!text) continue;
+        blocks.push({
+          text: text,
+          roles: {
+            mgr: rolesArr.indexOf("mgr") >= 0,
+            cut: rolesArr.indexOf("cut") >= 0,
+            cour: rolesArr.indexOf("cour") >= 0
+          },
+          permanent: m[2] === "perm",
+          itemKey: String(m[3] || "").trim()
+        });
+      }
+      if (blocks.length) return blocks;
+      var plain = s
+        .replace(/\[[^\]]*\]/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      if (!plain) return [];
+      return [{
+        text: plain,
+        roles: { mgr: false, cut: false, cour: true },
+        permanent: false,
+        itemKey: ""
+      }];
+    }
+
     function parseOrderNotesFromRaw(raw) {
       var s = String(raw || "").trim();
       if (!s) return [];
@@ -17768,7 +17833,7 @@
         : !!(res.fact && res.fact.cutter && res.fact.cutter.enabled);
       var html = '<div class="card" id="statsStaffCard" style="border:1px solid rgba(255,214,10,0.35);">';
       html += '<div class="section-title" style="margin-top:0;color:#ffd60a;">Нарезчик</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Зарплата нарезчика — <b>recover</b> (3.90/100г + 0.50/шт). Плоская ЗП <b>не в затратах</b>. Вкл → recover в затратах. Выкл → recover в <b>чистом</b>. Август 2026 и раньше — как OFF (пол ' + escapeHtml(floor) + ').</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Себес подписки: сырьё + recover <b>3.30/100г + 0.80/шт</b> + доставка <b>7.60×N</b> + пакеты. Recover в себесе всегда. Чистое = указанная − себес. Пол ' + escapeHtml(floor) + '.</div>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:12px;">';
       html += '<div style="padding:10px 12px;border-radius:12px;background:' + (globalOn ? "rgba(255,214,10,0.12)" : "rgba(142,142,147,0.12)") + ';">';
       html += '<div class="muted" style="font-size:11px;">Тумблер</div>';
@@ -17841,21 +17906,21 @@
     }
     function statsPpDeliveryLabel_(src) {
       var sch = statsPpSchemeOf_(src);
-      if (sch === "RAW26") return "Топливо доставок ПП (4×N, тариф 9 RAW26)";
+      if (sch === "RAW26") return "Доставка ПП (7.60×N: бензин 4 + сборщик 3 + 0.60)";
       if (sch === "LEGACY") return "Топливо доставок ПП (4×N, тариф 6 LEGACY)";
       return "Топливо доставок ПП (4×N)";
     }
     function statsPpCostFootnote_(src) {
       var sch = statsPpSchemeOf_(src);
-      if (sch === "RAW26") return "Затраты ПП: состав без наценки + recover (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (9−4)×N — в чистом. ";
+      if (sch === "RAW26") return "Затраты ПП: сырьё + 3.30/100г + 0.80/шт + 7.60×N + пакеты. Чистое от указанной цены. Фракции и множитель в себес не входят. ";
       if (sch === "LEGACY") return "Затраты ПП: состав без наценки + 11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (6−4)×N — в чистом. ";
       return "Затраты ПП: состав без наценки + recover/11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и остаток тарифа — в чистом. ";
     }
     function statsPpFeeEchoLine_(src) {
       var sch = statsPpSchemeOf_(src);
-      if (sch === "RAW26") return "Тариф клиенту RAW26: recover 3.90/100г + доставка 9×N. В статистике затрат: топливо 4×N.";
-      if (sch === "LEGACY") return "Тариф клиенту LEGACY: +11 + 6×N. В статистике затрат: топливо 4×N.";
-      if (sch === "MIXED") return "Тариф смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N. В статистике затрат: топливо 4×N.";
+      if (sch === "RAW26") return "Тариф клиенту RAW26: recover 3.30/100г + 0.80/шт + доставка 7.60×N. Себес тот же путь, без множителя и фракций.";
+      if (sch === "LEGACY") return "Тариф клиенту LEGACY: +11 + 6×N.";
+      if (sch === "MIXED") return "Тариф смешанный: RAW26 3.30/100г + 0.80/шт + 7.60×N / LEGACY +11 + 6×N.";
       return "";
     }
 
@@ -23651,9 +23716,10 @@
 
     var PP_SCHEME_CUTOFF_YMD = "2026-08-31";
     var PP_RAW26_COEF_DEFAULT = 2.6;
-    var PP_RAW26_RECOVER_100 = 3.90;
-    var PP_RAW26_RECOVER_PIECE = 0.50;
-    var PP_RAW26_DELIVERY_PER = 9;
+    var PP_RAW26_RECOVER_100 = 3.30;
+    var PP_RAW26_RECOVER_PIECE = 0.80;
+    var PP_RAW26_DELIVERY_PER = 7.60;
+    var PP_RAW26_RETAIL_DELIVERY_PER = 9;
     var PP_RAW26_RETAIL_CAP = 0.92;
     var PP_RAW26_RETAIL_FREE_FROM = 80;
     var STATS_DELIVERY_FUEL_PER = 4;
@@ -23739,10 +23805,10 @@
 
     function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN) {
       var n = Math.max(1, Number(deliveriesN) || 1);
-      var fuel = STATS_DELIVERY_FUEL_PER * n;
+      var delivery = (typeof PP_RAW26_DELIVERY_PER === "number" ? PP_RAW26_DELIVERY_PER : 7.6) * n;
       return Math.round(
         ((Number(clientPrice) || 0) - (Number(raw) || 0) - (Number(recover) || 0) -
-          (Number(packagesByn) || 0) - fuel) * 100
+          (Number(packagesByn) || 0) - delivery) * 100
       ) / 100;
     }
 
@@ -23850,13 +23916,13 @@
           core += row("Фракции", ppEconNum_(fact.fractionMarkup));
         }
         core += row("Пакеты", ppEconNum_(fact.packagesByn)) +
-          row("Доставка 9×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
+          row("Доставка 7.60×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
           row("Розничная цена", ppEconNum_(fact.retailGoods)) +
           row("Цена", ppEconNum_(price));
         return core;
       }
       core += row("Пакеты", ppEconNum_(fact.packagesByn)) +
-        row("Доставка 9×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
+        row("Доставка 7.60×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
         row("Розничная цена", ppEconNum_(fact.retailGoods));
       function td(v) { return String(ppEconNum_(v)); }
       var table = "<table class=\"pp-econ-mini\"><thead><tr><th></th><th>до капа</th><th>после</th></tr></thead><tbody>" +
@@ -23917,7 +23983,11 @@
         }
         var msg = "Нет доступа";
         if (res && res.message === "bad_pin") msg = "Неверный PIN";
-        else if (res && res.message === "pin_not_configured") msg = "PIN ещё не задан";
+        else if (res && res.message === "pin_not_configured") {
+          _ppCostBreakdownUnlocked = true;
+          fillPanels_();
+          return;
+        }
         showToast(msg);
       } catch (eU) {
         showToast("Не удалось открыть экономику");
@@ -23940,7 +24010,7 @@
       var n = Math.max(1, Number(deliveriesN) || 1);
       var per = r / n;
       var freeFrom = (typeof PP_RAW26_RETAIL_FREE_FROM === "number") ? PP_RAW26_RETAIL_FREE_FROM : 80;
-      var fee = (typeof PP_RAW26_DELIVERY_PER === "number") ? PP_RAW26_DELIVERY_PER : 9;
+      var fee = (typeof PP_RAW26_RETAIL_DELIVERY_PER === "number") ? PP_RAW26_RETAIL_DELIVERY_PER : 9;
       var delivery = per < freeFrom ? fee * n : 0;
       return Math.round((r + delivery) * 100) / 100;
     }
@@ -24066,7 +24136,7 @@
           capLocalAt,
           Math.round((costSum + recover) * 100) / 100
         );
-        hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +9×" + n;
+        hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +7.60×" + n;
         if (allocLocal.retailCapped) {
           total = allocLocal.factCost;
           packagesByn = allocLocal.packagesByn;
