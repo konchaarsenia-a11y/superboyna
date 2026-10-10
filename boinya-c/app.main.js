@@ -29740,7 +29740,21 @@
             '<div style="min-width:0;"><b>' + escapeHtml(nm) + "</b>" +
             (inactive ? ' <span class="muted">(выкл)</span>' : "") +
             '<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml((net && net.name) || p.networkId) +
-            (addr ? (" · " + escapeHtml(addr)) : "") + "</div></div>" +
+            (addr ? (" · " + escapeHtml(addr)) : "") + "</div>" +
+            (String(p.networkId || "") === "net_varka" || String(p.id || "").indexOf("pt_varka_") === 0
+              ? (function () {
+                  var c = String(p.paidConsent || "pending").toLowerCase();
+                  if (c !== "accepted" && c !== "declined" && c !== "pending") c = "pending";
+                  function opt(v, lab) {
+                    return '<option value="' + v + '"' + (c === v ? " selected" : "") + ">" + lab + "</option>";
+                  }
+                  return '<label class="muted" style="display:block;font-size:12px;margin-top:6px;">Согласие на платные лакомства ' +
+                    '<select onchange="partnerHubSetConsent_(\'' + idEsc + '\', this.value)" style="margin-left:6px;">' +
+                    opt("pending", "ждёт ответ") + opt("accepted", "согласны") + opt("declined", "отказ") +
+                    "</select></label>";
+                })()
+              : "") +
+            "</div>" +
             '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">' +
             '<button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
             (inactive
@@ -30093,6 +30107,26 @@
     window.loadPartnerHubUi_ = loadPartnerHubUi_;
     window.partnerHubRenderPointChecks_ = partnerHubRenderPointChecks_;
     window.partnerHubEditNetwork_ = partnerHubEditNetwork_;
+    async function partnerHubSetConsent_(id, paidConsent) {
+      var res = await apiGet({
+        action: "partnerSetPointConsent",
+        telegramId: myTelegramId,
+        pointId: id,
+        paidConsent: paidConsent,
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не сохранилось");
+        return;
+      }
+      if (partnerHubCache_ && partnerHubCache_.points) {
+        partnerHubCache_.points.forEach(function (p) {
+          if (p && p.id === id) p.paidConsent = res.paidConsent || paidConsent;
+        });
+      }
+      showToast("Согласие: " + (res.paidConsent || paidConsent));
+    }
+    window.partnerHubSetConsent_ = partnerHubSetConsent_;
     window.partnerHubEditPoint_ = partnerHubEditPoint_;
     window.partnerHubEditAccess_ = partnerHubEditAccess_;
     window.partnerHubSaveNetwork_ = partnerHubSaveNetwork_;

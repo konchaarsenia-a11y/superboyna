@@ -501,6 +501,17 @@
       margin: 0 2px; font-size: 12px; font-weight: 600; line-height: 1.35;
       color: var(--muted);
     }
+    .consent-banner {
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--bg2);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 650;
+      line-height: 1.4;
+    }
     .cart-sum {
       flex: 1; background: linear-gradient(145deg, var(--bg2), var(--bg3));
       border: 1px solid var(--line);
@@ -605,6 +616,7 @@
         </div>
         <button class="chip inspect-chip" type="button" id="inspectLocaChip" style="display:none;" onclick="goInspectLoca()">Лока</button>
       </div>
+      <div class="consent-banner" id="consentBanner" hidden></div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
         <button class="tab" type="button" data-cat="coupon" onclick="setCat('coupon')">Купоны</button>
@@ -759,7 +771,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.63";
+  var APP_VER = "3.3.64";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -1851,10 +1863,55 @@
     return grams > 0 && grams < PARTNER_MIN_TREAT_GRAMS_;
   }
 
+  function pointConsent_(pt) {
+    if (!pt) return "accepted";
+    var nid = String(pt.networkId || "");
+    var id = String(pt.id || "");
+    if (nid !== "net_varka" && id.indexOf("pt_varka_") !== 0) return "accepted";
+    var c = String(pt.paidConsent || "").toLowerCase();
+    if (c === "accepted" || c === "declined" || c === "pending") return c;
+    return "pending";
+  }
+
+  function consentMessage_(c) {
+    if (c === "declined") return "Точка отключена от партнёрки. Если захотите вернуться, напишите нам.";
+    if (c === "pending") return "Условия сотрудничества обновились. Ответьте на сообщение в боте @GOODBOY_LG, чтобы продолжить";
+    return "";
+  }
+
+  function consentBlock_() {
+    var pt = state.point;
+    if (pt) {
+      var one = pointConsent_(pt);
+      return one === "accepted" ? "" : consentMessage_(one);
+    }
+    var pts = (state.me && state.me.points) || [];
+    if (!pts.length) return "";
+    var blocked = pts.filter(function (p) { return pointConsent_(p) !== "accepted"; });
+    if (!blocked.length || blocked.length !== pts.length) return "";
+    var declined = blocked.every(function (p) { return pointConsent_(p) === "declined"; });
+    return consentMessage_(declined ? "declined" : "pending");
+  }
+
+  function paintConsentBanner_() {
+    var el = document.getElementById("consentBanner");
+    var text = consentBlock_();
+    if (el) {
+      el.hidden = !text;
+      el.textContent = text || "";
+    }
+    return text;
+  }
+
   function updateCartButton_() {
     var b = document.getElementById("btnSubmit");
     var n = cartCount();
     if (!b) return;
+    if (consentBlock_()) {
+      b.textContent = "Закрыто";
+      b.disabled = true;
+      return;
+    }
     if (treatOrderShort_()) {
       b.textContent = "Минимум 200 г";
       b.disabled = true;
@@ -1876,6 +1933,12 @@
 
   function onCartPrimary() {
     if (cartCount() <= 0) return;
+    var blocked = consentBlock_();
+    if (blocked) {
+      softToast_(blocked);
+      paintConsentBanner_();
+      return;
+    }
     if (treatOrderShort_()) {
       softToast_("Минимальный заказ лакомств — 200 г");
       return;
@@ -1929,7 +1992,8 @@
           id: p.id,
           networkId: p.networkId,
           name: p.name,
-          address: p.address || ""
+          address: p.address || "",
+          paidConsent: p.paidConsent || ""
         };
       });
     }
@@ -2216,7 +2280,13 @@
     var c = document.getElementById("cartCount");
     var n = cartCount();
     if (c) c.textContent = String(n);
+    paintConsentBanner_();
     updateCartButton_();
+    if (consentBlock_()) {
+      var hint = document.getElementById("orderTotalHint");
+      if (hint) hint.textContent = "";
+      return;
+    }
     scheduleQuote_(basket);
   }
 
@@ -2814,6 +2884,13 @@
       softToast_("Добавьте позиции в заявку");
       return;
     }
+    var blockedOrder = consentBlock_();
+    if (blockedOrder) {
+      softToast_(blockedOrder);
+      paintConsentBanner_();
+      updateCartButton_();
+      return;
+    }
     if (treatOrderShort_()) {
       softToast_("Минимальный заказ лакомств — 200 г");
       updateCartButton_();
@@ -2884,6 +2961,8 @@
         var errText = (res && res.message) || "Не удалось отправить заявку";
         if (res && res.message === "price_unavailable") errText = "Не удалось посчитать сумму";
         if (res && res.message === "min_treat_grams") errText = "Минимальный заказ лакомств — 200 г";
+        if (res && res.message === "consent_pending") errText = consentMessage_("pending");
+        if (res && res.message === "consent_declined") errText = consentMessage_("declined");
         softToast_(errText);
         submitBusy_ = false;
         updateCartButton_();
@@ -3415,7 +3494,8 @@
         id: one.id || p.id,
         networkId: one.networkId || net.id,
         name: one.name || p.name,
-        address: one.address || p.address || ""
+        address: one.address || p.address || "",
+        paidConsent: one.paidConsent || p.paidConsent || ""
       };
     });
     var nets = ((res && res.networks) || []).filter(function (n) {

@@ -52,7 +52,7 @@ if (/partnerOrderGramsReject_/.test(workerSrc) || /partnerOrderGramsReject_/.tes
 if (/Бесплатная заявка|бесплатно/.test(varkaSrc)) fail("varka still says the order is free");
 if (!/id="orderTotalHint"/.test(varkaSrc)) fail("varka must show the sum under the order");
 if (!/action:\s*"partnerCalcPrice"/.test(varkaSrc)) fail("varka must quote via partnerCalcPrice");
-if (!/APP_VER = "3\.3\.63"/.test(varkaSrc)) fail("varka version must be 3.3.63");
+if (!/APP_VER = "3\.3\.64"/.test(varkaSrc)) fail("varka version must be 3.3.64");
 if (!/Минимальный заказ — 200 г\. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г\./.test(varkaSrc)) {
   fail("varka must show the volume discount note");
 }

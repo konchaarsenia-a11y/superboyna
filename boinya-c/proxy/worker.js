@@ -1011,6 +1011,9 @@ export default {
     if (url.pathname === "/admin/week-close-dupes") {
       return weekCloseDupesAdmin_(request, env);
     }
+    if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
+      return handleGoodboyTelegramWebhook_(request, env, ctx);
+    }
     // Обход GitHub Pages: Menu Button → https://boinya-c.konchaarsenia.workers.dev/varka/
     if (
       request.method === "GET" &&
@@ -14753,12 +14756,14 @@ function partnerPickActivePoint_(p) {
   if (p.active === false) return null;
   if (String(p.networkId || "") === "net_firedog" || p.id === "pt_firedog_1") return null;
   if (String(p.networkId || "") === "net_bowwow") return null;
-  return {
+  const out = {
     id: p.id,
     networkId: p.networkId || "",
     name: p.name || p.label || p.id,
     address: p.address || ""
   };
+  if (partnerPointIsVarka_(p)) out.paidConsent = partnerEffectiveConsent_(p);
+  return out;
 }
 
 /** getMe из D1 partnerListAdmin.access — source of truth для staff/partner. */
@@ -17718,10 +17723,13 @@ async function handleCutover_(a, params, env, ctx) {
         d1W || {}
       );
     }
+    if (/^partnerBroadcastCallback$/i.test(a)) {
+      return { status: "error", message: "webhook_only", action: a };
+    }
     // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
     if (
       isPartnerD1PrimaryCanon_(env) &&
-      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerAcceptAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot)$/i.test(
+      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerAcceptAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot|partnerVarkaBroadcast|partnerMigrateVarkaConsent|partnerSetPointConsent)$/i.test(
         a
       )
     ) {
@@ -17745,6 +17753,9 @@ async function handleCutover_(a, params, env, ctx) {
       }
       if (/^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success") {
         params = Object.assign({}, params, { skipPartnerNotify: "1" });
+      }
+      if (/^partnerVarkaBroadcast$/i.test(a)) {
+        params = Object.assign({}, params, { skipSend: "1" });
       }
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
@@ -27095,6 +27106,327 @@ async function telegramSendPartnerBot_(env, chatId, text) {
   }
 }
 
+var PARTNER_VARKA_BROADCAST_ID_ = "varka-paid-2026-10";
+var PARTNER_VARKA_BROADCAST_KEY_ = "vp1";
+var PARTNER_VARKA_BROADCAST_TEXT_ =
+  "Здравствуйте! Когда начинали, договорились о бесплатном сотрудничестве — спасибо, что были с нами на этом этапе 🙌\n\n" +
+  "Честно: поток гостей с точек оказался менее плотным, чем мы рассчитывали. Уходит много NFC-купонов, баннеров и лакомств, а переходов в постоянных клиентов мало — по разным причинам — и в таком формате мы просто не можем дальше обеспечивать вас лакомствами бесплатно.\n\n" +
+  "Мы предлагаем вам такой формат сотрудничества: NFC-купон и баннер по-прежнему бесплатно, а лакомства — по специальным низким ценам для точек Varka. Стоимость сразу считается в приложении: чем больше заказ, тем ниже цена. Выберите вариант кнопкой внизу.";
+var PARTNER_VARKA_BROADCAST_BTN_PAID_ = "Продолжаем на платной основе";
+var PARTNER_VARKA_BROADCAST_BTN_NO_ = "Спасибо, но в таком случае не актуально";
+var PARTNER_VARKA_BROADCAST_REPLY_PAID_ =
+  "Спасибо, что остаётесь с нами и цените наше качество! Цены в партнёрке будут считаться автоматически и показываться под итоговым заказом.";
+var PARTNER_VARKA_BROADCAST_REPLY_NO_ =
+  "Спасибо за сотрудничество. Точку отключили от партнёрки — если захотите вернуться, напишите нам.";
+
+function partnerNormalizeConsent_(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "accepted" || s === "paid" || s === "yes") return "accepted";
+  if (s === "declined" || s === "decline" || s === "no") return "declined";
+  if (s === "pending") return "pending";
+  return "";
+}
+
+function partnerPointIsVarka_(p) {
+  if (!p) return false;
+  if (String(p.networkId || "") === "net_varka") return true;
+  return String(p.id || "").indexOf("pt_varka_") === 0;
+}
+
+function partnerEffectiveConsent_(p) {
+  if (!partnerPointIsVarka_(p)) return "accepted";
+  return partnerNormalizeConsent_(p && p.paidConsent) || "pending";
+}
+
+function partnerConsentRejectForPoint_(p) {
+  const c = partnerEffectiveConsent_(p);
+  if (c === "accepted") return null;
+  if (c === "declined") return { status: "error", message: "consent_declined", paidConsent: "declined" };
+  return { status: "error", message: "consent_pending", paidConsent: "pending" };
+}
+
+function partnerBroadcastChoiceNorm_(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "paid" || s === "accepted" || s === "yes") return "paid";
+  if (s === "decline" || s === "declined" || s === "no") return "decline";
+  return "";
+}
+
+function partnerVarkaBroadcastRecipients_(accessRows, points) {
+  const pointById = {};
+  (points || []).forEach(function (p) {
+    if (!p || !p.id || p.active === false) return;
+    pointById[String(p.id)] = p;
+  });
+  const byTid = {};
+  const order = [];
+  const skipped = [];
+  (accessRows || []).forEach(function (row) {
+    if (!row) return;
+    const st = String(row.status || "active").toLowerCase();
+    if (st && st !== "active") return;
+    const role = String(row.role || "partner").toLowerCase();
+    if (role === "staff") return;
+    const varkaPts = [];
+    (row.pointIds || []).forEach(function (pid) {
+      const p = pointById[String(pid || "")];
+      if (p && partnerPointIsVarka_(p)) varkaPts.push(p);
+    });
+    if (!varkaPts.length) return;
+    const tid = String(row.telegramId || "").trim();
+    if (!/^\d{5,15}$/.test(tid)) {
+      skipped.push({
+        username: row.username || "",
+        name: row.name || "",
+        reason: "no_telegram_id",
+        pointIds: varkaPts.map(function (p) { return p.id; })
+      });
+      return;
+    }
+    if (!byTid[tid]) {
+      byTid[tid] = {
+        telegramId: tid,
+        username: row.username || "",
+        name: row.name || "",
+        role: role,
+        networkId: "net_varka",
+        points: []
+      };
+      order.push(tid);
+    }
+    const bucket = byTid[tid];
+    if (!bucket.username && row.username) bucket.username = row.username;
+    if (!bucket.name && row.name) bucket.name = row.name;
+    const seen = {};
+    bucket.points.forEach(function (p) { seen[p.id] = true; });
+    varkaPts.forEach(function (p) {
+      if (seen[p.id]) return;
+      seen[p.id] = true;
+      bucket.points.push({ id: p.id, name: p.name || p.id, networkId: p.networkId || "net_varka" });
+    });
+  });
+  return { recipients: order.map(function (tid) { return byTid[tid]; }), skipped: skipped };
+}
+
+function partnerVarkaBroadcastKeyboard_() {
+  return {
+    inline_keyboard: [
+      [{ text: PARTNER_VARKA_BROADCAST_BTN_PAID_, callback_data: "vrc:paid:" + PARTNER_VARKA_BROADCAST_KEY_ }],
+      [{ text: PARTNER_VARKA_BROADCAST_BTN_NO_, callback_data: "vrc:no:" + PARTNER_VARKA_BROADCAST_KEY_ }]
+    ]
+  };
+}
+
+function partnerParseVarkaCallback_(data) {
+  const m = String(data || "").match(/^vrc:(paid|no):([a-z0-9_-]+)$/i);
+  if (!m) return null;
+  if (String(m[2]) !== PARTNER_VARKA_BROADCAST_KEY_) return null;
+  return { choice: String(m[1]).toLowerCase() === "paid" ? "paid" : "decline", broadcastId: PARTNER_VARKA_BROADCAST_ID_ };
+}
+
+function partnerBroadcastOwnerOk_(params) {
+  if (isPartnerCanonOwner_(params)) return true;
+  return String((params && params._actorRole) || "").toLowerCase() === "owner";
+}
+
+async function partnerTelegramSendMarkup_(env, chatId, text, replyMarkup) {
+  const token = getPartnerBotTokenWorker_(env);
+  const id = chatId != null ? String(chatId).trim() : "";
+  if (!token || !id) return { ok: false, error: "no_partner_bot_token" };
+  const payload = {
+    chat_id: id,
+    text: String(text || "").slice(0, 3500),
+    disable_web_page_preview: true
+  };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+async function partnerAnswerCallback_(env, callbackId, text) {
+  const token = getPartnerBotTokenWorker_(env);
+  const id = callbackId != null ? String(callbackId).trim() : "";
+  if (!token || !id) return { ok: false };
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/answerCallbackQuery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: id, text: String(text || "").slice(0, 180) })
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+async function partnerClearKeyboard_(env, chatId, messageId) {
+  const token = getPartnerBotTokenWorker_(env);
+  if (!token || !chatId || !messageId) return { ok: false };
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: String(chatId),
+        message_id: messageId,
+        reply_markup: { inline_keyboard: [] }
+      })
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+function partnerApplyConsentOnAdmin_(admin, rec, consent) {
+  const want = {};
+  (rec.points || []).forEach(function (p) { want[p.id] = true; });
+  let n = 0;
+  const points = admin.points || [];
+  for (let i = 0; i < points.length; i++) {
+    if (!want[points[i].id] || !partnerPointIsVarka_(points[i])) continue;
+    points[i] = Object.assign({}, points[i], { paidConsent: consent });
+    n++;
+  }
+  admin.points = points;
+  return n;
+}
+
+async function partnerRememberBroadcastReply_(env, rec, choice) {
+  const key = "partnerBroadcastReplies";
+  let prev = [];
+  try {
+    const snap = await getSnapRaw_(env, key);
+    if (snap && Array.isArray(snap.rows)) prev = snap.rows;
+  } catch (e) { prev = []; }
+  const tid = String(rec.telegramId || "");
+  const fresh = [];
+  let already = false;
+  let prevChoice = "";
+  (rec.points || []).forEach(function (pt) {
+    let hit = null;
+    for (let i = 0; i < prev.length; i++) {
+      const row = prev[i];
+      if (row && row.broadcastId === PARTNER_VARKA_BROADCAST_ID_ && row.telegramId === tid && row.pointId === pt.id) {
+        hit = row;
+        break;
+      }
+    }
+    if (hit) {
+      already = true;
+      prevChoice = hit.choice || prevChoice;
+      fresh.push(hit);
+      return;
+    }
+    fresh.push({
+      dateIso: new Date().toISOString().slice(0, 10),
+      broadcastId: PARTNER_VARKA_BROADCAST_ID_,
+      networkId: pt.networkId || "net_varka",
+      pointId: pt.id,
+      pointName: pt.name || pt.id,
+      telegramId: tid,
+      name: rec.name || "",
+      username: rec.username || "",
+      choice: choice,
+      createdAt: new Date().toISOString()
+    });
+  });
+  prev.forEach(function (row) {
+    if (!row) return;
+    const dup = fresh.some(function (n) {
+      return n.telegramId === row.telegramId && n.pointId === row.pointId && n.broadcastId === row.broadcastId;
+    });
+    if (!dup) fresh.push(row);
+  });
+  if (!already) {
+    try { await putSnap_(env, key, { rows: fresh, updatedAt: new Date().toISOString() }); } catch (ePut) {}
+  }
+  return { already: already, prevChoice: prevChoice };
+}
+
+async function handleGoodboyTelegramWebhook_(request, env, ctx) {
+  const secret = String((env && env.WORKER_SHARED_SECRET) || "").trim();
+  if (secret) {
+    const got = String(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "");
+    if (got !== secret) return new Response("forbidden", { status: 403 });
+  }
+  let update = {};
+  try { update = await request.json(); } catch (e) { update = {}; }
+  const cq = update && update.callback_query;
+  if (!cq) return new Response("ok");
+  const parsed = partnerParseVarkaCallback_(cq.data);
+  const from = cq.from || {};
+  const tid = String(from.id || "").trim();
+  const msg = cq.message || {};
+  const chatId = msg.chat && msg.chat.id;
+  if (!parsed || !tid) {
+    try { await partnerAnswerCallback_(env, cq.id, "Кнопка устарела"); } catch (e0) {}
+    return new Response("ok");
+  }
+  let admin = null;
+  try { admin = await getSnapRaw_(env, "partnerListAdmin"); } catch (eA) { admin = null; }
+  admin = admin || { points: [], access: [] };
+  const pack = partnerVarkaBroadcastRecipients_(admin.access || [], admin.points || []);
+  let rec = null;
+  for (let i = 0; i < pack.recipients.length; i++) {
+    if (pack.recipients[i].telegramId === tid) { rec = pack.recipients[i]; break; }
+  }
+  let testTid = "";
+  try {
+    const mark = await getSnapRaw_(env, "partnerBroadcastTest");
+    testTid = mark && mark.telegramId ? String(mark.telegramId) : "";
+  } catch (eT) {}
+  const testOnly = !rec && testTid === tid;
+  if (!rec && !testOnly) {
+    try { await partnerAnswerCallback_(env, cq.id, "Эта кнопка не для этого чата"); } catch (eN) {}
+    return new Response("ok");
+  }
+  if (!rec) {
+    rec = {
+      telegramId: tid,
+      username: String(from.username || "").replace(/^@/, "").toLowerCase(),
+      name: [from.first_name, from.last_name].filter(Boolean).join(" ").trim(),
+      points: [{ id: "test", name: "тест", networkId: "net_varka" }]
+    };
+  }
+  const saved = await partnerRememberBroadcastReply_(env, rec, parsed.choice);
+  try { await partnerAnswerCallback_(env, cq.id, saved.already ? "Ответ уже записан" : "Записали"); } catch (eC) {}
+  try { await partnerClearKeyboard_(env, chatId, msg.message_id); } catch (eK) {}
+  if (!saved.already) {
+    const consent = parsed.choice === "paid" ? "accepted" : "declined";
+    if (!testOnly) {
+      partnerApplyConsentOnAdmin_(admin, rec, consent);
+      try {
+        await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+      } catch (eS) {}
+    }
+    const reply = parsed.choice === "paid" ? PARTNER_VARKA_BROADCAST_REPLY_PAID_ : PARTNER_VARKA_BROADCAST_REPLY_NO_;
+    try { await telegramSendPartnerBot_(env, chatId || tid, reply); } catch (eR) {}
+    const gasCall = gasProxy_(
+      "partnerBroadcastCallback",
+      {
+        telegramId: tid,
+        username: rec.username || from.username || "",
+        name: rec.name || "",
+        choice: parsed.choice,
+        testOnly: testOnly ? "1" : ""
+      },
+      env,
+      { write: true }
+    ).catch(function () { return null; });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasCall);
+  }
+  return new Response("ok");
+}
+
 function partnerBasketLinesWorker_(basket) {
   return (basket || [])
     .map(function (b) {
@@ -28275,6 +28607,77 @@ async function mutatePartnerD1_(action, params, env) {
   admin.access = Array.isArray(admin.access) ? admin.access.slice() : [];
   admin.notifyRecipients = Array.isArray(admin.notifyRecipients) ? admin.notifyRecipients.slice() : [];
 
+  if (/^partnerVarkaBroadcast$/i.test(a)) {
+    if (!partnerBroadcastOwnerOk_(params)) return { status: "error", message: "owner_only" };
+    let mode = String((params && params.mode) || "dry").trim().toLowerCase();
+    if (mode !== "test" && mode !== "live") mode = "dry";
+    const pack = partnerVarkaBroadcastRecipients_(admin.access || [], admin.points || []);
+    const sent = [];
+    const failed = [];
+    if (mode === "test") {
+      const testTid = String((params && (params.testTelegramId || params.targetTelegramId)) || "").trim();
+      if (!/^\d{5,15}$/.test(testTid)) return { status: "error", message: "need_test_telegram_id" };
+      try {
+        await putSnap_(env, "partnerBroadcastTest", { telegramId: testTid, broadcastId: PARTNER_VARKA_BROADCAST_ID_, at: new Date().toISOString() });
+      } catch (eT) {}
+      const one = await partnerTelegramSendMarkup_(env, testTid, PARTNER_VARKA_BROADCAST_TEXT_, partnerVarkaBroadcastKeyboard_());
+      if (one && one.ok) sent.push(testTid);
+      else failed.push(testTid);
+    } else if (mode === "live") {
+      if (String((params && params.confirm) || "") !== "SEND_VARKA") {
+        return { status: "error", message: "need_confirm", tip: "Для боевой рассылки нужен confirm=SEND_VARKA" };
+      }
+      for (let i = 0; i < pack.recipients.length; i++) {
+        const rec = pack.recipients[i];
+        const res = await partnerTelegramSendMarkup_(env, rec.telegramId, PARTNER_VARKA_BROADCAST_TEXT_, partnerVarkaBroadcastKeyboard_());
+        if (res && res.ok) sent.push(rec.telegramId);
+        else failed.push(rec.telegramId);
+      }
+    }
+    return {
+      status: "success",
+      mode: mode,
+      dryRun: mode === "dry",
+      broadcastId: PARTNER_VARKA_BROADCAST_ID_,
+      count: pack.recipients.length,
+      recipients: pack.recipients,
+      skipped: pack.skipped,
+      sent: sent,
+      failed: failed,
+      sentCount: sent.length,
+      d1Verified: true
+    };
+  }
+
+  if (/^partnerMigrateVarkaConsent$/i.test(a)) {
+    if (!partnerBroadcastOwnerOk_(params)) return { status: "error", message: "owner_only" };
+    let wrote = 0;
+    let kept = 0;
+    for (let i = 0; i < admin.points.length; i++) {
+      if (!partnerPointIsVarka_(admin.points[i])) continue;
+      if (partnerNormalizeConsent_(admin.points[i].paidConsent)) { kept++; continue; }
+      admin.points[i] = Object.assign({}, admin.points[i], { paidConsent: "pending" });
+      wrote++;
+    }
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", pendingWritten: wrote, kept: kept, d1Verified: true };
+  }
+
+  if (/^partnerSetPointConsent$/i.test(a)) {
+    if (!partnerBroadcastOwnerOk_(params)) return { status: "error", message: "owner_only" };
+    const id = String((params && (params.pointId || params.id)) || "").trim();
+    const consent = partnerNormalizeConsent_(params && params.paidConsent);
+    if (!id || !consent) return { status: "error", message: "need_point_and_consent" };
+    let hit = -1;
+    for (let i = 0; i < admin.points.length; i++) {
+      if (String(admin.points[i].id) === id) { hit = i; break; }
+    }
+    if (hit < 0 || !partnerPointIsVarka_(admin.points[hit])) return { status: "error", message: "not_varka_point" };
+    admin.points[hit] = Object.assign({}, admin.points[hit], { paidConsent: consent });
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", id: id, paidConsent: consent, d1Verified: true };
+  }
+
   if (/^partnerSaveNetwork$/i.test(a)) {
     const name = String((params && params.name) || "").trim();
     if (!name) return { status: "error", message: "need_name" };
@@ -28309,7 +28712,17 @@ async function mutatePartnerD1_(action, params, env) {
         break;
       }
     }
+    const prevPoint = hit >= 0 ? admin.points[hit] : null;
+    let consent = prevPoint ? String(prevPoint.paidConsent || "") : "";
+    if (partnerPointIsVarka_({ id: id, networkId: networkId })) {
+      const asked = partnerNormalizeConsent_(params && params.paidConsent);
+      if (asked) consent = asked;
+      else if (!partnerNormalizeConsent_(consent)) consent = "pending";
+    } else {
+      consent = "";
+    }
     const row = { id: id, networkId: networkId, name: name, address: address, active: active };
+    if (consent) row.paidConsent = consent;
     if (hit >= 0) admin.points[hit] = Object.assign({}, admin.points[hit], row);
     else admin.points.push(row);
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
@@ -28665,13 +29078,17 @@ async function mutatePartnerD1_(action, params, env) {
       // let GAS decide (owner Бойни)
       return { status: "error", message: "forbidden_point_or_owner_gas" };
     }
+    let consentPoint = { id: locationId, networkId: networkId };
     for (let p = 0; p < (admin.points || []).length; p++) {
       if (String(admin.points[p].id) === locationId) {
+        consentPoint = admin.points[p];
         if (!locationName) locationName = admin.points[p].name || "";
         if (!networkId) networkId = admin.points[p].networkId || "";
         break;
       }
     }
+    const consentBlock = partnerConsentRejectForPoint_(consentPoint);
+    if (consentBlock) return consentBlock;
     if (isPartnerOwnerAllUser_({ username: username, telegramId: tid }) &&
         partnerIsExcludedPoint_(locationId, networkId)) {
       return { status: "error", message: "forbidden_point" };
