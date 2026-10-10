@@ -79,6 +79,15 @@
       notes: [],
       deliveryMethod: null,
       postOffice: "",
+      mailOn: false,
+      mailFio: "",
+      mailPhone: "",
+      mailHome: "",
+      mailIndex: "",
+      mailCity: "",
+      mailDistrict: "",
+      mailRegion: "",
+      mailOther: "",
       outsideMinsk: false,
       geo: null,
       ppSlotManual: null,
@@ -511,11 +520,23 @@
       if (folds.details) {
         html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
       }
-      html += '<p class="kicker">За Минском</p><div class="b-chips">' +
-        chipMeth("euro", "Европочта") + chipMeth("bel", "Белпочта") + chipMeth("courier", "Курьер") + "</div>";
-      if (state.deliveryMethod === "euro" || state.deliveryMethod === "bel") {
-        html += '<div style="margin-top:8px">' + field("postOffice", state.postOffice, "Отделение почты") + "</div>";
+      html += '<p class="kicker">Почта</p><div class="b-row"><span class="b-grow b-note" style="margin:0">Отправка почтой</span><div class="b-seg" style="flex:none">' +
+        segBtn("mail0", "Нет", !state.mailOn) + segBtn("mail1", "Да", !!state.mailOn) + "</div></div>";
+      if (state.mailOn) {
+        html += '<div class="b-chips" style="margin-top:8px">' +
+          chipMeth("euro", "Европочта") + chipMeth("bel", "Белпочта") + chipMeth("other", "Другое") + "</div>";
+        if (state.deliveryMethod === "euro") {
+          html += '<div style="margin-top:8px">' + field("mailFio", state.mailFio, "ФИО") + field("postOffice", state.postOffice, "Адрес отделения") + field("mailPhone", state.mailPhone, "Телефон", 'inputmode="tel"') + "</div>";
+        } else if (state.deliveryMethod === "bel") {
+          html += '<div style="margin-top:8px">' + field("mailFio", state.mailFio, "ФИО") + field("mailPhone", state.mailPhone, "Телефон", 'inputmode="tel"') +
+            field("mailHome", state.mailHome, "Домашний адрес") + field("mailIndex", state.mailIndex, "Индекс") +
+            field("mailCity", state.mailCity, "Город") + field("mailDistrict", state.mailDistrict, "Район") + field("mailRegion", state.mailRegion, "Область") + "</div>";
+        } else if (state.deliveryMethod === "other") {
+          html += '<div style="margin-top:8px">' + field("mailOther", state.mailOther, "Куда и как отправить") + "</div>";
+        }
       }
+      html += '<p class="kicker">За Минском</p><div class="b-chips">' +
+        chipMeth("courier", "Курьер") + "</div>";
       html += '<p class="kicker">Время</p><div class="nx-pair">' +
         '<label class="b-field"><input class="b-field__input" id="deliveryAfter" data-k="deliveryAfter" type="time" value="' + esc(state.deliveryAfter) + '" aria-label="Не раньше"></label>' +
         '<label class="b-field"><input class="b-field__input" id="deliveryBefore" data-k="deliveryBefore" type="time" value="' + esc(state.deliveryBefore) + '" aria-label="Не позже"></label></div>';
@@ -1676,6 +1697,7 @@
       return !(r.mgr || r.cut || r.cour);
     });
     if (badNote) { await sh().alert({ text: "У каждого примечания выберите роли (менеджер / нарезчик / курьер)." }); return; }
+    document.querySelectorAll("[data-k]").forEach(function (n) { readField(n); });
     state.outsideMinsk = outside();
     if (state.outsideMinsk && !state.deliveryMethod) {
       var picked = await sh().choice({
@@ -1684,18 +1706,30 @@
         options: [
           { label: "Европочта", value: "euro" },
           { label: "Белпочта", value: "bel" },
+          { label: "Другая почта", value: "other" },
           { label: "Всё же курьер", value: "courier" }
         ]
       });
       if (!picked) return;
       state.deliveryMethod = picked;
+      if (picked === "euro" || picked === "bel" || picked === "other") state.mailOn = true;
     }
-    if (!state.outsideMinsk) state.deliveryMethod = null;
-    if ((state.deliveryMethod === "euro" || state.deliveryMethod === "bel") && !String(state.postOffice || "").trim()) {
-      folds.details = true;
-      paint();
-      await sh().alert({ text: "Укажите адрес отделения почты — куда повезут заказ." });
-      return;
+    if (!state.outsideMinsk && !state.mailOn) state.deliveryMethod = null;
+    if (state.mailOn && (state.deliveryMethod === "euro" || state.deliveryMethod === "bel" || state.deliveryMethod === "other")) {
+      var missMail = "";
+      if (state.deliveryMethod === "euro") {
+        if (!String(state.mailFio || "").trim() || !String(state.postOffice || "").trim() || !String(state.mailPhone || "").trim()) missMail = "Для Европочты нужны ФИО, адрес отделения и телефон.";
+      } else if (state.deliveryMethod === "bel") {
+        if (!String(state.mailFio || "").trim() || !String(state.mailPhone || "").trim() || !String(state.mailHome || "").trim() || !String(state.mailIndex || "").trim() || !String(state.mailCity || "").trim() || !String(state.mailDistrict || "").trim() || !String(state.mailRegion || "").trim()) {
+          missMail = "Для Белпочты нужны ФИО, телефон, домашний адрес, индекс, город, район и область.";
+        }
+      } else if (!String(state.mailOther || "").trim()) missMail = "Напишите, куда отправить.";
+      if (missMail) {
+        folds.more = true;
+        paint();
+        await sh().alert({ text: missMail });
+        return;
+      }
     }
     var sameSlot = false;
     if (state.isEdit) {
@@ -1963,7 +1997,13 @@
     if (act === "seg") return onSeg(node.getAttribute("data-seg"));
     if (act === "fold-details") { folds.details = !folds.details; paint(); return true; }
     if (act === "fold-ig") { folds.checklist = !folds.checklist; paint(); return true; }
-    if (act === "method") { state.deliveryMethod = node.getAttribute("data-method"); state.outsideMinsk = true; paint(); return true; }
+    if (act === "method") {
+      state.deliveryMethod = node.getAttribute("data-method");
+      if (state.deliveryMethod === "euro" || state.deliveryMethod === "bel" || state.deliveryMethod === "other") state.mailOn = true;
+      else state.mailOn = false;
+      paint();
+      return true;
+    }
     if (act === "coords") { askCoords(); return true; }
     if (act === "notes") { openNotes(); return true; }
     if (act === "note-role") {
@@ -2105,6 +2145,8 @@
   }
 
   function onSeg(id) {
+    if (id === "mail0") { state.mailOn = false; if (state.deliveryMethod !== "courier") state.deliveryMethod = null; paint(); return true; }
+    if (id === "mail1") { state.mailOn = true; if (!state.deliveryMethod || state.deliveryMethod === "courier") state.deliveryMethod = "euro"; folds.more = true; paint(); return true; }
     if (id === "dog0") { state.dogCount = 1; state.activeDog = 1; paint(); return true; }
     if (id === "dog1") {
       if (!String(state.client || "").trim()) { sh().toast("Сначала укажи имя / ник владельца"); return true; }
@@ -2154,6 +2196,7 @@
         state.retailFreeFrom = res.delivery.freeFrom;
         eng().applyState(state);
       }
+      if (document.getElementById("nxSum")) patchMoney();
     }
   }
 
@@ -2277,6 +2320,23 @@
       try { next.notes = eng().parseOrderNotes(client.note) || []; } catch (eNote) { next.notes = []; }
     }
     if (client.geo) next.geo = client.geo;
+    try {
+      var mail = pay() && pay().mailFromNote_ ? pay().mailFromNote_(client.note || "") : null;
+      if (mail && mail.mailOn) {
+        next.mailOn = true;
+        next.deliveryMethod = mail.deliveryMethod;
+        if (mail.mailFio) next.mailFio = mail.mailFio;
+        if (mail.mailPhone) next.mailPhone = mail.mailPhone;
+        if (mail.postOffice) next.postOffice = mail.postOffice;
+        if (mail.mailHome) next.mailHome = mail.mailHome;
+        if (mail.mailIndex) next.mailIndex = mail.mailIndex;
+        if (mail.mailCity) next.mailCity = mail.mailCity;
+        if (mail.mailDistrict) next.mailDistrict = mail.mailDistrict;
+        if (mail.mailRegion) next.mailRegion = mail.mailRegion;
+        if (mail.mailOther) next.mailOther = mail.mailOther;
+        folds.more = true;
+      }
+    } catch (eMail) {}
     state = next;
     eng().applyState(state);
     paint();
@@ -2305,6 +2365,15 @@
       state.activeDog = Number(payload.activeDog) === 2 ? 2 : 1;
       state.deliveryMethod = payload.deliveryMethod || null;
       state.postOffice = payload.postOffice || "";
+      state.mailOn = !!payload.mailOn;
+      state.mailFio = payload.mailFio || "";
+      state.mailPhone = payload.mailPhone || "";
+      state.mailHome = payload.mailHome || "";
+      state.mailIndex = payload.mailIndex || "";
+      state.mailCity = payload.mailCity || "";
+      state.mailDistrict = payload.mailDistrict || "";
+      state.mailRegion = payload.mailRegion || "";
+      state.mailOther = payload.mailOther || "";
       state.geo = payload.geo || null;
       state.retailPaidDelivery = !!payload.retailPaidDelivery;
       state.partnerCouponsEnabled = !!payload.partnerCouponsEnabled;

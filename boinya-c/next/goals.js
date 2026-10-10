@@ -145,7 +145,7 @@
 
   function fmtNum(metricId, n) {
     if (n == null || !isFinite(Number(n))) return "";
-    if (metricId === "turnover" || metricId === "income") return sh().money(n);
+    if (metricId === "turnover" || metricId === "income" || metricId === "clean") return sh().money(n);
     if (metricId === "kg") {
       var kg = Math.round(Number(n) * 10) / 10;
       return String(kg).replace(".", ",");

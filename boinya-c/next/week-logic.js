@@ -454,10 +454,11 @@
   function courierMailMethod(c) {
     c = c || {};
     var method = String(c.deliveryMethod || "").trim().toLowerCase();
-    if (method === "euro" || method === "bel") return method;
+    if (method === "euro" || method === "bel" || method === "other") return method;
     var note = String(c.note || "");
     if (/\[ЕВРОПОЧТА\]/i.test(note)) return "euro";
     if (/\[БЕЛПОЧТА\]/i.test(note)) return "bel";
+    if (/\[ПОЧТА\]/i.test(note)) return "other";
     return "";
   }
 

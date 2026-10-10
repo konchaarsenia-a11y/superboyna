@@ -81,6 +81,7 @@
     const n = String(note || "");
     if (/\[ЕВРОПОЧТА\]/i.test(n)) return "euro";
     if (/\[БЕЛПОЧТА\]/i.test(n)) return "bel";
+    if (/\[ПОЧТА\]/i.test(n)) return "other";
     if (/\[КУРЬЕР\]/i.test(n)) return "courier";
     return null;
   }
@@ -100,7 +101,7 @@
 
   function stripMetaFromNote(note) {
     var base = String(note || "")
-      .replace(/\[(?:ЕВРОПОЧТА|БЕЛПОЧТА|КУРЬЕР|ОТДЕЛЕНИЕ:[^\]]*|GEO:[^\]]*|YMAPS:[^\]]*|TEL:[^\]]*|ЦЕНА:[^\]]*|TO:[^\]]*|NOTE:[^\]]*)\]/gi, "")
+      .replace(/\[(?:ЕВРОПОЧТА|БЕЛПОЧТА|ПОЧТА|КУРЬЕР|ОТДЕЛЕНИЕ:[^\]]*|ФИО:[^\]]*|ДОМ:[^\]]*|ИНДЕКС:[^\]]*|ГОРОД:[^\]]*|РАЙОН:[^\]]*|ОБЛАСТЬ:[^\]]*|ДРУГОЕ:[^\]]*|GEO:[^\]]*|YMAPS:[^\]]*|TEL:[^\]]*|ЦЕНА:[^\]]*|TO:[^\]]*|NOTE:[^\]]*)\]/gi, "")
       .replace(/\s{2,}/g, " ")
       .trim();
     try {

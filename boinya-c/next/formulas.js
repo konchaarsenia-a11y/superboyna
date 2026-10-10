@@ -121,7 +121,7 @@
     var revenue = kopeck_(input.revenue);
     var gross = kopeck_(revenue - parts.cost);
     var rentEntered = !(input.rent == null || input.rent === "");
-    var rent = rentEntered ? kopeck_(input.rent) : 900;
+    var rent = rentEntered ? kopeck_(input.rent) : 0;
     var lightBill = bill_(input.lightBill);
     var packBill = bill_(input.packBill);
     var amort = bill_(input.amort);
@@ -758,7 +758,7 @@
 
   var TAX_RATE_ = 0.2;
   var DELIVERY_REST_ = 0.6;
-  var RENT_DEFAULT_ = 900;
+  var RENT_DEFAULT_ = 0;
 
   function reconBand_(allowance) {
     var pct = kopeck_(Math.abs(num_(allowance)) * 0.05);

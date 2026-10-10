@@ -118,7 +118,7 @@ test("показатель закрывается сам, когда текущ�
   assert.equal(goals.evaluateMetric("orders", snap, 3, stats).reached, true);
 });
 
-test("новые клиенты и кг: нет данных, пока в ответе нет поля", () => {
+test("новые клиенты: нет данных, пока в ответе нет даты; кг больше не цель", () => {
   const month = goals.periodBounds("month", now);
   const snap = {
     stats: { status: "success", fact: { revenue: 10, cost: 4, deliveries: 1 }, money: { turnover: 10, cost: 4 } },
@@ -139,9 +139,11 @@ test("новые клиенты и кг: нет данных, пока в отв
   assert.equal(dated.current, 1);
   assert.equal(dated.reached, true);
   const grams = goals.evaluateMetric("kg", { stats: { status: "success", fact: { grams: 2500, revenue: 1, cost: 1 } } }, 3, stats);
-  assert.equal(grams.current, 2.5);
+  assert.equal(grams.status, "nodata");
+  assert.equal(grams.current, null);
   const labels = goals.unavailableReport(withoutDates, stats).map((m) => m.id);
-  assert.deepEqual(labels, ["newClients", "kg"]);
+  assert.deepEqual(labels, ["newClients"]);
+  assert.equal(goals.METRICS.some((m) => m.id === "kg"), false);
 });
 
 test("экран без точки-разделителя, помощник только в TODO", () => {

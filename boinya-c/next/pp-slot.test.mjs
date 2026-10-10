@@ -158,6 +158,10 @@ test("почта не спрашивает оплату, обычный курь
   assert.equal(L.courierMailMethod({ deliveryMethod: "bel" }), "bel");
   assert.equal(L.courierMailMethod({ note: "европочта в тексте без тега" }), "");
   assert.equal(L.courierMailMethod({ note: "[КУРЬЕР]" }), "");
+  assert.equal(L.courierMailMethod({ note: "[ПОЧТА] [ДРУГОЕ:сдэк]" }), "other");
+  assert.equal(L.courierShouldAskPaid({
+    segment: "Р", source: "retail", note: "[ПОЧТА]", paid: ""
+  }), false);
   assert.equal(L.courierShouldAskPaid({
     segment: "ПП", deliveriesN: 1, note: "[БЕЛПОЧТА]", paid: ""
   }), false);

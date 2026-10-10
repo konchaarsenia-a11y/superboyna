@@ -132,9 +132,82 @@
       .replace(/\[SEG:[^\]]*\]/gi, "")
       .replace(/\[ЦЕНА:[^\]]*\]/gi, "")
       .replace(/\[SUB:[^\]]*\]/gi, "")
+      .replace(/\[(?:ФИО|ДОМ|ИНДЕКС|ГОРОД|РАЙОН|ОБЛАСТЬ|ДРУГОЕ):[^\]]*\]/gi, "")
+      .replace(/\[ПОЧТА\]/gi, "")
       .replace(/\s{2,}/g, " ")
       .trim();
+    if (state.mailOn && (state.deliveryMethod === "euro" || state.deliveryMethod === "bel" || state.deliveryMethod === "other")) {
+      clientNote = String(clientNote || "")
+        .replace(/\[ЕВРОПОЧТА\]/gi, "")
+        .replace(/\[БЕЛПОЧТА\]/gi, "")
+        .replace(/\[ОТДЕЛЕНИЕ:[^\]]*\]/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      clientNote = mailTags_(state) + (clientNote ? " " + clientNote : "");
+    }
     return { note: clientNote, noteBody: noteBody, permanentNote: permanentText(notes) };
+  }
+
+  function mailBit_(label, value) {
+    var v = String(value || "").replace(/[\[\]]/g, " ").replace(/\s+/g, " ").trim();
+    if (!v) return "";
+    return "[" + label + ":" + v + "]";
+  }
+
+  function mailTags_(state) {
+    state = state || {};
+    var method = state.deliveryMethod;
+    var bits = [];
+    if (method === "euro") {
+      bits.push("[ЕВРОПОЧТА]");
+      bits.push(mailBit_("ФИО", state.mailFio));
+      bits.push(mailBit_("ОТДЕЛЕНИЕ", state.postOffice));
+      bits.push(mailBit_("TEL", state.mailPhone));
+    } else if (method === "bel") {
+      bits.push("[БЕЛПОЧТА]");
+      bits.push(mailBit_("ФИО", state.mailFio));
+      bits.push(mailBit_("TEL", state.mailPhone));
+      bits.push(mailBit_("ДОМ", state.mailHome));
+      bits.push(mailBit_("ИНДЕКС", state.mailIndex));
+      bits.push(mailBit_("ГОРОД", state.mailCity));
+      bits.push(mailBit_("РАЙОН", state.mailDistrict));
+      bits.push(mailBit_("ОБЛАСТЬ", state.mailRegion));
+    } else if (method === "other") {
+      bits.push("[ПОЧТА]");
+      bits.push(mailBit_("ДРУГОЕ", state.mailOther));
+    }
+    return bits.filter(Boolean).join(" ");
+  }
+
+  function mailFromNote_(note) {
+    var s = String(note || "");
+    var out = { mailOn: false, deliveryMethod: null };
+    function grab(label) {
+      var m = s.match(new RegExp("\\[" + label + ":([^\\]]*)\\]", "i"));
+      return m ? String(m[1] || "").trim() : "";
+    }
+    if (/\[ЕВРОПОЧТА\]/i.test(s)) {
+      out.mailOn = true;
+      out.deliveryMethod = "euro";
+      out.mailFio = grab("ФИО");
+      out.postOffice = grab("ОТДЕЛЕНИЕ");
+      out.mailPhone = grab("TEL");
+    } else if (/\[БЕЛПОЧТА\]/i.test(s)) {
+      out.mailOn = true;
+      out.deliveryMethod = "bel";
+      out.mailFio = grab("ФИО");
+      out.mailPhone = grab("TEL");
+      out.mailHome = grab("ДОМ");
+      out.mailIndex = grab("ИНДЕКС");
+      out.mailCity = grab("ГОРОД");
+      out.mailDistrict = grab("РАЙОН");
+      out.mailRegion = grab("ОБЛАСТЬ");
+    } else if (/\[ПОЧТА\]/i.test(s)) {
+      out.mailOn = true;
+      out.deliveryMethod = "other";
+      out.mailOther = grab("ДРУГОЕ");
+    }
+    return out;
   }
 
   function basketOf(state, eng) {
@@ -264,6 +337,15 @@
       activeDog: Number(state.activeDog) === 2 ? 2 : 1,
       deliveryMethod: state.deliveryMethod || null,
       postOffice: String(state.postOffice || "").trim(),
+      mailOn: !!state.mailOn,
+      mailFio: String(state.mailFio || "").trim(),
+      mailPhone: String(state.mailPhone || "").trim(),
+      mailHome: String(state.mailHome || "").trim(),
+      mailIndex: String(state.mailIndex || "").trim(),
+      mailCity: String(state.mailCity || "").trim(),
+      mailDistrict: String(state.mailDistrict || "").trim(),
+      mailRegion: String(state.mailRegion || "").trim(),
+      mailOther: String(state.mailOther || "").trim(),
       geo: geoOf(state, eng),
       retailPaidDelivery: !!state.retailPaidDelivery,
       partnerCouponsEnabled: !!state.partnerCouponsEnabled,
@@ -345,6 +427,8 @@
     retailDisplayed: retailDisplayed,
     couponsOf: couponsOf,
     noteOf: noteOf,
+    mailFromNote_: mailFromNote_,
+    mailTags_: mailTags_,
     basketOf: basketOf,
     slotOf: slotOf,
     geoOf: geoOf,
