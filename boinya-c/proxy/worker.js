@@ -23172,6 +23172,150 @@ async function rememberBpCardFromOrder_(params, env) {
   return saved;
 }
 
+/** Явная смена ника с карточки: новый handle побеждает, старый из label снимается. */
+function identityForNickRename_(incomingNick, incomingLabel, oldNick, oldLabel) {
+  const ig =
+    extractInstagramNick_(incomingNick) ||
+    extractInstagramNick_(incomingLabel) ||
+    String(incomingNick || "").replace(/^@+/, "").trim();
+  const oldIg = extractInstagramNick_(oldNick) || extractInstagramNick_(oldLabel) || "";
+  let name = subscriptionDisplayFromRow_({ nick: incomingNick, label: incomingLabel });
+  if (oldIg) name = stripIgFromText_(name, oldIg);
+  if (ig) name = stripIgFromText_(name, ig);
+  if (name && ig && name.toLowerCase() === ig.toLowerCase()) name = "";
+  if (name && ig) return { nick: ig, label: (name + " " + ig).replace(/\s+/g, " ").trim() };
+  if (ig) return { nick: ig, label: ig };
+  const plain = String(incomingNick || incomingLabel || "").replace(/\s+/g, " ").trim();
+  return { nick: plain, label: plain };
+}
+
+/**
+ * Строка той же карточки по прежнему нику. Второй человек с тем же subId
+ * и вторая собака (несколько строк на один ник без совпавшего subId) не выбираются.
+ */
+function findSubscriptionRenameIndex_(arr, prevNick, prevLabel, sheetWant, subId) {
+  const keys = [];
+  const k1 = normalizeMatchKey_(prevNick || "");
+  const k2 = normalizeMatchKey_(prevLabel || "");
+  if (k1) keys.push(k1);
+  if (k2 && keys.indexOf(k2) < 0) keys.push(k2);
+  if (!keys.length) return -1;
+  const hits = [];
+  for (let i = 0; i < (arr || []).length; i++) {
+    const it = arr[i];
+    if (!it) continue;
+    if (sheetWant && subscriptionSheetKey_(it) && subscriptionSheetKey_(it) !== String(sheetWant).toUpperCase()) {
+      continue;
+    }
+    let nickOk = false;
+    for (let k = 0; k < keys.length; k++) {
+      if (subscriptionMatch_(it, keys[k], sheetWant, "")) {
+        nickOk = true;
+        break;
+      }
+    }
+    if (!nickOk) continue;
+    hits.push(i);
+  }
+  if (!hits.length) return -1;
+  const wantSid = String(subId || "").trim();
+  if (wantSid) {
+    const byId = hits.filter(function (i) {
+      return String(arr[i].subId || arr[i].id || "").trim() === wantSid;
+    });
+    if (byId.length) return byId[0];
+    if (hits.length === 1) {
+      const sid = String(arr[hits[0]].subId || arr[hits[0]].id || "").trim();
+      if (sid && sid !== wantSid) return -1;
+      return hits[0];
+    }
+    return -1;
+  }
+  if (hits.length === 1) return hits[0];
+  return -1;
+}
+
+function planSubscriptionUpsert_(arr, params) {
+  params = params || {};
+  const nick = String(params.nick || params.client || params.label || "").trim();
+  const findSheet = String(params.sheet || params.segment || "").trim().toUpperCase();
+  const subId = String(params.subId || "").trim();
+  const prevNick = String(params.prevNick || "").trim();
+  const prevLabel = String(params.prevLabel || "").trim();
+  let idx = findSubscriptionIndex_(arr, nick, params.label || "", findSheet, subId);
+  let renamed = false;
+  const prevKey = normalizeMatchKey_(prevNick || prevLabel || "");
+  const nextKey = normalizeMatchKey_(nick);
+  if (idx < 0 && prevKey && prevKey !== nextKey) {
+    const prevIdx = findSubscriptionRenameIndex_(arr, prevNick, prevLabel, findSheet, subId);
+    if (prevIdx >= 0) {
+      idx = prevIdx;
+      renamed = true;
+    }
+  }
+  return {
+    idx: idx,
+    renamed: renamed,
+    nick: nick,
+    findSheet: findSheet,
+    subId: subId,
+    prevNick: prevNick,
+    prevLabel: prevLabel
+  };
+}
+
+/** Профиль и опросник той же карточки. Если новый ник уже есть отдельной строкой — старую не трогаем. */
+async function renameSubscriptionNickSides_(env, prevNick, nextNick) {
+  const prevKey = normalizeMatchKey_(prevNick);
+  const nextKey = normalizeMatchKey_(nextNick);
+  if (!env || !prevKey || !nextKey || prevKey === nextKey) return;
+  const jobs = [
+    ["listClientProfiles", "clients"],
+    ["listSurvey", "items"]
+  ];
+  for (let j = 0; j < jobs.length; j++) {
+    const snapName = jobs[j][0];
+    const listKey = jobs[j][1];
+    let snap = null;
+    try {
+      snap = await getSnapRaw_(env, snapName);
+    } catch (eSnap) {
+      snap = null;
+    }
+    const arr = snap && snap[listKey];
+    if (!Array.isArray(arr) || !arr.length) continue;
+    let hasNext = false;
+    for (let i = 0; i < arr.length; i++) {
+      const n = arr[i] && (arr[i].nick || arr[i].name || arr[i].client || "");
+      if (normalizeMatchKey_(n) === nextKey) {
+        hasNext = true;
+        break;
+      }
+    }
+    if (hasNext) continue;
+    let changed = false;
+    for (let i = 0; i < arr.length; i++) {
+      const row = arr[i];
+      if (!row) continue;
+      const blob = row.nick || row.name || row.client || row.label || "";
+      if (normalizeMatchKey_(blob) !== prevKey) continue;
+      if (row.nick && normalizeMatchKey_(row.nick) === prevKey) row.nick = nextNick;
+      if (row.client && normalizeMatchKey_(row.client) === prevKey) row.client = nextNick;
+      if (row.name && normalizeMatchKey_(row.name) === prevKey) row.name = nextNick;
+      if (snapName === "listSurvey" && row.id && row.id === bpSurveyStableId_(prevNick, row.kind)) {
+        row.id = bpSurveyStableId_(nextNick, row.kind);
+      }
+      changed = true;
+      break;
+    }
+    if (changed) {
+      try {
+        await putSnap_(env, snapName, snap);
+      } catch (ePut) {}
+    }
+  }
+}
+
 async function upsertSubscription_(params, env) {
   let list = (await getSnapRaw_(env, "listSubscriptions")) || {
     status: "success",
@@ -23205,19 +23349,16 @@ async function upsertSubscription_(params, env) {
       d1Verified: true
     };
   }
-  const nick = String(params.nick || params.client || params.label || "").trim();
-  const mk = normalizeMatchKey_(nick);
+  const plan = planSubscriptionUpsert_(arr, params);
+  const nick = plan.nick;
   const isMove = false;
-  const findSheet = String(
-    (isMove ? params.fromSheet : params.sheet || params.segment) || ""
-  )
-    .trim()
-    .toUpperCase();
+  const findSheet = plan.findSheet;
   const toSheet = String(
     (isMove ? params.toSheet : params.sheet || params.segment || findSheet) || "ПП"
   ).trim() || "ПП";
-  const subId = String(params.subId || "").trim();
-  const idx = findSubscriptionIndex_(arr, nick, params.label || "", findSheet, subId);
+  const subId = plan.subId;
+  const idx = plan.idx;
+  const renamed = plan.renamed;
   const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
   if (row.wishes) {
     const peeledSave = peelServiceCoords_(row.wishes);
@@ -23234,12 +23375,14 @@ async function upsertSubscription_(params, env) {
   delete row.callback;
   delete row.cutover;
   delete row.mode;
-  const identSave = preferSubscriptionIdentity_(
-    nick,
-    params.label,
-    idx >= 0 && arr[idx] ? arr[idx].nick : "",
-    idx >= 0 && arr[idx] ? arr[idx].label : ""
-  );
+  delete row.prevNick;
+  delete row.prevLabel;
+  delete row.rename;
+  const oldNick = idx >= 0 && arr[idx] ? arr[idx].nick : "";
+  const oldLabel = idx >= 0 && arr[idx] ? arr[idx].label : "";
+  const identSave = renamed
+    ? identityForNickRename_(nick, params.label, plan.prevNick || oldNick, plan.prevLabel || oldLabel)
+    : preferSubscriptionIdentity_(nick, params.label, oldNick, oldLabel);
   row.nick = identSave.nick || nick || (arr[idx] && arr[idx].nick) || "";
   row.label = identSave.label || String(params.label || row.label || row.nick).trim();
   row.sheet = toSheet;
@@ -23274,9 +23417,15 @@ async function upsertSubscription_(params, env) {
   list.count = collapsedSave.length;
   list.status = "success";
   await putSnap_(env, "listSubscriptions", list);
+  if (renamed) {
+    try {
+      await renameSubscriptionNickSides_(env, plan.prevNick || oldNick, row.nick);
+    } catch (eRenSide) {}
+  }
   return {
     status: "success",
     wrote: 1,
+    renamed: renamed,
     nick: row.nick,
     label: row.label,
     subId: row.subId || "",
