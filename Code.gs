@@ -2495,6 +2495,35 @@ function doGet(e) {
       recipients: e.parameter.recipients ? decodeURIComponent(e.parameter.recipients) : "[]"
     }, callback, false);
   }
+  if (action === "partnerCalcPrice") {
+    return handlePartnerCalcPrice({
+      basket: e.parameter.basket ? decodeURIComponent(e.parameter.basket) : (e.parameter.basketJson ? decodeURIComponent(e.parameter.basketJson) : "[]")
+    }, callback, false);
+  }
+  if (action === "partnerVarkaBroadcast") {
+    return handlePartnerVarkaBroadcast({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      actorUsername: e.parameter.actorUsername ? decodeURIComponent(e.parameter.actorUsername) : "",
+      mode: e.parameter.mode || "dry",
+      testTelegramId: e.parameter.testTelegramId || e.parameter.targetTelegramId || "",
+      skipSend: e.parameter.skipSend || ""
+    }, callback, false);
+  }
+  if (action === "partnerMigrateVarkaConsent") {
+    return handlePartnerMigrateVarkaConsent({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : ""
+    }, callback, false);
+  }
+  if (action === "partnerSetPointConsent") {
+    return handlePartnerSetPointConsent({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      pointId: e.parameter.pointId || e.parameter.id || "",
+      paidConsent: e.parameter.paidConsent || ""
+    }, callback, false);
+  }
   if (action === "partnerSubmitOrder") {
     return handlePartnerSubmitOrder({
       telegramId: e.parameter.telegramId || "",
@@ -3350,6 +3379,21 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSetNotifyRecipients") {
     return handlePartnerSetNotifyRecipients(json, callback, fromPost);
+  }
+  if (action === "partnerCalcPrice") {
+    return handlePartnerCalcPrice(json, callback, fromPost);
+  }
+  if (action === "partnerVarkaBroadcast") {
+    return handlePartnerVarkaBroadcast(json, callback, fromPost);
+  }
+  if (action === "partnerMigrateVarkaConsent") {
+    return handlePartnerMigrateVarkaConsent(json, callback, fromPost);
+  }
+  if (action === "partnerSetPointConsent") {
+    return handlePartnerSetPointConsent(json, callback, fromPost);
+  }
+  if (action === "partnerBroadcastCallback") {
+    return handlePartnerBroadcastCallback(json, callback, fromPost);
   }
   if (action === "partnerSubmitOrder") {
     return handlePartnerSubmitOrder(json, callback, fromPost);
@@ -8396,6 +8440,10 @@ function handleTelegramUpdate_(update) {
       }
       if (/^ppafk:/i.test(cqData)) {
         handlePpAfkCallback_(cq0);
+        return;
+      }
+      if (/^vrc:/i.test(cqData)) {
+        handlePartnerBroadcastTelegramCallback_(cq0);
         return;
       }
       handleDeficitCallback_(cq0);
@@ -22018,8 +22066,14 @@ function handleCalcPrice(json, callback, fromPost) {
         wishes: json.wishes,
         forNew: json.forNew === true || json.forNew === "1" || json.forNew === 1
       });
+      // Без packCounts — как раньше, пакеты из сборки. Явный объект (в т.ч. нули) не пересобираем.
+      var packOptCp = json.packCounts || null;
+      if (typeof packOptCp === "string") {
+        try { packOptCp = JSON.parse(packOptCp); } catch (ePcCp) { packOptCp = null; }
+      }
+      if (!packOptCp || typeof packOptCp !== "object") packOptCp = null;
       var fact = computePpFactFromCost_(
-        rawCost, basket, json.deliveriesN || json.deliveries, coefIn, null, schemeFact, lines, null
+        rawCost, basket, json.deliveriesN || json.deliveries, coefIn, packOptCp, schemeFact, lines, null
       );
       for (var fk in fact) {
         if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
@@ -25477,12 +25531,13 @@ function handleDeletePartner(json, callback, fromPost) {
 
 /* ========== Партнёрский мини-апп (сети / точки / доступы) ========== */
 var PARTNER_NET_HEADERS_ = ["id", "name", "logo", "active", "updatedAt"];
-var PARTNER_POINT_HEADERS_ = ["id", "networkId", "name", "address", "active", "updatedAt"];
+var PARTNER_POINT_HEADERS_ = ["id", "networkId", "name", "address", "active", "updatedAt", "paidConsent"];
 var PARTNER_ACCESS_HEADERS_ = ["id", "username", "telegramId", "name", "networkId", "pointIds", "role", "status", "updatedAt"];
 var PARTNER_ORDER_HEADERS_ = [
   "id", "dateIso", "locationId", "locationName", "networkId", "telegramId",
   "userName", "username", "basketJson", "status", "createdAt",
-  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId", "note"
+  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId", "note",
+  "totalByn"
 ];
 
 function partnerNormUser_(u) {
@@ -25760,10 +25815,217 @@ function readPartnerPoints_() {
       name: String(data[r][2] || "").trim(),
       address: String(data[r][3] || "").trim(),
       active: String(data[r][4] || "yes").toLowerCase() !== "no",
-      updatedAt: data[r][5]
+      updatedAt: data[r][5],
+      paidConsent: String(data[r][6] || "").trim()
     });
   }
   return out;
+}
+
+/** Рассылка Varka про платные лакомства. Ключ в callback_data короткий (лимит Telegram 64 байта). */
+var PARTNER_VARKA_BROADCAST_ID_ = "varka-paid-2026-10";
+var PARTNER_VARKA_BROADCAST_KEY_ = "vp1";
+var PARTNER_VARKA_BROADCAST_TEXT_ =
+  "Здравствуйте! Когда начинали, договорились о бесплатном сотрудничестве — спасибо, что были с нами на этом этапе 🙌\n\n" +
+  "Честно: поток гостей с точек оказался менее плотным, чем мы рассчитывали. Уходит много NFC-купонов, баннеров и лакомств, а переходов в постоянных клиентов мало — по разным причинам — и в таком формате мы просто не можем дальше обеспечивать вас лакомствами бесплатно.\n\n" +
+  "Мы предлагаем вам такой формат сотрудничества: NFC-купон и баннер по-прежнему бесплатно, а лакомства — по специальным низким ценам для точек Varka. Стоимость сразу считается в приложении: чем больше заказ, тем ниже цена. Выберите вариант кнопкой внизу.";
+var PARTNER_VARKA_BROADCAST_BTN_PAID_ = "Продолжаем на платной основе";
+var PARTNER_VARKA_BROADCAST_BTN_NO_ = "Спасибо, но в таком случае не актуально";
+var PARTNER_VARKA_BROADCAST_REPLY_PAID_ =
+  "Спасибо, что остаётесь с нами и цените наше качество! Цены в партнёрке будут считаться автоматически и показываться под итоговым заказом.";
+var PARTNER_VARKA_BROADCAST_REPLY_NO_ =
+  "Спасибо за сотрудничество. Точку отключили от партнёрки — если захотите вернуться, напишите нам.";
+var PARTNER_VARKA_CONSENT_PENDING_TEXT_ =
+  "Условия сотрудничества обновились. Ответьте на сообщение в боте @GOODBOY_LG, чтобы продолжить";
+var PARTNER_VARKA_CONSENT_DECLINED_TEXT_ =
+  "Точка отключена от партнёрки. Если захотите вернуться, напишите нам.";
+var PARTNER_BROADCAST_REPLY_HEADERS_ = [
+  "dateIso", "broadcastId", "networkId", "pointId", "pointName",
+  "telegramId", "name", "username", "choice", "createdAt"
+];
+
+function partnerNormalizeConsent_(raw) {
+  var s = String(raw || "").trim().toLowerCase();
+  if (s === "accepted" || s === "paid" || s === "yes") return "accepted";
+  if (s === "declined" || s === "decline" || s === "no") return "declined";
+  if (s === "pending") return "pending";
+  return "";
+}
+
+function partnerPointIsVarka_(p) {
+  if (!p) return false;
+  if (String(p.networkId || "") === "net_varka") return true;
+  return String(p.id || "").indexOf("pt_varka_") === 0;
+}
+
+/** Пустое согласие у точки Varka = pending. Другие сети не закрываем. */
+function partnerEffectiveConsent_(p) {
+  if (!partnerPointIsVarka_(p)) return "accepted";
+  return partnerNormalizeConsent_(p && p.paidConsent) || "pending";
+}
+
+function partnerConsentRejectForPoint_(p) {
+  var c = partnerEffectiveConsent_(p);
+  if (c === "accepted") return null;
+  if (c === "declined") {
+    return { status: "error", message: "consent_declined", paidConsent: "declined" };
+  }
+  return { status: "error", message: "consent_pending", paidConsent: "pending" };
+}
+
+function partnerPointClient_(p) {
+  var out = {
+    id: p.id,
+    networkId: p.networkId,
+    name: p.name,
+    address: p.address
+  };
+  if (partnerPointIsVarka_(p)) out.paidConsent = partnerEffectiveConsent_(p);
+  return out;
+}
+
+function partnerBroadcastChoiceNorm_(raw) {
+  var s = String(raw || "").trim().toLowerCase();
+  if (s === "paid" || s === "accepted" || s === "yes") return "paid";
+  if (s === "decline" || s === "declined" || s === "no") return "decline";
+  return "";
+}
+
+function partnerBroadcastChoiceToConsent_(choice) {
+  return partnerBroadcastChoiceNorm_(choice) === "paid" ? "accepted" : "declined";
+}
+
+/**
+ * Хозяева точек Varka: активный доступ, роль не staff, есть telegramId и хотя бы одна точка сети.
+ * Один человек — одно сообщение, даже если точек несколько.
+ */
+function partnerVarkaBroadcastRecipients_(accessRows, points) {
+  var pointById = {};
+  (points || []).forEach(function (p) {
+    if (!p || !p.id || p.active === false) return;
+    pointById[String(p.id)] = p;
+  });
+  var byTid = {};
+  var order = [];
+  var skipped = [];
+  (accessRows || []).forEach(function (row) {
+    if (!row) return;
+    var st = String(row.status || "active").toLowerCase();
+    if (st && st !== "active") return;
+    var role = String(row.role || "partner").toLowerCase();
+    if (role === "staff") return;
+    var varkaPts = [];
+    (row.pointIds || []).forEach(function (pid) {
+      var p = pointById[String(pid || "")];
+      if (p && partnerPointIsVarka_(p)) varkaPts.push(p);
+    });
+    if (!varkaPts.length && partnerPointIsVarka_({ id: "", networkId: row.networkId })) {
+      Object.keys(pointById).forEach(function (pid) {
+        var p = pointById[pid];
+        if (p && String(p.networkId || "") === String(row.networkId || "") && partnerPointIsVarka_(p)) {
+          varkaPts.push(p);
+        }
+      });
+    }
+    if (!varkaPts.length) return;
+    var tid = String(row.telegramId || "").trim();
+    if (!/^\d{5,15}$/.test(tid)) {
+      skipped.push({
+        username: row.username || "",
+        name: row.name || "",
+        reason: "no_telegram_id",
+        pointIds: varkaPts.map(function (p) { return p.id; })
+      });
+      return;
+    }
+    if (!byTid[tid]) {
+      byTid[tid] = {
+        telegramId: tid,
+        username: row.username || "",
+        name: row.name || "",
+        role: role,
+        networkId: "net_varka",
+        points: []
+      };
+      order.push(tid);
+    }
+    var bucket = byTid[tid];
+    if (!bucket.username && row.username) bucket.username = row.username;
+    if (!bucket.name && row.name) bucket.name = row.name;
+    var seen = {};
+    bucket.points.forEach(function (p) { seen[p.id] = true; });
+    varkaPts.forEach(function (p) {
+      if (seen[p.id]) return;
+      seen[p.id] = true;
+      bucket.points.push({ id: p.id, name: p.name || p.id, networkId: p.networkId || "net_varka" });
+    });
+  });
+  return {
+    recipients: order.map(function (tid) { return byTid[tid]; }),
+    skipped: skipped
+  };
+}
+
+function partnerVarkaBroadcastKeyboard_() {
+  return {
+    inline_keyboard: [
+      [{ text: PARTNER_VARKA_BROADCAST_BTN_PAID_, callback_data: "vrc:paid:" + PARTNER_VARKA_BROADCAST_KEY_ }],
+      [{ text: PARTNER_VARKA_BROADCAST_BTN_NO_, callback_data: "vrc:no:" + PARTNER_VARKA_BROADCAST_KEY_ }]
+    ]
+  };
+}
+
+function partnerParseVarkaCallback_(data) {
+  var m = String(data || "").match(/^vrc:(paid|no):([a-z0-9_-]+)$/i);
+  if (!m) return null;
+  if (String(m[2]) !== PARTNER_VARKA_BROADCAST_KEY_) return null;
+  return { choice: String(m[1]).toLowerCase() === "paid" ? "paid" : "decline", broadcastId: PARTNER_VARKA_BROADCAST_ID_ };
+}
+
+function getPartnerBroadcastRepliesSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Ответы_рассылки");
+  if (!sh) {
+    sh = ss.insertSheet("Ответы_рассылки");
+    sh.getRange(1, 1, 1, PARTNER_BROADCAST_REPLY_HEADERS_.length).setValues([PARTNER_BROADCAST_REPLY_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNER_BROADCAST_REPLY_HEADERS_);
+  }
+  return sh;
+}
+
+function readPartnerBroadcastReplies_() {
+  var sh = getPartnerBroadcastRepliesSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var tid = String(data[r][5] || "").trim();
+    var bid = String(data[r][1] || "").trim();
+    if (!tid || !bid) continue;
+    out.push({
+      rowIndex: r + 1,
+      dateIso: String(data[r][0] || ""),
+      broadcastId: bid,
+      networkId: String(data[r][2] || ""),
+      pointId: String(data[r][3] || ""),
+      pointName: String(data[r][4] || ""),
+      telegramId: tid,
+      name: String(data[r][6] || ""),
+      username: String(data[r][7] || ""),
+      choice: String(data[r][8] || ""),
+      createdAt: data[r][9]
+    });
+  }
+  return out;
+}
+
+function partnerBroadcastLauncherOk_(json) {
+  var actor = String((json && json.telegramId) || "").trim();
+  var user = partnerNormUser_((json && (json.actorUsername || json.username)) || "");
+  if (partnerIsCanonOwner_(user, actor)) return true;
+  try { if (partnerRequireOwner_(actor)) return true; } catch (eOwn) {}
+  return false;
 }
 
 function readPartnerAccessRows_() {
@@ -27169,9 +27431,6 @@ function partnerCatalogStatic_() {
   ];
 }
 
-/** Сумма граммов одного заказа партнёра. Одна константа на все точки. */
-var MAX_ORDER_GRAMS = 200;
-
 function partnerCatalogById_(id) {
   var want = String(id || "").trim();
   if (!want) return null;
@@ -27182,48 +27441,188 @@ function partnerCatalogById_(id) {
   return null;
 }
 
-function partnerResolveLineMeta_(line) {
-  var cat = partnerCatalogById_(line && line.id);
-  var unit = String((cat && cat.unit) || (line && line.unit) || "").trim().toLowerCase();
-  var type = String((cat && cat.type) || (line && line.type) || "").trim().toLowerCase();
-  return { unit: unit, type: type, qty: Number(line && line.qty) || 0 };
-}
-
 /**
- * Граммы одной строки. Qty весовой позиции уже в граммах.
- * Штуки (купон / NFC / баннер) в лимит не входят: конвертации шт→г нет и для лимита она не используется.
- * Единица из каталога важнее unit, который прислал клиент.
+ * Лакомства партнёрки → корзина ПП. Купон / NFC / баннер в цену не входят (0 BYN).
+ * sub «Ломтики» — базовая фракция (ставка 0, алиас «Целое»): сырьё у сердца и лёгкого
+ * одинаковое по всем фракциям, наценка фракции при ломтиках = 0.
  */
-function partnerLineWeightGrams_(line) {
-  var meta = partnerResolveLineMeta_(line);
-  if (!(meta.qty > 0)) return 0;
-  if (meta.unit.indexOf("шт") >= 0) return 0;
-  if (meta.type === "coupon") return 0;
-  var u = meta.unit;
-  var isGram = u === "г" || u === "гр" || u === "грамм" || u === "граммов" || u === "g" || u === "gr";
-  if (isGram || meta.type === "treat") return meta.qty;
-  return 0;
+var PARTNER_TREAT_PP_MAP_ = {
+  vr_t_heart: { name: "СЕРДЦЕ", sub: "Ломтики", cat: "dressura" },
+  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" }
+};
+/** Партнёр не пакует дойпаки подписки — пакеты явно 0, не из сборки корзины. */
+var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
+/** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_ = 2.6. */
+var PARTNER_VARKA_COEF = 2.2;
+/** Доставка только для Varka, фикс за заказ. Подписка остаётся на PP_RAW26_DELIVERY_PER_ = 7.60. */
+var PARTNER_VARKA_DELIVERY_BYN = 4;
+/** Минимум граммов лакомств. 0 г (только NFC / баннер / купон) — можно. */
+var PARTNER_VARKA_MIN_TREAT_GRAMS = 200;
+
+function partnerTreatsToPpBasket_(basket) {
+  var out = [];
+  var arr = Array.isArray(basket) ? basket : [];
+  for (var i = 0; i < arr.length; i++) {
+    var line = arr[i] || {};
+    var map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    if (!map) continue;
+    var qty = Number(line.qty != null ? line.qty : (line.val != null ? line.val : line.value)) || 0;
+    if (!(qty > 0)) continue;
+    out.push({
+      name: map.name,
+      main: map.name,
+      sub: map.sub,
+      cat: map.cat,
+      val: qty,
+      value: qty
+    });
+  }
+  return out;
 }
 
-function partnerOrderWeightGrams_(basket) {
-  var arr = Array.isArray(basket) ? basket : [];
+function partnerMoney_(n) {
+  var x = Number(n);
+  if (!isFinite(x) || x < 0) return 0;
+  return Math.round(x * 100) / 100;
+}
+
+function partnerBynLabel_(n) {
+  var x = partnerMoney_(n);
+  var txt = Math.abs(x - Math.round(x)) < 0.001 ? String(Math.round(x)) : x.toFixed(2);
+  return txt + " BYN";
+}
+
+function partnerTreatGrams_(basket) {
   var sum = 0;
-  for (var i = 0; i < arr.length; i++) sum += partnerLineWeightGrams_(arr[i]);
+  var arr = Array.isArray(basket) ? basket : [];
+  for (var i = 0; i < arr.length; i++) {
+    var line = arr[i] || {};
+    if (!PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()]) continue;
+    var qty = Number(line.qty != null ? line.qty : (line.val != null ? line.val : line.value)) || 0;
+    if (qty > 0) sum += qty;
+  }
   return sum;
 }
 
-function partnerOrderGramsReject_(basket) {
-  var grams = partnerOrderWeightGrams_(basket);
-  if (grams > MAX_ORDER_GRAMS) {
+function partnerMinTreatReject_(basket) {
+  var grams = partnerTreatGrams_(basket);
+  if (grams > 0 && grams < PARTNER_VARKA_MIN_TREAT_GRAMS) {
     return {
       status: "error",
-      code: "max_order_grams",
-      message: "Максимум " + MAX_ORDER_GRAMS + " г на один заказ",
-      grams: grams,
-      maxGrams: MAX_ORDER_GRAMS
+      message: "min_treat_grams",
+      minGrams: PARTNER_VARKA_MIN_TREAT_GRAMS,
+      grams: grams
     };
   }
   return null;
+}
+
+/**
+ * Подмена только доставки. Товар, пакеты, фракции и потолок 0.92×R — из computePpFactFromCost_.
+ */
+function partnerApplyVarkaDelivery_(fact) {
+  fact = fact || {};
+  var goods = Number(fact.goodsBeforeCap);
+  if (!isFinite(goods)) goods = Number(fact.goodsByn) || 0;
+  var packs = Number(fact.packagesBeforeCap);
+  if (!isFinite(packs)) packs = Number(fact.packagesByn) || 0;
+  var frac = Number(fact.fractionBeforeCap);
+  if (!isFinite(frac)) frac = Number(fact.fractionMarkup) || 0;
+  var cap = Number(fact.retailCapAt);
+  if (!isFinite(cap) || cap < 0) cap = 0;
+  var before = Math.round((goods + PARTNER_VARKA_DELIVERY_BYN + packs + frac) * 100) / 100;
+  var capped = cap > 0 && before > cap + 0.001;
+  var factCost = capped ? Math.round(cap * 100) / 100 : before;
+  fact.deliveryByn = PARTNER_VARKA_DELIVERY_BYN;
+  fact.factBeforeCap = before;
+  fact.factCost = factCost;
+  fact.factAfterCap = factCost;
+  fact.retailCapped = !!capped;
+  fact.clientPrice = factCost;
+  fact.clientDisplayPrice = formatClientMessagePrice_(factCost, false);
+  return fact;
+}
+
+/** Разбивка уже посчитанного итога: доставка внутри, лакомства = итог − 4. */
+function partnerQuoteSplit_(total) {
+  var delivery = partnerMoney_(PARTNER_VARKA_DELIVERY_BYN);
+  var treats = partnerMoney_(Number(total) - delivery);
+  if (!(treats >= 0)) return { treatsByn: partnerMoney_(total), deliveryByn: 0 };
+  return { treatsByn: treats, deliveryByn: delivery };
+}
+
+/**
+ * Разовая розница по канону ПП 09.10: mode pp, fullFact, scheme RAW26, deliveriesN=1.
+ * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6.
+ * Доставка — PARTNER_VARKA_DELIVERY_BYN (4 за заказ), не 7.60 подписки.
+ * Потолок 0.92×R остаётся из computePpFactFromCost_. Сумма = цена клиенту до рубля.
+ */
+function partnerQuoteTreatsByn_(basket) {
+  var ppBasket = partnerTreatsToPpBasket_(basket);
+  if (!ppBasket.length) {
+    return {
+      status: "success",
+      totalByn: 0,
+      currency: "BYN",
+      scheme: "RAW26",
+      deliveriesN: 1,
+      treats: 0,
+      coef: PARTNER_VARKA_COEF,
+      treatsByn: 0,
+      deliveryByn: 0
+    };
+  }
+  var priceInfo = readPriceCosts_("pp");
+  var lines = [];
+  var totalCost = 0;
+  for (var i = 0; i < ppBasket.length; i++) {
+    var lineCp = ppLineFromBasketItemGs_(ppBasket[i], priceInfo.costs);
+    if (!lineCp) continue;
+    totalCost += lineCp.cost;
+    lines.push(lineCp);
+  }
+  var rawCost = Math.round(totalCost * 100) / 100;
+  if (!lines.length || !(rawCost > 0)) {
+    return { status: "error", message: "price_unavailable" };
+  }
+  var fact = computePpFactFromCost_(
+    rawCost,
+    ppBasket,
+    1,
+    PARTNER_VARKA_COEF,
+    PARTNER_PP_PACK_ZERO_,
+    "RAW26",
+    lines,
+    null
+  );
+  fact = partnerApplyVarkaDelivery_(fact);
+  var shown = fact.clientDisplayPrice != null ? fact.clientDisplayPrice : fact.clientPrice;
+  var total = partnerMoney_(shown != null ? shown : fact.factCost);
+  if (!(total > 0)) return { status: "error", message: "price_unavailable" };
+  var split = partnerQuoteSplit_(total);
+  return {
+    status: "success",
+    totalByn: total,
+    treatsByn: split.treatsByn,
+    currency: "BYN",
+    scheme: fact.scheme || "RAW26",
+    deliveriesN: 1,
+    treats: ppBasket.length,
+    coef: PARTNER_VARKA_COEF,
+    deliveryByn: split.deliveryByn,
+    retailCapped: !!fact.retailCapped
+  };
+}
+
+function handlePartnerCalcPrice(json, callback, fromPost) {
+  var basket = partnerParseBasket_(json && (json.basket || json.basketJson));
+  var quote;
+  try {
+    quote = partnerQuoteTreatsByn_(basket);
+  } catch (eQ) {
+    quote = { status: "error", message: "price_unavailable" };
+  }
+  return fromPost ? jsonpText(callback, quote) : jsonp(callback, quote);
 }
 
 function partnerParseBasket_(raw) {
@@ -27245,10 +27644,12 @@ function partnerNotifyNewOrder_(order) {
       }
       return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "") + extra;
     }).join("\n");
+    var sumLine = partnerPriceNote_(order);
     var text = "🛍 Новая заявка партнёра " + (order.id || "") + "\n" +
       (order.locationName || order.locationId || "") + "\n" +
       (order.userName || order.username || order.telegramId || "") + "\n" +
       lines +
+      sumLine +
       (order.note ? ("\n📝 " + order.note) : "") +
       "\n\nНазначьте дату: Партнёры → Заказы";
     partnerTelegramSendMany_(ids, text);
@@ -27352,6 +27753,16 @@ function partnerStaffCanAct_(tid) {
     role === "courier" || role === "logistics";
 }
 
+function partnerPriceNote_(order) {
+  if (!order || order.totalByn == null || !isFinite(Number(order.totalByn))) return "";
+  if (Number(order.deliveryByn) > 0 && order.treatsByn != null && isFinite(Number(order.treatsByn))) {
+    return "\nЛакомства: " + partnerBynLabel_(order.treatsByn) +
+      "\nДоставка: " + partnerBynLabel_(order.deliveryByn) +
+      "\nСумма: " + partnerBynLabel_(order.totalByn);
+  }
+  return "\nСумма: " + partnerBynLabel_(order.totalByn);
+}
+
 function partnerBasketLines_(basket) {
   return (basket || []).map(function (b) {
     return "• " + (b.name || b.id) + " — " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
@@ -27381,7 +27792,11 @@ function partnerEnqueueDeferred_(order) {
     deliverTimeLabel: order.deliverTimeLabel || "",
     partnerTelegramId: order.telegramId || "",
     partnerUsername: order.username || "",
-    partnerName: order.userName || ""
+    partnerName: order.userName || "",
+    totalByn: order.totalByn != null ? order.totalByn : null,
+    treatsByn: order.treatsByn != null ? order.treatsByn : null,
+    deliveryByn: order.deliveryByn != null ? order.deliveryByn : null,
+    currency: "BYN"
   };
   var ownerTid = "";
   try {
@@ -27441,8 +27856,11 @@ function partnerNotifyPartnerStatus_(order, kind) {
     ((order && order.deliverTimeLabel) ? (", " + order.deliverTimeLabel) : "");
   var text = "";
   if (kind === "received" || kind === "submitted") {
+    var sumRec = partnerPriceNote_(order);
+    if (sumRec) sumRec += "\n";
+    else sumRec = "\n";
     text = "✅ Заявка отправлена\n" + loc + "\n" +
-      "Скоро придёт уведомление о дате доставки\n" +
+      "Скоро придёт уведомление о дате доставки" + sumRec +
       partnerBasketLines_(order.basket);
   } else if (kind === "accepted" || kind === "scheduled") {
     text = "✅ Дата доставки назначена\n" + loc + "\n" +
@@ -27457,6 +27875,342 @@ function partnerNotifyPartnerStatus_(order, kind) {
     return;
   }
   try { partnerTelegramSend_(tid, text); } catch (eS) {}
+}
+
+function partnerUpsertBroadcastReplies_(rec, choice) {
+  var sh = getPartnerBroadcastRepliesSheet_();
+  var existing = readPartnerBroadcastReplies_();
+  var bid = PARTNER_VARKA_BROADCAST_ID_;
+  var tid = String(rec.telegramId || "");
+  var now = new Date();
+  var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
+  var wrote = 0;
+  var already = false;
+  var prevChoice = "";
+  (rec.points || []).forEach(function (pt) {
+    var hit = null;
+    for (var i = 0; i < existing.length; i++) {
+      if (existing[i].broadcastId === bid && existing[i].telegramId === tid && existing[i].pointId === pt.id) {
+        hit = existing[i];
+        break;
+      }
+    }
+    if (hit) {
+      already = true;
+      prevChoice = hit.choice || prevChoice;
+      return;
+    }
+    sh.appendRow([
+      dateIso,
+      bid,
+      pt.networkId || "net_varka",
+      pt.id,
+      pt.name || pt.id,
+      tid,
+      rec.name || "",
+      rec.username || "",
+      choice,
+      now
+    ]);
+    wrote++;
+  });
+  return { wrote: wrote, already: already && wrote === 0, prevChoice: prevChoice };
+}
+
+function partnerSetVarkaConsentForRecipient_(rec, consent) {
+  var sh = getPartnerPointsSheet_();
+  var points = readPartnerPoints_();
+  var want = {};
+  (rec.points || []).forEach(function (p) { want[p.id] = true; });
+  var n = 0;
+  for (var i = 0; i < points.length; i++) {
+    if (!want[points[i].id]) continue;
+    if (!partnerPointIsVarka_(points[i])) continue;
+    sh.getRange(points[i].rowIndex, 7).setValue(consent);
+    sh.getRange(points[i].rowIndex, 6).setValue(new Date());
+    n++;
+  }
+  return n;
+}
+
+function partnerFindVarkaRecipientByTid_(tid) {
+  var pack = partnerVarkaBroadcastRecipients_(readPartnerAccessRows_(), readPartnerPoints_());
+  var id = String(tid || "").trim();
+  for (var i = 0; i < pack.recipients.length; i++) {
+    if (pack.recipients[i].telegramId === id) return pack.recipients[i];
+  }
+  return null;
+}
+
+function partnerNotifyBroadcastAnswer_(rec, choice, testOnly) {
+  var ids = [];
+  try { ids = getPartnerOrderNotifyIds_(); } catch (eN) { ids = []; }
+  var who = rec.name || "";
+  if (rec.username) who = (who ? who + " " : "") + "@" + rec.username;
+  if (!who) who = rec.telegramId || "";
+  var pts = (rec.points || []).map(function (p) { return p.name || p.id; }).join(", ");
+  var choiceRu = choice === "paid" ? "продолжаем на платной основе" : "отказ";
+  var text = (testOnly ? "Тест рассылки Varka\n" : "Ответ на рассылку Varka\n") +
+    "Кто: " + who + "\n" +
+    "Telegram: " + (rec.telegramId || "") + "\n" +
+    "Выбор: " + choiceRu + "\n" +
+    (pts ? ("Точки: " + pts + "\n") : "") +
+    "Рассылка: " + PARTNER_VARKA_BROADCAST_ID_;
+  try { partnerTelegramSendMany_(ids, text); } catch (eS) {}
+}
+
+function partnerApplyBroadcastAnswer_(tid, username, name, choice, testOnly) {
+  choice = partnerBroadcastChoiceNorm_(choice);
+  if (!choice) return { status: "error", message: "bad_choice" };
+  var rec = partnerFindVarkaRecipientByTid_(tid);
+  if (!rec) {
+    if (!testOnly) return { status: "error", message: "not_recipient" };
+    rec = {
+      telegramId: String(tid || ""),
+      username: partnerNormUser_(username),
+      name: name || "",
+      points: [{ id: "test", name: "тест", networkId: "net_varka" }]
+    };
+  }
+  if (name && !rec.name) rec.name = name;
+  if (username && !rec.username) rec.username = partnerNormUser_(username);
+  var saved = partnerUpsertBroadcastReplies_(rec, choice);
+  if (saved.already) {
+    return {
+      status: "success",
+      already: true,
+      choice: saved.prevChoice || choice,
+      paidConsent: partnerBroadcastChoiceToConsent_(saved.prevChoice || choice),
+      telegramId: rec.telegramId
+    };
+  }
+  var consent = partnerBroadcastChoiceToConsent_(choice);
+  var updated = 0;
+  if (!testOnly) updated = partnerSetVarkaConsentForRecipient_(rec, consent);
+  try { partnerNotifyBroadcastAnswer_(rec, choice, !!testOnly); } catch (eNf) {}
+  return {
+    status: "success",
+    already: false,
+    choice: choice,
+    paidConsent: testOnly ? "" : consent,
+    points: updated,
+    telegramId: rec.telegramId,
+    test: !!testOnly
+  };
+}
+
+function partnerTelegramSendMarkup_(chatId, text, replyMarkup) {
+  var token = getPartnerBotToken_();
+  var id = chatId != null ? String(chatId).trim() : "";
+  if (!token || !id) return { ok: false, error: "no_token_or_chat" };
+  var payload = {
+    chat_id: id,
+    text: String(text || "").slice(0, 3500),
+    disable_web_page_preview: true
+  };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  try { return JSON.parse(res.getContentText()); } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function partnerTelegramAnswerCallback_(callbackId, text) {
+  var token = getPartnerBotToken_();
+  var id = callbackId != null ? String(callbackId).trim() : "";
+  if (!token || !id) return { ok: false };
+  try {
+    var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/answerCallbackQuery", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        callback_query_id: id,
+        text: String(text || "").slice(0, 180)
+      }),
+      muteHttpExceptions: true
+    });
+    return JSON.parse(res.getContentText());
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+function partnerTelegramClearKeyboard_(chatId, messageId) {
+  var token = getPartnerBotToken_();
+  if (!token || !chatId || !messageId) return { ok: false };
+  try {
+    var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: String(chatId),
+        message_id: messageId,
+        reply_markup: { inline_keyboard: [] }
+      }),
+      muteHttpExceptions: true
+    });
+    return JSON.parse(res.getContentText());
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+function handlePartnerBroadcastTelegramCallback_(cq) {
+  cq = cq || {};
+  var parsed = partnerParseVarkaCallback_(cq.data);
+  var from = cq.from || {};
+  var tid = String(from.id || "").trim();
+  var msg = cq.message || {};
+  var chatId = msg.chat && msg.chat.id;
+  if (!parsed || !tid) {
+    try { partnerTelegramAnswerCallback_(cq.id, "Кнопка устарела"); } catch (e0) {}
+    return;
+  }
+  var testRaw = "";
+  try { testRaw = PropertiesService.getScriptProperties().getProperty("PARTNER_VARKA_BROADCAST_TEST_TID") || ""; } catch (eT) {}
+  var testOnly = String(testRaw) === tid && !partnerFindVarkaRecipientByTid_(tid);
+  var applied = { status: "error" };
+  try {
+    applied = partnerApplyBroadcastAnswer_(
+      tid,
+      from.username || "",
+      [from.first_name, from.last_name].filter(Boolean).join(" ").trim(),
+      parsed.choice,
+      testOnly
+    );
+  } catch (eA) {
+    applied = { status: "error", message: String(eA) };
+  }
+  var toast = applied.already ? "Ответ уже записан" : (applied.status === "success" ? "Записали" : "Не удалось записать");
+  try { partnerTelegramAnswerCallback_(cq.id, toast); } catch (eC) {}
+  try { partnerTelegramClearKeyboard_(chatId, msg.message_id); } catch (eK) {}
+  if (applied.status === "success" && !applied.already) {
+    var reply = parsed.choice === "paid" ? PARTNER_VARKA_BROADCAST_REPLY_PAID_ : PARTNER_VARKA_BROADCAST_REPLY_NO_;
+    try { partnerTelegramSend_(chatId || tid, reply); } catch (eR) {}
+  }
+}
+
+function handlePartnerVarkaBroadcast(json, callback, fromPost) {
+  var via = !!(GAS_AUTH_ && GAS_AUTH_.viaWorker);
+  if (!via && !partnerBroadcastLauncherOk_(json)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var mode = String((json && json.mode) || "dry").trim().toLowerCase();
+  if (mode !== "test" && mode !== "live") mode = "dry";
+  var pack = partnerVarkaBroadcastRecipients_(readPartnerAccessRows_(), readPartnerPoints_());
+  var testTid = String((json && (json.testTelegramId || json.targetTelegramId)) || "").trim();
+  if (mode === "test" && /^\d{5,15}$/.test(testTid)) {
+    try {
+      PropertiesService.getScriptProperties().setProperty("PARTNER_VARKA_BROADCAST_TEST_TID", testTid);
+    } catch (eP) {}
+  }
+  var skipSend = via || String((json && json.skipSend) || "") === "1" || mode === "dry";
+  var sent = [];
+  var failed = [];
+  if (!skipSend && mode === "test") {
+    if (!/^\d{5,15}$/.test(testTid)) {
+      var badT = { status: "error", message: "need_test_telegram_id" };
+      return fromPost ? jsonpText(callback, badT) : jsonp(callback, badT);
+    }
+    var one = partnerTelegramSendMarkup_(testTid, PARTNER_VARKA_BROADCAST_TEXT_, partnerVarkaBroadcastKeyboard_());
+    if (one && one.ok) sent.push(testTid);
+    else failed.push(testTid);
+  } else if (!skipSend && mode === "live") {
+    if (String((json && json.confirm) || "") !== "SEND_VARKA") {
+      var badC = { status: "error", message: "need_confirm", tip: "Для боевой рассылки нужен confirm=SEND_VARKA" };
+      return fromPost ? jsonpText(callback, badC) : jsonp(callback, badC);
+    }
+    for (var i = 0; i < pack.recipients.length; i++) {
+      var rec = pack.recipients[i];
+      var res = partnerTelegramSendMarkup_(rec.telegramId, PARTNER_VARKA_BROADCAST_TEXT_, partnerVarkaBroadcastKeyboard_());
+      if (res && res.ok) sent.push(rec.telegramId);
+      else failed.push(rec.telegramId);
+    }
+  }
+  var ok = {
+    status: "success",
+    mode: mode,
+    dryRun: mode === "dry",
+    broadcastId: PARTNER_VARKA_BROADCAST_ID_,
+    count: pack.recipients.length,
+    recipients: pack.recipients,
+    skipped: pack.skipped,
+    sent: sent,
+    failed: failed,
+    sentCount: sent.length
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerMigrateVarkaConsent(json, callback, fromPost) {
+  var via = !!(GAS_AUTH_ && GAS_AUTH_.viaWorker);
+  if (!via && !partnerBroadcastLauncherOk_(json)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var sh = getPartnerPointsSheet_();
+  var points = readPartnerPoints_();
+  var wrote = 0;
+  var kept = 0;
+  for (var i = 0; i < points.length; i++) {
+    if (!partnerPointIsVarka_(points[i])) continue;
+    if (partnerNormalizeConsent_(points[i].paidConsent)) {
+      kept++;
+      continue;
+    }
+    sh.getRange(points[i].rowIndex, 7).setValue("pending");
+    wrote++;
+  }
+  var ok = { status: "success", pendingWritten: wrote, kept: kept };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSetPointConsent(json, callback, fromPost) {
+  if (!partnerBroadcastLauncherOk_(json)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var id = String((json && (json.pointId || json.id)) || "").trim();
+  var consent = partnerNormalizeConsent_(json && json.paidConsent);
+  if (!id || !consent) {
+    var bad = { status: "error", message: "need_point_and_consent" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var points = readPartnerPoints_();
+  var hit = null;
+  for (var i = 0; i < points.length; i++) {
+    if (points[i].id === id) { hit = points[i]; break; }
+  }
+  if (!hit || !partnerPointIsVarka_(hit)) {
+    var miss = { status: "error", message: "not_varka_point" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var sh = getPartnerPointsSheet_();
+  sh.getRange(hit.rowIndex, 7).setValue(consent);
+  sh.getRange(hit.rowIndex, 6).setValue(new Date());
+  var ok = { status: "success", id: id, paidConsent: consent };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerBroadcastCallback(json, callback, fromPost) {
+  if (!(GAS_AUTH_ && GAS_AUTH_.viaWorker)) {
+    var forbid = { status: "error", message: "webhook_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var applied = partnerApplyBroadcastAnswer_(
+    json && json.telegramId,
+    json && json.username,
+    json && json.name,
+    json && json.choice,
+    String((json && json.testOnly) || "") === "1"
+  );
+  return fromPost ? jsonpText(callback, applied) : jsonp(callback, applied);
 }
 
 function handlePartnerSubmitOrder(json, callback, fromPost) {
@@ -27500,10 +28254,6 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       }
     }
   }
-  var gramsReject = partnerOrderGramsReject_(basket);
-  if (gramsReject) {
-    return fromPost ? jsonpText(callback, gramsReject) : jsonp(callback, gramsReject);
-  }
 
   var isOwner = false;
   try { isOwner = partnerRequireOwner_(tid); } catch (eO) { isOwner = false; }
@@ -27530,16 +28280,44 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     var forbid = { status: "error", message: "forbidden_point" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
-  if (!locationName) {
+  var consentPoint = { id: locationId, networkId: networkId };
+  if (!locationName || !networkId) {
     var pts = readPartnerPoints_();
     for (var p = 0; p < pts.length; p++) {
       if (pts[p].id === locationId) {
-        locationName = pts[p].name;
+        consentPoint = pts[p];
+        if (!locationName) locationName = pts[p].name;
         if (!networkId) networkId = pts[p].networkId;
         break;
       }
     }
+  } else {
+    var ptsKnown = readPartnerPoints_();
+    for (var pk = 0; pk < ptsKnown.length; pk++) {
+      if (ptsKnown[pk].id === locationId) { consentPoint = ptsKnown[pk]; break; }
+    }
   }
+  var consentBlock = partnerConsentRejectForPoint_(consentPoint);
+  if (consentBlock) {
+    return fromPost ? jsonpText(callback, consentBlock) : jsonp(callback, consentBlock);
+  }
+  var shortTreats = partnerMinTreatReject_(basket);
+  if (shortTreats) {
+    return fromPost ? jsonpText(callback, shortTreats) : jsonp(callback, shortTreats);
+  }
+  var quote = null;
+  try {
+    quote = partnerQuoteTreatsByn_(basket);
+  } catch (eQuote) {
+    quote = { status: "error", message: "price_unavailable" };
+  }
+  if (!quote || quote.status !== "success" || !isFinite(Number(quote.totalByn))) {
+    var badPrice = { status: "error", message: "price_unavailable" };
+    return fromPost ? jsonpText(callback, badPrice) : jsonp(callback, badPrice);
+  }
+  var totalByn = partnerMoney_(quote.totalByn);
+  var deliveryByn = quote.deliveryByn != null ? partnerMoney_(quote.deliveryByn) : 0;
+  var treatsByn = quote.treatsByn != null ? partnerMoney_(quote.treatsByn) : totalByn;
   var id = String((json && (json.clientOrderId || json.id || json.orderId)) || "").trim();
   if (!/^po_[a-z0-9]+$/i.test(id)) {
     id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
@@ -27566,7 +28344,11 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deliverDateLabel: "",
     deliverTimeFrom: "",
     deliverTimeTo: "",
-    deliverTimeLabel: ""
+    deliverTimeLabel: "",
+    totalByn: totalByn,
+    treatsByn: treatsByn,
+    deliveryByn: deliveryByn,
+    currency: "BYN"
   };
   // не плодить строку, если Worker уже прокинул тот же id
   var shOrders = getPartnerOrdersSheet_();
@@ -27582,6 +28364,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
   }
   order.deferredId = deferredId;
+  var priceCol = PARTNER_ORDER_HEADERS_.length;
   if (!alreadyRow) {
     shOrders.appendRow([
       order.id,
@@ -27599,8 +28382,18 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       order.deliverTimeFrom,
       order.deliverTimeTo,
       deferredId,
-      orderNote
+      orderNote,
+      order.totalByn
     ]);
+  } else {
+    try {
+      for (var pr = 1; pr < vals.length; pr++) {
+        if (String(vals[pr][0] || "") === id) {
+          shOrders.getRange(pr + 1, priceCol).setValue(order.totalByn);
+          break;
+        }
+      }
+    } catch (ePx) {}
   }
   // Пуши: Worker шлёт сразу; GAS — только если Worker не просил skip
   var skipN = String((json && (json.skipPartnerNotify || json.skipNotify)) || "") === "1";
@@ -27664,6 +28457,11 @@ function handlePartnerListMyOrders(json, callback, fromPost) {
       deferredId: String(data[r][14] || ""),
       note: String(data[r][15] || "").trim()
     });
+    var rawTotal = data[r][16];
+    if (rawTotal !== "" && rawTotal != null && isFinite(Number(String(rawTotal).replace(",", ".")))) {
+      out[out.length - 1].totalByn = partnerMoney_(String(rawTotal).replace(",", "."));
+      out[out.length - 1].currency = "BYN";
+    }
     if (out.length >= 100) break;
   }
   var ok = { status: "success", orders: out };
@@ -28025,7 +28823,9 @@ function handlePartnerListAdmin(json, callback, fromPost) {
       return n && n.id !== "net_firedog" && String(n.id || "").indexOf("firedog") < 0;
     }),
     points: readPartnerPoints_().map(function (p) {
-      return { id: p.id, networkId: p.networkId, name: p.name, address: p.address, active: p.active };
+      var row = { id: p.id, networkId: p.networkId, name: p.name, address: p.address, active: p.active };
+      if (partnerPointIsVarka_(p)) row.paidConsent = partnerEffectiveConsent_(p);
+      return row;
     }).filter(function (p) {
       if (!p || !p.id) return false;
       var id = String(p.id);
@@ -28446,9 +29246,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       pointIds: allIdsCo,
       allowedPointIds: allowedAllCo,
       networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
-      points: pts.map(function (p) {
-        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
-      }),
+      points: pts.map(partnerPointClient_),
       access: partnerAccessVisibleTo_(username, tid, allIdsCo, true),
       catalog: partnerCatalogStatic_(),
       partnerOverride: "owner_cabinet_all_points"
@@ -28505,9 +29303,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       pointIds: allowedIds,
       allowedPointIds: allowed,
       networks: myNets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
-      points: myPts.map(function (p) {
-        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
-      }),
+      points: myPts.map(partnerPointClient_),
       access: partnerAccessVisibleTo_(hit.username || username, hit.telegramId || tid, allowedIds, false),
       catalog: partnerCatalogStatic_()
     };
@@ -28537,9 +29333,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       pointIds: pending.pointIds || [],
       allowedPointIds: {},
       networks: [],
-      points: pendPts.map(function (p) {
-        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
-      }),
+      points: pendPts.map(partnerPointClient_),
       catalog: partnerCatalogStatic_()
     };
     return fromPost ? jsonpText(callback, pendOk) : jsonp(callback, pendOk);
@@ -28607,7 +29401,15 @@ function handlePartnerSavePoint(json, callback, fromPost) {
   for (var i = 0; i < all.length; i++) {
     if (all[i].id === id) { hit = all[i]; break; }
   }
-  var vals = [id, networkId, name, address, active, new Date()];
+  var consent = hit ? String(hit.paidConsent || "") : "";
+  if (partnerPointIsVarka_({ id: id, networkId: networkId })) {
+    var asked = partnerNormalizeConsent_(json && json.paidConsent);
+    if (asked) consent = asked;
+    else if (!partnerNormalizeConsent_(consent)) consent = "pending";
+  } else {
+    consent = "";
+  }
+  var vals = [id, networkId, name, address, active, new Date(), consent];
   if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNER_POINT_HEADERS_.length).setValues([vals]);
   else sh.appendRow(vals);
   var ok = { status: "success", id: id, networkId: networkId, name: name, active: active === "yes" };

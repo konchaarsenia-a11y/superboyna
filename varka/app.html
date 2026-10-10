@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>Good Boy · партнёры</title>
+  <title>Good Boy — партнёры</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -491,11 +491,27 @@
       display: flex; flex-direction: column; gap: 6px;
     }
     .bar-row { display: flex; gap: 10px; align-items: center; }
-    .gram-limit {
-      margin: 0 2px; font-size: 12px; font-weight: 700; line-height: 1.3;
+    .order-total {
+      margin: 0 2px; font-size: 13px; font-weight: 700; line-height: 1.45;
+      color: var(--text);
+    }
+    .order-total .order-total-final { font-weight: 800; color: var(--accent2); }
+    .order-total.err { color: var(--danger); font-weight: 800; }
+    .order-min-note {
+      margin: 0 2px; font-size: 12px; font-weight: 600; line-height: 1.35;
       color: var(--muted);
     }
-    .gram-limit.over { color: var(--danger); }
+    .consent-banner {
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--bg2);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 650;
+      line-height: 1.4;
+    }
     .cart-sum {
       flex: 1; background: linear-gradient(145deg, var(--bg2), var(--bg3));
       border: 1px solid var(--line);
@@ -595,11 +611,12 @@
     <div id="screenOrder" class="screen">
       <div class="toprow" style="margin-bottom:10px;">
         <div>
-          <div class="title" id="orderTitle" style="font-size:18px;">Бесплатная заявка</div>
+          <div class="title" id="orderTitle" style="font-size:18px;">Заявка</div>
           <div class="sub" style="text-align:left;margin:4px 0 0;" id="orderLocName">Выберите лакомства и купоны</div>
         </div>
         <button class="chip inspect-chip" type="button" id="inspectLocaChip" style="display:none;" onclick="goInspectLoca()">Лока</button>
       </div>
+      <div class="consent-banner" id="consentBanner" hidden></div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
         <button class="tab" type="button" data-cat="coupon" onclick="setCat('coupon')">Купоны</button>
@@ -620,7 +637,7 @@
         <div class="title">Куда доставить</div>
         <button class="chip" type="button" onclick="showCatalogTab()">К каталогу</button>
       </div>
-      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки · выберите точку для заявки</div>
+      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки — выберите точку для заявки</div>
       <div id="pointsCartHint" class="okmsg" style="display:none;"></div>
       <div id="pointsList"></div>
     </div>
@@ -733,11 +750,12 @@
 
   <div class="bar" id="cartBar" style="display:none;">
     <div class="bar-inner">
-      <div class="gram-limit" id="gramLimitHint">Максимум 200 г на один заказ, осталось 200 г</div>
       <div class="bar-row">
         <div class="cart-sum">В заявке: <b id="cartCount">0</b> поз.</div>
         <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
       </div>
+      <div class="order-total" id="orderTotalHint"></div>
+      <p class="order-min-note" id="orderMinNote" hidden>Минимальный заказ — 200 г. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г.</p>
     </div>
   </div>
 
@@ -753,7 +771,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.60";
+  var APP_VER = "3.3.64";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -837,9 +855,6 @@
   var REMOTE_IS_OWNER_ = false;
 
   // Пресеты кол-ва по id (серверный каталог может быть старым — фронт нормализует).
-  /** Сумма граммов одного заказа. Одна константа на все точки, без настроек per-point. */
-  var MAX_ORDER_GRAMS = 200;
-
   var QTY_RULES_ = {
     vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: false },
     vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: false },
@@ -908,7 +923,7 @@
       type: "coupon",
       kind: "nfc",
       name: "Купон NFC",
-      hint: "приложить к телефону клиента · 1 на точку",
+      hint: "приложить к телефону клиента — 1 на точку",
       unit: "шт",
       active: true
     },
@@ -1239,7 +1254,7 @@
       return;
     }
     var pt = currentInspectLoca_() || state.point;
-    if (pt) loc.textContent = "Проверка · " + pointLine_(pt);
+    if (pt) loc.textContent = "Проверка — " + pointLine_(pt);
     else loc.textContent = "Выберите локу для проверки или лакомства";
   }
 
@@ -1831,21 +1846,86 @@
     return state.point;
   }
 
+  var PARTNER_MIN_TREAT_GRAMS_ = 200;
+
+  function treatGrams_(basket) {
+    var sum = 0;
+    (basket || cartBasket_()).forEach(function (line) {
+      if (!line) return;
+      if (line.type !== "treat" && line.id !== "vr_t_heart" && line.id !== "vr_t_lung") return;
+      sum += Number(line.qty) || 0;
+    });
+    return sum;
+  }
+
+  function treatOrderShort_() {
+    var grams = treatGrams_();
+    return grams > 0 && grams < PARTNER_MIN_TREAT_GRAMS_;
+  }
+
+  function pointConsent_(pt) {
+    if (!pt) return "accepted";
+    var nid = String(pt.networkId || "");
+    var id = String(pt.id || "");
+    if (nid !== "net_varka" && id.indexOf("pt_varka_") !== 0) return "accepted";
+    var c = String(pt.paidConsent || "").toLowerCase();
+    if (c === "accepted" || c === "declined" || c === "pending") return c;
+    return "pending";
+  }
+
+  function consentMessage_(c) {
+    if (c === "declined") return "Точка отключена от партнёрки. Если захотите вернуться, напишите нам.";
+    if (c === "pending") return "Условия сотрудничества обновились. Ответьте на сообщение в боте @GOODBOY_LG, чтобы продолжить";
+    return "";
+  }
+
+  function consentBlock_() {
+    var pt = state.point;
+    if (pt) {
+      var one = pointConsent_(pt);
+      return one === "accepted" ? "" : consentMessage_(one);
+    }
+    var pts = (state.me && state.me.points) || [];
+    if (!pts.length) return "";
+    var blocked = pts.filter(function (p) { return pointConsent_(p) !== "accepted"; });
+    if (!blocked.length || blocked.length !== pts.length) return "";
+    var declined = blocked.every(function (p) { return pointConsent_(p) === "declined"; });
+    return consentMessage_(declined ? "declined" : "pending");
+  }
+
+  function paintConsentBanner_() {
+    var el = document.getElementById("consentBanner");
+    var text = consentBlock_();
+    if (el) {
+      el.hidden = !text;
+      el.textContent = text || "";
+    }
+    return text;
+  }
+
   function updateCartButton_() {
     var b = document.getElementById("btnSubmit");
     var n = cartCount();
-    var over = orderWeightGrams_() > MAX_ORDER_GRAMS;
-    paintGramLimit_();
     if (!b) return;
+    if (consentBlock_()) {
+      b.textContent = "Закрыто";
+      b.disabled = true;
+      return;
+    }
+    if (treatOrderShort_()) {
+      b.textContent = "Минимум 200 г";
+      b.disabled = true;
+      return;
+    }
     if (state.orderStep === "ready" && state.point) {
       b.textContent = "Отправить";
-      b.disabled = n <= 0 || over;
+      b.disabled = n <= 0;
     } else if (state.orderStep === "point") {
       b.textContent = state.point ? "Отправить" : "Выберите точку";
-      b.disabled = n <= 0 || !state.point || over;
+      b.disabled = n <= 0 || !state.point;
     } else {
-      b.textContent = "Далее · точка";
-      b.disabled = n <= 0 || over;
+      b.textContent = "Далее — точка";
+      b.disabled = n <= 0;
     }
   }
 
@@ -1853,8 +1933,14 @@
 
   function onCartPrimary() {
     if (cartCount() <= 0) return;
-    if (orderWeightGrams_() > MAX_ORDER_GRAMS) {
-      softToast_(gramLimitHint_(orderWeightGrams_()));
+    var blocked = consentBlock_();
+    if (blocked) {
+      softToast_(blocked);
+      paintConsentBanner_();
+      return;
+    }
+    if (treatOrderShort_()) {
+      softToast_("Минимальный заказ лакомств — 200 г");
       return;
     }
     if (state.orderStep === "catalog" || !state.orderStep) {
@@ -1906,7 +1992,8 @@
           id: p.id,
           networkId: p.networkId,
           name: p.name,
-          address: p.address || ""
+          address: p.address || "",
+          paidConsent: p.paidConsent || ""
         };
       });
     }
@@ -2020,13 +2107,13 @@
         if (address && pointAddrRedundant_(p.name, address)) return address;
         return String(p.name || address || "").trim();
       }).filter(Boolean).slice(0, 6).join(", ");
-      meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
+      meta.textContent = (state.me.username ? ("@" + state.me.username + " — ") : "") +
         n + " точ." +
-        (ptsLab ? (" · " + ptsLab) : "") +
-        (REMOTE_IS_OWNER_ ? " · owner" : "");
+        (ptsLab ? (" — " + ptsLab) : "") +
+        (REMOTE_IS_OWNER_ ? " — owner" : "");
     }
     var ot = document.getElementById("orderTitle");
-    if (ot) ot.textContent = "Бесплатная заявка";
+    if (ot) ot.textContent = "Заявка";
     restoreInspectLoca_();
     goOrderFlow();
   }
@@ -2070,7 +2157,7 @@
     if (sub) {
       sub.textContent = inspect
         ? "Выберите локу — заказы и заявка по ней. Varka недоступна."
-        : "Только ваши точки · выберите точку для заявки";
+        : "Только ваши точки — выберите точку для заявки";
     }
     var box = document.getElementById("pointsList");
     var hint = document.getElementById("pointsCartHint");
@@ -2159,7 +2246,7 @@
       clearNfcExtra_();
     }
     var loc = document.getElementById("orderLocName");
-    if (loc) loc.textContent = isInspectLocaUser_() ? ("Проверка · " + pointLine_(pt)) : pointLine_(pt);
+    if (loc) loc.textContent = isInspectLocaUser_() ? ("Проверка — " + pointLine_(pt)) : pointLine_(pt);
     renderInspectLocaSelects_();
     goPointsForOrder_();
     updateCartButton_();
@@ -2189,10 +2276,18 @@
     return n;
   }
   function refreshCart() {
+    var basket = cartBasket_();
     var c = document.getElementById("cartCount");
     var n = cartCount();
     if (c) c.textContent = String(n);
+    paintConsentBanner_();
     updateCartButton_();
+    if (consentBlock_()) {
+      var hint = document.getElementById("orderTotalHint");
+      if (hint) hint.textContent = "";
+      return;
+    }
+    scheduleQuote_(basket);
   }
 
   function isNfcItem_(it) {
@@ -2290,64 +2385,131 @@
     return rule.unit || it.unit || "шт";
   }
 
-  function lineIsWeight_(it) {
-    if (!it) return false;
-    var unit = String(unitFor_(it) || it.unit || "").trim().toLowerCase();
-    if (unit.indexOf("шт") >= 0) return false;
-    if (String(it.type || "").toLowerCase() === "coupon") return false;
-    if (unit === "г" || unit === "гр" || unit === "грамм" || unit === "граммов" || unit === "g" || unit === "gr") return true;
-    return String(it.type || "").toLowerCase() === "treat";
+  var quoteTimer_ = null;
+  var quoteSeq_ = 0;
+  var quoteState_ = { key: "", totalByn: null, treatsByn: null, deliveryByn: null, status: "" };
+
+  function formatByn_(n) {
+    var x = Math.round(Number(n) * 100) / 100;
+    if (!isFinite(x)) return "";
+    if (Math.abs(x - Math.round(x)) < 0.001) return String(Math.round(x));
+    return x.toFixed(2);
   }
 
-  function orderWeightGrams_() {
-    var sum = 0;
+  function cartBasket_() {
+    stripBannerIfNeeded_();
+    stripTreatsIfNeeded_();
+    stripVarkaPaperCoupons_();
+    var basket = [];
     (state.catalog || []).forEach(function (it) {
-      if (!lineIsWeight_(it)) return;
+      if (!it) return;
+      if (it.id === "vr_c_banner" && !networkHasBanner_()) return;
+      if (it.type === "treat" && !networkHasTreats_()) return;
       var q = Number(state.cart[it.id]) || 0;
-      if (q > 0) sum += q;
+      if (q <= 0) return;
+      basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) });
     });
-    return sum;
+    return basket;
   }
 
-  function gramsWithQty_(id, nextQty) {
-    var sum = 0;
-    (state.catalog || []).forEach(function (it) {
-      if (!lineIsWeight_(it)) return;
-      var q = it.id === id ? (Number(nextQty) || 0) : (Number(state.cart[it.id]) || 0);
-      if (q > 0) sum += q;
-    });
-    return sum;
+  function appendTotalLine_(el, text, isFinal) {
+    var row = document.createElement("div");
+    if (isFinal) row.className = "order-total-final";
+    row.textContent = text;
+    el.appendChild(row);
   }
 
-  function gramLimitHint_(grams) {
-    var g = Number(grams) || 0;
-    var left = MAX_ORDER_GRAMS - g;
-    if (left < 0) left = 0;
-    var text = "Максимум " + MAX_ORDER_GRAMS + " г на один заказ";
-    if (g > MAX_ORDER_GRAMS) return text + ", в заявке " + g + " г";
-    return text + ", осталось " + left + " г";
+  function paintOrderMinNote_() {
+    var note = document.getElementById("orderMinNote");
+    if (!note) return;
+    note.hidden = cartCount() <= 0;
   }
 
-  function paintGramLimit_() {
-    var el = document.getElementById("gramLimitHint");
+  function paintOrderTotal_() {
+    var el = document.getElementById("orderTotalHint");
+    paintOrderMinNote_();
     if (!el) return;
-    var g = orderWeightGrams_();
-    el.textContent = gramLimitHint_(g);
-    el.classList.toggle("over", g > MAX_ORDER_GRAMS);
+    if (cartCount() <= 0) {
+      el.textContent = "";
+      el.classList.remove("err");
+      return;
+    }
+    if (quoteState_.status === "loading") {
+      el.textContent = "Считаю сумму…";
+      el.classList.remove("err");
+      return;
+    }
+    if (quoteState_.status === "ok" && quoteState_.totalByn != null && isFinite(Number(quoteState_.totalByn))) {
+      var total = Number(quoteState_.totalByn);
+      var delivery = Number(quoteState_.deliveryByn);
+      el.textContent = "";
+      el.classList.remove("err");
+      if (delivery > 0) {
+        var treats = quoteState_.treatsByn != null && isFinite(Number(quoteState_.treatsByn))
+          ? Number(quoteState_.treatsByn)
+          : Math.round((total - delivery) * 100) / 100;
+        appendTotalLine_(el, "Лакомства — " + formatByn_(treats) + " BYN", false);
+        appendTotalLine_(el, "Доставка — " + formatByn_(delivery) + " BYN", false);
+      }
+      appendTotalLine_(el, "Итого — " + formatByn_(total) + " BYN", true);
+      return;
+    }
+    el.textContent = "Сумму не удалось посчитать";
+    el.classList.add("err");
   }
 
-  /** true = это увеличение сверх лимита, корзину не менять. Уменьшение пропускаем. Штуки не считаем. */
-  function blockGramIncrease_(id, nextQty) {
-    var it = null;
-    (state.catalog || []).forEach(function (c) { if (c.id === id) it = c; });
-    if (!lineIsWeight_(it)) return false;
-    var nextSum = gramsWithQty_(id, nextQty);
-    var curSum = orderWeightGrams_();
-    if (nextSum > MAX_ORDER_GRAMS && nextSum >= curSum) {
-      softToast_(gramLimitHint_(curSum));
-      return true;
+  function scheduleQuote_(basket) {
+    if (quoteTimer_) clearTimeout(quoteTimer_);
+    basket = basket || cartBasket_();
+    var key = JSON.stringify(basket);
+    if (!basket.length) {
+      quoteSeq_++;
+      quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "" };
+      paintOrderTotal_();
+      return;
     }
-    return false;
+    if (quoteState_.key === key && (quoteState_.status === "ok" || quoteState_.status === "loading")) {
+      paintOrderTotal_();
+      return;
+    }
+    var seq = ++quoteSeq_;
+    quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "loading" };
+    paintOrderTotal_();
+    quoteTimer_ = setTimeout(function () { fetchQuote_(key, seq); }, 280);
+  }
+
+  async function fetchQuote_(key, seq) {
+    var basket = cartBasket_();
+    key = key || JSON.stringify(basket);
+    if (seq != null && seq !== quoteSeq_) return;
+    if (!basket.length) {
+      quoteState_ = { key: key, totalByn: 0, treatsByn: 0, deliveryByn: 0, status: "ok" };
+      paintOrderTotal_();
+      return;
+    }
+    try {
+      var res = await apiGet_({
+        action: "partnerCalcPrice",
+        basket: JSON.stringify(basket),
+        _: String(Date.now())
+      });
+      if (seq !== quoteSeq_) return;
+      if (res && res.status === "success" && isFinite(Number(res.totalByn))) {
+        quoteState_ = {
+          key: key,
+          totalByn: Number(res.totalByn),
+          treatsByn: res.treatsByn != null ? Number(res.treatsByn) : null,
+          deliveryByn: res.deliveryByn != null ? Number(res.deliveryByn) : null,
+          status: "ok"
+        };
+      } else {
+        quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "err" };
+      }
+    } catch (eQ) {
+      if (seq !== quoteSeq_) return;
+      quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "err" };
+    }
+    paintOrderTotal_();
   }
 
   function setQty(id, delta) {
@@ -2387,11 +2549,6 @@
     var cur = Number(state.cart[id]) || 0;
     var step = 1;
     var next = Math.max(0, cur + delta * step);
-    if (next > 0 && blockGramIncrease_(id, next)) {
-      renderCatalog();
-      refreshCart();
-      return;
-    }
     if (next === 0) delete state.cart[id];
     else state.cart[id] = next;
     renderCatalog();
@@ -2437,8 +2594,6 @@
       return;
     } else if (cur === n) {
       delete state.cart[id]; // повторный тап по пресету снимает
-    } else if (blockGramIncrease_(id, n)) {
-      return;
     } else {
       state.cart[id] = n;
     }
@@ -2462,10 +2617,6 @@
       return;
     }
     var n = Math.max(0, parseInt(raw, 10) || 0);
-    if (n > 0 && blockGramIncrease_(id, n)) {
-      if (el) el.value = (Number(state.cart[id]) || 0) > 0 ? String(state.cart[id]) : "";
-      return;
-    }
     if (n <= 0) delete state.cart[id];
     else state.cart[id] = n;
     refreshCart();
@@ -2526,8 +2677,7 @@
         "</div></div>";
     }
     var chips = rule.presets.map(function (p) {
-      var blocked = lineIsWeight_(it) && p > q && gramsWithQty_(it.id, p) > MAX_ORDER_GRAMS;
-      return '<button type="button" class="qty-chip' + (q === p ? " on" : "") + (blocked ? " blocked" : "") +
+      return '<button type="button" class="qty-chip' + (q === p ? " on" : "") +
         '" data-qty-id="' + it.id + '" data-qty-val="' + p +
         '" onclick="pickQty(\'' + it.id + '\',' + p + ')">' + p +
         (showUnit ? (" " + esc(unit)) : "") + "</button>";
@@ -2659,7 +2809,7 @@
       var q = Number(state.cart[it.id]) || 0;
       var unit = unitFor_(it);
       var ste = renderQtyControls_(it, q);
-      var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
+      var selected = q ? (" — " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
       var hint = String(it.hint || "").trim();
       var kind = String(it.kind || "").toLowerCase();
       if (it.id === "vr_c_banner") {
@@ -2671,8 +2821,8 @@
       }
       if (it.id === "vr_c_nfc" || kind === "nfc" || isNfcItem_(it)) {
         var reasonLab = nfcReasonLabel_(nfcExtraReason_);
-        var nfcSub = hint || "приложить к телефону клиента · 1 на точку";
-        if (q >= 2 && reasonLab) nfcSub = "2 шт · " + reasonLab;
+        var nfcSub = hint || "приложить к телефону клиента — 1 на точку";
+        if (q >= 2 && reasonLab) nfcSub = "2 шт — " + reasonLab;
         else if (q >= 2 || nfcPickReasonOpen_) nfcSub = "выберите причину второго";
         else if (q === 1) nfcSub = "1 на точку";
         return '<div class="coupon-card qty-item" style="flex-wrap:wrap;align-items:flex-start;">' +
@@ -2734,8 +2884,16 @@
       softToast_("Добавьте позиции в заявку");
       return;
     }
-    if (orderWeightGrams_() > MAX_ORDER_GRAMS) {
-      softToast_(gramLimitHint_(orderWeightGrams_()));
+    var blockedOrder = consentBlock_();
+    if (blockedOrder) {
+      softToast_(blockedOrder);
+      paintConsentBanner_();
+      updateCartButton_();
+      return;
+    }
+    if (treatOrderShort_()) {
+      softToast_("Минимальный заказ лакомств — 200 г");
+      updateCartButton_();
       return;
     }
     if (!state.point) {
@@ -2801,7 +2959,10 @@
       var res = await apiGet_(payload);
       if (!res || res.status !== "success") {
         var errText = (res && res.message) || "Не удалось отправить заявку";
-        if (res && res.code === "max_order_grams") errText = res.message || gramLimitHint_(res.grams);
+        if (res && res.message === "price_unavailable") errText = "Не удалось посчитать сумму";
+        if (res && res.message === "min_treat_grams") errText = "Минимальный заказ лакомств — 200 г";
+        if (res && res.message === "consent_pending") errText = consentMessage_("pending");
+        if (res && res.message === "consent_declined") errText = consentMessage_("declined");
         softToast_(errText);
         submitBusy_ = false;
         updateCartButton_();
@@ -2876,7 +3037,9 @@
         return '<div class="order"><div class="h"><span>' + esc(dateTxt) + '</span><span class="badge">' +
           esc(statusRu_(o.status)) + '</span></div><div class="lines">' + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName) +
-          '</span><span>бесплатно</span></div>' +
+          '</span>' + (o.totalByn != null && o.totalByn !== "" && isFinite(Number(o.totalByn))
+            ? ('<span>' + esc(formatByn_(o.totalByn)) + " BYN</span>")
+            : "") + '</div>' +
           (noteTxt ? ('<div class="unit" style="margin-top:6px;">📝 ' + esc(noteTxt) + "</div>") : "") +
           "</div>";
       }
@@ -2925,7 +3088,7 @@
         ? ("@" + esc(state.me.username))
         : esc(state.me.name || "—");
       var modeLine = REMOTE_IS_OWNER_
-        ? "<br><span class=\"muted\">Режим владельца · все активные точки</span>"
+        ? "<br><span class=\"muted\">Режим владельца — все активные точки</span>"
         : "";
       info.innerHTML = whoLine + modeLine +
         "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
@@ -3077,8 +3240,8 @@
     box.innerHTML = list.map(function (a) {
       return '<div class="item"><div class="meta"><div class="title">' + esc(a.name) +
         ' <span class="badge">staff</span></div><div class="unit">TG ' + esc(a.telegramId) +
-        " · " + esc(a.pointName) +
-        (a.status === "pending" ? " · ожидает" : "") +
+        " — " + esc(a.pointName) +
+        (a.status === "pending" ? " — ожидает" : "") +
         "</div></div></div>";
     }).join("");
   }
@@ -3331,7 +3494,8 @@
         id: one.id || p.id,
         networkId: one.networkId || net.id,
         name: one.name || p.name,
-        address: one.address || p.address || ""
+        address: one.address || p.address || "",
+        paidConsent: one.paidConsent || p.paidConsent || ""
       };
     });
     var nets = ((res && res.networks) || []).filter(function (n) {
@@ -3590,7 +3754,7 @@
       else if (bits.userName) parts.push(bits.userName);
       if (bits.locationName) parts.push(bits.locationName);
       if (bits.networkName) parts.push(bits.networkName);
-      who.textContent = parts.length ? ("Отправим от: " + parts.join(" · ")) : "Автор подставится из вашего входа.";
+      who.textContent = parts.length ? ("Отправим от: " + parts.join(" — ")) : "Автор подставится из вашего входа.";
     }
     show("screenSuggest");
     try { document.getElementById("suggestName").focus(); } catch (eF) {}

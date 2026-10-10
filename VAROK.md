@@ -1,6 +1,6 @@
 # Good Boy · партнёрское пополнение
 
-Telegram Mini App для **партнёрских сетей**: бесплатная заявка на лакомства и купоны.
+Telegram Mini App для **партнёрских сетей**: заявка на лакомства и купоны. Лакомства (сердце / лёгкое) — разовый заказ по формуле подписки (ПП, схема RAW26, канон 09.10.2026), но с наценкой `PARTNER_VARKA_COEF = 2.2` и доставкой `PARTNER_VARKA_DELIVERY_BYN = 4` за заказ. Подписка остаётся на 2.6 и доставке 7.60. Минимум лакомств — 200 г; заказ только из NFC, баннера или купонов можно. Купоны, NFC и баннер — 0 BYN. Статус оплаты не ведём.
 
 **Живой URL Mini App (предпочтительно, без index-redirect):**  
 https://konchaarsenia-a11y.github.io/superboyna/varka/app.html  
@@ -15,7 +15,7 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 **Стиль:** как Instagram [@goodboy_rb](https://www.instagram.com/goodboy_rb/) — чёрный фон, крем, оранжевый акцент, логотип Good Boy.
 
-**Бесплатно** — цен нет.
+**Цена лакомств** — сервер считает сам (`partnerCalcPrice` и повторно `partnerSubmitOrder`). Клиентскую сумму не принимаем. В корзине мини-аппа строка «Сумма: … BYN».
 
 ## Привязка Mini App к боту (BotFather)
 
@@ -44,7 +44,13 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 | `Partner_Orders` | Заявки партнёров |
 | `Предложения_партнёров` | «Предложить партнёра»: дата, тип, форма, автор, точка, статус `новое` |
 
-API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
+API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
+
+**Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.2**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6**, доставка подписки **7.60**. В заявке Varka доставка заменяется на `PARTNER_VARKA_DELIVERY_BYN = 4` (за заказ, не ×N). Потолок 0.92×R не меняется: база — розница товара плюс розничная доставка 9, если товар на доставку ниже 80. Recover 3.30 за 100 г и 0.80 за жевалку берутся из канона 09.10. GAS передаёт 2.2 четвёртым аргументом в `computePpFactFromCost_`, затем `partnerApplyVarkaDelivery_`. Worker так же через `calcPricePpD1_`. Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0`. Фракция «Ломтики» — ставка 0. Сумма заявки = цена клиенту до рубля (`clientDisplayPrice`). Колонка `totalByn` — последняя в `Partner_Orders`.
+
+**Минимум 200 г** — сумма граммов сердца и лёгкого. NFC, баннер и купон в граммы не входят. Заказ без лакомств (только NFC / баннер / купон) проходит. Меньше 200 г лакомств: кнопка «Минимум 200 г» неактивна, сервер отвечает `min_treat_grams`. Под суммой: «Минимальный заказ — 200 г. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г.»
+
+**Строки в корзине:** «Лакомства — X BYN», «Доставка — 4 BYN», «Итого — Y BYN». Y — прежний итог до рубля, доставка уже внутри него. X = Y − 4. В листе `Partner_Orders` по-прежнему колонка `totalByn`. В заявке D1, payload отложенного и пуше ещё `treatsByn` и `deliveryByn`.
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
@@ -131,6 +137,47 @@ TELEGRAM_ID=827494606 bash scripts/grant-arseniy-rokoss80-staff.sh
 
 Клиентские статусы **никогда** не идут в notifyRecipients и **не** через бота Бойни. Если `PARTNER_BOT_TOKEN` / `GOODBOY_BOT_TOKEN` нет — пуш партнёру пропускается (лог), fallback на `TELEGRAM_BOT_TOKEN` нет.
 
+---
+
+## Согласие Varka и рассылка (не отправлять до деплоя)
+
+Точки сети `net_varka` после деплоя закрыты для заказов, пока на точке нет `paidConsent=accepted`. Пустое поле читается как `pending`. Другие сети не затрагиваются.
+
+Колонка `paidConsent` в конце листа `Partner_Points`: `pending` / `accepted` / `declined`. В Бойне: Партнёры → Точки, у точки Varka список «Согласие на платные лакомства». То же действие `partnerSetPointConsent` (только owner).
+
+Мини-апп и `partnerSubmitOrder` (GAS и Worker) при `pending` / `declined` заявку не принимают.
+
+Рассылка хозяевам точек Varka (активный доступ, роль не `staff`, есть Telegram ID) ботом @GOODBOY_LG. id рассылки `varka-paid-2026-10`. Ответы: лист `Ответы_рассылки` и снимок D1 `partnerBroadcastReplies`. Повтор кнопки не пишет вторую строку. Команде уходит пуш ботом Бойни на `PARTNER_ORDER_NOTIFY_IDS`. Кнопка «Продолжаем…» ставит `accepted` на все точки Varka этого человека. «Спасибо, но…» ставит `declined`. Доступ в `Partner_Access` не отзывается: заказ закрыт флагом, вернуть можно списком в Бойне или ячейкой листа.
+
+В сиде репозитория список `access` пустой, поэтому dry-run по файлам репо даёт **0 получателей**. Точек Varka в сиде 13. Живое число появится только после dry-run на задеплоенных D1 и листе. `@arseniyhotko` в репо записан как staff, в рассылку не входит.
+
+### Деплой перед рассылкой
+
+Не запускать рассылку, пока цепочка ниже не зелёная.
+
+1. Смержить PR в `main`.
+2. Дождаться CI `clasp-deploy` (`Code.gs`).
+3. Дождаться деплоя Worker.
+4. Дождаться Pages (`varka/app.html`).
+5. Owner, один раз: `partnerMigrateVarkaConsent`. Пустым точкам Varka пишется `pending`. Уже стоящие `accepted` / `declined` не затираются.
+6. Привязать webhook @GOODBOY_LG (не бота Бойни) на `https://boinya-c.konchaarsenia.workers.dev/telegram/goodboy`. Секрет заголовка `X-Telegram-Bot-Api-Secret-Token` = `WORKER_SHARED_SECRET`. Пока webhook не стоит, кнопки не дойдут.
+7. Dry-run, без сообщений. Смотреть `count`, `recipients`, `skipped`.
+8. Тест на свой Telegram ID. Точки не меняются, если этот ID не хозяин точки Varka. Ответ на кнопку приходит в бот.
+9. Боевая рассылка только с `mode=live` и `confirm=SEND_VARKA`.
+
+Вызов через Worker (подставить initData владельца):
+
+```
+POST https://boinya-c.konchaarsenia.workers.dev/?action=partnerMigrateVarkaConsent
+POST https://boinya-c.konchaarsenia.workers.dev/?action=partnerVarkaBroadcast&mode=dry
+POST https://boinya-c.konchaarsenia.workers.dev/?action=partnerVarkaBroadcast&mode=test&testTelegramId=СВОЙ_ID
+POST https://boinya-c.konchaarsenia.workers.dev/?action=partnerVarkaBroadcast&mode=live&confirm=SEND_VARKA
+```
+
+Проверка: точка Varka в мини-аппе показывает текст про бота и не даёт отправить заявку. После `accepted` корзина считается. После `declined` текст «Точка отключена…». Чужая сеть оформляет заказ как раньше.
+
+Откат согласия без отката кода: в Бойне или в колонке `paidConsent` поставить `accepted` нужным точкам. Откат кода: не мержить этот PR. Уже записанные ответы в `Ответы_рассылки` при откате кода сами не сотрутся. Webhook @GOODBOY_LG, если мешает, снять в BotFather / `deleteWebhook` этим ботом, не трогая webhook бота Бойни.
+
 Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) — секрет кладётся CI **после** успешного deploy из одноимённого GitHub secret (workflow `boinya-c-worker-deploy`; skip если пусто, fail не валит деплой). GAS: Script Property с тем же именем.
 
 Демо-профили в браузере при живом webhook **отключены**.
@@ -145,7 +192,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лимит 200 г на заказ:** `MAX_ORDER_GRAMS = 200` для всех точек. Весовые позиции суммируются в граммах; штуки (купон / NFC / баннер) не входят. UI + Worker + `partnerSubmitOrder`. Старые заявки не трогаем. Pages varka `3.3.58` · **нужен Worker Deploy** + **Deploy Code.gs**
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум лакомств 200 г; NFC / баннер / купон без лакомств можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. До согласия (`paidConsent`, по умолчанию pending) заказ точки Varka закрыт. Рассылка хозяевам не запускалась. Pages varka `3.3.64` · **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
