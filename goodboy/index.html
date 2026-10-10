@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="css/site-v070.css?v=150" />
+    <link rel="stylesheet" href="css/site-v070.css?v=151" />
   <style>
     /* критичный лоадер — до основного CSS */
     html.gb-booting { overflow: hidden; }
@@ -167,33 +167,13 @@
       </div>
     </header>
 
-    <section class="site-section site-section--shelves" id="about">
-      <div class="inner inner--narrow">
-        <p class="sec-kicker reveal">Кто мы</p>
-        <h2 class="reveal d1">О проекте</h2>
-        <p class="sec-lead reveal d2">У каждого из нас появилась собака — и стало ясно, как много вокруг неверной информации и товаров. Мы сделали GOOD&nbsp;BOY, чтобы лакомства, корма и нужные специалисты были в одном месте.</p>
-        <p class="about-teaser-cta reveal d2"><a class="invite-btn" href="about.html">Читать нашу историю</a></p>
-      </div>
-      <!-- Три ровные полосы: справа → слева → справа -->
-      <div class="photo-shelves reveal" aria-label="Кадры GOOD BOY">
-        <figure class="shelf shelf-from-right">
-          <img src="assets/shelf-pouches.jpg?v=145" width="1600" height="800" alt="Пакеты GOOD BOY" loading="lazy" decoding="async" />
-        </figure>
-        <figure class="shelf shelf-from-left">
-          <img src="assets/shelf-dogs3.jpg?v=145" width="1600" height="850" alt="Питомцы с пакетом GOOD BOY" loading="lazy" decoding="async" />
-        </figure>
-        <figure class="shelf shelf-from-right">
-          <img src="assets/shelf-sniff.jpg?v=152" width="1920" height="1020" alt="Питомец GOOD BOY дома у лампы" loading="lazy" decoding="async" />
-        </figure>
-      </div>
-    </section>
-
     <section class="site-section site-section--phone" id="app">
       <div class="inner phone-block">
         <div class="phone-block-copy reveal">
-          <p class="sec-kicker">В кармане</p>
-          <h2>Кабинет рядом</h2>
-          <p class="sec-lead">Листайте экраны пальцем или стрелками&nbsp;— питомец, доставка, карта и&nbsp;скидки.</p>
+          <p class="sec-kicker">Кабинет</p>
+          <h2 class="phone-slogan">Питомец уже в&nbsp;кабинете</h2>
+          <p class="sec-lead">Доставка, карта и&nbsp;карточка питомца&nbsp;— откройте и&nbsp;посмотрите сами.</p>
+          <a class="phone-open-btn" href="app.html">Открыть кабинет</a>
         </div>
         <div class="phone-stage reveal d1">
           <div class="phone-glow" aria-hidden="true"></div>
@@ -202,7 +182,7 @@
               <div class="phone-shine" aria-hidden="true"></div>
               <div class="phone-bezel">
                 <div class="phone-island" aria-hidden="true"></div>
-                <div class="phone-screen" id="phoneScreen" tabindex="0" aria-label="Демо кабинета. Свайп или стрелки для листания.">
+                <div class="phone-screen" id="phoneScreen" tabindex="0" aria-roledescription="карусель" aria-label="Демо кабинета. Листайте пальцем, мышью, колёсиком, стрелками или точками.">
                   <div class="phone-status">
                     <span>9:41</span>
                     <span class="phone-status-dots" aria-hidden="true"></span>
@@ -298,10 +278,10 @@
                     </article>
                   </div>
                   <div class="phone-tabs" role="tablist" aria-label="Экраны кабинета">
-                    <button type="button" class="is-on" data-tab="0" aria-label="Питомец"></button>
-                    <button type="button" data-tab="1" aria-label="Доставка"></button>
-                    <button type="button" data-tab="2" aria-label="Город"></button>
-                    <button type="button" data-tab="3" aria-label="Партнёры"></button>
+                    <button type="button" class="is-on" role="tab" data-tab="0" aria-selected="true" aria-label="Питомец"></button>
+                    <button type="button" role="tab" data-tab="1" aria-selected="false" aria-label="Доставка"></button>
+                    <button type="button" role="tab" data-tab="2" aria-selected="false" aria-label="Город"></button>
+                    <button type="button" role="tab" data-tab="3" aria-selected="false" aria-label="Партнёры"></button>
                   </div>
                 </div>
               </div>
@@ -311,8 +291,38 @@
             <b>Доставка завтра</b>
             <span>Набор уже в пути к Биму</span>
           </div>
-          <p class="phone-hint">Свайпните экран или нажмите точки</p>
+          <p class="phone-hint">Пальцем, колёсиком, стрелками или точками</p>
+          <div class="phone-desk-nav">
+            <button type="button" class="phone-arrow" id="phonePrev" aria-label="Предыдущий экран">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5 9 12l5.5 5.5"/></svg>
+            </button>
+            <button type="button" class="phone-arrow" id="phoneNext" aria-label="Следующий экран">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 6.5 15 12l-5.5 5.5"/></svg>
+            </button>
+          </div>
         </div>
+      </div>
+    </section>
+
+
+    <section class="site-section site-section--shelves" id="about">
+      <div class="inner inner--narrow">
+        <p class="sec-kicker reveal">Кто мы</p>
+        <h2 class="reveal d1">О проекте</h2>
+        <p class="sec-lead reveal d2">У каждого из нас появилась собака — и стало ясно, как много вокруг неверной информации и товаров. Мы сделали GOOD&nbsp;BOY, чтобы лакомства, корма и нужные специалисты были в одном месте.</p>
+        <p class="about-teaser-cta reveal d2"><a class="invite-btn" href="about.html">Читать нашу историю</a></p>
+      </div>
+      <!-- Три ровные полосы: справа → слева → справа -->
+      <div class="photo-shelves reveal" aria-label="Кадры GOOD BOY">
+        <figure class="shelf shelf-from-right">
+          <img src="assets/shelf-pouches.jpg?v=145" width="1600" height="800" alt="Пакеты GOOD BOY" loading="lazy" decoding="async" />
+        </figure>
+        <figure class="shelf shelf-from-left">
+          <img src="assets/shelf-dogs3.jpg?v=145" width="1600" height="850" alt="Питомцы с пакетом GOOD BOY" loading="lazy" decoding="async" />
+        </figure>
+        <figure class="shelf shelf-from-right">
+          <img src="assets/shelf-sniff.jpg?v=152" width="1920" height="1020" alt="Питомец GOOD BOY дома у лампы" loading="lazy" decoding="async" />
+        </figure>
       </div>
     </section>
 
@@ -369,7 +379,7 @@
   </div>
 
   <script src="js/boot-loader.js?v=132"></script>
-  <script src="js/motion.js?v=150"></script>
+  <script src="js/motion.js?v=151"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();

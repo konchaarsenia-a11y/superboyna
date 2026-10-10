@@ -204,18 +204,30 @@
 
   function initPhoneDemo() {
     var screen = document.getElementById("phoneScreen");
+    var track = document.querySelector(".phone-slides");
+    var stage = document.querySelector(".phone-stage");
     var slides = document.querySelectorAll(".phone-slide");
     var tabs = document.querySelectorAll(".phone-tabs [data-tab], .phone-tabs span");
+    var prevBtn = document.getElementById("phonePrev");
+    var nextBtn = document.getElementById("phoneNext");
     var toast = document.getElementById("phoneToast");
-    if (!slides.length) return;
+    if (!track || !slides.length) return;
 
     var i = 0;
     var total = slides.length;
     var timer = null;
     var manual = false;
+    var drag = null;
+    var snapTimer = null;
+    var wheelLock = false;
 
-    function show(n) {
-      i = ((n % total) + total) % total;
+    function indexFromScroll() {
+      var w = track.clientWidth || 1;
+      return Math.max(0, Math.min(total - 1, Math.round(track.scrollLeft / w)));
+    }
+
+    function setTabs(n) {
+      i = Math.max(0, Math.min(total - 1, n));
       slides.forEach(function (s, idx) {
         s.classList.toggle("is-on", idx === i);
       });
@@ -223,11 +235,19 @@
         var key = t.getAttribute("data-tab");
         var on = key != null ? Number(key) === i : idx === i;
         t.classList.toggle("is-on", on);
+        if (t.tagName === "BUTTON") t.setAttribute("aria-selected", on ? "true" : "false");
       });
     }
 
-    function next() { show(i + 1); }
-    function prev() { show(i - 1); }
+    function scrollToIndex(n, behavior) {
+      var w = track.clientWidth || 1;
+      var target = ((n % total) + total) % total;
+      track.scrollTo({
+        left: target * w,
+        behavior: reduced() ? "auto" : (behavior || "smooth")
+      });
+      setTabs(target);
+    }
 
     function stopAuto() {
       manual = true;
@@ -240,48 +260,135 @@
     function startAuto() {
       if (reduced() || manual) return;
       if (timer) global.clearInterval(timer);
-      timer = global.setInterval(next, 4200);
+      timer = global.setInterval(function () {
+        scrollToIndex(indexFromScroll() + 1, "smooth");
+      }, 4200);
     }
 
-    show(0);
+    function hold(on) {
+      if (stage) stage.classList.toggle("is-interacting", !!on);
+    }
+
+    function releaseSnap() {
+      if (snapTimer) global.clearTimeout(snapTimer);
+      snapTimer = global.setTimeout(function () {
+        track.classList.remove("is-dragging");
+        hold(false);
+        scrollToIndex(indexFromScroll(), "smooth");
+      }, 70);
+    }
+
+    setTabs(0);
+
+    track.addEventListener("scroll", function () {
+      var n = indexFromScroll();
+      if (n !== i) setTabs(n);
+    }, { passive: true });
 
     tabs.forEach(function (t) {
       t.addEventListener("click", function (e) {
         e.preventDefault();
         stopAuto();
         var key = t.getAttribute("data-tab");
-        show(key != null ? Number(key) : Array.prototype.indexOf.call(tabs, t));
+        scrollToIndex(key != null ? Number(key) : Array.prototype.indexOf.call(tabs, t), "smooth");
       });
     });
 
-    if (screen) {
-      var startX = 0;
-      var startY = 0;
-      var tracking = false;
-
-      screen.addEventListener("pointerdown", function (e) {
-        tracking = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        try { screen.setPointerCapture(e.pointerId); } catch (err) {}
-      });
-
-      screen.addEventListener("pointerup", function (e) {
-        if (!tracking) return;
-        tracking = false;
-        var dx = e.clientX - startX;
-        var dy = e.clientY - startY;
-        if (Math.abs(dx) < 36 || Math.abs(dx) < Math.abs(dy)) return;
+    if (prevBtn) {
+      prevBtn.addEventListener("click", function () {
         stopAuto();
-        if (dx < 0) next();
-        else prev();
-      });
-
-      screen.addEventListener("keydown", function (e) {
-        if (e.key === "ArrowRight") { stopAuto(); next(); }
-        if (e.key === "ArrowLeft") { stopAuto(); prev(); }
+        scrollToIndex(indexFromScroll() - 1, "smooth");
       });
     }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", function () {
+        stopAuto();
+        scrollToIndex(indexFromScroll() + 1, "smooth");
+      });
+    }
+
+    if (screen) {
+      screen.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          stopAuto();
+          scrollToIndex(indexFromScroll() + 1, "smooth");
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          stopAuto();
+          scrollToIndex(indexFromScroll() - 1, "smooth");
+        }
+      });
+    }
+
+    /* Мышь: тянем вбок. Вертикаль не перехватываем — страница скроллится. Тач — нативный snap. */
+    track.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "touch") return;
+      if (e.button != null && e.button !== 0) return;
+      drag = {
+        id: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        left: track.scrollLeft,
+        axis: ""
+      };
+    });
+
+    track.addEventListener("pointermove", function (e) {
+      if (!drag || drag.id !== e.pointerId) return;
+      var dx = e.clientX - drag.x;
+      var dy = e.clientY - drag.y;
+      if (!drag.axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        drag.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        if (drag.axis !== "x") {
+          drag = null;
+          return;
+        }
+        stopAuto();
+        hold(true);
+        track.classList.add("is-dragging");
+        try { track.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+      track.scrollLeft = drag.left - dx;
+    });
+
+    function endDrag(e) {
+      if (!drag || (e && drag.id !== e.pointerId)) return;
+      var wasX = drag.axis === "x";
+      drag = null;
+      if (!wasX) return;
+      track.classList.remove("is-dragging");
+      hold(false);
+      scrollToIndex(indexFromScroll(), "smooth");
+    }
+    track.addEventListener("pointerup", endDrag);
+    track.addEventListener("pointercancel", endDrag);
+
+    track.addEventListener("wheel", function (e) {
+      var absX = Math.abs(e.deltaX);
+      var absY = Math.abs(e.deltaY);
+      var horizontal = absX > absY && absX > 1;
+      /* Щелчок колёсика мыши (крупный deltaY). Мелкий трекпад по вертикали не трогаем. */
+      var mouseNotch = e.deltaMode === 1 || e.deltaMode === 2 || (absY >= 50 && absX < 8);
+      if (!horizontal && !(absY > absX && mouseNotch)) return;
+      e.preventDefault();
+      stopAuto();
+      hold(true);
+      if (horizontal) {
+        track.classList.add("is-dragging");
+        track.scrollLeft += e.deltaX;
+        releaseSnap();
+        return;
+      }
+      if (wheelLock) return;
+      wheelLock = true;
+      scrollToIndex(indexFromScroll() + (e.deltaY > 0 ? 1 : -1), "smooth");
+      global.setTimeout(function () {
+        wheelLock = false;
+        hold(false);
+      }, 320);
+    }, { passive: false });
 
     startAuto();
 
@@ -290,7 +397,7 @@
         var tab = Number(card.getAttribute("data-phone-tab"));
         if (isNaN(tab)) return;
         stopAuto();
-        show(tab);
+        scrollToIndex(tab, "smooth");
         var section = document.getElementById("app");
         if (section) {
           section.scrollIntoView({
