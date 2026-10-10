@@ -124,6 +124,7 @@
     }
 
     function onMove(e, el) {
+      if (e.target && e.target.closest && e.target.closest(".phone-stage")) return;
       var r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
       lx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
@@ -139,6 +140,15 @@
     }
     if (phoneZone && phone) {
       phoneZone.addEventListener("pointermove", function (e) { onMove(e, phoneZone); }, { passive: true });
+      phoneZone.addEventListener("pointerover", function (e) {
+        if (!e.target || !e.target.closest || !e.target.closest(".phone-stage")) return;
+        lx = 0.5;
+        ly = 0.45;
+        if (!ticking) {
+          ticking = true;
+          global.requestAnimationFrame(apply);
+        }
+      }, { passive: true });
       phoneZone.addEventListener("pointerleave", function () {
         lx = 0.5;
         ly = 0.45;
@@ -350,7 +360,9 @@
         track.classList.add("is-dragging");
         try { track.setPointerCapture(e.pointerId); } catch (err) {}
       }
-      track.scrollLeft = drag.left - dx;
+      var rect = track.getBoundingClientRect();
+      var scale = rect.width ? track.clientWidth / rect.width : 1;
+      track.scrollLeft = drag.left - dx * scale;
     });
 
     function endDrag(e) {
@@ -376,8 +388,10 @@
       stopAuto();
       hold(true);
       if (horizontal) {
+        var rect = track.getBoundingClientRect();
+        var scale = rect.width ? track.clientWidth / rect.width : 1;
         track.classList.add("is-dragging");
-        track.scrollLeft += e.deltaX;
+        track.scrollLeft += e.deltaX * scale;
         releaseSnap();
         return;
       }

@@ -530,18 +530,56 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform: translate3d(0, 0, 0) rotate(-1.2deg);
 }
 
-/* Hero without logo — feature cards */
+/* Hero: заголовок, сразу кабинет, затем карточки */
 .hero-grid--features {
   width: min(1040px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 44px;
+  gap: 28px;
   align-items: center;
 }
 @media (min-width: 880px) {
   .hero-grid--features {
-    grid-template-columns: 1.05fr 0.95fr;
-    gap: 56px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "copy phone"
+      "features features";
+    gap: 36px 48px;
+    align-items: center;
+  }
+  .hero-grid--features .hero-copy { grid-area: copy; }
+  .hero-grid--features .site-section--phone { grid-area: phone; }
+  .hero-grid--features .hero-features { grid-area: features; }
+}
+.site-hero--features .site-section--phone {
+  padding: 0;
+  scroll-margin-top: 92px;
+}
+@media (max-width: 879px) {
+  .site-hero--features .phone-block {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    justify-items: stretch;
+    text-align: left;
+    gap: 12px;
+  }
+  .site-hero--features .phone-stage {
+    zoom: 0.62;
+    width: 260px;
+  }
+  .site-hero--features .phone-block-copy h2 {
+    font-size: 1.45rem;
+    margin-bottom: 8px;
+  }
+  .site-hero--features .phone-block-copy .sec-lead {
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+  .site-hero--features .phone-open-btn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
   }
 }
 .site-hero--features {
@@ -733,12 +771,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 @media (min-width: 880px) {
   .phone-block {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(12rem, 16rem) auto;
     text-align: left;
-    justify-items: stretch;
-    gap: 48px;
+    justify-items: start;
+    gap: 28px;
+    align-items: center;
   }
-  .phone-block-copy { max-width: 28rem; }
+  .phone-block-copy { max-width: 16rem; }
 }
 .phone-block-copy h2 {
   font-family: var(--gb-display);
