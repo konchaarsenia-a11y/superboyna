@@ -52,9 +52,12 @@ if (/partnerOrderGramsReject_/.test(workerSrc) || /partnerOrderGramsReject_/.tes
 if (/Бесплатная заявка|бесплатно/.test(varkaSrc)) fail("varka still says the order is free");
 if (!/id="orderTotalHint"/.test(varkaSrc)) fail("varka must show the sum under the order");
 if (!/action:\s*"partnerCalcPrice"/.test(varkaSrc)) fail("varka must quote via partnerCalcPrice");
-if (!/APP_VER = "3\.3\.62"/.test(varkaSrc)) fail("varka version must be 3.3.62");
-if (!/Минимальный заказ — 200 г\. Чем больше заказ, тем дешевле выходит цена за 100 г/.test(varkaSrc)) {
-  fail("varka must show the 200 g minimum note");
+if (!/APP_VER = "3\.3\.63"/.test(varkaSrc)) fail("varka version must be 3.3.63");
+if (!/Минимальный заказ — 200 г\. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г\./.test(varkaSrc)) {
+  fail("varka must show the volume discount note");
+}
+if (!/Лакомства — /.test(varkaSrc) || !/Доставка — /.test(varkaSrc) || !/Итого — /.test(varkaSrc)) {
+  fail("varka must split treats, delivery and total");
 }
 if (!/Минимум 200 г/.test(varkaSrc)) fail("varka submit button must explain the 200 g minimum");
 if (!/treatOrderShort_/.test(varkaSrc)) fail("varka must block a short treat order");
@@ -95,6 +98,7 @@ if (!/ppBasket,\s*1,\s*PARTNER_VARKA_COEF,/.test(gasQuote)) {
 if (/PP_RAW26_COEF_DEFAULT_/.test(gasQuote)) fail("GAS quote must not use the subscription coef");
 if (!/clientDisplayPrice/.test(gasQuote)) fail("GAS quote must use the ruble client price");
 if (!/partnerApplyVarkaDelivery_\(/.test(gasQuote)) fail("GAS quote must apply Varka delivery");
+if (!/treatsByn: split\.treatsByn/.test(gasQuote)) fail("GAS quote must return treatsByn");
 const gasCalc = extractFn_(gasSrc, "handleCalcPrice");
 if (!/packOptCp/.test(gasCalc)) fail("handleCalcPrice must pass explicit packCounts into the fact");
 
@@ -109,6 +113,7 @@ if (/PP_RAW26_COEF_DEFAULT_D1_/.test(workerQuote)) fail("Worker quote must not u
 if (!/packCounts:\s*PARTNER_PP_PACK_ZERO_/.test(workerQuote)) fail("Worker quote must pass zero packs");
 if (!/clientDisplayPrice/.test(workerQuote)) fail("Worker quote must use the ruble client price");
 if (!/partnerApplyVarkaDelivery_\(/.test(workerQuote)) fail("Worker quote must apply Varka delivery");
+if (!/treatsByn: split\.treatsByn/.test(workerQuote)) fail("Worker quote must return treatsByn");
 
 const gasSubmit = extractFn_(gasSrc, "handlePartnerSubmitOrder");
 const workerSubmitStart = workerSrc.indexOf('if (/^partnerSubmitOrder$/i.test(a)) {');

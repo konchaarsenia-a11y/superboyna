@@ -492,10 +492,11 @@
     }
     .bar-row { display: flex; gap: 10px; align-items: center; }
     .order-total {
-      margin: 0 2px; font-size: 13px; font-weight: 800; line-height: 1.3;
-      color: var(--accent2);
+      margin: 0 2px; font-size: 13px; font-weight: 700; line-height: 1.45;
+      color: var(--text);
     }
-    .order-total.err { color: var(--danger); }
+    .order-total .order-total-final { font-weight: 800; color: var(--accent2); }
+    .order-total.err { color: var(--danger); font-weight: 800; }
     .order-min-note {
       margin: 0 2px; font-size: 12px; font-weight: 600; line-height: 1.35;
       color: var(--muted);
@@ -742,7 +743,7 @@
         <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
       </div>
       <div class="order-total" id="orderTotalHint"></div>
-      <p class="order-min-note" id="orderMinNote" hidden>Минимальный заказ — 200 г. Чем больше заказ, тем дешевле выходит цена за 100 г</p>
+      <p class="order-min-note" id="orderMinNote" hidden>Минимальный заказ — 200 г. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г.</p>
     </div>
   </div>
 
@@ -758,7 +759,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.62";
+  var APP_VER = "3.3.63";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -2316,7 +2317,7 @@
 
   var quoteTimer_ = null;
   var quoteSeq_ = 0;
-  var quoteState_ = { key: "", totalByn: null, status: "" };
+  var quoteState_ = { key: "", totalByn: null, treatsByn: null, deliveryByn: null, status: "" };
 
   function formatByn_(n) {
     var x = Math.round(Number(n) * 100) / 100;
@@ -2341,6 +2342,13 @@
     return basket;
   }
 
+  function appendTotalLine_(el, text, isFinal) {
+    var row = document.createElement("div");
+    if (isFinal) row.className = "order-total-final";
+    row.textContent = text;
+    el.appendChild(row);
+  }
+
   function paintOrderMinNote_() {
     var note = document.getElementById("orderMinNote");
     if (!note) return;
@@ -2362,8 +2370,18 @@
       return;
     }
     if (quoteState_.status === "ok" && quoteState_.totalByn != null && isFinite(Number(quoteState_.totalByn))) {
-      el.textContent = "Сумма: " + formatByn_(quoteState_.totalByn) + " BYN";
+      var total = Number(quoteState_.totalByn);
+      var delivery = Number(quoteState_.deliveryByn);
+      el.textContent = "";
       el.classList.remove("err");
+      if (delivery > 0) {
+        var treats = quoteState_.treatsByn != null && isFinite(Number(quoteState_.treatsByn))
+          ? Number(quoteState_.treatsByn)
+          : Math.round((total - delivery) * 100) / 100;
+        appendTotalLine_(el, "Лакомства — " + formatByn_(treats) + " BYN", false);
+        appendTotalLine_(el, "Доставка — " + formatByn_(delivery) + " BYN", false);
+      }
+      appendTotalLine_(el, "Итого — " + formatByn_(total) + " BYN", true);
       return;
     }
     el.textContent = "Сумму не удалось посчитать";
@@ -2376,7 +2394,7 @@
     var key = JSON.stringify(basket);
     if (!basket.length) {
       quoteSeq_++;
-      quoteState_ = { key: key, totalByn: null, status: "" };
+      quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "" };
       paintOrderTotal_();
       return;
     }
@@ -2385,7 +2403,7 @@
       return;
     }
     var seq = ++quoteSeq_;
-    quoteState_ = { key: key, totalByn: null, status: "loading" };
+    quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "loading" };
     paintOrderTotal_();
     quoteTimer_ = setTimeout(function () { fetchQuote_(key, seq); }, 280);
   }
@@ -2395,7 +2413,7 @@
     key = key || JSON.stringify(basket);
     if (seq != null && seq !== quoteSeq_) return;
     if (!basket.length) {
-      quoteState_ = { key: key, totalByn: 0, status: "ok" };
+      quoteState_ = { key: key, totalByn: 0, treatsByn: 0, deliveryByn: 0, status: "ok" };
       paintOrderTotal_();
       return;
     }
@@ -2407,13 +2425,19 @@
       });
       if (seq !== quoteSeq_) return;
       if (res && res.status === "success" && isFinite(Number(res.totalByn))) {
-        quoteState_ = { key: key, totalByn: Number(res.totalByn), status: "ok" };
+        quoteState_ = {
+          key: key,
+          totalByn: Number(res.totalByn),
+          treatsByn: res.treatsByn != null ? Number(res.treatsByn) : null,
+          deliveryByn: res.deliveryByn != null ? Number(res.deliveryByn) : null,
+          status: "ok"
+        };
       } else {
-        quoteState_ = { key: key, totalByn: null, status: "err" };
+        quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "err" };
       }
     } catch (eQ) {
       if (seq !== quoteSeq_) return;
-      quoteState_ = { key: key, totalByn: null, status: "err" };
+      quoteState_ = { key: key, totalByn: null, treatsByn: null, deliveryByn: null, status: "err" };
     }
     paintOrderTotal_();
   }

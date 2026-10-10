@@ -14323,6 +14323,26 @@ function partnerApplyVarkaDelivery_(fact) {
   return fact;
 }
 
+/** Разбивка уже посчитанного итога: доставка внутри, лакомства = итог − 4. */
+function partnerQuoteSplit_(total) {
+  const delivery = partnerMoney_(PARTNER_VARKA_DELIVERY_BYN);
+  const treats = partnerMoney_(Number(total) - delivery);
+  if (!(treats >= 0)) return { treatsByn: partnerMoney_(total), deliveryByn: 0 };
+  return { treatsByn: treats, deliveryByn: delivery };
+}
+
+function partnerPriceNote_(order) {
+  if (!order || order.totalByn == null || !isFinite(Number(order.totalByn))) return "";
+  if (Number(order.deliveryByn) > 0 && order.treatsByn != null && isFinite(Number(order.treatsByn))) {
+    return (
+      "\nЛакомства: " + partnerBynLabel_(order.treatsByn) +
+      "\nДоставка: " + partnerBynLabel_(order.deliveryByn) +
+      "\nСумма: " + partnerBynLabel_(order.totalByn)
+    );
+  }
+  return "\nСумма: " + partnerBynLabel_(order.totalByn);
+}
+
 /**
  * Разовая розница: calcPricePpD1_ (mode pp, fullFact, RAW26, deliveriesN=1).
  * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6. D1 и запасной GAS
@@ -14339,7 +14359,9 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
       scheme: "RAW26",
       deliveriesN: 1,
       treats: 0,
-      coef: PARTNER_VARKA_COEF
+      coef: PARTNER_VARKA_COEF,
+      treatsByn: 0,
+      deliveryByn: 0
     };
   }
   const priced = await calcPricePpD1_(
@@ -14363,15 +14385,17 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
   const shown = priced.clientDisplayPrice != null ? priced.clientDisplayPrice : priced.clientPrice;
   const total = partnerMoney_(shown != null ? shown : priced.factCost);
   if (!(total > 0)) return { status: "error", message: "price_unavailable" };
+  const split = partnerQuoteSplit_(total);
   return {
     status: "success",
     totalByn: total,
+    treatsByn: split.treatsByn,
     currency: "BYN",
     scheme: priced.scheme || "RAW26",
     deliveriesN: 1,
     treats: ppBasket.length,
     coef: PARTNER_VARKA_COEF,
-    deliveryByn: PARTNER_VARKA_DELIVERY_BYN,
+    deliveryByn: split.deliveryByn,
     retailCapped: !!priced.retailCapped
   };
 }
@@ -27092,10 +27116,7 @@ async function partnerNotifyOrderFastWorker_(order, env) {
   const partnerTid = String(order.telegramId || "").trim();
   const tasks = [];
   // Партнёру «Заявка отправлена» — PARTNER/GOODBOY bot (не текст снабжению)
-  const sumLine =
-    order && order.totalByn != null && isFinite(Number(order.totalByn))
-      ? "\nСумма: " + partnerBynLabel_(order.totalByn)
-      : "";
+  const sumLine = partnerPriceNote_(order);
   if (partnerTid) {
     const text =
       "✅ Заявка отправлена\n" +
@@ -28173,6 +28194,8 @@ async function partnerEnqueueDeferredD1Worker_(order, env) {
     partnerName: order.userName || "",
     orderStatus: order.status || "new",
     totalByn: order.totalByn != null ? order.totalByn : null,
+    treatsByn: order.treatsByn != null ? order.treatsByn : null,
+    deliveryByn: order.deliveryByn != null ? order.deliveryByn : null,
     currency: "BYN"
   };
   let ownerTid = "";
@@ -28665,6 +28688,8 @@ async function mutatePartnerD1_(action, params, env) {
       return { status: "error", message: "price_unavailable" };
     }
     const totalByn = partnerMoney_(quote.totalByn);
+    const deliveryByn = quote.deliveryByn != null ? partnerMoney_(quote.deliveryByn) : 0;
+    const treatsByn = quote.treatsByn != null ? partnerMoney_(quote.treatsByn) : totalByn;
     const id = partnerUid_("po");
     const order = {
       id: id,
@@ -28687,6 +28712,8 @@ async function mutatePartnerD1_(action, params, env) {
       deliverTimeLabel: "",
       deferredId: "",
       totalByn: totalByn,
+      treatsByn: treatsByn,
+      deliveryByn: deliveryByn,
       currency: "BYN"
     };
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };

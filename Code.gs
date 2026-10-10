@@ -27046,6 +27046,14 @@ function partnerApplyVarkaDelivery_(fact) {
   return fact;
 }
 
+/** Разбивка уже посчитанного итога: доставка внутри, лакомства = итог − 4. */
+function partnerQuoteSplit_(total) {
+  var delivery = partnerMoney_(PARTNER_VARKA_DELIVERY_BYN);
+  var treats = partnerMoney_(Number(total) - delivery);
+  if (!(treats >= 0)) return { treatsByn: partnerMoney_(total), deliveryByn: 0 };
+  return { treatsByn: treats, deliveryByn: delivery };
+}
+
 /**
  * Разовая розница по канону ПП 09.10: mode pp, fullFact, scheme RAW26, deliveriesN=1.
  * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6.
@@ -27062,7 +27070,9 @@ function partnerQuoteTreatsByn_(basket) {
       scheme: "RAW26",
       deliveriesN: 1,
       treats: 0,
-      coef: PARTNER_VARKA_COEF
+      coef: PARTNER_VARKA_COEF,
+      treatsByn: 0,
+      deliveryByn: 0
     };
   }
   var priceInfo = readPriceCosts_("pp");
@@ -27092,15 +27102,17 @@ function partnerQuoteTreatsByn_(basket) {
   var shown = fact.clientDisplayPrice != null ? fact.clientDisplayPrice : fact.clientPrice;
   var total = partnerMoney_(shown != null ? shown : fact.factCost);
   if (!(total > 0)) return { status: "error", message: "price_unavailable" };
+  var split = partnerQuoteSplit_(total);
   return {
     status: "success",
     totalByn: total,
+    treatsByn: split.treatsByn,
     currency: "BYN",
     scheme: fact.scheme || "RAW26",
     deliveriesN: 1,
     treats: ppBasket.length,
     coef: PARTNER_VARKA_COEF,
-    deliveryByn: PARTNER_VARKA_DELIVERY_BYN,
+    deliveryByn: split.deliveryByn,
     retailCapped: !!fact.retailCapped
   };
 }
@@ -27135,9 +27147,7 @@ function partnerNotifyNewOrder_(order) {
       }
       return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "") + extra;
     }).join("\n");
-    var sumLine = (order && order.totalByn != null && isFinite(Number(order.totalByn)))
-      ? ("\nСумма: " + partnerBynLabel_(order.totalByn))
-      : "";
+    var sumLine = partnerPriceNote_(order);
     var text = "🛍 Новая заявка партнёра " + (order.id || "") + "\n" +
       (order.locationName || order.locationId || "") + "\n" +
       (order.userName || order.username || order.telegramId || "") + "\n" +
@@ -27246,6 +27256,16 @@ function partnerStaffCanAct_(tid) {
     role === "courier" || role === "logistics";
 }
 
+function partnerPriceNote_(order) {
+  if (!order || order.totalByn == null || !isFinite(Number(order.totalByn))) return "";
+  if (Number(order.deliveryByn) > 0 && order.treatsByn != null && isFinite(Number(order.treatsByn))) {
+    return "\nЛакомства: " + partnerBynLabel_(order.treatsByn) +
+      "\nДоставка: " + partnerBynLabel_(order.deliveryByn) +
+      "\nСумма: " + partnerBynLabel_(order.totalByn);
+  }
+  return "\nСумма: " + partnerBynLabel_(order.totalByn);
+}
+
 function partnerBasketLines_(basket) {
   return (basket || []).map(function (b) {
     return "• " + (b.name || b.id) + " — " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
@@ -27277,6 +27297,8 @@ function partnerEnqueueDeferred_(order) {
     partnerUsername: order.username || "",
     partnerName: order.userName || "",
     totalByn: order.totalByn != null ? order.totalByn : null,
+    treatsByn: order.treatsByn != null ? order.treatsByn : null,
+    deliveryByn: order.deliveryByn != null ? order.deliveryByn : null,
     currency: "BYN"
   };
   var ownerTid = "";
@@ -27337,9 +27359,9 @@ function partnerNotifyPartnerStatus_(order, kind) {
     ((order && order.deliverTimeLabel) ? (", " + order.deliverTimeLabel) : "");
   var text = "";
   if (kind === "received" || kind === "submitted") {
-    var sumRec = (order && order.totalByn != null && isFinite(Number(order.totalByn)))
-      ? ("\nСумма: " + partnerBynLabel_(order.totalByn) + "\n")
-      : "\n";
+    var sumRec = partnerPriceNote_(order);
+    if (sumRec) sumRec += "\n";
+    else sumRec = "\n";
     text = "✅ Заявка отправлена\n" + loc + "\n" +
       "Скоро придёт уведомление о дате доставки" + sumRec +
       partnerBasketLines_(order.basket);
@@ -27450,6 +27472,8 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, badPrice) : jsonp(callback, badPrice);
   }
   var totalByn = partnerMoney_(quote.totalByn);
+  var deliveryByn = quote.deliveryByn != null ? partnerMoney_(quote.deliveryByn) : 0;
+  var treatsByn = quote.treatsByn != null ? partnerMoney_(quote.treatsByn) : totalByn;
   var id = String((json && (json.clientOrderId || json.id || json.orderId)) || "").trim();
   if (!/^po_[a-z0-9]+$/i.test(id)) {
     id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
@@ -27478,6 +27502,8 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deliverTimeTo: "",
     deliverTimeLabel: "",
     totalByn: totalByn,
+    treatsByn: treatsByn,
+    deliveryByn: deliveryByn,
     currency: "BYN"
   };
   // не плодить строку, если Worker уже прокинул тот же id
