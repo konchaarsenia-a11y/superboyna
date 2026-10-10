@@ -312,11 +312,31 @@
     return document.getElementById("nxMain");
   }
 
+  /** Сдвиг scrollTop, чтобы поле осталось внутри видимой области хозяина, не по центру экрана. */
+  function revealDelta_(fieldTop, fieldBottom, hostTop, hostBottom) {
+    var margin = 12;
+    var scroll = 0;
+    var down = fieldBottom - (hostBottom - margin);
+    if (down > 1) scroll += down;
+    var up = (hostTop + margin) - (fieldTop - scroll);
+    if (up > 1) scroll -= up;
+    return scroll;
+  }
+
+  function revealField(node, host) {
+    if (!node || !host || !node.getBoundingClientRect || !host.getBoundingClientRect) return;
+    var nr = node.getBoundingClientRect();
+    var hr = host.getBoundingClientRect();
+    var delta = revealDelta_(nr.top, nr.bottom, hr.top, hr.bottom);
+    if (Math.abs(delta) > 1) host.scrollTop += delta;
+  }
+
   function liftField(node) {
     node = node && textField(node) ? node : document.activeElement;
     if (!textField(node)) return;
     var m = kbMetrics();
-    var pad = m.overlap > 48 ? Math.round(m.overlap + 20) : 0;
+    var inSheet = !!(node.closest && node.closest(".nx-sheet"));
+    var pad = !inSheet && m.overlap > 48 ? Math.round(m.overlap + 20) : 0;
     document.documentElement.style.setProperty("--nx-kb", pad ? pad + "px" : "0px");
     document.documentElement.style.setProperty("--nx-vvh", Math.max(120, Math.round(m.vh)) + "px");
     var host = scrollHost(node);
@@ -325,7 +345,7 @@
     for (i = 0; i < hosts.length; i++) {
       hosts[i].style.paddingBottom = hosts[i] === host && pad ? pad + "px" : "";
     }
-    try { node.scrollIntoView({ block: "center", inline: "nearest" }); } catch (e) {}
+    revealField(node, host);
   }
 
   function clearLift() {

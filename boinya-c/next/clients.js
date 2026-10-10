@@ -16,6 +16,8 @@
   var editMode = false;
   var picked = {};
   var card = null;
+  var cardOpenGen = 0;
+  var droppedSubs = {};
   var deep = false;
   var showBpForm = false;
   var showSurveyForm = false;
@@ -369,6 +371,30 @@
     return rows;
   }
 
+  function subDropKey_(s) {
+    s = s || {};
+    var sheet = String(s.sheet || s.segment || "").trim();
+    var id = String(s.subId || "").trim();
+    var nick = String(s.nick || s.label || "").trim().toUpperCase();
+    return sheet + "|" + (id || nick);
+  }
+
+  function withoutDropped_(list) {
+    return (list || []).filter(function (s) {
+      return !droppedSubs[subDropKey_(s)];
+    });
+  }
+
+  function dropSub_(s) {
+    if (!s) return;
+    var sheet = String(s.sheet || s.segment || "").trim();
+    var nick = String(s.nick || s.label || "").trim().toUpperCase();
+    var id = String(s.subId || "").trim();
+    if (id) droppedSubs[sheet + "|" + id] = 1;
+    if (nick) droppedSubs[sheet + "|" + nick] = 1;
+    subs = withoutDropped_(subs);
+  }
+
   async function loadSubs(force, attempt) {
     subsLoading = true;
     subsError = "";
@@ -377,7 +403,7 @@
     try {
       var res = await api().apiGet(params, { timeoutMs: force ? 28000 : 22000, cacheTtlMs: force ? 0 : 30000 });
       if (!res || res.status !== "success") throw new Error((res && (res.message || res.detail)) || "CRM не ответила");
-      subs = Array.isArray(res.subscriptions) ? res.subscriptions : [];
+      subs = withoutDropped_(Array.isArray(res.subscriptions) ? res.subscriptions : []);
       subsLoading = false;
       subsError = "";
     } catch (e) {
@@ -1358,6 +1384,8 @@
     card.sheet = sheet || hit.sheet || "ПП";
     card.nick = hit.nick || nick || "";
     card.label = hit.label || hit.nick || nick || "";
+    card.openedNick = String(card.nick || "").trim();
+    card.openedLabel = String(card.label || "").trim();
     card.subId = hit.subId || subId || "";
     card.basket = eng().mapApiBasketToLocal(hit.basket || []);
     card.basket2 = eng().mapApiBasketToLocal(hit.basket2 || []);
@@ -1368,6 +1396,7 @@
   }
 
   async function openCard(nick, subId, sheet) {
+    var gen = ++cardOpenGen;
     var shown = previewCardFromList(nick, subId, sheet);
     if (shown) {
       sh().resetScroll();
@@ -1384,6 +1413,7 @@
       sheet: sheet,
       _: String(Date.now())
     }, { timeoutMs: 22000, cacheTtlMs: shown ? 20000 : 0 });
+    if (gen !== cardOpenGen) return;
     if (!res || res.status !== "success" || res.found === false) { sh().toast((res && res.message) || "Не открылось"); return; }
     card = blankCard();
     Object.keys(card).forEach(function (k) {
@@ -1394,6 +1424,8 @@
     card.sheet = (Number(res.rowIndex) > 0 && res.sheet) ? res.sheet : (sheet || res.sheet || "ПП");
     card.nick = res.nick || nick || "";
     card.label = res.label || res.nick || nick || "";
+    card.openedNick = String(card.nick || "").trim();
+    card.openedLabel = String(card.label || "").trim();
     card.subId = res.subId || subId || "";
     card.basket = eng().mapApiBasketToLocal(res.basket || []);
     card.basket2 = eng().mapApiBasketToLocal(res.basket2 || []);
@@ -1438,7 +1470,10 @@
     sh().resetScroll();
     sh().hideToast();
     paint();
-    loadPeople().then(function () { if (view === "card" && card) paint(); });
+    loadPeople().then(function () {
+      if (gen !== cardOpenGen) return;
+      if (view === "card" && card) paint();
+    });
     } catch (eCard) {
       sh().toast((eCard && eCard.message) || "Не открылось");
     }
@@ -1464,9 +1499,12 @@
     }
     var ownerName = "";
     people.forEach(function (p) { if (String(p.telegramId) === String(card.ownerTelegramId)) ownerName = p.name || ""; });
+    var openedNick = String(card.openedNick || "").trim();
+    var openedLabel = String(card.openedLabel || "").trim();
+    var nextNick = String(card.nick || card.label || "").trim();
     var body = {
       action: "saveSubscription",
-      nick: card.nick || card.label,
+      nick: nextNick,
       label: card.label || card.nick,
       subId: card.subId || "",
       sheet: card.sheet,
@@ -1491,6 +1529,10 @@
       dogWeight: card.dogWeight || "",
       packCounts: card.sheet === "ПП" ? card.packCounts : null
     };
+    if (openedNick && nextNick && openedNick.toUpperCase() !== nextNick.toUpperCase()) {
+      body.prevNick = openedNick;
+      body.prevLabel = openedLabel || openedNick;
+    }
     if (card.sheet === "БП") {
       body.surveyBp2Due = card.surveyBp2Due || "";
       body.surveyFinalDue = card.surveyFinalDue || "";
@@ -1504,9 +1546,16 @@
     var res = await api().apiPost(body);
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "ошибка записи"); return false; }
     sh().toast("Сохранено");
+    card.openedNick = nextNick || card.openedNick;
+    card.openedLabel = String(card.label || card.openedLabel || "").trim();
     subs.forEach(function (s) {
-      var same = (card.subId && String(s.subId) === String(card.subId)) || String(s.nick || "") === String(card.nick || "");
-      if (!same) return;
+      if (String(s.sheet || "") && card.sheet && String(s.sheet) !== String(card.sheet)) return;
+      var sid = String(s.subId || "");
+      var cid = String(card.subId || "");
+      if (cid && sid && cid !== sid) return;
+      var was = openedNick && (String(s.nick || "") === openedNick || String(s.label || "") === openedLabel);
+      var now = String(s.nick || "") === String(card.nick || "");
+      if (!was && !now) return;
       s.label = card.label || s.label;
       s.nick = card.nick || s.nick;
       s.phone = card.phone || s.phone;
@@ -1998,11 +2047,19 @@
       _: String(Date.now())
     }, { timeoutMs: 90000, cacheTtlMs: 0 });
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не удалилось"); return; }
-    sh().toast("Удалено");
+    rows.forEach(dropSub_);
     picked = {};
     editMode = false;
-    await loadSubs(true);
+    if (card && droppedSubs[subDropKey_(card)]) {
+      cardOpenGen++;
+      view = "list";
+      card = null;
+      deep = false;
+    }
+    sh().restoreScrollTo(listScroll);
     paint();
+    sh().toast("Удалено");
+    loadSubs(true).then(function () { if (view === "list") paint(); });
   }
 
   function fractionsWithoutCrumb_(list) {
@@ -2052,11 +2109,15 @@
       _: String(Date.now())
     }, { timeoutMs: 25000, cacheTtlMs: 0 });
     if (!res || (res.status !== "success" && res.status !== "deleted")) { sh().toast((res && res.message) || "Не удалилось"); return; }
-    sh().toast("Удалено");
+    dropSub_(card);
+    cardOpenGen++;
     view = "list";
     card = null;
-    await loadSubs(true);
+    deep = false;
+    sh().restoreScrollTo(listScroll);
     paint();
+    sh().toast("Удалено");
+    loadSubs(true).then(function () { if (view === "list") paint(); });
   }
 
   async function moveCard(to) {

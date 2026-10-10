@@ -1052,7 +1052,7 @@
     return ex.unitFor_(cat, name) || "";
   }
 
-  /** Граммы: кнопки шагают по 5. Ноль снимает строку состава. Штуки сюда не попадают. */
+  /** Граммы вводятся числом. Ноль снимает строку состава. Штуки сюда не попадают. */
   function gramStep_(qty, dir) {
     qty = Number(qty);
     if (!isFinite(qty)) qty = 0;
@@ -1081,10 +1081,8 @@
   function gramQtyHtml(act, value, unit, extra) {
     extra = extra || "";
     var empty = value == null || value === "";
-    return '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="' + act + '" data-dir="-1"' + extra + ' aria-label="Меньше">−</button>' +
-      '<input class="b-step__input" data-act="' + act + '-in" inputmode="numeric" enterkeyhint="done" autocomplete="off" aria-label="Граммы" placeholder="г" value="' + esc(empty ? "" : value) + '"' + extra + ">" +
-      '<span class="b-step__unit">' + esc(unit) + "</span>" +
-      '<button class="b-step__btn" type="button" data-act="' + act + '" data-dir="1"' + extra + ' aria-label="Больше">+</button></div>';
+    return '<label class="b-step b-gram"><input class="b-step__input" data-act="' + act + '-in" inputmode="numeric" enterkeyhint="done" autocomplete="off" aria-label="Граммы" placeholder="г" value="' + esc(empty ? "" : value) + '"' + extra + ">" +
+      '<span class="b-step__unit">' + esc(unit) + "</span></label>";
   }
 
   /** Плюс с пустого поля ставит 5 г. Минус с пустого ничего не подставляет. */

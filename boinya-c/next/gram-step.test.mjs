@@ -55,6 +55,10 @@ test("ручной ввод хранит целое как написали", ()
 
 test("поле граммов в подборе, строке и крошке, штуки без поля", () => {
   assert.match(src, /function gramQtyHtml/);
+  var gramHtml = src.slice(src.indexOf("function gramQtyHtml"), src.indexOf("function gramBump_"));
+  assert.equal(gramHtml.includes("data-dir"), false);
+  assert.equal(gramHtml.includes("b-step__btn"), false);
+  assert.match(gramHtml, /class="b-step b-gram"/);
   assert.match(src, /inputmode="numeric"/);
   assert.match(src, /data-act="' \+ act \+ '-in"/);
   assert.match(src, /gramBump_\(picker\.qty, pickDir\)/);

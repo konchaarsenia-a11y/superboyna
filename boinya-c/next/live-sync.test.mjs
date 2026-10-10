@@ -12,7 +12,8 @@ test("клавиатура поднимает поле и не снимает з
   const css = fs.readFileSync(path.join(here, "app.css"), "utf8");
   const html = fs.readFileSync(path.join(root, "next.html"), "utf8");
   assert.match(shell, /function liftField/);
-  assert.match(shell, /scrollIntoView/);
+  assert.match(shell, /function revealDelta_/);
+  assert.equal(shell.includes("scrollIntoView"), false);
   assert.match(shell, /viewportStableHeight/);
   assert.match(shell, /visualViewport/);
   assert.match(css, /--nx-kb/);

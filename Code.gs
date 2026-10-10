@@ -4476,6 +4476,28 @@ function composeSubscriptionNickCell_(nick, label, existingCell) {
   return String(label || nick || existingCell || "").replace(/\s+/g, " ").trim();
 }
 
+/** Смена ника: новый handle, старый из ячейки и из «Имя oldnick» не остаётся. */
+function composeRenamedSubscriptionNickCell_(nick, label, prevNick, prevLabel) {
+  var ig = extractInstagramNick_(nick) || extractInstagramNick_(label) || String(nick || "").replace(/^@+/, "").trim();
+  var oldIg = extractInstagramNick_(prevNick) || extractInstagramNick_(prevLabel) || "";
+  function stripAll(s) {
+    s = String(s || "");
+    var handles = [ig, oldIg];
+    for (var i = 0; i < handles.length; i++) {
+      var h = handles[i];
+      if (!h) continue;
+      var esc = String(h).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      s = s.replace(new RegExp("@?" + esc, "ig"), " ");
+    }
+    return s.replace(/[\s()[\]·•|,/]+/g, " ").trim();
+  }
+  var display = stripAll(label) || stripAll(prevLabel);
+  if (display && ig && display.toLowerCase() === ig.toLowerCase()) display = "";
+  if (display && ig) return (display + " " + ig).replace(/\s+/g, " ").trim();
+  if (ig) return ig;
+  return String(label || nick || "").replace(/\s+/g, " ").trim();
+}
+
 /** Пометить брони клиента на дату (или все даты дня) как cancelled. */
 function cancelBookingsForClient_(ss, clientName, deliveryDate) {
   var tz = ss.getSpreadsheetTimeZone();
@@ -12314,7 +12336,13 @@ function upsertCalendarEntry_(ss, opts) {
   if (!deliveryDate || !client) return null;
   var dateStr = dateKey_(deliveryDate, tz);
   var dateIso = isoDateKey_(deliveryDate, tz);
-  var matchKey = String(opts.matchKey || "").trim() || clientMatchKey_(client);
+  var explicitKey = String(opts.matchKey || "").trim();
+  var freshKey = clientMatchKey_(client);
+  var editClientCal = String(opts.editClient || opts.originalClient || "").trim();
+  var renamingCal = !!(editClientCal && !nicksMatch_(editClientCal, client));
+  var matchKey = (!renamingCal && explicitKey) ? explicitKey : freshKey;
+  var findKey = explicitKey || freshKey;
+  var editKeyCal = renamingCal ? clientMatchKey_(editClientCal) : "";
   var status = String(opts.status || "planned").trim() || "planned";
   var sh = getCalendarSheet_();
   var all = readAllCalendarRows_();
@@ -12325,12 +12353,23 @@ function upsertCalendarEntry_(ss, opts) {
     var st = String(all[i].status || "").toLowerCase();
     if (st === "cancelled") continue;
     if (calendarSegmentsDiffer_(all[i].segment, opts.segment)) continue;
-    if (matchKey && all[i].matchKey === matchKey) { existing = all[i]; break; }
+    if (findKey && all[i].matchKey === findKey) { existing = all[i]; break; }
     // старые строки без суффикса собаки: матч только если display совпадает
     if (nicksMatch_(all[i].client, client)) {
       var dOld = normalizeClientKey_(displayClientNick_(all[i].client) || all[i].client);
       var dNew = normalizeClientKey_(displayClientNick_(client) || client);
       if (dOld === dNew) { existing = all[i]; break; }
+    }
+  }
+  if (!existing && renamingCal) {
+    for (var j = 0; j < all.length; j++) {
+      var bd2 = parseFlexibleDate_(all[j].date, tz) || parseFlexibleDate_(all[j].dateIso, tz);
+      if (!bd2 || dateKey_(bd2, tz) !== dateStr) continue;
+      var st2 = String(all[j].status || "").toLowerCase();
+      if (st2 === "cancelled") continue;
+      if (calendarSegmentsDiffer_(all[j].segment, opts.segment)) continue;
+      if (editKeyCal && all[j].matchKey === editKeyCal) { existing = all[j]; break; }
+      if (nicksMatch_(all[j].client, editClientCal)) { existing = all[j]; break; }
     }
   }
   var allowEmptyCal = !!(opts.explicitClear || opts.allowEmptyOverwrite || opts.clearBasket);
@@ -13085,6 +13124,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var sh = getBookingsSheet_();
   var all = readAllBookings_();
   var dateStr = dateKey_(deliveryDate, tz);
+  var editNickSave = String(json.editClient || json.originalClient || "").trim();
   var existing = null;
   for (var i = 0; i < all.length; i++) {
     var bd = parseFlexibleDate_(all[i].date, tz);
@@ -13093,6 +13133,17 @@ function handleSaveBooking(ss, json, callback, fromPost) {
         String(all[i].status) !== "cancelled") {
       existing = all[i];
       break;
+    }
+  }
+  if (!existing && editNickSave && !nicksMatch_(editNickSave, client)) {
+    for (var ib = 0; ib < all.length; ib++) {
+      var bdOld = parseFlexibleDate_(all[ib].date, tz);
+      if (bdOld && dateKey_(bdOld, tz) === dateStr &&
+          nicksMatch_(all[ib].client, editNickSave) &&
+          String(all[ib].status) !== "cancelled") {
+        existing = all[ib];
+        break;
+      }
     }
   }
 
@@ -13170,11 +13221,15 @@ function handleSaveBooking(ss, json, callback, fromPost) {
       deliveryBefore: beforeSave,
       ppPartner: ppPartnerSave,
       couponsQty: couponsQtySave,
-      couponPrice: couponPriceSave
+      couponPrice: couponPriceSave,
+      editClient: editNickSave
     });
   } catch (eCal) {}
 
   try {
+    if (editNickSave && !nicksMatch_(editNickSave, client)) {
+      renameClientProfileIfAlone_(ss, editNickSave, client);
+    }
     upsertClientProfile_(ss, client, json.address, phoneSave || extractPhoneFromNote_(note), note, json.source || "retail");
   } catch (eProf2) {}
 
@@ -14989,6 +15044,26 @@ function getClientsProfilesSheet_() {
     sh.setFrozenRows(1);
   }
   return sh;
+}
+
+/** Смена ника заказа: переписать профиль, если нового ника ещё нет. Старый дубль не удаляем. */
+function renameClientProfileIfAlone_(ss, prevNick, nextNick) {
+  prevNick = String(prevNick || "").trim();
+  nextNick = String(nextNick || "").trim();
+  if (!prevNick || !nextNick || nicksMatch_(prevNick, nextNick)) return false;
+  var sh = getClientsProfilesSheet_();
+  if (!sh || sh.getLastRow() < 2) return false;
+  var data = sh.getDataRange().getValues();
+  var oldRow = -1;
+  for (var i = 1; i < data.length; i++) {
+    var cell = String(data[i][0] || "").trim();
+    if (!cell) continue;
+    if (nicksMatch_(cell, nextNick)) return false;
+    if (oldRow < 0 && nicksMatch_(cell, prevNick)) oldRow = i + 1;
+  }
+  if (oldRow < 0) return false;
+  sh.getRange(oldRow, 1).setValue(nextNick);
+  return true;
 }
 
 function upsertClientProfile_(ss, nick, address, phone, note, source, lastBasket) {
@@ -18849,6 +18924,8 @@ function handleSaveSubscription(json, callback, fromPost) {
   }
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   var data = sh.getDataRange().getValues();
+  var prevNick = String(json.prevNick || "").trim();
+  var prevLabel = String(json.prevLabel || "").trim();
   var rowIdx = -1;
   for (var r = 2; r < data.length; r++) {
     var cellR = String(data[r][0] || "");
@@ -18860,6 +18937,10 @@ function handleSaveSubscription(json, callback, fromPost) {
       continue;
     }
     if (nickHit) { rowIdx = r; break; }
+  }
+  if (rowIdx < 0 && (prevNick || prevLabel)) {
+    var renamedFrom = findSubscriptionRenameRowIndex_(data, prevNick, prevLabel, subId);
+    if (renamedFrom >= 0) rowIdx = renamedFrom;
   }
   if (/^ПП$/i.test(sheetName) && rowIdx < 0 && !parsePpSchemeFromWishes_(wishes)) {
     wishes = stampPpSchemeIntoWishesGs_(wishes, defaultPpSchemeForNew_());
@@ -18874,7 +18955,15 @@ function handleSaveSubscription(json, callback, fromPost) {
   var createdNew = false;
   var writeMeta = { missed: [], wrote: 0 };
   var existingCell = rowIdx >= 0 && data[rowIdx] ? String(data[rowIdx][0] || "") : "";
-  var cellNick = composeSubscriptionNickCell_(nick, label, existingCell);
+  var renamingCell = !!(
+    existingCell &&
+    (prevNick || prevLabel) &&
+    !nicksMatch_(existingCell, nick) &&
+    !nicksMatch_(existingCell, label)
+  );
+  var cellNick = renamingCell
+    ? composeRenamedSubscriptionNickCell_(nick, label, prevNick || existingCell, prevLabel)
+    : composeSubscriptionNickCell_(nick, label, existingCell);
   if (rowIdx < 0) {
     if (basket != null && Array.isArray(basket) && (/^ПП$/i.test(sheetName) || /^БП$/i.test(sheetName))) {
       if (!subId) { try { subId = nextSubscriptionIdForSheet_(sh); } catch (e) {} }
@@ -18923,21 +19012,34 @@ function handleSaveSubscription(json, callback, fromPost) {
     var note = String(json.note || "").trim();
     var displayName = String(json.displayName || "").trim();
     var matchNick = extractInstagramNick_(cellNick) || extractInstagramNick_(label) || nick;
-    if (addr || phone || note || displayName) {
+    if (addr || phone || note || displayName || renamingCell) {
       var contacts = findSheetByBaseName_(crmSs, "Контакты");
       if (contacts && contacts.getLastRow() >= 1) {
         var cd = contacts.getDataRange().getValues();
-        var foundC = false;
+        var contactNew = -1;
+        var contactOld = -1;
         for (var cr = 1; cr < cd.length; cr++) {
-          if (!nicksMatch_(cd[cr][0], matchNick) && !nicksMatch_(cd[cr][0], label)) continue;
-          if (displayName) contacts.getRange(cr + 1, 2).setValue(displayName);
-          if (addr) contacts.getRange(cr + 1, 4).setValue(addr);
-          if (phone) contacts.getRange(cr + 1, 5).setValue(phone);
-          if (note || wishes) contacts.getRange(cr + 1, 7).setValue(note || wishes);
-          foundC = true;
-          break;
+          if (nicksMatch_(cd[cr][0], matchNick) || nicksMatch_(cd[cr][0], label) || nicksMatch_(cd[cr][0], nick)) {
+            contactNew = cr;
+            break;
+          }
         }
-        if (!foundC) {
+        if (contactNew < 0 && (prevNick || prevLabel)) {
+          for (var cr2 = 1; cr2 < cd.length; cr2++) {
+            if ((prevNick && nicksMatch_(cd[cr2][0], prevNick)) || (prevLabel && nicksMatch_(cd[cr2][0], prevLabel))) {
+              contactOld = cr2;
+              break;
+            }
+          }
+        }
+        var crUse = contactNew >= 0 ? contactNew : contactOld;
+        if (crUse >= 0) {
+          if (contactNew < 0 && matchNick) contacts.getRange(crUse + 1, 1).setValue(matchNick);
+          if (displayName) contacts.getRange(crUse + 1, 2).setValue(displayName);
+          if (addr) contacts.getRange(crUse + 1, 4).setValue(addr);
+          if (phone) contacts.getRange(crUse + 1, 5).setValue(phone);
+          if (note || wishes) contacts.getRange(crUse + 1, 7).setValue(note || wishes);
+        } else if (addr || phone || note || displayName) {
           contacts.appendRow([matchNick, displayName, "", addr, phone, "", note || wishes]);
         }
       }
@@ -19149,6 +19251,43 @@ function findSubscriptionRowIndex_(sh, nick, subId) {
     if (wantNick && (nicksMatch_(cell, wantNick) || cell === wantNick ||
       nicksMatch_(extractInstagramNick_(cell) || cell, wantNick))) return r;
   }
+  return -1;
+}
+
+/**
+ * Та же карточка при смене ника: prevNick на этом листе.
+ * Несколько строк с тем же ником не схлопываются — берём только совпавший subId
+ * или единственную строку. Чужой subId (rit_murr / kafetafreya) не трогаем.
+ */
+function findSubscriptionRenameRowIndex_(data, prevNick, prevLabel, subId) {
+  var hits = [];
+  var prevN = String(prevNick || "").trim();
+  var prevL = String(prevLabel || "").trim();
+  if (!prevN && !prevL) return -1;
+  var wantId = String(subId || "").trim();
+  for (var r = 2; r < (data || []).length; r++) {
+    var cell = String(data[r][0] || "");
+    if (!cell.trim()) continue;
+    if (/^себестоим/i.test(cell) || /^стоимость\s*100/i.test(cell) || /^итого$/i.test(cell)) continue;
+    var nickHit = (prevN && nicksMatch_(cell, prevN)) || (prevL && nicksMatch_(cell, prevL));
+    if (!nickHit) continue;
+    hits.push(r);
+  }
+  if (!hits.length) return -1;
+  if (wantId) {
+    var byId = [];
+    for (var i = 0; i < hits.length; i++) {
+      if (String(data[hits[i]][1] || "").trim() === wantId) byId.push(hits[i]);
+    }
+    if (byId.length) return byId[0];
+    if (hits.length === 1) {
+      var sid = String(data[hits[0]][1] || "").trim();
+      if (sid && sid !== wantId) return -1;
+      return hits[0];
+    }
+    return -1;
+  }
+  if (hits.length === 1) return hits[0];
   return -1;
 }
 
