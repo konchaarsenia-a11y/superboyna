@@ -14233,7 +14233,7 @@ const PARTNER_TREAT_PP_MAP_ = {
 };
 const PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 /** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_D1_ = 2.6. */
-const PARTNER_VARKA_COEF = 2.3;
+const PARTNER_VARKA_COEF = 2.2;
 
 function partnerTreatsToPpBasket_(basket) {
   const out = [];
@@ -14270,8 +14270,9 @@ function partnerBynLabel_(n) {
 
 /**
  * Разовая розница: calcPricePpD1_ (mode pp, fullFact, RAW26, deliveriesN=1).
- * Наценка — PARTNER_VARKA_COEF (2.3), не дефолт подписки 2.6. D1 и запасной GAS
- * читают params.coef. Сумма клиенту = clientPrice. Сырьё наружу не отдаём.
+ * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6. D1 и запасной GAS
+ * читают params.coef. Recover, доставка и потолок — из канона ПП, здесь их не дублируем.
+ * Сумма заявки = цена клиенту (clientDisplayPrice, до рубля). Сырьё наружу не отдаём.
  */
 async function partnerQuoteTreatsByn_(basket, env, ctx) {
   const ppBasket = partnerTreatsToPpBasket_(basket);
@@ -14303,7 +14304,8 @@ async function partnerQuoteTreatsByn_(basket, env, ctx) {
   if (!priced || priced.status !== "success") {
     return { status: "error", message: "price_unavailable" };
   }
-  const total = partnerMoney_(priced.clientPrice != null ? priced.clientPrice : priced.factCost);
+  const shown = priced.clientDisplayPrice != null ? priced.clientDisplayPrice : priced.clientPrice;
+  const total = partnerMoney_(shown != null ? shown : priced.factCost);
   if (!(total > 0)) return { status: "error", message: "price_unavailable" };
   return {
     status: "success",

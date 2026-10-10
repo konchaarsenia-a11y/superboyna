@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Varka treats are a one-off PP RAW26 quote with PARTNER_VARKA_COEF = 2.3.
+ * Varka treats are a one-off PP RAW26 quote with PARTNER_VARKA_COEF = 2.2.
  * Subscription stays on PP_RAW26_COEF_DEFAULT_ = 2.6.
  * Coupons / NFC / banner stay 0. Gram cap is gone.
  * Formula stays in computePpFactFromCost_ / calcPricePpD1_ — this file only checks the wiring.
@@ -65,10 +65,15 @@ if (headerNames.indexOf("note") !== headerNames.length - 2) fail("note must stay
 ["vr_t_heart", "vr_t_lung", "Ломтики", "PARTNER_PP_PACK_ZERO_", "PARTNER_VARKA_COEF"].forEach(function (bit) {
   if (workerSrc.indexOf(bit) < 0 || gasSrc.indexOf(bit) < 0) fail("missing " + bit);
 });
-if (!/var PARTNER_VARKA_COEF = 2\.3;/.test(gasSrc)) fail("GAS PARTNER_VARKA_COEF must be 2.3");
-if (!/const PARTNER_VARKA_COEF = 2\.3;/.test(workerSrc)) fail("Worker PARTNER_VARKA_COEF must be 2.3");
+if (!/var PARTNER_VARKA_COEF = 2\.2;/.test(gasSrc)) fail("GAS PARTNER_VARKA_COEF must be 2.2");
+if (!/const PARTNER_VARKA_COEF = 2\.2;/.test(workerSrc)) fail("Worker PARTNER_VARKA_COEF must be 2.2");
 if (!/var PP_RAW26_COEF_DEFAULT_ = 2\.6;/.test(gasSrc)) fail("subscription coef must stay 2.6");
 if (!/const PP_RAW26_COEF_DEFAULT_D1_ = 2\.6;/.test(workerSrc)) fail("D1 subscription coef must stay 2.6");
+if (!/var PP_RAW26_RECOVER_100_ = 3\.30;/.test(gasSrc)) fail("subscription recover must stay 3.30");
+if (!/var PP_RAW26_RECOVER_PIECE_ = 0\.80;/.test(gasSrc)) fail("subscription piece recover must stay 0.80");
+if (!/var PP_RAW26_DELIVERY_PER_ = 7\.60;/.test(gasSrc)) fail("subscription delivery must stay 7.60");
+if (!/const PP_RAW26_RECOVER_100_D1_ = 3\.3;/.test(workerSrc)) fail("D1 recover must stay 3.3");
+if (!/const PP_RAW26_DELIVERY_PER_D1_ = 7\.6;/.test(workerSrc)) fail("D1 delivery must stay 7.6");
 
 const gasQuote = extractFn_(gasSrc, "partnerQuoteTreatsByn_");
 if (!/computePpFactFromCost_\(/.test(gasQuote)) fail("GAS quote must call computePpFactFromCost_");
@@ -79,7 +84,7 @@ if (!/ppBasket,\s*1,\s*PARTNER_VARKA_COEF,/.test(gasQuote)) {
   fail("GAS quote must pass PARTNER_VARKA_COEF as coef");
 }
 if (/PP_RAW26_COEF_DEFAULT_/.test(gasQuote)) fail("GAS quote must not use the subscription coef");
-if (!/clientPrice/.test(gasQuote)) fail("GAS quote must use clientPrice");
+if (!/clientDisplayPrice/.test(gasQuote)) fail("GAS quote must use the ruble client price");
 const gasCalc = extractFn_(gasSrc, "handleCalcPrice");
 if (!/packOptCp/.test(gasCalc)) fail("handleCalcPrice must pass explicit packCounts into the fact");
 
@@ -92,7 +97,7 @@ if (!/deliveriesN:\s*1/.test(workerQuote)) fail("Worker quote deliveriesN must b
 if (!/coef:\s*PARTNER_VARKA_COEF/.test(workerQuote)) fail("Worker quote must pass coef PARTNER_VARKA_COEF");
 if (/PP_RAW26_COEF_DEFAULT_D1_/.test(workerQuote)) fail("Worker quote must not use the subscription coef");
 if (!/packCounts:\s*PARTNER_PP_PACK_ZERO_/.test(workerQuote)) fail("Worker quote must pass zero packs");
-if (!/clientPrice/.test(workerQuote)) fail("Worker quote must use clientPrice");
+if (!/clientDisplayPrice/.test(workerQuote)) fail("Worker quote must use the ruble client price");
 
 const gasSubmit = extractFn_(gasSrc, "handlePartnerSubmitOrder");
 const workerSubmitStart = workerSrc.indexOf('if (/^partnerSubmitOrder$/i.test(a)) {');

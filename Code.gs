@@ -26956,7 +26956,7 @@ var PARTNER_TREAT_PP_MAP_ = {
 /** Партнёр не пакует дойпаки подписки — пакеты явно 0, не из сборки корзины. */
 var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 /** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_ = 2.6. */
-var PARTNER_VARKA_COEF = 2.3;
+var PARTNER_VARKA_COEF = 2.2;
 
 function partnerTreatsToPpBasket_(basket) {
   var out = [];
@@ -26992,9 +26992,10 @@ function partnerBynLabel_(n) {
 }
 
 /**
- * Разовая розница по канону ПП: mode pp, fullFact, scheme RAW26, deliveriesN=1.
- * Наценка — PARTNER_VARKA_COEF (2.3), не дефолт подписки 2.6.
- * Формула — computePpFactFromCost_ / те же линии, что handleCalcPrice. Сумма = clientPrice.
+ * Разовая розница по канону ПП 09.10: mode pp, fullFact, scheme RAW26, deliveriesN=1.
+ * Наценка — PARTNER_VARKA_COEF (2.2), не дефолт подписки 2.6.
+ * Recover, доставка и потолок — из computePpFactFromCost_, здесь их не дублируем.
+ * Сумма заявки = цена клиенту (clientDisplayPrice, до рубля).
  */
 function partnerQuoteTreatsByn_(basket) {
   var ppBasket = partnerTreatsToPpBasket_(basket);
@@ -27032,7 +27033,8 @@ function partnerQuoteTreatsByn_(basket) {
     lines,
     null
   );
-  var total = partnerMoney_(fact.clientPrice != null ? fact.clientPrice : fact.factCost);
+  var shown = fact.clientDisplayPrice != null ? fact.clientDisplayPrice : fact.clientPrice;
+  var total = partnerMoney_(shown != null ? shown : fact.factCost);
   if (!(total > 0)) return { status: "error", message: "price_unavailable" };
   return {
     status: "success",
