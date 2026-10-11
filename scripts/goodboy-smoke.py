@@ -177,8 +177,13 @@ def check_index(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(800)
 
-    hero = page.locator(".promise-hero")
-    assert_true(hero.count() > 0, "index: .promise-hero present", errors)
+    hero = page.locator(".phone-slogan")
+    assert_true(hero.count() > 0, "index: cabinet slogan present", errors)
+    if hero.count():
+        assert_true("кабинете" in hero.inner_text().lower(), "index: slogan is cabinet line", errors)
+    assert_true(page.locator(".promise-hero").count() == 0, "index: manifesto headline removed", errors)
+    open_btn = page.locator(".phone-open-btn")
+    assert_true(open_btn.count() > 0 and (open_btn.first.get_attribute("href") or "").endswith("app.html"), "index: open cabinet button", errors)
 
     tabs = page.locator(".nav-tabs a")
     assert_true(tabs.count() >= 4, f"index: nav tabs ({tabs.count()})", errors)
