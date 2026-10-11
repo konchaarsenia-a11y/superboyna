@@ -292,3 +292,10 @@ test("assembly dressura total splits live sub, chew has no such total", () => {
   assert.doesNotMatch(prod, /organs\[k\]\.total/);
   assert.doesNotMatch(prod, /Жевалки<\/p><div class="nx-counters"/);
 });
+
+test("губы не в выборе жевалок, старый текст узнаётся", () => {
+  const items = eng.catalogItemsForUi_("chew");
+  assert.equal(items.indexOf("ГУБЫ шт."), -1);
+  assert.equal(eng.isChewProductName_("ГУБЫ шт."), true);
+  assert.match(eng.prettyProductName("ГУБЫ шт."), /Губ/);
+});
