@@ -21026,46 +21026,48 @@ var RETAIL_PRICE_BYN_ = {
   "ЛЁГКОЕ|Очень мелкое": { per100: 13 },
   "СЕРДЦЕ|Ломтики": { per100: 12 },
   "СЕРДЦЕ|Целое": { per100: 12 },
-  "СЕРДЦЕ|Полоски": { per100: 13 },
-  "СЕРДЦЕ|Мелкое": { per100: 15 },
+  "СЕРДЦЕ|Полоски": { per100: 12 },
+  "СЕРДЦЕ|Мелкое": { per100: 14 },
   "СЕРДЦЕ|Очень мелкое": { per100: 16 },
   "ПОЧКИ|Ломтики": { per100: 11 },
   "ПОЧКИ|Целое": { per100: 11 },
-  "ПОЧКИ|Мелкое": { per100: 14 },
+  "ПОЧКИ|Мелкое": { per100: 12 },
   "ПОЧКИ|Очень мелкое": { per100: 15 },
-  "РУБЕЦ Т|Ломтики": { per100: 10 },
-  "РУБЕЦ Т|Целое": { per100: 10 },
-  "РУБЕЦ Т|Полоски": { per100: 11 },
+  "РУБЕЦ Т|Ломтики": { per100: 12 },
+  "РУБЕЦ Т|Целое": { per100: 12 },
+  "РУБЕЦ Т|Полоски": { per100: 12 },
   "РУБЕЦ Т|Крупное": { per100: 11 },
   "РУБЕЦ Т|Большое": { per100: 11 },
-  "РУБЕЦ Т|Среднее": { per100: 12 },
-  "РУБЕЦ Т|Мелкое": { per100: 13 },
+  "РУБЕЦ Т|Среднее": { per100: 13 },
+  "РУБЕЦ Т|Мелкое": { per100: 14 },
   "РУБЕЦ Т|Очень мелкое": { per100: 14 },
   "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
   "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 17 },
   "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 17 },
-  "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 18 },
-  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 19 },
+  "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
+  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
   "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 20 },
-  "ИНДЕЙКА": { per100: 18 },
-  "ИНДЕЙКА|Ломтики": { per100: 18 },
-  "ИНДЕЙКА|Полоски": { per100: 19 },
-  "ИНДЕЙКА|Кусочки": { per100: 19 },
-  "ИНДЕЙКА|Мелкое": { per100: 21 },
-  "ИНДЕЙКА|Мелкие кусочки": { per100: 21 },
-  "БАРАНЬЯ ПЕЧЕНЬ": { per100: 16 },
-  "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 16 },
-  "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 17 },
+  "ИНДЕЙКА": { per100: 16 },
+  "ИНДЕЙКА|Ломтики": { per100: 16 },
+  "ИНДЕЙКА|Полоски": { per100: 17 },
+  "ИНДЕЙКА|Кусочки": { per100: 17 },
+  "ИНДЕЙКА|Мелкое": { per100: 18 },
+  "ИНДЕЙКА|Мелкие кусочки": { per100: 18 },
+  "БАРАНЬЯ ПЕЧЕНЬ": { per100: 17 },
+  "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 17 },
+  "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 18 },
   "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 19 },
   "ПЕЧЕНЬ": { per100: 11 },
   "ВЫМЯ": { per100: 10 },
   "СЕМЕННИКИ": { per100: 13 },
   "МЯСНЫЕ ЛОМТИКИ": { per100: 16 },
-  "КРОШКА ЛЁГКОГО": { per100: 11 },
-  "КРОШКА ПОЧЕК": { per100: 11 },
-  "КРОШКА РУБЕЦ": { per100: 12 },
+  "КРОШКА ЛЁГКОГО": { per100: 11, packs: { 20: 5, 50: 8, 100: 11 } },
+  "КРОШКА ПОЧЕК": { per100: 11, packs: { 20: 5, 50: 8, 100: 11 } },
+  "КРОШКА СЕРДЦА": { per100: 13, packs: { 20: 8, 50: 10, 100: 13 } },
+  "КРОШКА РУБЕЦ": { per100: 12, packs: { 20: 7, 50: 9, 100: 12 } },
+  "КРОШКА МИКС": { per100: 12, packs: { 20: 7, 50: 9, 100: 12 } },
   "БЫЧИЙ КОРЕНЬ|ОЧ МАЛ": { perPiece: 6 },
   "БЫЧИЙ КОРЕНЬ|МАЛ": { perPiece: 7 },
   "БЫЧИЙ КОРЕНЬ|СРЕД": { perPiece: 12 },
@@ -21075,7 +21077,7 @@ var RETAIL_PRICE_BYN_ = {
   "ТРАХЕЯ|СРЕД": { perPiece: 8 },
   "ТРАХЕЯ|БОЛ": { perPiece: 12 },
   "ТРАХЕЯ|ПЛАСТ": { perPiece: 8 },
-  "ТРАХЕЯ|ОГР": { perPiece: 14 },
+  "ТРАХЕЯ|ОГР": { perPiece: 15 },
   "СТАНОВАЯ ЖИЛА|СРЕД": { perPiece: 5 },
   "СТАНОВАЯ ЖИЛА|БОЛ": { perPiece: 7 },
   "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 3 },
@@ -21186,6 +21188,53 @@ function setRetailDeliveryLive_(fee, freeFrom) {
   return RETAIL_DELIVERY_MEM_;
 }
 
+/** Витрина 30.08. Пишет только перечисленные ключи в ту же карту, что saveRetailPrices. */
+function applyRetailShowcasePatchGs_(map) {
+  map = map || {};
+  var per100 = {
+    "СЕРДЦЕ|Полоски": 12,
+    "СЕРДЦЕ|Мелкое": 14,
+    "РУБЕЦ Т|Ломтики": 12,
+    "РУБЕЦ Т|Целое": 12,
+    "РУБЕЦ Т|Полоски": 12,
+    "РУБЕЦ Т|Среднее": 13,
+    "РУБЕЦ Т|Мелкое": 14,
+    "ИНДЕЙКА": 16,
+    "ИНДЕЙКА|Ломтики": 16,
+    "ИНДЕЙКА|Полоски": 17,
+    "ИНДЕЙКА|Кусочки": 17,
+    "ИНДЕЙКА|Мелкое": 18,
+    "ИНДЕЙКА|Мелкие кусочки": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 17,
+    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 18,
+    "БАРАНЬЯ ПЕЧЕНЬ": 17,
+    "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": 17,
+    "БАРАНЬЯ ПЕЧЕНЬ|Полоски": 18,
+    "ПОЧКИ|Мелкое": 12,
+    "КРОШКА ЛЁГКОГО": 11,
+    "КРОШКА ПОЧЕК": 11,
+    "КРОШКА СЕРДЦА": 13,
+    "КРОШКА РУБЕЦ": 12,
+    "КРОШКА МИКС": 12
+  };
+  var changed = false;
+  var k;
+  for (k in per100) {
+    if (!Object.prototype.hasOwnProperty.call(per100, k)) continue;
+    var cur = map[k] || {};
+    if (Number(cur.per100) !== per100[k] || cur.perPiece != null) {
+      map[k] = { per100: per100[k] };
+      changed = true;
+    }
+  }
+  var curHuge = map["ТРАХЕЯ|ОГР"] || {};
+  if (Number(curHuge.perPiece) !== 15) {
+    map["ТРАХЕЯ|ОГР"] = { perPiece: 15 };
+    changed = true;
+  }
+  return changed;
+}
+
 function getRetailPriceLiveMap_() {
   if (RETAIL_PRICE_LIVE_MEM_) return RETAIL_PRICE_LIVE_MEM_;
   var map = null;
@@ -21208,6 +21257,16 @@ function getRetailPriceLiveMap_() {
     } else {
       map = cleaned;
     }
+  }
+  var showcaseChanged = applyRetailShowcasePatchGs_(map);
+  var showcaseStripped = stripBareRetailParentsMap_(map);
+  if (showcaseChanged || Object.keys(showcaseStripped).length !== Object.keys(map).length) {
+    map = showcaseStripped;
+    try {
+      PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
+    } catch (eShow) {}
+  } else {
+    map = showcaseStripped;
   }
   RETAIL_PRICE_LIVE_MEM_ = map;
   return map;
@@ -22316,7 +22375,51 @@ function recoverBynFromPpLines_(lines) {
   return Math.round(sum * 100) / 100;
 }
 
+function crumbPackKeyOfNameGs_(name) {
+  var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  if (/МИКС/.test(n)) return "МИКС";
+  if (/БАРАН/.test(n)) return "МИКС";
+  if (/ПОЧК/.test(n)) return "ПОЧКИ";
+  if (/СЕРДЦ/.test(n)) return "СЕРДЦЕ";
+  if (/РУБЕЦ/.test(n)) return "РУБЕЦ Т";
+  if (/Л[ЕЁ]ГК/.test(n)) return "ЛЁГКОЕ";
+  return "МИКС";
+}
+
+/** Пачки прайса 30.08. Прочие позиции и микс — 7/9/12. */
+function crumbPackGoodsGs_(it, grams) {
+  var packs = {
+    "ЛЁГКОЕ": { 20: 5, 50: 8, 100: 11 },
+    "ПОЧКИ": { 20: 5, 50: 8, 100: 11 },
+    "СЕРДЦЕ": { 20: 8, 50: 10, 100: 13 },
+    "РУБЕЦ Т": { 20: 7, 50: 9, 100: 12 },
+    "МИКС": { 20: 7, 50: 9, 100: 12 }
+  };
+  var sources = (it && it.sources) || [];
+  var names = [];
+  var i;
+  for (i = 0; i < sources.length; i++) {
+    var nm = String((sources[i] && (sources[i].name || sources[i].main)) || "").trim();
+    if (nm) names.push(nm);
+  }
+  var key = "МИКС";
+  if (names.length === 1) key = crumbPackKeyOfNameGs_(names[0]);
+  else if (!names.length) {
+    var hint = String((it && (it.sub || it.name || it.main)) || "");
+    if (hint.indexOf("+") < 0) key = crumbPackKeyOfNameGs_(hint);
+  }
+  var row = packs[key] || packs["МИКС"];
+  var g = Math.round(Number(grams) || 0);
+  if (row[g] != null) return row[g];
+  return Math.round((Number(grams) / 100) * row[100] * 100) / 100;
+}
+
 function retailGoodsFromCrumbItemGs_(it, val) {
+  // Одна правка включает схему 09.10: "rates-2026-10-09"
+  var CRUMB_RETAIL_SCHEME_ = "packs";
+  if (CRUMB_RETAIL_SCHEME_ !== "rates-2026-10-09") {
+    return crumbPackGoodsGs_(it, val);
+  }
   var sources = it && it.sources;
   if (sources && sources.length) {
     var ratiosMix = it.ratio || [];

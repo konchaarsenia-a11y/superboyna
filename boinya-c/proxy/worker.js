@@ -24093,6 +24093,51 @@ function retailDefaultSubD1_(name) {
   return "";
 }
 
+/** Витрина 30.08. Только эти ключи, остальные в snap не трогаем. */
+function applyRetailShowcasePatchD1_(map) {
+  map = map || Object.create(null);
+  const per100 = {
+    "СЕРДЦЕ|Полоски": 12,
+    "СЕРДЦЕ|Мелкое": 14,
+    "РУБЕЦ Т|Ломтики": 12,
+    "РУБЕЦ Т|Целое": 12,
+    "РУБЕЦ Т|Полоски": 12,
+    "РУБЕЦ Т|Среднее": 13,
+    "РУБЕЦ Т|Мелкое": 14,
+    "ИНДЕЙКА": 16,
+    "ИНДЕЙКА|Ломтики": 16,
+    "ИНДЕЙКА|Полоски": 17,
+    "ИНДЕЙКА|Кусочки": 17,
+    "ИНДЕЙКА|Мелкое": 18,
+    "ИНДЕЙКА|Мелкие кусочки": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 17,
+    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 18,
+    "БАРАНЬЯ ПЕЧЕНЬ": 17,
+    "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": 17,
+    "БАРАНЬЯ ПЕЧЕНЬ|Полоски": 18,
+    "ПОЧКИ|Мелкое": 12,
+    "КРОШКА ЛЁГКОГО": 11,
+    "КРОШКА ПОЧЕК": 11,
+    "КРОШКА СЕРДЦА": 13,
+    "КРОШКА РУБЕЦ": 12,
+    "КРОШКА МИКС": 12
+  };
+  let changed = false;
+  Object.keys(per100).forEach(function (k) {
+    const cur = map[k] || {};
+    if (Number(cur.per100) !== per100[k] || cur.perPiece != null) {
+      map[k] = { per100: per100[k] };
+      changed = true;
+    }
+  });
+  const curHuge = map["ТРАХЕЯ|ОГР"] || {};
+  if (Number(curHuge.perPiece) !== 15) {
+    map["ТРАХЕЯ|ОГР"] = { perPiece: 15 };
+    changed = true;
+  }
+  return changed;
+}
+
 function retailItemsFromMapD1_(map) {
   const items = [];
   map = stripBareRetailParentsMapD1_(map);
@@ -24234,16 +24279,25 @@ async function actorIsOwnerRetail_(params, env) {
 
 async function ensureRetailPricesSnap_(env, ctx) {
   let snap = await getSnapRaw_(env, "retailPrices");
-  if (snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length) return snap;
-  const live = await gasProxy_("getRetailPriceList", {}, env, { write: false });
-  if (live && live.status === "success" && Array.isArray(live.items) && live.items.length) {
-    snap = Object.assign({}, live, { cachedAt: new Date().toISOString(), fromGas: true });
-    try {
-      await putSnap_(env, "retailPrices", snap);
-    } catch (eS) {}
-    return snap;
+  if (!(snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length)) {
+    const live = await gasProxy_("getRetailPriceList", {}, env, { write: false });
+    if (live && live.status === "success" && Array.isArray(live.items) && live.items.length) {
+      snap = Object.assign({}, live, { cachedAt: new Date().toISOString(), fromGas: true });
+    }
   }
-  return snap || null;
+  if (!(snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length)) return snap || null;
+  const map = retailMapFromItemsD1_(snap.items);
+  const patched = applyRetailShowcasePatchD1_(map);
+  if (!patched) return snap;
+  const next = Object.assign({}, snap, {
+    items: retailItemsFromMapD1_(map),
+    showcasePatched: true,
+    cachedAt: new Date().toISOString()
+  });
+  try {
+    await putSnap_(env, "retailPrices", next);
+  } catch (eS) {}
+  return next;
 }
 
 async function getRetailPriceListD1_(params, env, ctx) {
@@ -24259,8 +24313,10 @@ async function getRetailPriceListD1_(params, env, ctx) {
       const kk = "УХО К|" + sub;
       if (map[gk] && !map[kk]) map[kk] = Object.assign({}, map[gk]);
     });
+    const showcasePatched = applyRetailShowcasePatchD1_(map);
     const cleaned = retailItemsFromMapD1_(map);
     const changed =
+      showcasePatched ||
       cleaned.length !== (snap.items || []).length ||
       !!(map["УХО К|Обычное"] && !(snap.items || []).some(function (it) {
         return it && it.key === "УХО К|Обычное";
@@ -24271,6 +24327,7 @@ async function getRetailPriceListD1_(params, env, ctx) {
     return Object.assign({}, snap, {
       items: cleaned,
       strippedBareParents: true,
+      showcasePatched: !!showcasePatched,
       ensuredUhoK: true,
       cachedAt: new Date().toISOString()
     });
@@ -26459,7 +26516,50 @@ function recoverBynFromPpLinesD1_(lines) {
   return Math.round(sum * 100) / 100;
 }
 
+function crumbPackKeyOfNameD1_(name) {
+  const n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  if (/МИКС/.test(n)) return "МИКС";
+  if (/БАРАН/.test(n)) return "МИКС";
+  if (/ПОЧК/.test(n)) return "ПОЧКИ";
+  if (/СЕРДЦ/.test(n)) return "СЕРДЦЕ";
+  if (/РУБЕЦ/.test(n)) return "РУБЕЦ Т";
+  if (/Л[ЕЁ]ГК/.test(n)) return "ЛЁГКОЕ";
+  return "МИКС";
+}
+
+/** Пачки прайса 30.08. Прочие позиции и микс — 7/9/12. */
+function crumbPackGoodsD1_(it, grams) {
+  const packs = {
+    "ЛЁГКОЕ": { 20: 5, 50: 8, 100: 11 },
+    "ПОЧКИ": { 20: 5, 50: 8, 100: 11 },
+    "СЕРДЦЕ": { 20: 8, 50: 10, 100: 13 },
+    "РУБЕЦ Т": { 20: 7, 50: 9, 100: 12 },
+    "МИКС": { 20: 7, 50: 9, 100: 12 }
+  };
+  const sources = (it && it.sources) || [];
+  const names = [];
+  for (let i = 0; i < sources.length; i++) {
+    const nm = String((sources[i] && (sources[i].name || sources[i].main)) || "").trim();
+    if (nm) names.push(nm);
+  }
+  let key = "МИКС";
+  if (names.length === 1) key = crumbPackKeyOfNameD1_(names[0]);
+  else if (!names.length) {
+    const hint = String((it && (it.sub || it.name || it.main)) || "");
+    if (hint.indexOf("+") < 0) key = crumbPackKeyOfNameD1_(hint);
+  }
+  const row = packs[key] || packs["МИКС"];
+  const g = Math.round(Number(grams) || 0);
+  if (row[g] != null) return row[g];
+  return Math.round((Number(grams) / 100) * row[100] * 100) / 100;
+}
+
 function retailGoodsFromCrumbItemD1_(map, it, val) {
+  // Одна правка включает схему 09.10: "rates-2026-10-09"
+  const CRUMB_RETAIL_SCHEME_ = "packs";
+  if (CRUMB_RETAIL_SCHEME_ !== "rates-2026-10-09") {
+    return crumbPackGoodsD1_(it, val);
+  }
   const sources = it && it.sources;
   if (sources && sources.length) {
     const ratiosMix = it.ratio || [];
