@@ -530,56 +530,57 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform: translate3d(0, 0, 0) rotate(-1.2deg);
 }
 
-/* Hero: заголовок, сразу кабинет, затем карточки */
+/* Hero: только телефон, слоган и кнопка кабинета */
 .hero-grid--features {
   width: min(1040px, 100%);
   margin: 0 auto;
-  display: grid;
-  gap: 28px;
-  align-items: center;
-}
-@media (min-width: 880px) {
-  .hero-grid--features {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "copy phone"
-      "features features";
-    gap: 36px 48px;
-    align-items: center;
-  }
-  .hero-grid--features .hero-copy { grid-area: copy; }
-  .hero-grid--features .site-section--phone { grid-area: phone; }
-  .hero-grid--features .hero-features { grid-area: features; }
+  display: flex;
+  justify-content: center;
 }
 .site-hero--features .site-section--phone {
   padding: 0;
   scroll-margin-top: 92px;
+  width: 100%;
+}
+.site-hero--features .phone-block-copy h1 {
+  margin: 0;
+}
+@media (min-width: 880px) {
+  .site-hero--features .phone-block {
+    grid-template-columns: minmax(16rem, 22rem) auto;
+    justify-content: center;
+    justify-items: start;
+    text-align: left;
+    gap: 28px 64px;
+    width: 100%;
+  }
+  .site-hero--features .phone-block-copy {
+    max-width: 22rem;
+    align-self: center;
+  }
+  .site-hero--features .phone-block-copy h1 {
+    font-size: clamp(2.6rem, 4.2vw, 3.6rem);
+    max-width: 9em;
+  }
 }
 @media (max-width: 879px) {
   .site-hero--features .phone-block {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    justify-items: stretch;
-    text-align: left;
-    gap: 12px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 18px;
   }
   .site-hero--features .phone-stage {
-    zoom: 0.62;
+    zoom: 0.78;
     width: 260px;
   }
-  .site-hero--features .phone-block-copy h2 {
-    font-size: 1.45rem;
-    margin-bottom: 8px;
-  }
-  .site-hero--features .phone-block-copy .sec-lead {
-    font-size: 0.9rem;
-    line-height: 1.35;
+  .site-hero--features .phone-block-copy h1 {
+    font-size: clamp(1.85rem, 8vw, 2.25rem);
+    max-width: 12em;
   }
   .site-hero--features .phone-open-btn {
-    width: 100%;
-    margin-top: 12px;
-    padding: 10px 12px;
-    font-size: 0.95rem;
+    width: min(100%, 18rem);
+    margin-top: 16px;
   }
 }
 .site-hero--features {
@@ -779,6 +780,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   }
   .phone-block-copy { max-width: 16rem; }
 }
+.phone-block-copy h1,
 .phone-block-copy h2 {
   font-family: var(--gb-display);
   font-size: clamp(2rem, 5vw, 2.85rem);
