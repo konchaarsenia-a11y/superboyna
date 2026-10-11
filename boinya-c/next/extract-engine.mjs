@@ -44,6 +44,8 @@ const FUNCS = [
   "applyCrumbBasketNames_",
   "crumbKindRateUi_",
   "crumbRetailKindOfNameUi_",
+  "crumbPackKeyOfNameUi_",
+  "crumbPackGoodsUi_",
   "retailGoodsFromCrumbItemUi_",
   "catalogAliasNameUi_",
   "serializeBasketItem_",
