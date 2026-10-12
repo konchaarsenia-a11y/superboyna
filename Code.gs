@@ -25675,8 +25675,8 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки: helper 827494606. Arseniy 650923866 — staff через Partner_Access, не owner. */
-var PARTNER_CANON_OWNER_TIDS_ = ["827494606"];
+/** Кабинет партнёрки: helper 827494606 и Арсений 650923866. */
+var PARTNER_CANON_OWNER_TIDS_ = ["827494606", "650923866"];
 var PARTNER_CANON_OWNER_USERS_ = ["one_more_person_228"];
 
 function partnerCanonOwnerCfg_() {
@@ -28022,6 +28022,10 @@ function partnerUpsertBroadcastReplies_(rec, choice) {
 
 function partnerSetVarkaConsentForRecipient_(rec, consent) {
   var sh = getPartnerPointsSheet_();
+  ensureSheetHeadersAppend_(sh, PARTNER_POINT_HEADERS_);
+  if (sh.getLastColumn() < PARTNER_POINT_HEADERS_.length) {
+    sh.getRange(1, 1, 1, PARTNER_POINT_HEADERS_.length).setValues([PARTNER_POINT_HEADERS_]);
+  }
   var points = readPartnerPoints_();
   var want = {};
   (rec.points || []).forEach(function (p) { want[p.id] = true; });

@@ -68,12 +68,12 @@ CONFIRM=WIPE_ALL TELEGRAM_ID=<owner_tid> bash scripts/wipe-partner-order-histori
 TELEGRAM_ID=827494606 bash scripts/restore-nan-partner.sh
 ```
 
-Helper #281 (`827494606`) — канон-owner, не трогать. Arseniy `650923866` после снятия owner — staff на `pt_varka_rokoss_80`, не actor restore.
+Helper #281 (`827494606`) — канон-owner, не трогать. Arseniy `650923866` тоже канон-owner партнёрки (список в `Code.gs` и мини-аппе). В restore его по-прежнему не подставлять актором.
 
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
-- **Канон-owner** партнёрки (`827494606` / `@one_more_person_228`) → все активные точки, включая Varka (`ownerMode`). «Выдать доступ» виден. Owner бьёт exclude Varka.  
-- **Arseniy** `650923866` / `@arseniyhotko` — **не** owner партнёрки. Staff на одной точке: `pt_varka_rokoss_80` (Varka Рокоссовского 80). Доступ через `partnerSaveAccess`, не `PARTNER_MANUAL_ACCESS_*`. Не возвращать в канон-owner.  
+- **Канон-owner** партнёрки: `827494606` / `@one_more_person_228` и `650923866`. Все активные точки, включая Varka (`ownerMode`). «Выдать доступ» виден. Owner бьёт exclude Varka. Мини-апп (`3.3.66`) верит флагу `partnerGetMe`: `ownerMode && isOwner && role==="owner"` (сервер сверяет initData). Список `CANON_OWNER_TIDS_` — запасной, если флагов нет.  
+- **Arseniy** `650923866` / `@arseniyhotko` входит в этот список. Строка staff на `pt_varka_rokoss_80` в `Partner_Access` может остаться, кабинет открывает канон-owner, не эта строка.  
 - Любой другой owner Бойни без Access → **нет** кабинета партнёрки  
 - Админка — вкладка **Партнёры** в Бойне (owner identity в списке доступов скрыт)
 
@@ -143,7 +143,7 @@ TELEGRAM_ID=827494606 bash scripts/grant-arseniy-rokoss80-staff.sh
 
 Точки сети `net_varka` закрываются для заказов только явным `paidConsent=pending` или `declined`. Пустое поле до утренней миграции читается как `accepted` (заказ открыт); `partnerMigrateVarkaConsent` пишет явный `pending`, и только тогда точка закрывается. Другие сети не затрагиваются.
 
-Колонка `paidConsent` в конце листа `Partner_Points`: `pending` / `accepted` / `declined`. Пустая ячейка до утренней миграции = `accepted`. Сохранение точки само `pending` не пишет. В Бойне: Партнёры → Точки, у точки Varka список «Согласие на платные лакомства». То же действие `partnerSetPointConsent` (только owner, без сервисного ключа).
+Колонка `paidConsent` в конце листа `Partner_Points`: `pending` / `accepted` / `declined`. Если колонки нет, запись ответа её создаёт. Пустая ячейка до утренней миграции = `accepted`. Сохранение точки само `pending` не пишет. Снимок D1 при подмешивании листа не отдаёт `accepted`/`declined` обратно в `pending`: согласие D1 и его `paidConsentAt` остаются, если ответ уже `accepted`/`declined` или метка D1 новее. В Бойне: Партнёры → Точки, у точки Varka список «Согласие на платные лакомства». То же действие `partnerSetPointConsent` (только owner, без сервисного ключа). Кнопка в боте пишет лист через `partnerBroadcastCallback` и тем же согласием ещё раз вызывает `partnerSetPointConsent`.
 
 Мини-апп и `partnerSubmitOrder` (GAS и Worker) при `pending` / `declined` заявку не принимают.
 
@@ -246,7 +246,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум лакомств 200 г; NFC / баннер / купон без лакомств можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` после `partnerMigrateVarkaConsent` и `declined` заказ закрывают. Рассылка хозяевам не запускалась. Pages varka `3.3.65` · **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум лакомств 200 г; NFC / баннер / купон без лакомств можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` после `partnerMigrateVarkaConsent` и `declined` заказ закрывают. Рассылка хозяевам не запускалась. Pages varka `3.3.66` · **не задеплоено** (Pages, Worker, Code.gs)
 - [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)

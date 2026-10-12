@@ -72,8 +72,8 @@ const gsSrc = fs.readFileSync(gsPath, "utf8");
 if (workerSrc.indexOf("PARTNER_CANON_OWNER_TIDS = [\"650923866\"") >= 0) {
   fail("do not re-add Arseniy to PARTNER_CANON_OWNER_TIDS");
 }
-if (/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(gsSrc)) {
-  fail("do not re-add Arseniy to PARTNER_CANON_OWNER_TIDS_");
+if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*650923866/.test(gsSrc)) {
+  fail("Code.gs canon owner tids must include helper and Arseniy");
 }
 if (!/function partnerBuildGetMeFromAdmin_/.test(workerSrc)) {
   fail("worker must build getMe from D1 access");

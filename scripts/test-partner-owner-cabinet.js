@@ -115,8 +115,8 @@ if (/PARTNER_ARSENIY/.test(extractFn_(workerSrc, "partnerEnsureLiveTestAccess_")
 if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*\]/.test(appSrc)) {
   fail("varka/app.html must keep helper as canon owner tid");
 }
-if (/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(appSrc)) {
-  fail("varka/app.html must drop Arseniy from canon owner tids");
+if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(appSrc)) {
+  fail("varka/app.html must keep Arseniy on canon owner tids");
 }
 if (!/CANON_OWNER_USERS_\s*=\s*\[[^\]]*one_more_person_228[^\]]*\]/.test(appSrc)) {
   fail("varka/app.html must keep helper as canon owner username");
@@ -165,8 +165,8 @@ if (!/!== "staff"/.test(staffListSrc)) {
 if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*\]/.test(gsSrc)) {
   fail("Code.gs must keep helper as canon owner tid");
 }
-if (/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(gsSrc)) {
-  fail("Code.gs must drop Arseniy from canon owner tids");
+if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(gsSrc)) {
+  fail("Code.gs must keep Arseniy on canon owner tids");
 }
 if (!/PARTNER_CANON_OWNER_USERS_\s*=\s*\[[^\]]*one_more_person_228[^\]]*\]/.test(gsSrc)) {
   fail("Code.gs must keep helper as canon owner username");
