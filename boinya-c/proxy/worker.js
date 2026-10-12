@@ -27753,7 +27753,7 @@ function varkaSecretEq_(got, secret) {
   const left = enc.encode(a);
   const right = enc.encode(b);
   const eq = crypto && crypto.subtle && typeof crypto.subtle.timingSafeEqual === "function"
-    ? crypto.subtle.timingSafeEqual
+    ? function (x, y) { return crypto.subtle.timingSafeEqual(x, y); }
     : null;
   if (!eq) return false;
   if (left.byteLength !== right.byteLength) {

@@ -23,7 +23,7 @@ WEEK_CLOSE_CANON = "d1-sync"
 # roles-audit 2026-09-26: владелец(ы) Бойни (не секрет). Арсений = 650923866.
 OWNER_TELEGRAM_IDS = "650923866"
 # Канон-owner кабинета партнёрки (helper) — раньше хардкод в коде.
-PARTNER_OWNER_TIDS = "827494606"
+PARTNER_OWNER_TIDS = "827494606,650923866"
 PARTNER_OWNER_USERNAMES = "one_more_person_228"
 # AUTH_ENFORCE = "0"   # аварийный откат на legacy (telegramId из параметров) — БЕЗ редеплоя кода можно в Dashboard → Variables
 # ALLOW_SANDBOX = "1"  # песочница (?sandbox=1) выключена в проде
