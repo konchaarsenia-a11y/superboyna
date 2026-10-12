@@ -616,7 +616,7 @@
     return tabs;
   }
 
-  var NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "gb_lead"];
+  var NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "partner_access_request", "gb_lead"];
   var NOTIFY_DEFAULTS = {
     owner: NOTIFY_KEYS.slice(),
     manager: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey"],

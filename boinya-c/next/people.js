@@ -58,7 +58,7 @@
     month: "Месяц", week: "Неделя", calc: "Расчёт", pick: "Подбор",
     xfer: "Переносы", buy: "Дозакуп", orders: "Заказы / «На потом»", pp: "ПП/БП (отложенные расчёты)", remind: "Напоминалки",
     texts: "Тексты / опросники", ai: "Подбор ИИ", route: "Курьер / доставлено", assembly: "Сборка / печать",
-    people: "Люди", points: "Точки", nets: "Сети", notify: "Пуши"
+    people: "Люди", points: "Точки"
   };
   var NOTIFY_RU = {
     wh_buy: "Дозакуп / дефицит сырья",
@@ -72,6 +72,7 @@
     survey: "Опросники БП и ПП",
     partner_order: "Новая заявка партнёра",
     partner_suggest: "Предложение партнёра",
+    partner_access_request: "Запрос на подключение точки",
     gb_lead: "Заявка GOOD BOY с сайта"
   };
   var sheetFlags = { tabs: false, tabsReset: false, notify: false, notifyReset: false };
@@ -694,7 +695,8 @@
       html += '<label class="b-note" style="display:flex;gap:8px;margin:8px 0 6px"><input type="checkbox" data-act="p-tab-parent" data-tparent="' + id + '"' + (all ? " checked" : "") + (some ? ' data-indet="1"' : "") + "> " + esc(pair[1]) + (some ? " · частично" : "") + "</label>";
       kids.forEach(function (k) {
         var on = onKids.indexOf(k) >= 0;
-        html += '<label class="b-note" style="display:flex;gap:8px;margin:0 0 6px 16px"><input type="checkbox" data-act="p-tab" data-tab="' + id + "." + k + '" data-tkid="' + id + '"' + (on ? " checked" : "") + "> " + esc(CHILD_RU[k] || k) + "</label>";
+        var childLab = id === "partnerHubScreen" && k === "orders" ? "Заказы" : (id === "partnerHubScreen" && k === "points" ? "Точки" : (CHILD_RU[k] || k));
+        html += '<label class="b-note" style="display:flex;gap:8px;margin:0 0 6px 16px"><input type="checkbox" data-act="p-tab" data-tab="' + id + "." + k + '" data-tkid="' + id + '"' + (on ? " checked" : "") + "> " + esc(childLab) + "</label>";
       });
     });
     return html;

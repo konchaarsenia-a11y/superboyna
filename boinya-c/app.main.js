@@ -1408,7 +1408,7 @@
       deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
       templatesScreen: ["texts", "ai"],
       courierScreen: ["route", "assembly"],
-      partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+      partnerHubScreen: ["orders", "points"]
     };
     var TAB_DEFERRED_OFF_ = "deferredScreen.none";
     var TAB_LEGACY_TASKS_ROLES_ = ["manager", "all", "courier", "logistics", "cutter"];
@@ -18180,15 +18180,13 @@
           var ppRev = (p.ppRevenue != null) ? p.ppRevenue : (p.revenue || 0);
           var costShow = (p.cost != null) ? p.cost : 0;
           html += '<div style="margin:0 0 10px;padding:12px;border-radius:12px;background:rgba(100,210,255,0.1);border:1px solid rgba(100,210,255,0.2);">';
-          html += '<div style="font-weight:800;font-size:15px;color:#64d2ff;">' + escapeHtml(p.name) +
-            (p.paysCost ? ' <span class="client-badge" style="background:rgba(48,209,88,0.25);color:#30d158;font-weight:600;">платит себест</span>' : "") +
-            "</div>";
+          html += '<div style="font-weight:800;font-size:15px;color:#64d2ff;">' + escapeHtml(p.name) + "</div>";
           html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:12px;">';
           html += '<div><span class="muted">БП пришло</span><div style="font-weight:700;">' + bpCame + "</div></div>";
           html += '<div><span class="muted">Стало ПП</span><div style="font-weight:700;">' + becamePp + "</div></div>";
           html += '<div><span class="muted">Выручка ПП</span><div style="font-weight:700;color:#30d158;">' + ppRev + "</div></div>";
           html += '<div><span class="muted">Затраты БП</span><div style="font-weight:700;color:#ff9f0a;">' +
-            (p.paysCost ? "0 (платит)" : costShow) + "</div></div>";
+            costShow + "</div></div>";
           html += '<div style="grid-column:1/-1;"><span class="muted">Прибыль</span><div style="font-weight:800;font-size:16px;color:' + goodColor + ';">' + good + " BYN</div></div>";
           html += "</div></div>";
         });
@@ -29045,7 +29043,6 @@
         return '<div class="card" data-partner-id="' + escapeHtml(String(p.id || "")) + '" style="margin-bottom:8px;padding:10px;">' +
           '<b>' + escapeHtml(p.name) + '</b>' +
           (p.active ? '' : ' <span class="muted">(выкл)</span>') +
-          (p.paysCost ? ' <span class="client-badge" style="background:rgba(48,209,88,0.25);color:#30d158;">платит себест</span>' : "") +
           (p.note ? ('<div class="muted" style="font-size:12px;">' + escapeHtml(p.note) + "</div>") : "") +
           '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
           '<button type="button" class="seg-btn" onclick="editPartnerUi_(\'' + idEsc + '\')">Изменить</button>' +
@@ -29063,13 +29060,11 @@
       var name = String((document.getElementById("partnerNameInput") || {}).value || "").trim();
       var note = String((document.getElementById("partnerNoteInput") || {}).value || "").trim();
       var editId = String((document.getElementById("partnerEditId") || {}).value || "").trim();
-      var paysCost = !!(document.getElementById("partnerPaysCostInput") || {}).checked;
       if (!name) { showToast("Укажите имя партнёра"); return; }
       var body = {
         action: "savePartner",
         name: name,
         note: note,
-        paysCost: paysCost ? "yes" : "no",
         active: "yes",
         telegramId: myTelegramId,
         force: "1",
@@ -29098,7 +29093,7 @@
         id: optimisticId,
         name: name,
         note: note,
-        paysCost: paysCost,
+        paysCost: hitIdx >= 0 ? !!next[hitIdx].paysCost : false,
         active: body.active !== "no"
       };
       if (hitIdx >= 0) next[hitIdx] = Object.assign({}, next[hitIdx], optimistic, { id: next[hitIdx].id || optimisticId });
@@ -29141,7 +29136,6 @@
           id: id,
           name: hit.name,
           note: hit.note || "",
-          paysCost: hit.paysCost ? "yes" : "no",
           active: makeActive ? "yes" : "no",
           telegramId: myTelegramId,
           force: "1",

@@ -43,8 +43,13 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
 | `Partner_Orders` | Заявки партнёров |
 | `Предложения_партнёров` | «Предложить партнёра»: дата, тип, форма, автор, точка, статус `новое` |
+| `Partner_AccessRequests` | Заявки «Подключить точку» с бота и с экрана «Нет доступа» |
 
-API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`.
+Хаб **Партнёры** в новом UI: две вкладки, **Заказы** и **Точки**. Заказы — заявки, запросы на подключение и предложения. Точка открывается карточкой: название, адрес, сеть (можно завести новую и переименовать), хозяин (`Partner_Access`, role=partner), сотрудники точки (role=staff), согласие на платные лакомства. Флага «Платит себестоимость» в интерфейсе нет. Колонку листа не переписываем; в новом расчёте статистики флаг считается выключенным. Источник БП в заказе — точка из списка точек. Старое имя источника, которого нет среди точек, остаётся выбранным в этом заказе.
+
+`/start` у @GOODBOY_LG: без доступа — текст «Чтобы подключить свою точку к партнёрке Good Boy, нажмите кнопку.» и кнопка «Подключить точку». С доступом — кнопка открыть мини-апп. Заявка: `partnerAccessRequestCreate` (initData, не больше 3 в день, повтор открытой заявки не плодит новую), лист в хабе, `partnerAccessRequestResolve` только owner. После отправки бот пишет «Спасибо! Заявка принята, мы свяжемся с вами.» Пуш команде — ключ `partner_access_request` (вместе с `partner_order` и `partner_suggest` в «Сотрудники»). «Подключить» создаёт точку и доступ role=partner. «Отклонить» только меняет статус, заявителю не пишем.
+
+API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`, `partnerAccessRequestCreate`, `partnerAccessRequestList`, `partnerAccessRequestResolve`, `partnerAccessRequestUpsert`.
 
 **Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.2**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6**, доставка подписки **7.60**. В заявке Varka доставка заменяется на `PARTNER_VARKA_DELIVERY_BYN = 4` (за заказ, не ×N). Потолок 0.92×R не меняется: база — розница товара плюс розничная доставка 9, если товар на доставку ниже 80. Recover 3.30 за 100 г и 0.80 за жевалку берутся из канона 09.10. GAS передаёт 2.2 четвёртым аргументом в `computePpFactFromCost_`, затем `partnerApplyVarkaDelivery_`. Worker так же через `calcPricePpD1_`. Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0`. Фракция «Ломтики» — ставка 0. Сумма заявки = цена клиенту до рубля (`clientDisplayPrice`). Колонка `totalByn` — последняя в `Partner_Orders`.
 
@@ -72,7 +77,7 @@ Helper #281 (`827494606`) — канон-owner, не трогать. Arseniy `65
 
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
-- **Канон-owner** партнёрки: `827494606` / `@one_more_person_228` и `650923866`. Все активные точки, включая Varka (`ownerMode`). «Выдать доступ» виден. Owner бьёт exclude Varka. Мини-апп (`3.3.66`) верит флагу `partnerGetMe`: `ownerMode && isOwner && role==="owner"` (сервер сверяет initData). Список `CANON_OWNER_TIDS_` — запасной, если флагов нет.  
+- **Канон-owner** партнёрки: `827494606` / `@one_more_person_228` и `650923866`. Все активные точки, включая Varka (`ownerMode`). «Выдать доступ» виден. Owner бьёт exclude Varka. Мини-апп (`3.3.67`) верит флагу `partnerGetMe`: `ownerMode && isOwner && role==="owner"` (сервер сверяет initData). Список `CANON_OWNER_TIDS_` — запасной, если флагов нет.  
 - **Arseniy** `650923866` / `@arseniyhotko` входит в этот список. Строка staff на `pt_varka_rokoss_80` в `Partner_Access` может остаться, кабинет открывает канон-owner, не эта строка.  
 - Любой другой owner Бойни без Access → **нет** кабинета партнёрки  
 - Админка — вкладка **Партнёры** в Бойне (owner identity в списке доступов скрыт)
@@ -246,7 +251,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум лакомств 200 г; NFC / баннер / купон без лакомств можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` после `partnerMigrateVarkaConsent` и `declined` заказ закрывают. Рассылка хозяевам не запускалась. Pages varka `3.3.66` · **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум лакомств 200 г; NFC / баннер / купон без лакомств можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` после `partnerMigrateVarkaConsent` и `declined` заказ закрывают. Рассылка хозяевам не запускалась. Pages varka `3.3.67` · **не задеплоено** (Pages, Worker, Code.gs)
 - [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)

@@ -60,7 +60,7 @@ const AUTH_TAB_TREE = {
   deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
   templatesScreen: ["texts", "ai"],
   courierScreen: ["route", "assembly"],
-  partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+  partnerHubScreen: ["orders", "points"]
 };
 const AUTH_DEFERRED_OFF = "deferredScreen.none";
 /** Роли, у которых ☰ «Задачи / Отложенное» было видно до v71116014 (canUseTasksMenu по роли). */
@@ -176,7 +176,7 @@ function authOwnerIds_(env) {
  * Ключи staff-уведомлений + дефолты ролей — ТОЧНО как в Code.gs (NOTIFY_ROLE_DEFAULTS).
  * Персональный оверрайд — D1 listAccess.people[].notify ("+key,-key"; пусто = по роли) ↔ «Доступы» колонка J.
  */
-const NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "gb_lead"];
+const NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "partner_access_request", "gb_lead"];
 const NOTIFY_ROLE_DEFAULTS = {
   owner: NOTIFY_KEYS.slice(),
   manager: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey"],
@@ -186,7 +186,7 @@ const NOTIFY_ROLE_DEFAULTS = {
   all: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey", "cut_deficit", "out_next", "cut_increase"]
 };
 /** Ключи, для которых список «ответственных» из хаба Партнёров — базовые получатели. */
-const NOTIFY_HUB_KEYS = ["partner_order", "partner_suggest"];
+const NOTIFY_HUB_KEYS = ["partner_order", "partner_suggest", "partner_access_request"];
 
 function notifyParseOverride_(raw) {
   const out = { plus: {}, minus: {} };
@@ -1375,6 +1375,23 @@ async function handleAction_(action, params, env, url, ctx) {
   }
   if (actor.verified) params._authVerified = "1";
 
+  if (
+    a === "partnerAccessRequestCreate" ||
+    a === "partnerAccessRequestList" ||
+    a === "partnerAccessRequestResolve"
+  ) {
+    if (actor.enforce && !actor.verified) {
+      return { status: "error", message: "auth_required", action: a, reason: actor.reason };
+    }
+    if (a !== "partnerAccessRequestCreate" && !(actor && actor.isOwner)) {
+      return { status: "error", message: "owner_only", action: a };
+    }
+    if (actor.verified && actor.user) {
+      params.telegramId = String(actor.user.id);
+      if (actor.user.username && a === "partnerAccessRequestCreate") params.username = String(actor.user.username);
+    }
+    return partnerAccessRequestAction_(a, params, env, ctx, actor);
+  }
   // Varka / Goodboy — свои проверки; identity только из проверенной initData (если есть)
   if (/^partner/i.test(a) || /^gb/i.test(a) || a === "submitGoodboyTry") {
     if (actor.verified && actor.user) {
@@ -1411,6 +1428,7 @@ async function handleAction_(action, params, env, url, ctx) {
     }
     if (a === "partnerListAdmin" && actor.isOwner && pres && pres.status === "success") {
       try {
+        await partnerMigrateHubNotifyOnce_(env, pres, params, ctx);
         return await notifyEnrichPartnerAdmin_(env, pres);
       } catch (eEn) {}
     }
@@ -27618,7 +27636,7 @@ function getPartnerBotTokenWorker_(env) {
   return String((env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN)) || "").trim();
 }
 
-async function telegramSendPartnerBot_(env, chatId, text) {
+async function telegramSendPartnerBot_(env, chatId, text, markup) {
   const token = getPartnerBotTokenWorker_(env);
   const id = chatId != null ? String(chatId).trim() : "";
   if (!token) {
@@ -27627,14 +27645,16 @@ async function telegramSendPartnerBot_(env, chatId, text) {
   }
   if (!id) return { ok: false, error: "no_token_or_chat" };
   try {
+    const payload = {
+      chat_id: id,
+      text: String(text || "").slice(0, 3500),
+      disable_web_page_preview: true
+    };
+    if (markup) payload.reply_markup = markup;
     const res = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: id,
-        text: String(text || "").slice(0, 3500),
-        disable_web_page_preview: true
-      })
+      body: JSON.stringify(payload)
     });
     return await res.json();
   } catch (e) {
@@ -27931,6 +27951,184 @@ async function partnerRememberBroadcastReply_(env, rec, choice) {
   return { already: already, prevChoice: prevChoice };
 }
 
+/** Лимит заявок на подключение: открытая заявка или больше 3 за календарный день. */
+function partnerAccessRequestGate_(rows, tid, nowIso) {
+  const day = String(nowIso || "").slice(0, 10);
+  let today = 0;
+  let open = null;
+  (rows || []).forEach(function (r) {
+    if (!r || String(r.telegramId || "") !== String(tid || "")) return;
+    if (String(r.createdAt || "").slice(0, 10) === day) today++;
+    const st = String(r.status || "new");
+    if (!open && (st === "new" || st === "pending")) open = r;
+  });
+  return { today: today, open: open, limited: today >= 3 && !open };
+}
+
+async function partnerAccessRequestRows_(env) {
+  const snap = (await getSnapRaw_(env, "partnerAccessRequests")) || { rows: [] };
+  return Array.isArray(snap.rows) ? snap.rows : [];
+}
+
+async function partnerAccessRequestSave_(env, rows) {
+  await putSnap_(env, "partnerAccessRequests", { rows: rows, updatedAt: new Date().toISOString() });
+}
+
+function partnerAccessRequestMirror_(env, ctx, row) {
+  const job = gasProxy_("partnerAccessRequestUpsert", {
+    id: row.id,
+    createdAt: row.createdAt || "",
+    telegramId: row.telegramId || "",
+    username: row.username || "",
+    name: row.name || "",
+    phone: row.phone || "",
+    venueName: row.venueName || "",
+    address: row.address || "",
+    status: row.status || "new",
+    resolvedAt: row.resolvedAt || "",
+    resolvedBy: row.resolvedBy || "",
+    networkId: row.networkId || "",
+    pointId: row.pointId || ""
+  }, env, { write: true }).catch(function () { return null; });
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(job);
+}
+
+async function partnerAccessRequestNotify_(env, row) {
+  let admin = null;
+  try { admin = await getSnapRaw_(env, "partnerListAdmin"); } catch (e) { admin = null; }
+  const recipients = await notifyRecipientsWorker_(env, "partner_access_request", (admin && admin.notifyRecipients) || []);
+  const text =
+    "Запрос на подключение точки\n" +
+    (row.venueName || "") +
+    "\n" +
+    (row.address || "") +
+    "\n" +
+    (row.name || "") +
+    (row.phone ? ", " + row.phone : "") +
+    "\n@" +
+    (row.username || row.telegramId || "") +
+    "\n\nПартнёры → Заказы";
+  const tasks = [];
+  for (let i = 0; i < recipients.length; i++) {
+    const rid = String((recipients[i] && (recipients[i].telegramId || recipients[i].id)) || recipients[i] || "").trim();
+    if (rid) tasks.push(telegramSendTextWorker_(env, rid, text, null));
+  }
+  if (tasks.length) {
+    try { await Promise.all(tasks); } catch (e) {}
+  }
+}
+
+async function partnerMigrateHubNotifyOnce_(env, admin, params, ctx) {
+  const flag = await getSnapRaw_(env, "partnerNotifyHubMigrated");
+  if (flag && flag.done) return { skipped: true };
+  const ids = ((admin && admin.notifyRecipients) || [])
+    .map(function (r) { return String((r && (r.telegramId || r.id)) || r || "").trim(); })
+    .filter(Boolean);
+  const list = (await getSnapRaw_(env, "listAccess")) || { people: [] };
+  const keys = ["partner_order", "partner_suggest", "partner_access_request"];
+  const owners = authOwnerIds_(env);
+  const changes = [];
+  (list.people || []).forEach(function (p) {
+    const tid = String((p && p.telegramId) || "").trim();
+    if (!tid || ids.indexOf(tid) < 0) return;
+    const role = owners.indexOf(tid) >= 0 ? "owner" : authNormRole_(p.role);
+    const o = notifyParseOverride_(p.notify);
+    const before = notifyFormatOverride_(o);
+    const defaults = notifyRoleDefaults_(role);
+    keys.forEach(function (k) {
+      delete o.minus[k];
+      if (defaults.indexOf(k) < 0) o.plus[k] = true;
+    });
+    const after = notifyFormatOverride_(o);
+    if (after !== before) changes.push({ telegramId: tid, notify: after });
+  });
+  if (changes.length) await notifyWriteOverridesD1_(env, changes, params, ctx);
+  await putSnap_(env, "partnerNotifyHubMigrated", { done: true, at: new Date().toISOString(), ids: ids });
+  return { changed: changes.length };
+}
+
+async function partnerAccessRequestAction_(action, params, env, ctx, actor) {
+  const a = String(action || "");
+  if (a === "partnerAccessRequestList") {
+    const rows = await partnerAccessRequestRows_(env);
+    return { status: "success", rows: rows, d1Verified: true };
+  }
+  if (a === "partnerAccessRequestResolve") {
+    const id = String((params && params.id) || "").trim();
+    const decision = String((params && (params.decision || params.status)) || "").trim();
+    if (!id) return { status: "error", message: "need_id" };
+    const rows = await partnerAccessRequestRows_(env);
+    let hit = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i].id) === id) { hit = i; break; }
+    }
+    if (hit < 0) return { status: "error", message: "not_found" };
+    const status = decision === "connect" || decision === "approved" ? "approved" : "rejected";
+    const row = Object.assign({}, rows[hit], {
+      status: status,
+      resolvedAt: new Date().toISOString(),
+      resolvedBy: String((actor && actor.tid) || ""),
+      networkId: String((params && params.networkId) || rows[hit].networkId || ""),
+      pointId: String((params && params.pointId) || rows[hit].pointId || "")
+    });
+    rows[hit] = row;
+    await partnerAccessRequestSave_(env, rows);
+    partnerAccessRequestMirror_(env, ctx, row);
+    return { status: "success", id: id, requestStatus: status, d1Verified: true };
+  }
+  const tid = String((params && params.telegramId) || (actor && actor.tid) || "").trim();
+  if (!tid) return { status: "error", message: "need_user" };
+  const venueName = String((params && (params.venueName || params.place)) || "").trim();
+  const address = String((params && params.address) || "").trim();
+  const name = String((params && (params.personName || params.name)) || "").trim();
+  const phone = String((params && params.phone) || "").trim();
+  if (!venueName || !address || !name || !phone) {
+    return { status: "error", message: "Заполните название, адрес, имя и телефон" };
+  }
+  const nowIso = new Date().toISOString();
+  const rows = await partnerAccessRequestRows_(env);
+  const gate = partnerAccessRequestGate_(rows, tid, nowIso);
+  if (gate.open) return { status: "success", deduped: true, id: gate.open.id, message: "Заявка уже есть" };
+  if (gate.limited) return { status: "error", message: "Не больше трёх заявок в день" };
+  const row = {
+    id: "par_" + Date.now().toString(36),
+    createdAt: nowIso,
+    telegramId: tid,
+    username: String((params && params.username) || "").replace(/^@/, ""),
+    name: name,
+    phone: phone,
+    venueName: venueName,
+    address: address,
+    status: "new"
+  };
+  rows.unshift(row);
+  await partnerAccessRequestSave_(env, rows);
+  partnerAccessRequestMirror_(env, ctx, row);
+  const thanks = telegramSendPartnerBot_(env, tid, "Спасибо! Заявка принята, мы свяжемся с вами.");
+  const ping = partnerAccessRequestNotify_(env, row);
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(Promise.all([thanks, ping]));
+  else {
+    try { await thanks; } catch (e1) {}
+    try { await ping; } catch (e2) {}
+  }
+  return { status: "success", id: row.id, d1Verified: true };
+}
+
+function partnerStartHasAccess_(admin, from) {
+  const tid = String((from && from.id) || "").trim();
+  if (tid && PARTNER_CANON_OWNER_TIDS.indexOf(tid) >= 0) return true;
+  const user = String((from && from.username) || "").replace(/^@/, "").toLowerCase();
+  const rows = (admin && admin.access) || [];
+  for (let i = 0; i < rows.length; i++) {
+    const a = rows[i];
+    if (!a || a.status === "revoked" || a.active === false) continue;
+    if (tid && String(a.telegramId || "") === tid) return true;
+    const u = String(a.username || "").replace(/^@/, "").toLowerCase();
+    if (user && u && u === user) return true;
+  }
+  return false;
+}
+
 async function handleGoodboyTelegramWebhook_(request, env, ctx) {
   // Отдельный секрет вебхука @GOODBOY_LG. Не WORKER_SHARED_SECRET. Токен бота — PARTNER_BOT_TOKEN (getPartnerBotTokenWorker_).
   const secret = String((env && env.GOODBOY_WEBHOOK_SECRET) || "").trim();
@@ -27941,7 +28139,28 @@ async function handleGoodboyTelegramWebhook_(request, env, ctx) {
   let update = {};
   try { update = await request.json(); } catch (e) { update = {}; }
   const cq = update && update.callback_query;
-  if (!cq) return new Response("ok");
+  if (!cq) {
+    const msg = (update && (update.message || update.edited_message)) || null;
+    const text = String((msg && msg.text) || "").trim();
+    if (!msg || !/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) return new Response("ok");
+    const from = msg.from || {};
+    const chatId = msg.chat && msg.chat.id;
+    let admin = null;
+    try { admin = await getSnapRaw_(env, "partnerListAdmin"); } catch (eAd) { admin = null; }
+    const known = partnerStartHasAccess_(admin, from);
+    const appUrl = VARKA_PAGES_BASE + "/app.html";
+    const url = known ? appUrl : appUrl + "#request";
+    const label = known ? "Открыть" : "Подключить точку";
+    const body = known
+      ? "Партнёрка Good Boy."
+      : "Чтобы подключить свою точку к партнёрке Good Boy, нажмите кнопку.";
+    try {
+      await telegramSendPartnerBot_(env, chatId, body, {
+        inline_keyboard: [[{ text: label, web_app: { url: url } }]]
+      });
+    } catch (eStart) {}
+    return new Response("ok");
+  }
   const parsed = partnerParseVarkaCallback_(cq.data);
   const from = cq.from || {};
   const tid = String(from.id || "").trim();

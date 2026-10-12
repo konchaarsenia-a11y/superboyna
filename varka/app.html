@@ -589,6 +589,19 @@
     <div id="screenLogin" class="screen">
       <div class="pill wrap-c">Партнёрское пополнение</div>
       <div class="sub" id="loginTgHint">Нет доступа. Напишите в Good Boy — выдадим точки в Бойне.</div>
+      <button type="button" class="btn" id="btnOpenRequest" onclick="openAccessRequest_()" style="margin-top:16px">Подключить точку</button>
+      <form id="accessRequestForm" hidden onsubmit="return submitAccessRequest_(event)" style="margin-top:16px;text-align:left">
+        <label class="sub">Название точки</label>
+        <input class="field" id="reqVenue" required>
+        <label class="sub">Адрес</label>
+        <input class="field" id="reqAddress" required>
+        <label class="sub">Имя</label>
+        <input class="field" id="reqPerson" required>
+        <label class="sub">Телефон</label>
+        <input class="field" id="reqPhone" inputmode="tel" required>
+        <button type="submit" class="btn" id="reqSubmit" style="margin-top:12px">Отправить заявку</button>
+        <p class="sub" id="reqMsg" hidden></p>
+      </form>
     </div>
 
     <!-- Техработы (ручной режим) -->
@@ -771,7 +784,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.66";
+  var APP_VER = "3.3.67";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -2054,6 +2067,50 @@
     return true;
   }
 
+  function openAccessRequest_() {
+    var form = document.getElementById("accessRequestForm");
+    var btn = document.getElementById("btnOpenRequest");
+    if (form) form.hidden = false;
+    if (btn) btn.hidden = true;
+    var u = user();
+    var person = document.getElementById("reqPerson");
+    if (person && !person.value && u && u.name) person.value = u.name;
+  }
+
+  async function submitAccessRequest_(ev) {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    var u = user();
+    var msg = document.getElementById("reqMsg");
+    var btn = document.getElementById("reqSubmit");
+    if (!u || !u.telegramId) {
+      if (msg) { msg.hidden = false; msg.textContent = "Откройте мини-апп из Telegram (@GOODBOY_LG)."; }
+      return false;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      var res = await apiGet_({
+        action: "partnerAccessRequestCreate",
+        venueName: (document.getElementById("reqVenue") || {}).value || "",
+        address: (document.getElementById("reqAddress") || {}).value || "",
+        personName: (document.getElementById("reqPerson") || {}).value || "",
+        phone: (document.getElementById("reqPhone") || {}).value || "",
+        username: u.username || "",
+        telegramId: u.telegramId || "",
+        initData: u.initData || ""
+      });
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = (res && res.status === "success")
+          ? "Спасибо! Заявка принята, мы свяжемся с вами."
+          : ((res && res.message) || "Не отправилось");
+      }
+    } catch (e) {
+      if (msg) { msg.hidden = false; msg.textContent = "Не отправилось. Попробуйте ещё раз."; }
+    }
+    if (btn) btn.disabled = false;
+    return false;
+  }
+
   function renderLogin_() {
     var hint = document.getElementById("loginTgHint");
     var u = user();
@@ -3260,6 +3317,7 @@
     if (!VARKA_WEBHOOK_URL) {
       renderLogin_();
       show("screenLogin");
+      if (String(location.hash || "") === "#request") openAccessRequest_();
       return;
     }
     var u0 = user();
@@ -3636,6 +3694,7 @@
       if (!userHasIdentity_(u)) {
         renderLogin_();
         show("screenLogin");
+        if (String(location.hash || "") === "#request") openAccessRequest_();
         return;
       }
       if (u.telegramId) {
@@ -3658,6 +3717,7 @@
       clearSession_();
       renderLogin_();
       show("screenLogin");
+      if (String(location.hash || "") === "#request") openAccessRequest_();
     } catch (e) {
       var u2 = user();
       var cached2 = loadMeCache_(u2);
@@ -3665,6 +3725,7 @@
       document.getElementById("bootMsg").textContent = "Не удалось связаться с сервером";
       renderLogin_();
       show("screenLogin");
+      if (String(location.hash || "") === "#request") openAccessRequest_();
     }
   }
 

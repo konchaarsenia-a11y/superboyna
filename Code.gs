@@ -3380,6 +3380,9 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "partnerSetNotifyRecipients") {
     return handlePartnerSetNotifyRecipients(json, callback, fromPost);
   }
+  if (action === "partnerAccessRequestUpsert") {
+    return handlePartnerAccessRequestUpsert(json, callback, fromPost);
+  }
   if (action === "partnerCalcPrice") {
     return handlePartnerCalcPrice(json, callback, fromPost);
   }
@@ -16436,7 +16439,7 @@ function isOwnerId_(telegramId) {
  * Персональный оверрайд — «Доступы» колонка J `notify`: "+key,-key" (пусто = по роли).
  * Отложенные ⏰, маршруты курьеров, ответы бота и пуши партнёрам — НЕ настраиваются.
  */
-var NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "gb_lead"];
+var NOTIFY_KEYS = ["wh_buy", "cut_deficit", "out_next", "cut_increase", "date_nudge", "missed_delivery", "week_done", "access_req", "survey", "partner_order", "partner_suggest", "partner_access_request", "gb_lead"];
 var NOTIFY_ROLE_DEFAULTS = {
   owner: NOTIFY_KEYS.slice(),
   manager: ["wh_buy", "date_nudge", "missed_delivery", "week_done", "survey"],
@@ -16830,7 +16833,7 @@ var GAS_TAB_TREE_ = {
   deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
   templatesScreen: ["texts", "ai"],
   courierScreen: ["route", "assembly"],
-  partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+  partnerHubScreen: ["orders", "points"]
 };
 var GAS_DEFERRED_OFF_ = "deferredScreen.none";
 var GAS_LEGACY_TASKS_ROLES_ = ["manager", "all", "courier", "logistics", "cutter"];
@@ -24543,15 +24546,8 @@ function collectFormulaEconomy_(ss, crmSs, monthKey) {
     var paidMap = {};
     try { deliveredMap = readDeliveredByDate_(ss, [], tz); } catch (eD) { deliveredMap = {}; }
     try { paidMap = readPpPaidByDate_(ss, [], tz); } catch (ePaid) { paidMap = {}; }
+    // «Платит себестоимость» снят с UI. Колонку листа не переписываем; в расчёте флаг выключен.
     var pays = {};
-    try {
-      var partnersPay = readAllPartners_();
-      var ppi;
-      for (ppi = 0; ppi < partnersPay.length; ppi++) {
-        var pnm = String(partnersPay[ppi].name || "").trim();
-        if (pnm && partnersPay[ppi].paysCost) pays[pnm.toLowerCase()] = true;
-      }
-    } catch (ePay) {}
     var converted = {};
     try {
       var conv = collectBpToPpConversions_(ss, crmSs, "", { allTime: true }) || {};
@@ -25124,16 +25120,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   } catch (ePaidMap) {
     out._ppPaidByDate = {};
   }
-  // партнёры, которые платят себестоимость БП — наша затрата = 0
+  // Флаг paysCost в листе «Партнёры» не читаем и не пишем. Дальше затрата БП всегда наша.
   var partnerPaysCost_ = {};
-  try {
-    var partnersPay = readAllPartners_();
-    for (var ppi = 0; ppi < partnersPay.length; ppi++) {
-      var pnm = String(partnersPay[ppi].name || "").trim();
-      if (!pnm) continue;
-      if (partnersPay[ppi].paysCost) partnerPaysCost_[pnm.toLowerCase()] = true;
-    }
-  } catch (ePayMap) {}
 
   function ingestRow_(row) {
     if (!row) return;
@@ -29005,6 +28993,39 @@ function handlePartnerSetNotifyRecipients(json, callback, fromPost) {
   var saved = writePartnerNotifyRecipients_(list);
   var ok = { status: "success", notifyRecipients: saved, count: saved.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerAccessRequestUpsert(json, callback, fromPost) {
+  var system = typeof GAS_AUTH_ !== "undefined" && GAS_AUTH_ && GAS_AUTH_.system;
+  if (!system && !partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var id = String((json && json.id) || "").trim();
+  if (!id) {
+    var need = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Partner_AccessRequests");
+  if (!sh) sh = ss.insertSheet("Partner_AccessRequests");
+  var headers = ["id", "createdAt", "telegramId", "username", "name", "phone", "venueName", "address", "status", "resolvedAt", "resolvedBy", "networkId", "pointId"];
+  if (sh.getLastRow() < 1) sh.appendRow(headers);
+  var data = sh.getDataRange().getValues();
+  var row = -1;
+  var i;
+  for (i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === id) { row = i + 1; break; }
+  }
+  var vals = [];
+  for (i = 0; i < headers.length; i++) {
+    var key = headers[i];
+    vals.push(json && json[key] != null ? String(json[key]) : "");
+  }
+  if (row < 0) sh.appendRow(vals);
+  else sh.getRange(row, 1, 1, vals.length).setValues([vals]);
+  var saved = { status: "success", id: id };
+  return fromPost ? jsonpText(callback, saved) : jsonp(callback, saved);
 }
 
 function partnerSuggestTypeLabel_(type) {

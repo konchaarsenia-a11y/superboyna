@@ -24,7 +24,7 @@
     deferredScreen: ["xfer", "buy", "orders", "pp", "remind"],
     templatesScreen: ["texts", "ai"],
     courierScreen: ["route", "assembly"],
-    partnerHubScreen: ["orders", "people", "points", "nets", "notify"]
+    partnerHubScreen: ["orders", "points"]
   };
 
   var TAB_DEFERRED_OFF = "deferredScreen.none";

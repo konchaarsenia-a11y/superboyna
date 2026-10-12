@@ -527,7 +527,7 @@
       more += '<button type="button" class="b-li" data-act="more-stats"><span class="b-li__body"><span class="b-li__title">Статистика</span><span class="b-li__sub">Оборот, расходы, проба</span></span><span class="b-li__chev">›</span></button>';
     }
     if (ax().tabHas(access, "partnerHubScreen")) {
-      more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заявки, точки, сети, пуши</span></span><span class="b-li__chev">›</span></button>';
+      more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заказы и точки</span></span><span class="b-li__chev">›</span></button>';
     }
     if (access.role !== "partner") {
       var goalsSub = access.role === "owner" ? "Задачи, общие и показатели" : "Свои и общие задачи";
