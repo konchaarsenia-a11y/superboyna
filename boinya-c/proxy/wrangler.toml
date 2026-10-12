@@ -36,6 +36,8 @@ PARTNER_OWNER_USERNAMES = "one_more_person_228"
 # TELEGRAM_BOT_USERNAME = "..."  # необязательно: виджет / t.me. Пусто → Worker берёт getMe по TELEGRAM_BOT_TOKEN.
 #   PARTNER_BOT_TOKEN — бот Varka (initData партнёрки). TG_EXTRA_BOT_TOKENS — ещё боты через запятую.
 # Secret: GAS_SHARED_SECRET — = Script Property WORKER_SHARED_SECRET в Apps Script (GAS доверяет Worker).
+# Secret: VARKA_ADMIN_KEY — заголовок X-Varka-Admin-Key только для partnerMigrateVarkaConsent и partnerVarkaBroadcast.
+# Secret: GOODBOY_WEBHOOK_SECRET — X-Telegram-Bot-Api-Secret-Token на POST /telegram/goodboy (не WORKER_SHARED_SECRET).
 # Secret: SUBS_VIEW_PASSWORD — пароль экрана «Подписки» (раньше лежал в app.main.js).
 # Без секрета sendCourier/forceSurvey → GAS fallback
 # PP cost breakdown: wrangler secret put PP_COST_BREAKDOWN_PIN
