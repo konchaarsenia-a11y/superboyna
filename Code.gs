@@ -25608,10 +25608,10 @@ function partnerPointIsVarka_(p) {
   return String(p.id || "").indexOf("pt_varka_") === 0;
 }
 
-/** Пустое согласие у точки Varka = pending. Другие сети не закрываем. */
+/** Пустое согласие у точки Varka = accepted (закрываем только явным pending после миграции). Другие сети не закрываем. */
 function partnerEffectiveConsent_(p) {
   if (!partnerPointIsVarka_(p)) return "accepted";
-  return partnerNormalizeConsent_(p && p.paidConsent) || "pending";
+  return partnerNormalizeConsent_(p && p.paidConsent) || "accepted"; // пусто = accepted до partnerMigrateVarkaConsent (пишет явный pending утром)
 }
 
 function partnerConsentRejectForPoint_(p) {
@@ -27893,6 +27893,7 @@ function handlePartnerVarkaBroadcast(json, callback, fromPost) {
     skipped: pack.skipped,
     sent: sent,
     failed: failed,
+    errors: failed,
     sentCount: sent.length
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -29155,7 +29156,6 @@ function handlePartnerSavePoint(json, callback, fromPost) {
   if (partnerPointIsVarka_({ id: id, networkId: networkId })) {
     var asked = partnerNormalizeConsent_(json && json.paidConsent);
     if (asked) consent = asked;
-    else if (!partnerNormalizeConsent_(consent)) consent = "pending";
   } else {
     consent = "";
   }

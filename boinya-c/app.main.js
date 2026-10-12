@@ -29743,8 +29743,8 @@
             (addr ? (" · " + escapeHtml(addr)) : "") + "</div>" +
             (String(p.networkId || "") === "net_varka" || String(p.id || "").indexOf("pt_varka_") === 0
               ? (function () {
-                  var c = String(p.paidConsent || "pending").toLowerCase();
-                  if (c !== "accepted" && c !== "declined" && c !== "pending") c = "pending";
+                  var c = String(p.paidConsent || "accepted").toLowerCase();
+                  if (c !== "accepted" && c !== "declined" && c !== "pending") c = "accepted";
                   function opt(v, lab) {
                     return '<option value="' + v + '"' + (c === v ? " selected" : "") + ">" + lab + "</option>";
                   }

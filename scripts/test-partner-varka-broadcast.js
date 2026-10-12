@@ -105,6 +105,7 @@ vm.runInContext(
   "  { id: 'pt_varka_repina_4', networkId: 'net_varka', active: true }" +
   "]);\n" +
   "globalThis.pending = partnerConsentRejectForPoint_({ id: 'pt_varka_repina_4', networkId: 'net_varka' });\n" +
+  "globalThis.explicitPending = partnerConsentRejectForPoint_({ id: 'pt_varka_repina_4', networkId: 'net_varka', paidConsent: 'pending' });\n" +
   "globalThis.okNan = partnerConsentRejectForPoint_({ id: 'pt_nan_1', networkId: 'net_nan' });\n" +
   "globalThis.declined = partnerConsentRejectForPoint_({ id: 'pt_varka_repina_4', networkId: 'net_varka', paidConsent: 'declined' });\n" +
   "globalThis.accepted = partnerConsentRejectForPoint_({ id: 'pt_varka_repina_4', networkId: 'net_varka', paidConsent: 'accepted' });\n",
@@ -115,9 +116,69 @@ if (sandbox.empty.recipients.length !== 0) fail("seed-like empty access must be 
 if (sandbox.pack.recipients.length !== 1) fail("only the varka owner with telegram id, got " + sandbox.pack.recipients.length);
 if (sandbox.pack.recipients[0].telegramId !== "10001") fail("wrong recipient");
 if (sandbox.pack.skipped.length !== 1) fail("owner without telegram id must be skipped");
-if (!sandbox.pending || sandbox.pending.message !== "consent_pending") fail("empty varka consent is pending");
+if (sandbox.pending) fail("empty varka consent must stay open until migration");
+if (!sandbox.explicitPending || sandbox.explicitPending.message !== "consent_pending") fail("explicit pending still blocks");
 if (sandbox.okNan) fail("other networks must stay open");
 if (!sandbox.declined || sandbox.declined.message !== "consent_declined") fail("declined");
 if (sandbox.accepted) fail("accepted must pass");
+
+const saveGas = gas.slice(gas.indexOf("function handlePartnerSavePoint"), gas.indexOf("function handlePartnerDeletePoint"));
+if (saveGas.indexOf('consent = "pending"') >= 0) fail("GAS save point must not auto-write pending");
+const saveWAt = worker.indexOf("if (/^partnerSavePoint$/i.test(a))");
+const saveW = worker.slice(saveWAt, saveWAt + 1800);
+if (saveW.indexOf('consent = "pending"') >= 0) fail("Worker save point must not auto-write pending");
+
+const gateAt = worker.indexOf("X-Varka-Admin-Key");
+if (gateAt < 0) fail("admin key header");
+const gate = worker.slice(gateAt - 420, gateAt + 120);
+if (!/partnerMigrateVarkaConsent\|partnerVarkaBroadcast/.test(gate)) fail("admin key must allow migrate and broadcast");
+if (/partnerSetPointConsent|partnerSubmitOrder|partnerSavePoint/.test(gate)) fail("admin key must not cover other actions");
+if (worker.indexOf("env.VARKA_ADMIN_KEY") < 0) fail("VARKA_ADMIN_KEY");
+if (worker.indexOf("function stampVarkaAdminOwner_") < 0) fail("owner stamp for GAS");
+const stamp = extractFn(worker, "stampVarkaAdminOwner_");
+if (stamp.indexOf('_actorRole = "owner"') < 0 || stamp.indexOf("_actorTid") < 0) fail("stamp must set owner actor for Worker→GAS");
+
+const hookAt = worker.indexOf("async function handleGoodboyTelegramWebhook_");
+const hook = worker.slice(hookAt, hookAt + 700);
+if (hook.indexOf("env.GOODBOY_WEBHOOK_SECRET") < 0) fail("webhook secret name");
+if (hook.indexOf("env.WORKER_SHARED_SECRET") >= 0) fail("webhook must not use WORKER_SHARED_SECRET");
+const tok = extractFn(worker, "getPartnerBotTokenWorker_");
+if (tok.indexOf("PARTNER_BOT_TOKEN") < 0) fail("partner bot token");
+
+const bcastAt = worker.indexOf("if (/^partnerVarkaBroadcast$/i.test(a))");
+const bcast = worker.slice(bcastAt, worker.indexOf("if (/^partnerMigrateVarkaConsent$/i.test(a))", bcastAt));
+if (bcast.indexOf("SEND_VARKA") < 0) fail("live still needs confirm");
+if (bcast.indexOf("errors: failed") < 0) fail("broadcast response errors");
+
+const pointFn = varka.slice(varka.indexOf("function pointConsent_"), varka.indexOf("function consentMessage_"));
+if (pointFn.indexOf('return "accepted"') < 0) fail("mini app empty consent is accepted");
+
+const nodeCrypto = require("crypto");
+const secretBox = {
+  TextEncoder: TextEncoder,
+  crypto: {
+    subtle: {
+      timingSafeEqual: function (a, b) {
+        if (a.byteLength !== b.byteLength) throw new Error("length");
+        return nodeCrypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+      }
+    }
+  }
+};
+vm.createContext(secretBox);
+vm.runInContext(
+  extractFn(worker, "varkaSecretEq_") + "\n" +
+  extractFn(worker, "varkaAdminKeyHeaderOk_") + "\n" +
+  "globalThis.emptySecret = varkaAdminKeyHeaderOk_('x', {});\n" +
+  "globalThis.blankSecret = varkaAdminKeyHeaderOk_('x', { VARKA_ADMIN_KEY: '  ' });\n" +
+  "globalThis.bad = varkaAdminKeyHeaderOk_('nope', { VARKA_ADMIN_KEY: 'morning-key' });\n" +
+  "globalThis.short = varkaAdminKeyHeaderOk_('morning-ke', { VARKA_ADMIN_KEY: 'morning-key' });\n" +
+  "globalThis.ok = varkaAdminKeyHeaderOk_('morning-key', { VARKA_ADMIN_KEY: 'morning-key' });\n" +
+  "globalThis.trimmed = varkaAdminKeyHeaderOk_(' morning-key ', { VARKA_ADMIN_KEY: 'morning-key' });\n",
+  secretBox
+);
+if (secretBox.emptySecret || secretBox.blankSecret) fail("empty VARKA_ADMIN_KEY must not authorize");
+if (secretBox.bad || secretBox.short) fail("wrong admin key must fail");
+if (!secretBox.ok || !secretBox.trimmed) fail("matching admin key must pass");
 
 console.log("OK varka broadcast wiring, dry-run seed recipients", sandbox.empty.recipients.length);

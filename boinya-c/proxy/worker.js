@@ -1062,6 +1062,14 @@ export default {
         }
       }
       const act = String(params.action || action || "");
+      // Сервисный ключ только у двух action. Поле из body/query не считается: его стираем и ставим заново из заголовка.
+      delete params._varkaAdminAuth;
+      if (
+        /^(partnerMigrateVarkaConsent|partnerVarkaBroadcast)$/i.test(act) &&
+        varkaAdminKeyHeaderOk_(request.headers.get("X-Varka-Admin-Key"), env)
+      ) {
+        params._varkaAdminAuth = "1";
+      }
       const cb = params.callback;
       const result = await handleAction_(act, params, env, url, ctx);
       if (cb) {
@@ -1331,6 +1339,9 @@ async function handleAction_(action, params, env, url, ctx) {
     if (a === "nudgeDeliveredDay") return listNudgeDeliveredDay_(params, env);
     return fulfillMailTrack_(params, env);
   }
+  const varkaServiceAuth =
+    params._varkaAdminAuth === "1" && /^(partnerMigrateVarkaConsent|partnerVarkaBroadcast)$/i.test(a);
+  delete params._varkaAdminAuth;
   ["_actorTid", "_actorRole", "_wk", "_authVerified", "_unverified"].forEach(function (k) {
     delete params[k];
   });
@@ -1361,6 +1372,8 @@ async function handleAction_(action, params, env, url, ctx) {
     } else if (actor.enforce) {
       params._unverified = "1";
     }
+    // X-Varka-Admin-Key: owner для этих двух action. gasProxy_ прокинет _actorTid + _wk.
+    if (varkaServiceAuth) stampVarkaAdminOwner_(params);
     // v71116013: хаб «кому заявки» = ключ partner_order (оверрайды людей); только проверенный owner
     let hubChecked = null;
     if (a === "partnerSetNotifyRecipients" && actor.isOwner && actor.verified) {
@@ -27135,7 +27148,7 @@ function partnerPointIsVarka_(p) {
 
 function partnerEffectiveConsent_(p) {
   if (!partnerPointIsVarka_(p)) return "accepted";
-  return partnerNormalizeConsent_(p && p.paidConsent) || "pending";
+  return partnerNormalizeConsent_(p && p.paidConsent) || "accepted"; // пусто = accepted до partnerMigrateVarkaConsent (пишет явный pending утром)
 }
 
 function partnerConsentRejectForPoint_(p) {
@@ -27227,6 +27240,49 @@ function partnerParseVarkaCallback_(data) {
 function partnerBroadcastOwnerOk_(params) {
   if (isPartnerCanonOwner_(params)) return true;
   return String((params && params._actorRole) || "").toLowerCase() === "owner";
+}
+
+/** Сравнение секрета за постоянное время. Пустой секрет — не совпадение. */
+function varkaSecretEq_(got, secret) {
+  const a = String(got == null ? "" : got);
+  const b = String(secret == null ? "" : secret);
+  if (!b) return false;
+  const enc = new TextEncoder();
+  const left = enc.encode(a);
+  const right = enc.encode(b);
+  const eq = crypto && crypto.subtle && typeof crypto.subtle.timingSafeEqual === "function"
+    ? crypto.subtle.timingSafeEqual
+    : null;
+  if (!eq) return false;
+  if (left.byteLength !== right.byteLength) {
+    try { eq(right, right); } catch (eLen) {}
+    return false;
+  }
+  try {
+    return !!eq(left, right);
+  } catch (eEq) {
+    return false;
+  }
+}
+
+/** Заголовок X-Varka-Admin-Key. Пустой env.VARKA_ADMIN_KEY — ключ не работает. */
+function varkaAdminKeyHeaderOk_(headerValue, env) {
+  const secret = String((env && env.VARKA_ADMIN_KEY) || "").trim();
+  if (!secret) return false;
+  return varkaSecretEq_(String(headerValue || "").trim(), secret);
+}
+
+/** Доверенный путь Worker→GAS: канон-owner + _authVerified. gasProxy_ добавит _wk. */
+function stampVarkaAdminOwner_(params) {
+  const tid = (PARTNER_CANON_OWNER_TIDS && PARTNER_CANON_OWNER_TIDS[0]) || "827494606";
+  const user = (PARTNER_CANON_OWNER_USERS && PARTNER_CANON_OWNER_USERS[0]) || "one_more_person_228";
+  params.telegramId = tid;
+  params.actorId = tid;
+  params.username = user;
+  params._actorTid = tid;
+  params._actorRole = "owner";
+  params._authVerified = "1";
+  delete params._unverified;
 }
 
 async function partnerTelegramSendMarkup_(env, chatId, text, replyMarkup) {
@@ -27353,10 +27409,11 @@ async function partnerRememberBroadcastReply_(env, rec, choice) {
 }
 
 async function handleGoodboyTelegramWebhook_(request, env, ctx) {
-  const secret = String((env && env.WORKER_SHARED_SECRET) || "").trim();
+  // Отдельный секрет вебхука @GOODBOY_LG. Не WORKER_SHARED_SECRET. Токен бота — PARTNER_BOT_TOKEN (getPartnerBotTokenWorker_).
+  const secret = String((env && env.GOODBOY_WEBHOOK_SECRET) || "").trim();
   if (secret) {
-    const got = String(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "");
-    if (got !== secret) return new Response("forbidden", { status: 403 });
+    const got = String(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "").trim();
+    if (!varkaSecretEq_(got, secret)) return new Response("forbidden", { status: 403 });
   }
   let update = {};
   try { update = await request.json(); } catch (e) { update = {}; }
@@ -28644,6 +28701,7 @@ async function mutatePartnerD1_(action, params, env) {
       skipped: pack.skipped,
       sent: sent,
       failed: failed,
+      errors: failed,
       sentCount: sent.length,
       d1Verified: true
     };
@@ -28717,7 +28775,6 @@ async function mutatePartnerD1_(action, params, env) {
     if (partnerPointIsVarka_({ id: id, networkId: networkId })) {
       const asked = partnerNormalizeConsent_(params && params.paidConsent);
       if (asked) consent = asked;
-      else if (!partnerNormalizeConsent_(consent)) consent = "pending";
     } else {
       consent = "";
     }
