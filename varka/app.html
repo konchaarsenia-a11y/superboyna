@@ -771,7 +771,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.65";
+  var APP_VER = "3.3.66";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -783,8 +783,8 @@
   /** Allowlist локи для проверки. Пустой — чип «Лока» никому. */
   var INSPECT_LOCA_USERS_ = [];
   var INSPECT_LOCA_TIDS_ = [];
-  /** Кабинет владельца: helper 827494606. Arseniy — staff (Partner_Access), не owner. */
-  var CANON_OWNER_TIDS_ = ["827494606"];
+  /** Кабинет владельца: helper 827494606 и Арсений 650923866. Список — запасной, если partnerGetMe не прислал флаги. */
+  var CANON_OWNER_TIDS_ = ["827494606", "650923866"];
   var CANON_OWNER_USERS_ = ["one_more_person_228"];
   var INSPECT_LOCA_KEY = "gb_inspect_loca_v1";
   var LIVE_TEST_IDX_ = 16;
@@ -1003,8 +1003,7 @@
         clearSession_();
         return false;
       }
-      REMOTE_IS_OWNER_ = !!s.ownerMode && !!s.isOwner && s.role === "owner" &&
-        isCanonOwnerUser_({ username: s.username, telegramId: s.telegramId }, s) &&
+      REMOTE_IS_OWNER_ = isCanonOwnerUser_({ username: s.username, telegramId: s.telegramId }, s) &&
         !isLiveTestUser_({ username: s.username }, s);
       DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
       DEMO_NETWORK = s.networkId || "";
@@ -1091,9 +1090,18 @@
     return uname === LIVE_TEST_USER_ || tid === LIVE_TEST_TID_;
   }
 
+  function serverOwnerFlag_(acc) {
+    return !!(acc && acc.ownerMode && acc.isOwner && String(acc.role || "") === "owner");
+  }
+
   function isCanonOwnerUser_(u, acc) {
     u = u || (typeof user === "function" ? user() : {});
     acc = acc || {};
+    if (serverOwnerFlag_(acc)) return true;
+    var role = String(acc.role || "");
+    if (role === "partner" || role === "staff") return false;
+    if (acc.isStaff === true && !acc.ownerMode && !acc.isOwner) return false;
+    if (acc.isPartner === true && !acc.ownerMode && !acc.isOwner) return false;
     var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
     var tid = String((u && u.telegramId) || (acc && acc.telegramId) || DEMO_TELEGRAM_ID_ || "").trim();
     if (tid && CANON_OWNER_TIDS_.indexOf(tid) >= 0) return true;
@@ -1101,9 +1109,12 @@
     return false;
   }
 
-  /** Owner-UI (выдать доступ / список доступов) — только канон-owner, не partner/helper. */
+  /** Owner-UI: флаг partnerGetMe (initData на сервере), список tid — запасной. */
   function canUseOwnerUi_(u, acc) {
-    return isCanonOwnerUser_(u || (typeof user === "function" ? user() : {}), acc || state.me || {});
+    var me = acc || (typeof state !== "undefined" && state.me) || {};
+    if (serverOwnerFlag_(me)) return true;
+    if (typeof state !== "undefined" && state && serverOwnerFlag_(state.me)) return true;
+    return isCanonOwnerUser_(u || (typeof user === "function" ? user() : {}), me);
   }
 
   function isOwnerIdentityRow_(row) {
@@ -1971,9 +1982,7 @@
     var ids = normalizePointIds_(acc && acc.pointIds);
     if (!ids.length) return false;
     // владелец Бойни (без Partner_Access) — все точки; партнёр/staff — только выданные
-    REMOTE_IS_OWNER_ = !!(acc.ownerMode || acc.isOwner) && !acc.isPartner &&
-      acc.role !== "partner" && acc.role !== "staff" &&
-      isCanonOwnerUser_({ username: username, telegramId: acc.telegramId }, acc) &&
+    REMOTE_IS_OWNER_ = isCanonOwnerUser_({ username: username, telegramId: acc.telegramId }, acc) &&
       !isLiveTestUser_({ username: username }, acc);
     DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = (acc && acc.networkId) || "";
@@ -3549,8 +3558,7 @@
       return "pending";
     }
     var ids = normalizePointIds_(res && res.pointIds);
-    var asOwner = !!(res && (res.ownerMode || res.isOwner) && !res.isPartner && res.role === "owner" &&
-      isCanonOwnerUser_(u, res));
+    var asOwner = isCanonOwnerUser_(u, res);
     var asStaff = !asOwner && !!(res && (res.isStaff || res.role === "staff"));
     var asPartner = !asOwner && !asStaff && !!(res && (res.isPartner || res.role === "partner"));
     if (!(res && res.allowed && ids.length)) {

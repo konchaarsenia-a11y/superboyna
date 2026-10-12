@@ -43,6 +43,9 @@ PARTNER_OWNER_USERNAMES = "one_more_person_228"
 # PP cost breakdown: wrangler secret put PP_COST_BREAKDOWN_PIN
 # Значение не в git; хаб кладёт после merge (то, что дал Арсений). Пустой секрет = панель закрыта.
 
+[observability]
+enabled = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "boinya-c"

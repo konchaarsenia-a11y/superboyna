@@ -15133,6 +15133,27 @@ function partnerMergeAdminKeepD1Access_(prev, incoming) {
     next.access = prev.access;
     next._d1TouchedAt = prev._d1TouchedAt;
   }
+  // D1 paidConsent (кнопка рассылки) не затирается pending из Sheets.
+  if (prev && Array.isArray(prev.points) && Array.isArray(next.points)) {
+    const byId = {};
+    prev.points.forEach(function (p) {
+      if (p && p.id) byId[String(p.id)] = p;
+    });
+    next.points = next.points.map(function (pt) {
+      if (!pt || !pt.id) return pt;
+      const old = byId[String(pt.id)];
+      if (!old) return pt;
+      const oldC = String(old.paidConsent || "").trim().toLowerCase();
+      const strong = oldC === "accepted" || oldC === "declined";
+      const oldAt = Number(old.paidConsentAt) || 0;
+      const newAt = Number(pt.paidConsentAt) || 0;
+      const prevNewer = oldAt > newAt && !!oldC;
+      if (!strong && !prevNewer) return pt;
+      const kept = Object.assign({}, pt, { paidConsent: old.paidConsent });
+      if (old.paidConsentAt) kept.paidConsentAt = old.paidConsentAt;
+      return kept;
+    });
+  }
   return next;
 }
 
@@ -27851,7 +27872,7 @@ function partnerApplyConsentOnAdmin_(admin, rec, consent) {
   const points = admin.points || [];
   for (let i = 0; i < points.length; i++) {
     if (!want[points[i].id] || !partnerPointIsVarka_(points[i])) continue;
-    points[i] = Object.assign({}, points[i], { paidConsent: consent });
+    points[i] = Object.assign({}, points[i], { paidConsent: consent, paidConsentAt: Date.now() });
     n++;
   }
   admin.points = points;
@@ -27968,19 +27989,64 @@ async function handleGoodboyTelegramWebhook_(request, env, ctx) {
       } catch (eS) {}
     }
     const reply = parsed.choice === "paid" ? PARTNER_VARKA_BROADCAST_REPLY_PAID_ : PARTNER_VARKA_BROADCAST_REPLY_NO_;
-    try { await telegramSendPartnerBot_(env, chatId || tid, reply); } catch (eR) {}
-    const gasCall = gasProxy_(
-      "partnerBroadcastCallback",
-      {
-        telegramId: tid,
-        username: rec.username || from.username || "",
-        name: rec.name || "",
-        choice: parsed.choice,
-        testOnly: testOnly ? "1" : ""
-      },
-      env,
-      { write: true }
-    ).catch(function () { return null; });
+    try {
+      const sentReply = await telegramSendPartnerBot_(env, chatId || tid, reply);
+      console.log("varka broadcast reply", JSON.stringify({
+        ok: !!(sentReply && sentReply.ok),
+        error_code: sentReply && sentReply.error_code,
+        description: sentReply && sentReply.description
+      }));
+    } catch (eR) {
+      console.log("varka broadcast reply error", String((eR && eR.message) || eR));
+    }
+    // gasProxy_ пишет _wk из GAS_SHARED_SECRET → GAS GAS_AUTH_.viaWorker. Без маркера callback = webhook_only.
+    const gasCall = (async function () {
+      let cbRes = null;
+      try {
+        cbRes = await gasProxy_(
+          "partnerBroadcastCallback",
+          {
+            telegramId: tid,
+            username: rec.username || from.username || "",
+            name: rec.name || "",
+            choice: parsed.choice,
+            testOnly: testOnly ? "1" : ""
+          },
+          env,
+          { write: true }
+        );
+      } catch (eCb) {
+        cbRes = { status: "error", message: String((eCb && eCb.message) || eCb) };
+      }
+      console.log("partnerBroadcastCallback", JSON.stringify({
+        status: cbRes && cbRes.status,
+        message: cbRes && cbRes.message,
+        paidConsent: cbRes && cbRes.paidConsent,
+        points: cbRes && cbRes.points,
+        workerMarker: !!String((env && env.GAS_SHARED_SECRET) || "").trim()
+      }));
+      if (!testOnly) {
+        const ids = (rec.points || []).map(function (p) { return p && p.id; }).filter(Boolean);
+        for (let i = 0; i < ids.length; i++) {
+          if (ids[i] === "test") continue;
+          const body = { pointId: ids[i], paidConsent: consent };
+          stampVarkaAdminOwner_(body);
+          let setRes = null;
+          try {
+            setRes = await gasProxy_("partnerSetPointConsent", body, env, { write: true });
+          } catch (eSet) {
+            setRes = { status: "error", message: String((eSet && eSet.message) || eSet) };
+          }
+          console.log("partnerSetPointConsent", JSON.stringify({
+            pointId: ids[i],
+            status: setRes && setRes.status,
+            message: setRes && setRes.message,
+            paidConsent: setRes && setRes.paidConsent
+          }));
+        }
+      }
+      return cbRes;
+    })();
     if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasCall);
   }
   return new Response("ok");

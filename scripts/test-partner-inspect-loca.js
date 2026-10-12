@@ -97,8 +97,8 @@ if (!/isVarkaInspectBlocked_/.test(appSrc) || !/pt_varka_/.test(appSrc)) {
 if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*\]/.test(appSrc)) {
   fail("do not drop helper from owner cabinet allowlist");
 }
-if (/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(appSrc)) {
-  fail("Arseniy must not stay on UI owner allowlist");
+if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(appSrc)) {
+  fail("UI owner allowlist must include Arseniy");
 }
 
 if (!/PARTNER_INSPECT_LOCA_TIDS = \[\]/.test(workerSrc)) {
