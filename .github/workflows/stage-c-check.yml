@@ -31,9 +31,15 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
-          names = ["boinya-c-worker", "boinya-c-worker-deploy", "clasp-deploy"]
+          required = ["boinya-c-worker"]
+          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
           deadline = time.time() + 20 * 60
+          quiet = 0
+
+          def last_of(mine):
+              return sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+
           while time.time() < deadline:
               req = urllib.request.Request(
                   "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
@@ -42,7 +48,7 @@ jobs:
               with urllib.request.urlopen(req, timeout=30) as resp:
                   runs = json.load(resp).get("workflow_runs") or []
               ready = True
-              for name in names:
+              for name in required:
                   mine = [r for r in runs if r.get("name") == name]
                   if not mine:
                       print(name + ": ещё нет", flush=True)
@@ -52,12 +58,35 @@ jobs:
                       print(name + ": ещё идёт", flush=True)
                       ready = False
                       continue
-                  last = sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+                  last = last_of(mine)
+                  if last.get("conclusion") != "success":
+                      raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
+                  print(name + ": success", flush=True)
+              missing_opt = False
+              for name in optional:
+                  mine = [r for r in runs if r.get("name") == name]
+                  if not mine:
+                      print(name + ": нет на этом sha", flush=True)
+                      missing_opt = True
+                      continue
+                  if any(r.get("status") in active for r in mine):
+                      print(name + ": ещё идёт", flush=True)
+                      ready = False
+                      continue
+                  last = last_of(mine)
                   if last.get("conclusion") != "success":
                       raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
                   print(name + ": success", flush=True)
               if ready:
+                  if missing_opt:
+                      quiet += 1
+                      if quiet < 3:
+                          print("ждём необязательные деплои, попытка " + str(quiet), flush=True)
+                          time.sleep(20)
+                          continue
+                      print("необязательные деплои не стартовали, идём по живому marker", flush=True)
                   break
+              quiet = 0
               time.sleep(20)
           else:
               raise SystemExit("деплой не дождались")
@@ -72,6 +101,15 @@ jobs:
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             unset CLOUDFLARE_ACCOUNT_ID
           fi
+          for i in $(seq 1 20); do
+            marker=$(curl -sS --max-time 20 "https://boinya-c.konchaarsenia.workers.dev/?action=ping" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployMarker",""))' || true)
+            echo "ping $marker попытка $i"
+            if [ "$marker" = "orders-d1-stage-c-h1" ]; then
+              break
+            fi
+            sleep 15
+          done
+          test "$marker" = "orders-d1-stage-c-h1"
           TOKEN=$(openssl rand -hex 32)
           echo "::add-mask::$TOKEN"
           put_ok=0
