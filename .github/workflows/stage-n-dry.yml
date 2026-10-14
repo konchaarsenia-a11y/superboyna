@@ -101,22 +101,17 @@ jobs:
             sleep 15
           done
           test "$marker" = "orders-d1-stage-n-h1"
-          latest=$(npx wrangler@4 versions list --json | python3 -c 'import json,sys; data=json.load(sys.stdin); data=data if isinstance(data, list) else (data.get("versions") or data.get("result") or []); print(data[0]["id"])')
-          echo "promote $latest"
-          npx wrangler@4 versions deploy "${latest}@100" -y --message "stage-n dry promote"
           TOKEN=$(openssl rand -hex 32)
           echo "::add-mask::$TOKEN"
-          put_ok=0
-          for i in 1 2 3 4 5 6; do
-            if printf '%s' "$TOKEN" | npx wrangler@4 secret put STAGEB_ADMIN_TOKEN; then
-              put_ok=1
-              break
-            fi
-            echo "secret put retry $i"
-            npx wrangler@4 versions deploy "${latest}@100" -y --message "stage-n dry promote" || true
-            sleep 20
-          done
-          test "$put_ok" = 1
+          out=$(printf '%s' "$TOKEN" | npx wrangler@4 versions secret put STAGEB_ADMIN_TOKEN --message "stage-n dry" 2>&1 || true)
+          echo "$out"
+          ver=$(printf '%s\n' "$out" | sed -n 's/.*[Vv]ersion ID: \([^ ]*\).*/\1/p' | tail -1)
+          if [ -z "$ver" ]; then
+            ver=$(printf '%s\n' "$out" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | tail -1 || true)
+          fi
+          echo "secret version $ver"
+          test -n "$ver"
+          npx wrangler@4 versions deploy "${ver}@100" -y --message "stage-n dry secret live"
           mkdir -p "$GITHUB_WORKSPACE/artifacts/stage-n"
           code="000"
           for n in 1 2 3 4 5 6; do
@@ -173,7 +168,12 @@ jobs:
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             unset CLOUDFLARE_ACCOUNT_ID
           fi
-          npx wrangler@4 secret delete STAGEB_ADMIN_TOKEN || true
+          dout=$(npx wrangler@4 versions secret delete STAGEB_ADMIN_TOKEN --message "stage-n dry delete" 2>&1 || true)
+          echo "$dout"
+          dver=$(printf '%s\n' "$dout" | sed -n 's/.*[Vv]ersion ID: \([^ ]*\).*/\1/p' | tail -1)
+          if [ -n "$dver" ]; then
+            npx wrangler@4 versions deploy "${dver}@100" -y --message "stage-n dry secret gone" || true
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
