@@ -126,9 +126,78 @@ const emptyBp = list.filter(function (it) {
 }).map(card);
 console.log("SNAP_EMPTY_BP " + JSON.stringify(emptyBp));
 
+const subsAll = d1("SELECT id, match_key, nick, sheet, status FROM subs ORDER BY id");
+console.log("SUBS_ALL " + JSON.stringify(subsAll.map(function (r) {
+  return r.id + "|" + r.nick + "|" + r.sheet + "|" + r.match_key;
+})));
+console.log("SNAP_ALL " + JSON.stringify(list.map(function (it) {
+  return String(it.nick || "") + "|" + String(it.subId || "") + "|" + String(it.sheet || it.segment || "");
+})));
+const nums = subsAll.map(function (r) { return Number(r.id); }).filter(function (n) { return isFinite(n) && n > 0; });
+console.log("MAX_NUM " + Math.max.apply(null, nums.concat([0])));
+
 const orderSid = d1(
   "SELECT json_extract(meta_json, '$.subId') AS sid, match_key, COUNT(*) AS c " +
-    "FROM orders WHERE json_extract(meta_json, '$.subId') IS NOT NULL AND json_extract(meta_json, '$.subId') != '' " +
+    "FROM orders WHERE json_extract(meta_json, '$.subId') IS NOT NULL AND trim(json_extract(meta_json, '$.subId')) != '' " +
     "GROUP BY sid, match_key ORDER BY sid"
 );
 console.log("ORDER_SIDS " + JSON.stringify(orderSid));
+
+const metaKeys = d1(
+  "SELECT je.key AS k, COUNT(*) AS c FROM orders, json_each(orders.meta_json) je GROUP BY je.key ORDER BY c DESC"
+);
+console.log("META_KEYS " + JSON.stringify(metaKeys));
+
+const bySid = {};
+list.forEach(function (it) {
+  const sid = String((it && it.subId) || "").trim();
+  if (!sid) return;
+  if (!bySid[sid]) bySid[sid] = [];
+  bySid[sid].push(String(it.nick || "") + "|" + String(it.sheet || it.segment || ""));
+});
+const cross = Object.keys(bySid).filter(function (k) { return bySid[k].length > 1; }).map(function (k) {
+  return { sid: k, cards: bySid[k] };
+});
+console.log("SNAP_SAME_NUMBER " + JSON.stringify(cross));
+
+const used = {};
+subsAll.forEach(function (r) {
+  if (/^[0-9]+$/.test(String(r.id))) used[String(r.id)] = "subs:" + r.match_key;
+});
+Object.keys(bySid).forEach(function (k) {
+  if (!used[k]) used[k] = "snap";
+});
+const usedNums = Object.keys(used).map(Number).filter(function (n) { return n > 0; }).sort(function (a, b) { return a - b; });
+const free = [];
+const maxNum = usedNums.length ? usedNums[usedNums.length - 1] : 0;
+for (let n = 1; n <= maxNum + 20 && free.length < 30; n++) {
+  if (used[String(n)]) continue;
+  free.push(n);
+}
+console.log("USED_NUMS " + usedNums.join(","));
+console.log("FREE_NUMS " + free.join(","));
+
+const orderByMk = {};
+perClient.forEach(function (r) { orderByMk[r.match_key] = r.live_orders; });
+const allOrders = d1(
+  "SELECT match_key, COUNT(*) AS n, " +
+    "SUM(CASE WHEN lower(coalesce(status,'')) IN ('deleted','cancelled') THEN 1 ELSE 0 END) AS dead " +
+    "FROM orders GROUP BY match_key"
+);
+const allByMk = {};
+allOrders.forEach(function (r) { allByMk[r.match_key] = r.n + "/" + r.dead; });
+console.log("ORDERS_PER " + allOrders.map(function (r) {
+  return r.match_key + ":" + r.n + ":dead" + r.dead;
+}).join(" "));
+
+const snapPer = {};
+list.forEach(function (it) {
+  const k = String(it.nick || "") + "|" + String(it.sheet || it.segment || "");
+  snapPer[k] = (snapPer[k] || 0) + 1;
+});
+console.log("SNAP_PER " + Object.keys(snapPer).sort().map(function (k) {
+  return k + ":" + snapPer[k];
+}).join(" "));
+console.log("SUBS_PER " + perSub.map(function (r) {
+  return r.match_key + "|" + r.sheet + ":" + r.cards;
+}).join(" "));
