@@ -1002,6 +1002,9 @@ async function serveVarkaApp_() {
 }
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(stageBMaterializeTomorrow_(env));
+  },
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
@@ -1010,6 +1013,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/admin/week-close-dupes") {
       return weekCloseDupesAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/stage-b") {
+      return stageBAdmin_(request, env);
     }
     if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
       return handleGoodboyTelegramWebhook_(request, env, ctx);
@@ -1240,7 +1246,22 @@ function gbCanonLabel_(env) {
  * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
  * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
  */
+/** Этап (б): заказы, календарь, брони, клиенты и CRM не пишутся в лист. Откат: SHEETS_MIRROR=on или PEOPLE_CANON=sheets-confirm-bg. */
+function sheetsOrdersReadonly_(env) {
+  const v = env && env.SHEETS_MIRROR ? String(env.SHEETS_MIRROR).trim().toLowerCase() : "";
+  if (v === "on" || v === "1" || v === "write") return false;
+  if (v === "off" || v === "read-only" || v === "readonly") return true;
+  if (!isD1PrimaryCanon_(env)) return false;
+  return true;
+}
+
+function ordersCanonLabel_(env) {
+  return sheetsOrdersReadonly_(env) ? "d1-readonly-sheets" : "sheets-mirror";
+}
+
 function isWeekD1GasAuthoritative_(env) {
+  // Лист больше не источник слотов: закрытие недели не подменяет даты D1 снимком таблицы.
+  if (sheetsOrdersReadonly_(env)) return false;
   const v = env && env.WEEK_D1_SYNC ? String(env.WEEK_D1_SYNC).trim().toLowerCase() : "";
   if (v === "upsert" || v === "missing-only" || v === "off") return false;
   return true;
@@ -1834,13 +1855,14 @@ async function handleActionInner_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
+      ordersCanon: ordersCanonLabel_(env),
       telegramCanon: hasTelegramToken_(env) ? "worker" : "sheets-fallback",
       hasTelegramToken: hasTelegramToken_(env),
       partnerCanon: partnerCanonLabel_(env),
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-22 subs-dedupe-ig-nick-h1"
+      deployMarker: "orders-d1-stage-b-h1"
     };
   }
 
@@ -4296,7 +4318,7 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
     job.verified &&
     job.d1Verified &&
     job.status === "success" &&
-    (job.sheetsVerified || job.sheetsMirrorFailed) &&
+    (job.sheetsVerified || job.sheetsMirrorFailed || job.sheetsReadonly) &&
     !job.pendingSheetsMirror
   ) {
     return job;
@@ -4430,7 +4452,9 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
 
   let sheetsRes = null;
   let mirrorOk = false;
-  try {
+  if (sheetsOrdersReadonly_(env)) {
+    sheetsRes = { status: "skipped", sheetsReadonly: true, message: "sheets_readonly" };
+  } else try {
     sheetsRes = await gasProxy_(gasAction, gasParams, env, { write: true });
     mirrorOk = sheetsOk_(sheetsRes);
     if (!mirrorOk) {
@@ -4459,11 +4483,13 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
     sheetsRes = Object.assign({}, sheetsRes, { status: "success", softSheets: true });
   }
 
+  const sheetsReadonlyDone = !!(sheetsRes && sheetsRes.sheetsReadonly);
   const done = Object.assign({}, verified, {
     pendingSheetsMirror: false,
     sheetsVerified: !!mirrorOk,
-    sheetsMirrorFailed: !mirrorOk,
-    sheetsMirrorMessage: mirrorOk ? "" : (sheetsRes && (sheetsRes.message || sheetsRes.status)) || "sheets_mirror_failed",
+    sheetsReadonly: sheetsReadonlyDone,
+    sheetsMirrorFailed: !mirrorOk && !sheetsReadonlyDone,
+    sheetsMirrorMessage: mirrorOk || sheetsReadonlyDone ? "" : (sheetsRes && (sheetsRes.message || sheetsRes.status)) || "sheets_mirror_failed",
     gas: sheetsRes || null,
     finishedAt: Date.now()
   });
@@ -10954,6 +10980,9 @@ async function upsertOrderRow_(env, row, opts) {
       row.meta_json || "{}"
     )
     .run();
+  try {
+    await stageBAssignClient_(env, row, opts && opts.params);
+  } catch (eClientId) {}
 }
 
 /**
@@ -17908,27 +17937,30 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         if (env && env.DB) {
           if (/^moveSubscription$/i.test(a)) {
-            const gasMove = await gasProxy_(a, params, env, { write: true }).catch(function () {
-              return null;
-            });
-            if (!gasMove || gasMove.status !== "success") {
-              return {
-                status: "error",
-                message: (gasMove && gasMove.message) || "not_found",
-                cutover: true,
-                sandbox: false,
-                action: a,
-                subsCanon: subsCanonLabel_(env)
-              };
+            let gasMove = null;
+            if (!sheetsOrdersReadonly_(env)) {
+              gasMove = await gasProxy_(a, params, env, { write: true }).catch(function () {
+                return null;
+              });
+              if (!gasMove || gasMove.status !== "success") {
+                return {
+                  status: "error",
+                  message: (gasMove && gasMove.message) || "not_found",
+                  cutover: true,
+                  sandbox: false,
+                  action: a,
+                  subsCanon: subsCanonLabel_(env)
+                };
+              }
             }
             if (env && env.DB) {
               d1SubRes = await upsertSubscription_(
                 Object.assign({}, params, {
-                  nick: params.nick || gasMove.nick || "",
-                  label: params.label || gasMove.label || gasMove.nick || "",
-                  subId: gasMove.subId || params.subId || "",
-                  fromSheet: params.fromSheet || gasMove.fromSheet,
-                  toSheet: params.toSheet || gasMove.toSheet
+                  nick: params.nick || (gasMove && gasMove.nick) || "",
+                  label: params.label || (gasMove && (gasMove.label || gasMove.nick)) || "",
+                  subId: (gasMove && gasMove.subId) || params.subId || "",
+                  fromSheet: params.fromSheet || (gasMove && gasMove.fromSheet),
+                  toSheet: params.toSheet || (gasMove && gasMove.toSheet)
                 }),
                 env
               );
@@ -17958,9 +17990,11 @@ async function handleCutover_(a, params, env, ctx) {
             params = await clampRaw26SubscriptionWriteD1_(params, env, ctx);
             d1SubRes = await upsertSubscription_(params, env);
           } else {
-            const gasDel = await gasProxy_(a, params, env, { write: true }).catch(function () {
-              return null;
-            });
+            const gasDel = sheetsOrdersReadonly_(env)
+              ? { status: "skipped", sheetsReadonly: true }
+              : await gasProxy_(a, params, env, { write: true }).catch(function () {
+                  return null;
+                });
             if (env && env.DB) d1SubRes = await deleteSubscription_(params, env);
             const d1n = Number(d1SubRes && (d1SubRes.wrote != null ? d1SubRes.wrote : d1SubRes.deletedPeople)) || 0;
             const gasN = Number(gasDel && (gasDel.deletedCount || gasDel.deletedPeople)) || 0;
@@ -17999,15 +18033,17 @@ async function handleCutover_(a, params, env, ctx) {
           action: a
         };
       }
-      const gasSubP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(gasSubP);
-      } else {
-        try {
-          await gasSubP;
-        } catch (eGSub) {}
+      if (!sheetsOrdersReadonly_(env)) {
+        const gasSubP = gasProxy_(a, params, env, { write: true }).catch(function () {
+          return null;
+        });
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(gasSubP);
+        } else {
+          try {
+            await gasSubP;
+          } catch (eGSub) {}
+        }
       }
       if (d1SubRes && d1SubRes.status === "success") {
         return Object.assign({}, d1SubRes, {
@@ -18103,7 +18139,7 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eEnD1) {
         d1Enroll = { status: "error", message: String((eEnD1 && eEnD1.message) || eEnD1) };
       }
-      const gasEnrollP = gasProxy_(
+      const gasEnrollP = sheetsOrdersReadonly_(env) ? Promise.resolve(null) : gasProxy_(
         a,
         Object.assign({}, params || {}, { factCost: enrollFact }),
         env,
@@ -18190,14 +18226,16 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eBp) {
         d1Bp = { status: "error", message: String((eBp && eBp.message) || eBp) };
       }
-      const gasBpP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasBpP);
-      else {
-        try {
-          await gasBpP;
-        } catch (eGBp) {}
+      if (!sheetsOrdersReadonly_(env)) {
+        const gasBpP = gasProxy_(a, params, env, { write: true }).catch(function () {
+          return null;
+        });
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasBpP);
+        else {
+          try {
+            await gasBpP;
+          } catch (eGBp) {}
+        }
       }
       if (d1Bp && d1Bp.status === "success") {
         return Object.assign({}, d1Bp, {
@@ -18280,6 +18318,31 @@ async function handleCutover_(a, params, env, ctx) {
         cutover: true,
         sandbox: false,
         action: a
+      };
+    }
+    // pullClientsFromMonth: на этапе (б) день собирается из D1, лист не пишется.
+    if (/^pullClientsFromMonth$/i.test(a) && sheetsOrdersReadonly_(env)) {
+      const dayPullRo = String((params && params.day) || "");
+      const isoPull = coerceDateIso_(String((params && (params.date || params.deliveryDate)) || "")) || "";
+      let wrotePull = 0;
+      if (env && env.DB && dayPullRo && isoPull) {
+        const updPull = await env.DB.prepare(
+          "UPDATE orders SET day_name = ?, updated_at = ? WHERE date_iso = ? AND status IN ('active','booked') AND (day_name IS NULL OR day_name = '')"
+        )
+          .bind(dayPullRo, new Date().toISOString(), isoPull)
+          .run();
+        wrotePull = (updPull && updPull.meta && updPull.meta.changes) || 0;
+      }
+      return {
+        status: "success",
+        sheetsReadonly: true,
+        d1Verified: true,
+        cutover: true,
+        sandbox: false,
+        action: a,
+        day: dayPullRo,
+        date: isoPull,
+        wrote: wrotePull
       };
     }
     // pullClientsFromMonth: GAS пишет Sheets; d1-primary afterWrite skip → явно догоняем D1+нарезку
@@ -18787,6 +18850,48 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (/^partnerSetSuggestionStatus$/i.test(a)) {
       return partnerSetSuggestionStatusWorker_(params, env);
+    }
+    if (sheetsOrdersReadonly_(env) && /^(markBpTouch|recordBpToPpConversion|materializeWeek|saveClientProfile)$/i.test(a)) {
+      if (/^recordBpToPpConversion$/i.test(a) && env && env.DB) {
+        try {
+          await upsertSubscription_(
+            Object.assign({}, params, { sheet: "ПП", fromSheet: params.fromSheet || "БП", toSheet: "ПП", action: "moveSubscription" }),
+            env
+          );
+        } catch (eConv) {}
+      }
+      if (/^markBpTouch$/i.test(a) && env && env.DB) {
+        try {
+          await ensureStageBSchema_(env);
+          await env.DB.prepare("UPDATE subs SET updated_at = ? WHERE match_key = ? AND sheet = 'bp'")
+            .bind(new Date().toISOString(), normalizeMatchKey_((params && (params.nick || params.client)) || ""))
+            .run();
+        } catch (eTouch) {}
+      }
+      if (/^saveClientProfile$/i.test(a)) {
+        try {
+          await stageBAssignClient_(
+            env,
+            {
+              match_key: normalizeMatchKey_((params && (params.client || params.nick)) || ""),
+              client: (params && (params.client || params.nick)) || "",
+              phone: params && params.phone,
+              address: params && params.address,
+              note: params && params.note
+            },
+            params
+          );
+        } catch (eProf) {}
+      }
+      return {
+        status: "success",
+        sheetsReadonly: true,
+        d1Verified: true,
+        cutover: true,
+        sandbox: false,
+        action: a,
+        skippedSheet: true
+      };
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
@@ -24011,6 +24116,7 @@ async function upsertSubscription_(params, env) {
         await putSubDeleteTombstone_(env, plan.removed[ri], 24 * 60 * 60 * 1000);
       } catch (eMoveTomb) {}
     }
+    try { await stageBUpsertSubRow_(env, plan.row, {}); } catch (eSubMove) {}
     return {
       status: "success",
       wrote: 1,
@@ -24096,6 +24202,7 @@ async function upsertSubscription_(params, env) {
       await renameSubscriptionNickSides_(env, plan.prevNick || oldNick, row.nick);
     } catch (eRenSide) {}
   }
+  try { await stageBUpsertSubRow_(env, row, {}); } catch (eSubRow) {}
   return {
     status: "success",
     wrote: 1,
@@ -24184,6 +24291,9 @@ async function deleteSubscription_(params, env) {
   }
   if (!removed.length) {
     return { status: "error", message: "not_found", wrote: 0, deletedPeople: 0 };
+  }
+  for (let si = 0; si < removed.length; si++) {
+    try { await stageBRetireSubRow_(env, removed[si]); } catch (eRetSub) {}
   }
   return {
     status: "success",
@@ -31693,6 +31803,597 @@ async function previewWeekCloseWarehouseD1_(params, env, ctx) {
   };
 }
 
+
+var STAGE_B_BEFORE_ = "2026-10-01";
+
+function stageBClientId_(matchKey) {
+  var s = String(matchKey || "");
+  var h = 2166136261;
+  for (var i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return "c_" + (h >>> 0).toString(16);
+}
+
+function stageBSheet_(raw) {
+  var s = String(raw || "").trim().toUpperCase();
+  if (s === "ПП" || s === "PP") return "pp";
+  if (s === "АФК" || s === "AFK") return "afk";
+  if (s === "БП" || s === "BP") return "bp";
+  return s.toLowerCase();
+}
+
+function stageBLooseKey_(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/[._@]/g, "");
+}
+
+function stageBCollectDupes_(rows) {
+  var groups = Object.create(null);
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    var st = String(row.status || "active").toLowerCase();
+    if (st === "deleted" || st === "cancelled") return;
+    var date = String(row.date_iso || "");
+    var mk = String(row.match_key || "");
+    if (!date || !mk) return;
+    var key = date + "\t" + mk;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+  });
+  var out = [];
+  Object.keys(groups).forEach(function (key) {
+    var list = groups[key];
+    if (list.length < 2) return;
+    var keep = list[0];
+    for (var i = 1; i < list.length; i++) {
+      var a = String(keep.basket_json || "");
+      var b = String(list[i].basket_json || "");
+      if (b.length > a.length) keep = list[i];
+      else if (b.length === a.length && String(list[i].updated_at || "") > String(keep.updated_at || "")) keep = list[i];
+    }
+    var nicks = [];
+    var ids = [];
+    list.forEach(function (row) {
+      ids.push(String(row.id || ""));
+      var nick = String(row.client || "");
+      if (nick && nicks.indexOf(nick) < 0) nicks.push(nick);
+    });
+    out.push({
+      date: String(list[0].date_iso || ""),
+      matchKey: String(list[0].match_key || ""),
+      nicks: nicks,
+      ids: ids,
+      suggestKeep: String(keep.id || ""),
+      reason: "same-date-same-key"
+    });
+  });
+  return out;
+}
+
+function stageBCollectPairs_(rows) {
+  var byKey = Object.create(null);
+  var loose = Object.create(null);
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    var mk = String(row.match_key || "").trim();
+    var nick = String(row.client || row.nick || "").trim();
+    if (!mk || !nick) return;
+    if (!byKey[mk]) byKey[mk] = [];
+    if (byKey[mk].indexOf(nick) < 0) byKey[mk].push(nick);
+    var lk = stageBLooseKey_(nick);
+    if (!lk) return;
+    if (!loose[lk]) loose[lk] = [];
+    var exists = false;
+    for (var i = 0; i < loose[lk].length; i++) {
+      if (loose[lk][i].matchKey === mk && loose[lk][i].nick === nick) exists = true;
+    }
+    if (!exists) loose[lk].push({ matchKey: mk, nick: nick });
+  });
+  var out = [];
+  function pushPair_(item) {
+    if (out.length >= 120) return;
+    var sig = item.reason + "|" + item.matchKeys.join(",") + "|" + item.nicks.join(",");
+    for (var i = 0; i < out.length; i++) {
+      var prev = out[i];
+      if (prev.reason + "|" + prev.matchKeys.join(",") + "|" + prev.nicks.join(",") === sig) return;
+    }
+    out.push(item);
+  }
+  Object.keys(byKey).forEach(function (mk) {
+    if (byKey[mk].length < 2) return;
+    pushPair_({ reason: "same-key-different-spelling", matchKeys: [mk], nicks: byKey[mk].slice() });
+  });
+  Object.keys(loose).forEach(function (lk) {
+    var list = loose[lk];
+    var keys = [];
+    list.forEach(function (it) {
+      if (keys.indexOf(it.matchKey) < 0) keys.push(it.matchKey);
+    });
+    if (keys.length < 2) return;
+    pushPair_({
+      reason: "loose-spelling",
+      matchKeys: keys,
+      nicks: list.map(function (it) { return it.nick; })
+    });
+  });
+  var flat = [];
+  Object.keys(loose).forEach(function (lk) {
+    loose[lk].forEach(function (it) { flat.push({ loose: lk, matchKey: it.matchKey, nick: it.nick }); });
+  });
+  if (flat.length > 500) flat = flat.slice(0, 500);
+  for (var a = 0; a < flat.length; a++) {
+    for (var b = a + 1; b < flat.length; b++) {
+      if (flat[a].matchKey === flat[b].matchKey) continue;
+      if (flat[a].loose.length < 5 || flat[b].loose.length < 5) continue;
+      var short = flat[a].loose.length <= flat[b].loose.length ? flat[a] : flat[b];
+      var long = short === flat[a] ? flat[b] : flat[a];
+      if (long.loose.indexOf(short.loose) !== 0) continue;
+      if (long.loose.length - short.loose.length > 16) continue;
+      pushPair_({
+        reason: "contains",
+        matchKeys: [short.matchKey, long.matchKey],
+        nicks: [short.nick, long.nick]
+      });
+    }
+  }
+  return out;
+}
+
+function stageBCollectBadSubs_(subs) {
+  var out = [];
+  var byPerson = Object.create(null);
+  (subs || []).forEach(function (row) {
+    if (!row) return;
+    var id = String(row.id || "");
+    var sheet = stageBSheet_(row.sheet);
+    var nick = String(row.nick || "");
+    var mk = String(row.match_key || "");
+    if (id.indexOf("pending:") === 0) {
+      out.push({ subId: "", storedId: id, nick: nick, matchKey: mk, sheet: sheet, reason: "empty" });
+    }
+    var person = (mk || nick) + "\t" + sheet;
+    if (!byPerson[person]) byPerson[person] = [];
+    if (id && byPerson[person].indexOf(id) < 0) byPerson[person].push(id);
+  });
+  Object.keys(byPerson).forEach(function (person) {
+    var ids = byPerson[person].filter(function (id) { return id.indexOf("pending:") !== 0; });
+    if (ids.length < 2) return;
+    var bits = person.split("\t");
+    out.push({
+      subId: ids.join(","),
+      storedId: ids.join(","),
+      nick: "",
+      matchKey: bits[0],
+      sheet: bits[1],
+      reason: "two-ids"
+    });
+  });
+  return out;
+}
+
+function stageBSelfTest_() {
+  var dupes = stageBCollectDupes_([
+    { id: "a", date_iso: "2026-09-02", match_key: "AAA", client: "Aaa", status: "active", basket_json: "[]", updated_at: "1" },
+    { id: "b", date_iso: "2026-09-02", match_key: "AAA", client: "Aaa", status: "active", basket_json: "[1]", updated_at: "2" },
+    { id: "c", date_iso: "2026-10-02", match_key: "AAA", client: "Aaa", status: "active", basket_json: "[]", updated_at: "3" }
+  ]);
+  var pairs = stageBCollectPairs_([
+    { match_key: "КАРОЛИНА", client: "Каролина" },
+    { match_key: "КАРОЛИНАВАЙБЕР", client: "Каролина вайбер" },
+    { match_key: "IND", client: "Indixvost" },
+    { match_key: "IND", client: "indix vost" }
+  ]);
+  var bad = stageBCollectBadSubs_([
+    { id: "pending:pp:ONE", match_key: "ONE", nick: "one", sheet: "pp" },
+    { id: "14", match_key: "TWO", nick: "two", sheet: "pp" },
+    { id: "15", match_key: "TWO", nick: "two", sheet: "pp" }
+  ]);
+  var octoberLeft = dupes.filter(function (d) { return d.date >= STAGE_B_BEFORE_; });
+  var ok = dupes.length === 1 && dupes[0].suggestKeep === "b" && octoberLeft.length === 0 &&
+    pairs.some(function (p) { return p.reason === "contains"; }) &&
+    pairs.some(function (p) { return p.reason === "same-key-different-spelling"; }) &&
+    bad.some(function (b) { return b.reason === "empty"; }) &&
+    bad.some(function (b) { return b.reason === "two-ids"; }) &&
+    stageBSheet_("ПП") === "pp" && stageBClientId_("AAA") === stageBClientId_("AAA");
+  return { ok: ok, dupes: dupes.length, pairs: pairs.length, bad: bad.length };
+}
+
+async function ensureStageBSchema_(env) {
+  if (!env || !env.DB || env.__stageBReady) return;
+  try {
+    await env.DB.prepare("ALTER TABLE orders ADD COLUMN client_id TEXT DEFAULT ''").run();
+  } catch (eCol) {}
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS clients (" +
+      "id TEXT PRIMARY KEY, match_key TEXT NOT NULL UNIQUE, nick TEXT NOT NULL DEFAULT '', " +
+      "label TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '', " +
+      "note TEXT NOT NULL DEFAULT '', dogs_json TEXT NOT NULL DEFAULT '[]', telegram TEXT NOT NULL DEFAULT '', " +
+      "updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS subs (" +
+      "id TEXT PRIMARY KEY, client_id TEXT NOT NULL DEFAULT '', match_key TEXT NOT NULL DEFAULT '', " +
+      "nick TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '', sheet TEXT NOT NULL DEFAULT '', " +
+      "price REAL, n INTEGER, basket_json TEXT NOT NULL DEFAULT '[]', bp_stage TEXT NOT NULL DEFAULT '', " +
+      "status TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  try { await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_subs_match ON subs(match_key)").run(); } catch (eIdx) {}
+  env.__stageBReady = true;
+}
+
+async function stageBAssignClient_(env, row, params) {
+  if (!env || !env.DB || !row) return "";
+  await ensureStageBSchema_(env);
+  var mk = String(row.match_key || normalizeMatchKey_(row.client || "")).trim();
+  if (!mk) return "";
+  var now = new Date().toISOString();
+  var edit = params ? String(params.editClient || params.originalClient || "").trim() : "";
+  var editMk = edit ? normalizeMatchKey_(edit) : "";
+  var id = "";
+  if (editMk && editMk !== mk) {
+    var old = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
+    var neu = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    if (old && old.id && !(neu && neu.id)) {
+      await env.DB.prepare("UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?")
+        .bind(mk, String(row.client || ""), now, old.id)
+        .run();
+      id = String(old.id);
+    } else if (neu && neu.id) id = String(neu.id);
+    else if (old && old.id) id = String(old.id);
+  }
+  if (!id) {
+    var have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    id = have && have.id ? String(have.id) : stageBClientId_(mk);
+  }
+  await env.DB.prepare(
+    "INSERT INTO clients (id, match_key, nick, label, phone, address, note, dogs_json, telegram, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, '[]', '', ?) " +
+      "ON CONFLICT(match_key) DO UPDATE SET nick = excluded.nick, " +
+      "phone = CASE WHEN excluded.phone != '' THEN excluded.phone ELSE clients.phone END, " +
+      "address = CASE WHEN excluded.address != '' THEN excluded.address ELSE clients.address END, " +
+      "note = CASE WHEN excluded.note != '' THEN excluded.note ELSE clients.note END, " +
+      "updated_at = excluded.updated_at"
+  )
+    .bind(id, mk, String(row.client || ""), String(row.client || ""), String(row.phone || ""), String(row.address || ""), String(row.note || ""), now)
+    .run();
+  if (row.id) {
+    await env.DB.prepare("UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '')")
+      .bind(id, row.id)
+      .run();
+  }
+  return id;
+}
+
+async function stageBUpsertSubRow_(env, row, opts) {
+  if (!env || !env.DB || !row) return { ok: false };
+  opts = opts || {};
+  await ensureStageBSchema_(env);
+  var nick = String(row.nick || row.client || "").trim();
+  var mk = normalizeMatchKey_(row.matchKey || row.match_key || nick);
+  if (!mk && !nick) return { ok: false };
+  var sheet = stageBSheet_(row.sheet || row.segment);
+  var sid = String(row.subId || row.id || "").trim();
+  var pending = !sid || sid.indexOf("pending:") === 0;
+  var id = pending ? "pending:" + (sheet || "x") + ":" + mk : sid;
+  var clientId = "";
+  if (mk) {
+    var cl = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    clientId = cl && cl.id ? String(cl.id) : stageBClientId_(mk);
+    if (!cl) {
+      await stageBAssignClient_(env, { match_key: mk, client: nick || mk, phone: row.phone || "", address: row.address || "", note: row.note || row.wishes || "" }, null);
+    }
+  }
+  var existing = await env.DB.prepare("SELECT id, match_key FROM subs WHERE id = ?").bind(id).first();
+  if (existing && String(existing.match_key || "") && mk && String(existing.match_key) !== mk) {
+    return { ok: false, shared: true, id: id, other: String(existing.match_key), nick: nick, sheet: sheet };
+  }
+  var now = new Date().toISOString();
+  var price = row.price != null && row.price !== "" ? Number(row.price) : row.orderPrice != null ? Number(row.orderPrice) : null;
+  if (!isFinite(price)) price = null;
+  var n = Number(row.n != null ? row.n : row.deliveries || row.deliveriesN);
+  if (!isFinite(n)) n = null;
+  var basket = row.basket != null ? JSON.stringify(row.basket) : String(row.basket_json || "[]");
+  if (opts.insertOnly && existing) return { ok: true, skipped: true, id: id };
+  if (opts.insertOnly) {
+    await env.DB.prepare(
+      "INSERT INTO subs (id, client_id, match_key, nick, label, sheet, price, n, basket_json, bp_stage, status, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING"
+    )
+      .bind(id, clientId, mk, nick, String(row.label || nick), sheet, price, n, basket || "[]", String(row.bpStage || row.stage || ""), String(row.status || ""), now)
+      .run();
+    return { ok: true, id: id, pending: pending };
+  }
+  await env.DB.prepare(
+    "INSERT INTO subs (id, client_id, match_key, nick, label, sheet, price, n, basket_json, bp_stage, status, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(id) DO UPDATE SET nick = excluded.nick, label = excluded.label, sheet = excluded.sheet, " +
+      "match_key = excluded.match_key, client_id = excluded.client_id, " +
+      "price = COALESCE(excluded.price, subs.price), n = COALESCE(excluded.n, subs.n), " +
+      "basket_json = CASE WHEN excluded.basket_json != '' AND excluded.basket_json != '[]' THEN excluded.basket_json ELSE subs.basket_json END, " +
+      "bp_stage = CASE WHEN excluded.bp_stage != '' THEN excluded.bp_stage ELSE subs.bp_stage END, " +
+      "status = CASE WHEN excluded.status != '' THEN excluded.status ELSE subs.status END, updated_at = excluded.updated_at"
+  )
+    .bind(id, clientId, mk, nick, String(row.label || nick), sheet, price, n, basket || "[]", String(row.bpStage || row.stage || ""), String(row.status || "active"), now)
+    .run();
+  return { ok: true, id: id, pending: pending };
+}
+
+async function stageBRetireSubRow_(env, row) {
+  if (!env || !env.DB || !row) return;
+  await ensureStageBSchema_(env);
+  var sid = String(row.subId || row.id || "").trim();
+  var mk = normalizeMatchKey_(row.nick || row.match_key || "");
+  var sheet = stageBSheet_(row.sheet);
+  var id = sid || "pending:" + (sheet || "x") + ":" + mk;
+  await env.DB.prepare("UPDATE subs SET status = 'deleted', updated_at = ? WHERE id = ?")
+    .bind(new Date().toISOString(), id)
+    .run();
+}
+
+function stageBSecretOk_(request, env) {
+  var secret = String((env && env.STAGEB_ADMIN_TOKEN) || "").trim();
+  if (!secret) return false;
+  var got = String((request.headers && request.headers.get("x-stageb-admin-token")) || "");
+  if (!got || got.length !== secret.length) return false;
+  var diff = 0;
+  for (var i = 0; i < secret.length; i++) diff |= secret.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
+async function stageBBackfillClients_(env, body) {
+  await ensureStageBSchema_(env);
+  var offset = Math.max(0, Number(body && body.offset) || 0);
+  var q = await env.DB.prepare(
+    "SELECT id, match_key, client, phone, address, note, status FROM orders " +
+      "WHERE status NOT IN ('deleted','cancelled') ORDER BY updated_at DESC LIMIT 200 OFFSET ?"
+  )
+    .bind(offset)
+    .all();
+  var rows = (q && q.results) || [];
+  var wrote = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var id = await stageBAssignClient_(env, rows[i], null);
+    if (id) wrote++;
+  }
+  return { status: "success", phase: "clients", offset: offset, wrote: wrote, done: rows.length < 200, nextOffset: offset + rows.length };
+}
+
+async function stageBImportSubsFromSnap_(env) {
+  await ensureStageBSchema_(env);
+  var snap = await getSnapRaw_(env, "listSubscriptions");
+  var arr = (snap && (snap.subscriptions || snap.items)) || [];
+  var wrote = 0;
+  var shared = [];
+  for (var i = 0; i < arr.length; i++) {
+    var res = await stageBUpsertSubRow_(env, arr[i], { insertOnly: true });
+    if (res && res.shared) shared.push({ subId: res.id, nick: res.nick, other: res.other, sheet: res.sheet, reason: "foreign" });
+    else if (res && res.ok && !res.skipped) wrote++;
+  }
+  if (shared.length) {
+    var prev = (await getSnapRaw_(env, "stageB:shared")) || [];
+    await putSnap_(env, "stageB:shared", prev.concat(shared).slice(0, 200));
+  }
+  return { status: "success", phase: "subs-snap", wrote: wrote, shared: shared.length, seen: arr.length };
+}
+
+async function stageBImportSheetPage_(env, body) {
+  await ensureStageBSchema_(env);
+  var kind = String((body && body.kind) || "calendar");
+  var offset = Math.max(0, Number(body && body.offset) || 0);
+  var live = await gasProxy_(
+    "exportStageBRows",
+    { kind: kind, offset: String(offset), limit: "120", before: STAGE_B_BEFORE_ },
+    env,
+    { write: true }
+  );
+  if (!live || live.status !== "success") {
+    return { status: "error", phase: "sheet", kind: kind, message: (live && live.message) || "export_failed" };
+  }
+  var rows = live.rows || [];
+  var inserted = 0;
+  var skipped = 0;
+  var shared = [];
+  var now = new Date().toISOString();
+  for (var i = 0; i < rows.length; i++) {
+    var raw = rows[i] || {};
+    if (kind === "subs") {
+      var subRes = await stageBUpsertSubRow_(env, raw, { insertOnly: true });
+      if (subRes && subRes.shared) shared.push({ subId: subRes.id, nick: subRes.nick, other: subRes.other, sheet: subRes.sheet, reason: "foreign" });
+      else if (subRes && subRes.ok && !subRes.skipped) inserted++;
+      else skipped++;
+      continue;
+    }
+    var iso = String(raw.dateIso || "");
+    if (iso && iso >= STAGE_B_BEFORE_) {
+      skipped++;
+      continue;
+    }
+    var st = String(raw.status || "").toLowerCase();
+    if (st === "deleted" || st === "cancelled" || st === "canceled") {
+      skipped++;
+      continue;
+    }
+    var nick = String(raw.client || "").trim();
+    var mk = normalizeMatchKey_(raw.matchKey || nick);
+    if (!mk) {
+      skipped++;
+      continue;
+    }
+    if (!iso) {
+      var booked = await env.DB.prepare(
+        "SELECT id FROM orders WHERE match_key = ? AND status = 'booked' AND (date_iso = '' OR date_iso IS NULL) LIMIT 1"
+      )
+        .bind(mk)
+        .first();
+      if (booked) {
+        skipped++;
+        continue;
+      }
+      var bid = "book:" + mk;
+      await env.DB.prepare(
+        "INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json) " +
+          "VALUES (?, '', '', ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?) ON CONFLICT(id) DO NOTHING"
+      )
+        .bind(bid, nick, mk, String(raw.address || ""), String(raw.note || ""), String(raw.phone || ""), JSON.stringify(raw.basket || []), String(raw.segment || ""), String(raw.source || "booking"), now, JSON.stringify({ import: "stage-b", subId: raw.subId || "" }))
+        .run();
+      await stageBAssignClient_(env, { id: bid, match_key: mk, client: nick, phone: raw.phone || "", address: raw.address || "", note: raw.note || "" }, null);
+      inserted++;
+      continue;
+    }
+    var have = await env.DB.prepare(
+      "SELECT id FROM orders WHERE date_iso = ? AND match_key = ? AND status NOT IN ('deleted','cancelled') LIMIT 1"
+    )
+      .bind(iso, mk)
+      .first();
+    if (have) {
+      skipped++;
+      continue;
+    }
+    var oid = "imp:" + iso + ":" + mk.slice(0, 48);
+    await env.DB.prepare(
+      "INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?) ON CONFLICT(id) DO NOTHING"
+    )
+      .bind(
+        oid,
+        iso,
+        String(raw.dayName || ""),
+        nick,
+        mk,
+        String(raw.address || ""),
+        String(raw.note || ""),
+        String(raw.phone || ""),
+        JSON.stringify(raw.basket || []),
+        String(raw.segment || ""),
+        String(raw.source || kind),
+        now,
+        JSON.stringify({ import: "stage-b", subId: raw.subId || "", orderPrice: raw.orderPrice, ppSlot: raw.ppSlot || "", sheetRow: raw.sheetRow || 0 })
+      )
+      .run();
+    await stageBAssignClient_(env, { id: oid, match_key: mk, client: nick, phone: raw.phone || "", address: raw.address || "", note: raw.note || "" }, null);
+    inserted++;
+  }
+  if (shared.length) {
+    var prevShared = (await getSnapRaw_(env, "stageB:shared")) || [];
+    await putSnap_(env, "stageB:shared", prevShared.concat(shared).slice(0, 200));
+  }
+  return {
+    status: "success",
+    phase: "sheet",
+    kind: kind,
+    offset: offset,
+    inserted: inserted,
+    skipped: skipped,
+    done: !!live.done,
+    nextOffset: Number(live.nextOffset) || offset + rows.length
+  };
+}
+
+async function stageBBuildReport_(env) {
+  await ensureStageBSchema_(env);
+  var dupeQ = await env.DB.prepare(
+    "SELECT date_iso, match_key, COUNT(*) AS c FROM orders " +
+      "WHERE status NOT IN ('deleted','cancelled') AND date_iso != '' " +
+      "GROUP BY date_iso, match_key HAVING c > 1 ORDER BY date_iso LIMIT 80"
+  ).all();
+  var dupeGroups = (dupeQ && dupeQ.results) || [];
+  var dupeRows = [];
+  for (var i = 0; i < dupeGroups.length; i++) {
+    var g = dupeGroups[i];
+    var detail = await env.DB.prepare(
+      "SELECT id, date_iso, match_key, client, status, basket_json, updated_at FROM orders " +
+        "WHERE date_iso = ? AND match_key = ? AND status NOT IN ('deleted','cancelled')"
+    )
+      .bind(g.date_iso, g.match_key)
+      .all();
+    dupeRows = dupeRows.concat((detail && detail.results) || []);
+  }
+  var nameQ = await env.DB.prepare(
+    "SELECT match_key, client FROM orders WHERE status NOT IN ('deleted','cancelled') AND client != '' " +
+      "GROUP BY match_key, client LIMIT 4000"
+  ).all();
+  var subQ = await env.DB.prepare(
+    "SELECT id, match_key, nick, sheet, client_id, status FROM subs WHERE status != 'deleted' LIMIT 4000"
+  ).all();
+  var subs = (subQ && subQ.results) || [];
+  var bad = stageBCollectBadSubs_(subs);
+  var shared = (await getSnapRaw_(env, "stageB:shared")) || [];
+  for (var s = 0; s < shared.length && s < 80; s++) {
+    bad.push({
+      subId: String(shared[s].subId || ""),
+      storedId: String(shared[s].subId || ""),
+      nick: String(shared[s].nick || ""),
+      matchKey: String(shared[s].other || ""),
+      sheet: String(shared[s].sheet || ""),
+      reason: "foreign"
+    });
+  }
+  var counts = await env.DB.prepare(
+    "SELECT " +
+      "(SELECT COUNT(*) FROM clients) AS clients, " +
+      "(SELECT COUNT(*) FROM subs) AS subs, " +
+      "(SELECT COUNT(*) FROM orders WHERE date_iso != '' AND date_iso < '2026-10-01' AND status NOT IN ('deleted','cancelled')) AS beforeOctober, " +
+      "(SELECT COUNT(*) FROM orders WHERE date_iso >= '2026-10-01' AND status NOT IN ('deleted','cancelled')) AS october"
+  ).first();
+  return {
+    status: "success",
+    phase: "report",
+    deleted: false,
+    before: STAGE_B_BEFORE_,
+    counts: counts || {},
+    dupes: stageBCollectDupes_(dupeRows).slice(0, 80),
+    pairs: stageBCollectPairs_((nameQ && nameQ.results) || []).slice(0, 80),
+    badSubIds: bad.slice(0, 80),
+    dupeGroups: dupeGroups.length,
+    note: "Ничего не удалено. Пары ников не склеены. Октябрьские строки D1 не перезаписывались."
+  };
+}
+
+async function stageBMaterializeTomorrow_(env) {
+  if (!env || !env.DB) return { ok: false, message: "no_d1" };
+  await ensureStageBSchema_(env);
+  var now = new Date();
+  var minsk = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  var t = new Date(Date.UTC(minsk.getUTCFullYear(), minsk.getUTCMonth(), minsk.getUTCDate() + 1));
+  var iso = t.toISOString().slice(0, 10);
+  var counts = await getSnapRaw_(env, "weekDayCounts");
+  var day = dayForDateFromCounts_(counts, iso);
+  if (!day) return { ok: true, skipped: true, reason: "date_not_in_week", date: iso, source: "d1" };
+  var res = await env.DB.prepare(
+    "UPDATE orders SET day_name = ?, updated_at = ? WHERE date_iso = ? AND status IN ('active','booked') AND (day_name IS NULL OR day_name = '')"
+  )
+    .bind(day, new Date().toISOString(), iso)
+    .run();
+  return { ok: true, date: iso, day: day, wrote: (res && res.meta && res.meta.changes) || 0, source: "d1", sheets: false };
+}
+
+async function stageBAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  var body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  var phase = String((body && body.phase) || "report");
+  try {
+    if (phase === "self-test") return json(stageBSelfTest_());
+    if (phase === "schema") {
+      await ensureStageBSchema_(env);
+      return json({ status: "success", phase: "schema" });
+    }
+    if (phase === "clients") return json(await stageBBackfillClients_(env, body));
+    if (phase === "subs-snap") return json(await stageBImportSubsFromSnap_(env));
+    if (phase === "sheet") return json(await stageBImportSheetPage_(env, body));
+    if (phase === "materialize") return json(await stageBMaterializeTomorrow_(env));
+    return json(await stageBBuildReport_(env));
+  } catch (eRun) {
+    return json({ status: "error", phase: phase, message: String((eRun && eRun.message) || eRun) }, 500);
+  }
+}
 
 var WEEK_CLOSE_DUPES_CONFIRM_ = "delete-week-close-dupes-2026-10-04";
 

@@ -1,0 +1,170 @@
+# Импорт календаря до октября в D1 после деплоя этапа (б).
+# Ничего не удаляет и не переписывает октябрь. Секрет одноразовый.
+name: stage-b-import
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/stage-b-import.yml
+      - scripts/stage-b-import.run
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: stage-b-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Self-test
+        run: node scripts/stage-b-selftest.mjs
+      - name: Wait for Worker and clasp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          names = ["boinya-c-worker", "boinya-c-worker-deploy", "clasp-deploy"]
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          deadline = time.time() + 20 * 60
+          while time.time() < deadline:
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
+                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "stage-b"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  runs = json.load(resp).get("workflow_runs") or []
+              ready = True
+              for name in names:
+                  mine = [r for r in runs if r.get("name") == name]
+                  if not mine:
+                      print(name + ": ещё нет", flush=True)
+                      ready = False
+                      continue
+                  if any(r.get("status") in active for r in mine):
+                      print(name + ": ещё идёт", flush=True)
+                      ready = False
+                      continue
+                  last = sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+                  if last.get("conclusion") != "success":
+                      raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
+                  print(name + ": success", flush=True)
+              if ready:
+                  break
+              time.sleep(20)
+          else:
+              raise SystemExit("деплой не дождались")
+          PY
+      - name: Import pre-October rows and print the decision list
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          put_ok=0
+          for i in 1 2 3 4 5 6; do
+            if printf '%s' "$TOKEN" | npx wrangler@4 secret put STAGEB_ADMIN_TOKEN; then
+              put_ok=1
+              break
+            fi
+            echo "secret put попытка $i"
+            sleep 20
+          done
+          test "$put_ok" = 1
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/stage-b"
+          post() {
+            local phase="$1"
+            local extra="$2"
+            local out="$3"
+            local code="000"
+            for n in 1 2 3 4 5 6; do
+              code=$(curl -sS -o "$out" -w "%{http_code}" \
+                -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/stage-b" \
+                -H "Content-Type: application/json" \
+                -H "X-Stageb-Admin-Token: $TOKEN" \
+                --data "{\"phase\":\"$phase\"$extra}" \
+                --max-time 100 || true)
+              echo "$phase HTTP $code попытка $n"
+              if [ "$code" = "200" ]; then
+                return 0
+              fi
+              sleep 15
+            done
+            echo "fail $phase HTTP $code"
+            return 1
+          }
+          post self-test "" "$GITHUB_WORKSPACE/artifacts/stage-b/self-test.json"
+          post schema "" "$GITHUB_WORKSPACE/artifacts/stage-b/schema.json"
+          off=0
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
+            post clients ",\"offset\":$off" "$GITHUB_WORKSPACE/artifacts/stage-b/clients.json" || break
+            done_flag=$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1])).get("done") else "0")' "$GITHUB_WORKSPACE/artifacts/stage-b/clients.json")
+            off=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("nextOffset") or 0))' "$GITHUB_WORKSPACE/artifacts/stage-b/clients.json")
+            if [ "$done_flag" = "1" ]; then
+              break
+            fi
+          done
+          post subs-snap "" "$GITHUB_WORKSPACE/artifacts/stage-b/subs-snap.json" || true
+          for kind in calendar bookings subs; do
+            off=0
+            for i in $(seq 1 90); do
+              post sheet ",\"kind\":\"$kind\",\"offset\":$off" "$GITHUB_WORKSPACE/artifacts/stage-b/sheet-$kind.json" || break
+              python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[2], "inserted", d.get("inserted"), "skipped", d.get("skipped"), "done", d.get("done"))' "$GITHUB_WORKSPACE/artifacts/stage-b/sheet-$kind.json" "$kind"
+              done_flag=$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1])).get("done") else "0")' "$GITHUB_WORKSPACE/artifacts/stage-b/sheet-$kind.json")
+              off=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("nextOffset") or 0))' "$GITHUB_WORKSPACE/artifacts/stage-b/sheet-$kind.json")
+              if [ "$done_flag" = "1" ]; then
+                break
+              fi
+            done
+          done
+          post report "" "$GITHUB_WORKSPACE/artifacts/stage-b/report.json"
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/stage-b/report.json", encoding="utf-8"))
+          print("COUNTS", json.dumps(d.get("counts"), ensure_ascii=False))
+          print("DUPES", len(d.get("dupes") or []))
+          print(json.dumps(d.get("dupes") or [], ensure_ascii=False))
+          print("PAIRS", len(d.get("pairs") or []))
+          print(json.dumps(d.get("pairs") or [], ensure_ascii=False))
+          print("BAD_SUBIDS", len(d.get("badSubIds") or []))
+          print(json.dumps(d.get("badSubIds") or [], ensure_ascii=False))
+          print("NOTE", d.get("note"))
+          PY
+      - name: Delete one-time STAGEB_ADMIN_TOKEN
+        if: always()
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: "true"
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          npx wrangler@4 secret delete STAGEB_ADMIN_TOKEN || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage-b-report
+          path: artifacts/stage-b/
+          if-no-files-found: warn

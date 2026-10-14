@@ -27,6 +27,39 @@ CREATE INDEX IF NOT EXISTS idx_orders_day ON orders(day_name);
 CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(date_iso);
 CREATE INDEX IF NOT EXISTS idx_orders_match ON orders(match_key);
 
+-- Этап (б). client_id на живой D1 добавляет ensureStageBSchema_ (ALTER).
+-- Ник можно сменить, id нет. Разные написания ника — разные match_key, не склеиваются.
+
+CREATE TABLE IF NOT EXISTS clients (
+  id TEXT PRIMARY KEY,
+  match_key TEXT NOT NULL UNIQUE,
+  nick TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  dogs_json TEXT NOT NULL DEFAULT '[]',
+  telegram TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS subs (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL DEFAULT '',
+  match_key TEXT NOT NULL DEFAULT '',
+  nick TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  sheet TEXT NOT NULL DEFAULT '',
+  price REAL,
+  n INTEGER,
+  basket_json TEXT NOT NULL DEFAULT '[]',
+  bp_stage TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_subs_match ON subs(match_key);
+
 CREATE TABLE IF NOT EXISTS assembly_dry (
   date_iso TEXT NOT NULL,
   row_key TEXT NOT NULL,
