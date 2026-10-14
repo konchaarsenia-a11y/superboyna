@@ -28,8 +28,8 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
-          required = ["boinya-c-worker"]
-          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
+          required = ["boinya-c-worker", "boinya-c-worker-deploy", "clasp-deploy"]
+          optional = []
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
           deadline = time.time() + 20 * 60
           quiet = 0
@@ -152,8 +152,10 @@ jobs:
           print("DRY", json.dumps(brief, ensure_ascii=False))
           if data.get("status") != "success" or data.get("sent") not in (0, None):
               raise SystemExit("dry sent or status")
+          if data.get("importError"):
+              raise SystemExit("import " + str(data.get("importError")))
           delta = data.get("sheetsDelta")
-          if delta not in (0, 1, None):
+          if delta is not None and not (0 <= int(delta) <= 8):
               raise SystemExit("sheets delta " + str(delta))
           PY
       - name: Delete one-time token

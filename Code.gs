@@ -36880,12 +36880,18 @@ function stageNSheetObjects_(sh, mapRow, cap) {
 }
 
 function handleExportStageNRows_(json, callback, fromPost) {
+  var only = String((json && (json.only || json.key)) || "").trim();
+  function want(name) { return !only || only === name; }
+  var errors = [];
   var active = SpreadsheetApp.getActiveSpreadsheet();
   var dataSs = active;
   var crm = active;
   try { dataSs = getDataSpreadsheet_() || active; } catch (eData) { dataSs = active; }
   try { crm = getCrmSpreadsheet_() || active; } catch (eCrm) { crm = active; }
-  var deferred = stageNSheetObjects_(stageNExistingSheet_(active, "Отложенное"), function (row) {
+  var deferred = [];
+  if (want("listDeferred")) {
+    try {
+      deferred = stageNSheetObjects_(stageNExistingSheet_(active, "Отложенное"), function (row) {
     if (!String(row[0] || "").trim()) return null;
     return {
       id: String(row[0] || "").trim(),
@@ -36899,87 +36905,120 @@ function handleExportStageNRows_(json, callback, fromPost) {
       updatedAt: row[8] || ""
     };
   }, 1500);
-  var surveySh = stageNExistingSheet_(crm, "Опросник") || stageNExistingSheet_(active, "Опросник");
-  var surveys = [];
-  if (surveySh && surveySh.getLastRow() >= 2) {
-    var sCols = Math.min(Math.max(surveySh.getLastColumn(), 12), 16);
-    var sLast = Math.min(surveySh.getLastRow(), 1500);
-    var sVals = surveySh.getRange(2, 1, sLast - 1, sCols).getValues();
-    for (var s = 0; s < sVals.length; s++) {
-      var obj = surveyRowToObj_(sVals[s], s + 2);
-      if (!obj || !obj.nick) continue;
-      delete obj.rowIndex;
-      surveys.push(obj);
-    }
+    } catch (eDef) { errors.push("listDeferred: " + eDef); }
   }
-  var templates = stageNSheetObjects_(
-    stageNExistingSheet_(crm, "Шаблоны") || stageNExistingSheet_(active, "Шаблоны"),
-    function (row) {
-      if (!String(row[0] || "").trim()) return null;
-      return {
-        id: String(row[0] || "").trim(),
-        kind: String(row[1] || "").trim(),
-        title: String(row[2] || "").trim(),
-        body: String(row[3] || "")
-      };
-    },
-    400
-  );
-  var access = stageNSheetObjects_(stageNExistingSheet_(active, "Доступы"), function (row) {
-    if (!String(row[0] || "").trim() && !String(row[1] || "").trim()) return null;
-    return {
-      telegramId: String(row[0] || "").trim(),
-      name: String(row[1] || ""),
-      username: String(row[2] || ""),
-      role: String(row[3] || "").toLowerCase(),
-      status: String(row[4] || "").toLowerCase(),
-      timezone: String(row[7] || ""),
-      notify: String(row[9] || "")
-    };
-  }, 400);
-  var couriers = stageNSheetObjects_(stageNExistingSheet_(active, "Курьеры_ТГ"), function (row) {
-    if (!String(row[0] || "").trim()) return null;
-    return {
-      chatId: String(row[0] || "").trim(),
-      name: String(row[1] || ""),
-      username: String(row[2] || ""),
-      updatedAt: row[3] || ""
-    };
-  }, 200);
-  var bugs = stageNSheetObjects_(stageNExistingSheet_(active, "Баг_Репорты"), function (row) {
-    if (!String(row[4] || "").trim() && !String(row[0] || "").trim()) return null;
-    return {
-      at: row[0] || "",
-      screen: String(row[1] || ""),
-      role: String(row[2] || ""),
-      telegramId: String(row[3] || ""),
-      what: String(row[4] || ""),
-      expected: String(row[5] || ""),
-      client: String(row[6] || ""),
-      day: String(row[7] || ""),
-      status: String(row[8] || "")
-    };
-  }, 400);
-  var deficits = stageNSheetObjects_(
-    stageNExistingSheet_(dataSs, "Дефицит_Нарезки") || stageNExistingSheet_(active, "Дефицит_Нарезки"),
-    function (row) {
-      if (!String(row[0] || "").trim() && !String(row[2] || "").trim()) return null;
-      return {
-        id: String(row[0] || "").trim(),
-        day: String(row[1] || ""),
-        item: String(row[2] || ""),
-        row: row[3] || "",
-        status: String(row[4] || ""),
-        created: row[5] || "",
-        notifyFrom: row[6] || "",
-        lastNotify: row[7] || ""
-      };
-    },
-    400
-  );
+  var surveys = [];
+  if (want("listSurvey")) {
+    try {
+      var surveySh = stageNExistingSheet_(crm, "Опросник") || stageNExistingSheet_(active, "Опросник");
+      if (surveySh && surveySh.getLastRow() >= 2) {
+        var sCols = Math.min(Math.max(surveySh.getLastColumn(), 12), 16);
+        var sLast = Math.min(surveySh.getLastRow(), 1500);
+        var sVals = surveySh.getRange(2, 1, sLast - 1, sCols).getValues();
+        for (var s = 0; s < sVals.length; s++) {
+          var obj = surveyRowToObj_(sVals[s], s + 2);
+          if (!obj || !obj.nick) continue;
+          delete obj.rowIndex;
+          surveys.push(obj);
+        }
+      }
+    } catch (eSv) { errors.push("listSurvey: " + eSv); }
+  }
+  var templates = [];
+  if (want("listTemplates")) {
+    try {
+      templates = stageNSheetObjects_(
+        stageNExistingSheet_(crm, "Шаблоны") || stageNExistingSheet_(active, "Шаблоны"),
+        function (row) {
+          if (!String(row[0] || "").trim()) return null;
+          return {
+            id: String(row[0] || "").trim(),
+            kind: String(row[1] || "").trim(),
+            title: String(row[2] || "").trim(),
+            body: String(row[3] || "")
+          };
+        },
+        400
+      );
+    } catch (eTpl) { errors.push("listTemplates: " + eTpl); }
+  }
+  var access = [];
+  if (want("listAccess")) {
+    try {
+      access = stageNSheetObjects_(stageNExistingSheet_(active, "Доступы"), function (row) {
+        if (!String(row[0] || "").trim() && !String(row[1] || "").trim()) return null;
+        return {
+          telegramId: String(row[0] || "").trim(),
+          name: String(row[1] || ""),
+          username: String(row[2] || ""),
+          role: String(row[3] || "").toLowerCase(),
+          status: String(row[4] || "").toLowerCase(),
+          timezone: String(row[7] || ""),
+          notify: String(row[9] || "")
+        };
+      }, 400);
+    } catch (eAcc) { errors.push("listAccess: " + eAcc); }
+  }
+  var couriers = [];
+  if (want("listCouriers")) {
+    try {
+      couriers = stageNSheetObjects_(stageNExistingSheet_(active, "Курьеры_ТГ"), function (row) {
+        if (!String(row[0] || "").trim()) return null;
+        return {
+          chatId: String(row[0] || "").trim(),
+          name: String(row[1] || ""),
+          username: String(row[2] || ""),
+          updatedAt: row[3] || ""
+        };
+      }, 200);
+    } catch (eCo) { errors.push("listCouriers: " + eCo); }
+  }
+  var bugs = [];
+  if (want("listBugReports")) {
+    try {
+      bugs = stageNSheetObjects_(stageNExistingSheet_(active, "Баг_Репорты"), function (row) {
+        if (!String(row[4] || "").trim() && !String(row[0] || "").trim()) return null;
+        return {
+          at: row[0] || "",
+          screen: String(row[1] || ""),
+          role: String(row[2] || ""),
+          telegramId: String(row[3] || ""),
+          what: String(row[4] || ""),
+          expected: String(row[5] || ""),
+          client: String(row[6] || ""),
+          day: String(row[7] || ""),
+          status: String(row[8] || "")
+        };
+      }, 400);
+    } catch (eBug) { errors.push("listBugReports: " + eBug); }
+  }
+  var deficits = [];
+  if (want("listDeficit")) {
+    try {
+      deficits = stageNSheetObjects_(
+        stageNExistingSheet_(dataSs, "Дефицит_Нарезки") || stageNExistingSheet_(active, "Дефицит_Нарезки"),
+        function (row) {
+          if (!String(row[0] || "").trim() && !String(row[2] || "").trim()) return null;
+          return {
+            id: String(row[0] || "").trim(),
+            day: String(row[1] || ""),
+            item: String(row[2] || ""),
+            row: row[3] || "",
+            status: String(row[4] || ""),
+            created: row[5] || "",
+            notifyFrom: row[6] || "",
+            lastNotify: row[7] || ""
+          };
+        },
+        400
+      );
+    } catch (eDf) { errors.push("listDeficit: " + eDf); }
+  }
   var out = {
     status: "success",
     readOnly: true,
+    only: only,
+    errors: errors,
     deferred: deferred,
     surveys: surveys,
     templates: templates,
