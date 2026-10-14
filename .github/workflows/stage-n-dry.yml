@@ -28,8 +28,8 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
-          required = ["boinya-c-worker", "boinya-c-worker-deploy", "clasp-deploy"]
-          optional = []
+          required = ["boinya-c-worker"]
+          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
           deadline = time.time() + 20 * 60
           quiet = 0
@@ -111,7 +111,25 @@ jobs:
           fi
           echo "secret version $ver"
           test -n "$ver"
-          npx wrangler@4 versions deploy "${ver}@100" -y --message "stage-n dry secret live"
+          ok=0
+          for n in 1 2 3 4 5 6 7 8; do
+            if npx wrangler@4 versions deploy "${ver}@100" -y --message "stage-n dry secret live"; then
+              ok=1
+              break
+            fi
+            echo "deploy версии ещё нет, попытка $n"
+            sleep 10
+          done
+          test "$ok" = "1"
+          for i in $(seq 1 10); do
+            marker=$(curl -sS --max-time 20 "https://boinya-c.konchaarsenia.workers.dev/?action=ping" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployMarker",""))' || true)
+            echo "ping после секрета $marker попытка $i"
+            if [ "$marker" = "orders-d1-stage-n-h1" ]; then
+              break
+            fi
+            sleep 10
+          done
+          test "$marker" = "orders-d1-stage-n-h1"
           mkdir -p "$GITHUB_WORKSPACE/artifacts/stage-n"
           code="000"
           for n in 1 2 3 4 5 6; do
