@@ -52,14 +52,19 @@ if (/partnerOrderGramsReject_/.test(workerSrc) || /partnerOrderGramsReject_/.tes
 if (/Бесплатная заявка|бесплатно/.test(varkaSrc)) fail("varka still says the order is free");
 if (!/id="orderTotalHint"/.test(varkaSrc)) fail("varka must show the sum under the order");
 if (!/action:\s*"partnerCalcPrice"/.test(varkaSrc)) fail("varka must quote via partnerCalcPrice");
-if (!/APP_VER = "3\.3\.67"/.test(varkaSrc)) fail("varka version must be 3.3.67");
-if (!/Минимальный заказ — 200 г\. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г\./.test(varkaSrc)) {
-  fail("varka must show the volume discount note");
-}
-if (!/Лакомства — /.test(varkaSrc) || !/Доставка — /.test(varkaSrc) || !/Итого — /.test(varkaSrc)) {
+if (!/APP_VER = "3\.3\.68"/.test(varkaSrc)) fail("varka version must be 3.3.68");
+if (!/Чем больше заказ, тем выгоднее/.test(varkaSrc)) fail("varka price note must be the short line");
+if (/Система автоматически даёт скидку за объём/.test(varkaSrc)) fail("varka still has the long volume note");
+if (!/Минимальный заказ — 100 г/.test(varkaSrc)) fail("varka min hint must be 100 g");
+if (!/appendTotalLine_\(el, "Лакомства"/.test(varkaSrc) || !/appendTotalLine_\(el, "Доставка"/.test(varkaSrc) || !/appendTotalLine_\(el, "Итого"/.test(varkaSrc)) {
   fail("varka must split treats, delivery and total");
 }
-if (!/Минимум 200 г/.test(varkaSrc)) fail("varka submit button must explain the 200 g minimum");
+if (!/order-quote-row/.test(varkaSrc)) fail("varka quote must use aligned rows");
+if (!/Минимум 100 г/.test(varkaSrc)) fail("varka submit button must explain the 100 g minimum");
+if (!/data-cat="allergy"/.test(varkaSrc) || !/Для аллергиков/.test(varkaSrc)) fail("varka must have the allergy tab");
+if (/[·]/.test(varkaSrc.slice(varkaSrc.indexOf('id="orderQuote"'), varkaSrc.indexOf('id="orderQuote"') + 500))) {
+  fail("quote block must not use a middle dot");
+}
 if (!/treatOrderShort_/.test(varkaSrc)) fail("varka must block a short treat order");
 
 const headers = extractBetween_(gasSrc, "var PARTNER_ORDER_HEADERS_ = [", "];");
@@ -84,8 +89,20 @@ if (!/const PP_RAW26_RECOVER_100_D1_ = 3\.3;/.test(workerSrc)) fail("D1 recover 
 if (!/const PP_RAW26_DELIVERY_PER_D1_ = 7\.6;/.test(workerSrc)) fail("D1 delivery must stay 7.6");
 if (!/var PARTNER_VARKA_DELIVERY_BYN = 4;/.test(gasSrc)) fail("GAS Varka delivery must be 4");
 if (!/const PARTNER_VARKA_DELIVERY_BYN = 4;/.test(workerSrc)) fail("Worker Varka delivery must be 4");
-if (!/var PARTNER_VARKA_MIN_TREAT_GRAMS = 200;/.test(gasSrc)) fail("GAS min treat grams must be 200");
-if (!/const PARTNER_VARKA_MIN_TREAT_GRAMS = 200;/.test(workerSrc)) fail("Worker min treat grams must be 200");
+if (!/var PARTNER_VARKA_MIN_TREAT_GRAMS = 100;/.test(gasSrc)) fail("GAS min treat grams must be 100");
+if (!/const PARTNER_VARKA_MIN_TREAT_GRAMS = 100;/.test(workerSrc)) fail("Worker min treat grams must be 100");
+["vr_t_lamb_lung", "vr_t_turkey", "БАРАНЬЕ ЛЁГКОЕ", "ИНДЕЙКА", "countMin: false"].forEach(function (bit) {
+  if (workerSrc.indexOf(bit) < 0 || gasSrc.indexOf(bit) < 0) fail("missing allergy bit " + bit);
+});
+if (!/sku: "БАРАНЬЕ ЛЁГКОЕ", cost: 8\.4/.test(workerSrc)) fail("builtin lamb lung raw must be 8.4");
+if (!/sku: "ИНДЕЙКА", cost: 7\.5/.test(workerSrc)) fail("builtin turkey raw must be 7.5");
+if (!/"БАРАНЬЕ ЛЁГКОЕ \/ Целое": \{ v: 8\.4/.test(gasSrc)) fail("GAS override must keep lamb lung 8.4");
+if (!/"ИНДЕЙКА \/ Ломтики": \{ v: 7\.5/.test(gasSrc)) fail("GAS override must keep turkey slices 7.5");
+if (!/"БАРАНЬЕ ЛЁГКОЕ\|Целое": \{ per100: 16 \}/.test(gasSrc)) fail("retail lamb lung whole must be 16");
+if (!/"ИНДЕЙКА\|Ломтики": \{ per100: 16 \}/.test(gasSrc)) fail("retail turkey slices must be 16");
+if (extractFn_(workerSrc, "lookupPpCostInfoD1_").indexOf("rawCostBuiltinGramD1_") < 0) {
+  fail("D1 lookup must fall back to RAW_COST_BUILTIN_");
+}
 
 const gasQuote = extractFn_(gasSrc, "partnerQuoteTreatsByn_");
 if (!/computePpFactFromCost_\(/.test(gasQuote)) fail("GAS quote must call computePpFactFromCost_");
@@ -120,8 +137,8 @@ const workerSubmitStart = workerSrc.indexOf('if (/^partnerSubmitOrder$/i.test(a)
 const workerSubmit = workerSrc.slice(workerSubmitStart, workerSubmitStart + 8000);
 if (gasSubmit.indexOf("partnerQuoteTreatsByn_") < 0) fail("GAS submit must reprice");
 if (workerSubmit.indexOf("partnerQuoteTreatsByn_") < 0) fail("Worker submit must reprice");
-if (gasSubmit.indexOf("partnerMinTreatReject_") < 0) fail("GAS submit must enforce the 200 g minimum");
-if (workerSubmit.indexOf("partnerMinTreatReject_") < 0) fail("Worker submit must enforce the 200 g minimum");
+if (gasSubmit.indexOf("partnerMinTreatReject_") < 0) fail("GAS submit must enforce the 100 g minimum");
+if (workerSubmit.indexOf("partnerMinTreatReject_") < 0) fail("Worker submit must enforce the 100 g minimum");
 if (/json\.totalByn|params\.totalByn/.test(gasSubmit + workerSubmit)) {
   fail("submit must not trust a client total");
 }
@@ -169,6 +186,18 @@ if (mixed[1].name !== "ЛЁГКОЕ" || mixed[1].sub !== "Ломтики" || mix
 if (box.partnerTreatsToPpBasket_([{ id: "vr_c_nfc", qty: 2 }]).length !== 0) {
   fail("nfc-only basket must quote as no treats");
 }
+const allergyBasket = box.partnerTreatsToPpBasket_([
+  { id: "vr_t_lamb_lung", qty: 100 },
+  { id: "vr_t_turkey", qty: 50 },
+  { id: "vr_c_nfc", qty: 1 }
+]);
+if (allergyBasket.length !== 2) fail("allergy lines must enter the PP basket");
+if (allergyBasket[0].name !== "БАРАНЬЕ ЛЁГКОЕ" || allergyBasket[0].sub !== "Целое" || allergyBasket[0].val !== 100) {
+  fail("lamb lung map " + JSON.stringify(allergyBasket[0]));
+}
+if (allergyBasket[1].name !== "ИНДЕЙКА" || allergyBasket[1].sub !== "Ломтики" || allergyBasket[1].val !== 50) {
+  fail("turkey map " + JSON.stringify(allergyBasket[1]));
+}
 
 const minLine = (gasSrc.match(/var PARTNER_VARKA_MIN_TREAT_GRAMS = \d+;/) || [])[0];
 if (!minLine) fail("min grams constant line missing");
@@ -186,15 +215,28 @@ if (boxG.partnerTreatGrams_([
   { id: "vr_c_nfc", qty: 2 },
   { id: "vr_c_banner", qty: 1 }
 ]) !== 100) fail("nfc and banner must not add grams");
-const short = boxG.partnerMinTreatReject_([{ id: "vr_t_lung", qty: 150 }]);
-if (!short || short.message !== "min_treat_grams" || short.grams !== 150) fail("150 g must be rejected");
-if (boxG.partnerMinTreatReject_([{ id: "vr_t_heart", qty: 200 }])) fail("200 g must pass");
-if (boxG.partnerMinTreatReject_([{ id: "vr_t_heart", qty: 100 }, { id: "vr_t_lung", qty: 100 }])) {
-  fail("100+100 must pass");
+const short = boxG.partnerMinTreatReject_([{ id: "vr_t_lung", qty: 50 }]);
+if (!short || short.message !== "min_treat_grams" || short.grams !== 50) fail("50 g must be rejected");
+if (boxG.partnerMinTreatReject_([{ id: "vr_t_heart", qty: 100 }])) fail("100 g must pass");
+if (boxG.partnerMinTreatReject_([{ id: "vr_t_heart", qty: 50 }, { id: "vr_t_lung", qty: 50 }])) {
+  fail("50+50 must pass");
 }
 if (boxG.partnerMinTreatReject_([{ id: "vr_c_nfc", qty: 1 }, { id: "vr_c_banner", qty: 1 }])) {
   fail("nfc and banner without treats must pass");
 }
+if (boxG.partnerTreatGrams_([
+  { id: "vr_t_heart", qty: 50 },
+  { id: "vr_t_lamb_lung", qty: 200 },
+  { id: "vr_t_turkey", qty: 100 }
+]) !== 50) fail("allergy grams must stay out of the minimum");
+if (boxG.partnerMinTreatReject_([{ id: "vr_t_lamb_lung", qty: 50 }, { id: "vr_t_turkey", qty: 50 }])) {
+  fail("allergy-only order must pass");
+}
+const shortMix = boxG.partnerMinTreatReject_([
+  { id: "vr_t_heart", qty: 50 },
+  { id: "vr_t_lamb_lung", qty: 200 }
+]);
+if (!shortMix || shortMix.grams !== 50) fail("allergy grams must not lift a short heart order");
 
 const workerMap =
   extractBetween_(workerSrc, "const PARTNER_TREAT_PP_MAP_", "function partnerMoney_") +
@@ -207,4 +249,43 @@ if (w.length !== 1 || w[0].name !== "СЕРДЦЕ" || w[0].sub !== "Ломтик
   fail("worker heart map " + JSON.stringify(w));
 }
 
+const builtinSrc =
+  extractBetween_(workerSrc, "const RAW_COST_BUILTIN_ = [", "];") + "];\n" +
+  extractFn_(workerSrc, "rawCostBuiltinGramD1_");
+const boxB = {};
+vm.createContext(boxB);
+vm.runInContext(builtinSrc, boxB);
+if (boxB.rawCostBuiltinGramD1_("БАРАНЬЕ ЛЁГКОЕ") !== 8.4) fail("lamb lung builtin lookup");
+if (boxB.rawCostBuiltinGramD1_("ИНДЕЙКА") !== 7.5) fail("turkey builtin lookup");
+if (boxB.rawCostBuiltinGramD1_("СЕРДЦЕ") !== 0) fail("builtin fallback must stay on allergy skus");
+
+function shorthandPer100_(raw, retail) {
+  return Math.round(Math.min(raw * 2.2 + 3.3, 0.92 * retail));
+}
+function liveOrder_(raw, retail) {
+  const goods = Math.round((raw * 2.2 + 3.3) * 100) / 100;
+  const capBase = Math.round((retail + (retail < 80 ? 9 : 0)) * 100) / 100;
+  const cap = Math.round(capBase * 0.92 * 100) / 100;
+  const before = Math.round((goods + 4) * 100) / 100;
+  const fact = cap > 0 && before > cap + 0.001 ? cap : before;
+  const total = Math.round(fact);
+  return { goods: goods, cap: cap, total: total, treats: total - 4, delivery: 4 };
+}
+if (shorthandPer100_(8.4, 16) !== 15) fail("lamb lung shorthand must round to 15");
+if (shorthandPer100_(7.5, 16) !== 15) fail("turkey shorthand must round to 15");
+const lambLive = liveOrder_(8.4, 16);
+const turkeyLive = liveOrder_(7.5, 16);
+if (lambLive.total !== 23 || lambLive.treats !== 19 || lambLive.delivery !== 4) {
+  fail("lamb lung live quote " + JSON.stringify(lambLive));
+}
+if (turkeyLive.total !== 23 || turkeyLive.treats !== 19 || turkeyLive.delivery !== 4) {
+  fail("turkey live quote " + JSON.stringify(turkeyLive));
+}
+const heartLive = liveOrder_(4, 12);
+if (heartLive.total !== 16 || heartLive.treats !== 12) fail("heart 100 g quote " + JSON.stringify(heartLive));
+
 console.log("OK partner treat price wiring");
+console.log("shorthand per 100 g", shorthandPer100_(8.4, 16), shorthandPer100_(7.5, 16));
+console.log("live 100 g lamb", JSON.stringify(lambLive));
+console.log("live 100 g turkey", JSON.stringify(turkeyLive));
+console.log("live 100 g heart", JSON.stringify(heartLive));

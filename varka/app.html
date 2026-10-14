@@ -52,7 +52,10 @@
       padding-bottom: calc(24px + var(--safe-b));
     }
     body.has-cart {
-      padding-bottom: calc(156px + var(--safe-b));
+      padding-bottom: calc(128px + var(--safe-b));
+    }
+    body.has-cart.has-quote {
+      padding-bottom: calc(248px + var(--safe-b));
     }
     body::before {
       content: "";
@@ -262,7 +265,8 @@
     html[data-theme="light"] .tabs { background: rgba(0,0,0,0.03); }
     .tab {
       flex: 1; border: 0; background: transparent; color: var(--muted);
-      padding: 11px 10px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer;
+      padding: 10px 4px; border-radius: 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+      white-space: nowrap; line-height: 1.15;
       transition: background 0.15s, color 0.15s;
     }
     .tab.on {
@@ -491,14 +495,41 @@
       display: flex; flex-direction: column; gap: 6px;
     }
     .bar-row { display: flex; gap: 10px; align-items: center; }
-    .order-total {
-      margin: 0 2px; font-size: 13px; font-weight: 700; line-height: 1.45;
-      color: var(--text);
+    .order-quote {
+      background: linear-gradient(145deg, var(--bg2), var(--bg3));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 4px 14px 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
     }
-    .order-total .order-total-final { font-weight: 800; color: var(--accent2); }
-    .order-total.err { color: var(--danger); font-weight: 800; }
-    .order-min-note {
-      margin: 0 2px; font-size: 12px; font-weight: 600; line-height: 1.35;
+    .order-quote[hidden] { display: none; }
+    .order-total {
+      margin: 0; font-size: 14px; font-weight: 650; line-height: 1.2;
+      color: var(--text); font-variant-numeric: tabular-nums;
+    }
+    .order-quote-row {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+      padding: 8px 0;
+    }
+    .order-quote-row span {
+      color: var(--muted); font-size: 14px; font-weight: 600;
+    }
+    .order-quote-row b {
+      color: var(--text); font-size: 14px; font-weight: 800;
+    }
+    .order-quote-row.is-total {
+      margin-top: 2px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .order-quote-row.is-total span,
+    .order-quote-row.is-total b {
+      color: var(--accent2); font-size: 15px; font-weight: 800;
+    }
+    .order-total.err { color: var(--danger); font-weight: 800; padding: 8px 0; }
+    .order-min-note,
+    .order-price-note {
+      margin: 2px 0 0; font-size: 12px; font-weight: 600; line-height: 1.35;
       color: var(--muted);
     }
     .consent-banner {
@@ -632,6 +663,7 @@
       <div class="consent-banner" id="consentBanner" hidden></div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
+        <button class="tab" type="button" data-cat="allergy" onclick="setCat('allergy')">Для аллергиков</button>
         <button class="tab" type="button" data-cat="coupon" onclick="setCat('coupon')">Купоны</button>
       </div>
       <div id="catalogList"></div>
@@ -767,8 +799,11 @@
         <div class="cart-sum">В заявке: <b id="cartCount">0</b> поз.</div>
         <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
       </div>
-      <div class="order-total" id="orderTotalHint"></div>
-      <p class="order-min-note" id="orderMinNote" hidden>Минимальный заказ — 200 г. Система автоматически даёт скидку за объём: чем больше заказ, тем больше скидка и тем дешевле выходит каждые 100 г.</p>
+      <div class="order-quote" id="orderQuote" hidden>
+        <div class="order-total" id="orderTotalHint"></div>
+        <p class="order-min-note" id="orderMinNote">Минимальный заказ — 100 г</p>
+        <p class="order-price-note" id="orderPriceNote">Чем больше заказ, тем выгоднее</p>
+      </div>
     </div>
   </div>
 
@@ -784,7 +819,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.67";
+  var APP_VER = "3.3.68";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -871,6 +906,8 @@
   var QTY_RULES_ = {
     vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: false },
     vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: false },
+    vr_t_lamb_lung: { presets: [50, 100, 150, 200], unit: "г", custom: false },
+    vr_t_turkey: { presets: [50, 100, 150, 200], unit: "г", custom: false },
     vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: false },
     vr_c_nfc: { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 },
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
@@ -922,6 +959,8 @@
   var CATALOG = [
     { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
     { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
+    { id: "vr_t_lamb_lung", type: "allergy", name: "Баранье лёгкое", unit: "г", hint: "не входит в минимум", active: true },
+    { id: "vr_t_turkey", type: "allergy", name: "Индейка", unit: "г", hint: "не входит в минимум", active: true },
     {
       id: "vr_c_piece",
       type: "coupon",
@@ -1870,13 +1909,19 @@
     return state.point;
   }
 
-  var PARTNER_MIN_TREAT_GRAMS_ = 200;
+  var PARTNER_MIN_TREAT_GRAMS_ = 100;
+
+  function treatCountsTowardMin_(line) {
+    if (!line) return false;
+    var id = String(line.id || "");
+    if (line.type === "allergy" || id === "vr_t_lamb_lung" || id === "vr_t_turkey") return false;
+    return line.type === "treat" || id === "vr_t_heart" || id === "vr_t_lung";
+  }
 
   function treatGrams_(basket) {
     var sum = 0;
     (basket || cartBasket_()).forEach(function (line) {
-      if (!line) return;
-      if (line.type !== "treat" && line.id !== "vr_t_heart" && line.id !== "vr_t_lung") return;
+      if (!treatCountsTowardMin_(line)) return;
       sum += Number(line.qty) || 0;
     });
     return sum;
@@ -1937,7 +1982,7 @@
       return;
     }
     if (treatOrderShort_()) {
-      b.textContent = "Минимум 200 г";
+      b.textContent = "Минимум 100 г";
       b.disabled = true;
       return;
     }
@@ -1964,7 +2009,7 @@
       return;
     }
     if (treatOrderShort_()) {
-      softToast_("Минимальный заказ лакомств — 200 г");
+      softToast_("Минимальный заказ лакомств — 100 г");
       return;
     }
     if (state.orderStep === "catalog" || !state.orderStep) {
@@ -2371,7 +2416,7 @@
       return { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 };
     }
     if (QTY_RULES_[it.id]) return QTY_RULES_[it.id];
-    if (it.type === "treat") return { presets: [50, 100, 150, 200], unit: it.unit || "г", custom: false };
+    if (it.type === "treat" || it.type === "allergy") return { presets: [50, 100, 150, 200], unit: it.unit || "г", custom: false };
     if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0 || it.id === "vr_c_banner") {
       return { presets: [1], unit: "шт", custom: false, fixed: true };
     }
@@ -2470,7 +2515,7 @@
     (state.catalog || []).forEach(function (it) {
       if (!it) return;
       if (it.id === "vr_c_banner" && !networkHasBanner_()) return;
-      if (it.type === "treat" && !networkHasTreats_()) return;
+      if ((it.type === "treat" || it.type === "allergy") && !networkHasTreats_()) return;
       var q = Number(state.cart[it.id]) || 0;
       if (q <= 0) return;
       basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) });
@@ -2478,17 +2523,23 @@
     return basket;
   }
 
-  function appendTotalLine_(el, text, isFinal) {
+  function appendTotalLine_(el, label, value, isFinal) {
     var row = document.createElement("div");
-    if (isFinal) row.className = "order-total-final";
-    row.textContent = text;
+    row.className = "order-quote-row" + (isFinal ? " is-total" : "");
+    var lab = document.createElement("span");
+    lab.textContent = label;
+    var val = document.createElement("b");
+    val.textContent = value;
+    row.appendChild(lab);
+    row.appendChild(val);
     el.appendChild(row);
   }
 
   function paintOrderMinNote_() {
-    var note = document.getElementById("orderMinNote");
-    if (!note) return;
-    note.hidden = cartCount() <= 0;
+    var quote = document.getElementById("orderQuote");
+    var on = cartCount() > 0;
+    if (quote) quote.hidden = !on;
+    try { document.body.classList.toggle("has-quote", !!on); } catch (eQ) {}
   }
 
   function paintOrderTotal_() {
@@ -2514,10 +2565,10 @@
         var treats = quoteState_.treatsByn != null && isFinite(Number(quoteState_.treatsByn))
           ? Number(quoteState_.treatsByn)
           : Math.round((total - delivery) * 100) / 100;
-        appendTotalLine_(el, "Лакомства — " + formatByn_(treats) + " BYN", false);
-        appendTotalLine_(el, "Доставка — " + formatByn_(delivery) + " BYN", false);
+        appendTotalLine_(el, "Лакомства", formatByn_(treats) + " BYN", false);
+        appendTotalLine_(el, "Доставка", formatByn_(delivery) + " BYN", false);
       }
-      appendTotalLine_(el, "Итого — " + formatByn_(total) + " BYN", true);
+      appendTotalLine_(el, "Итого", formatByn_(total) + " BYN", true);
       return;
     }
     el.textContent = "Сумму не удалось посчитать";
@@ -2816,16 +2867,22 @@
   function stripTreatsIfNeeded_() {
     if (networkHasTreats_()) return;
     if (!state.cart) return;
-    if (state.cart.vr_t_heart) delete state.cart.vr_t_heart;
-    if (state.cart.vr_t_lung) delete state.cart.vr_t_lung;
+    (state.catalog || []).forEach(function (it) {
+      if (!it) return;
+      if (it.type === "treat" || it.type === "allergy") delete state.cart[it.id];
+    });
+    delete state.cart.vr_t_heart;
+    delete state.cart.vr_t_lung;
+    delete state.cart.vr_t_lamb_lung;
+    delete state.cart.vr_t_turkey;
   }
 
   function syncCatalogTabs_() {
     var hasT = networkHasTreats_();
-    document.querySelectorAll('.tab[data-cat="treat"]').forEach(function (el) {
+    document.querySelectorAll('.tab[data-cat="treat"], .tab[data-cat="allergy"]').forEach(function (el) {
       el.style.display = hasT ? "" : "none";
     });
-    if (!hasT && state.cat === "treat") {
+    if (!hasT && (state.cat === "treat" || state.cat === "allergy")) {
       state.cat = "coupon";
       document.querySelectorAll(".tab").forEach(function (el) {
         el.classList.toggle("on", el.getAttribute("data-cat") === "coupon");
@@ -2858,7 +2915,7 @@
     var items = state.catalog.filter(function (it) {
       if (it.active === false) return false;
       if (it.id === "vr_c_banner" && !allowBanner) return false;
-      if (!allowTreats && it.type === "treat") return false;
+      if (!allowTreats && (it.type === "treat" || it.type === "allergy")) return false;
       // у Varka: без бумажного купона, NFC + баннер остаются
       if (nfcOnly && it.id === "vr_c_piece") return false;
       if (nfcOnly && it.type === "coupon" && !isNfcItem_(it) && it.id !== "vr_c_nfc" && it.id !== "vr_c_banner") return false;
@@ -2902,9 +2959,9 @@
           '<img class="coupon-preview" src="' + media.coupon + '" alt="' + esc(media.alt) + '">' +
           '<div class="coupon-row qty-item">' + ste + "</div></div>";
       }
-      var qtyHint = (qtyRuleFor_(it).custom === false) ? "пресеты" : "пресеты или своё";
+      var qtyHint = hint || ((qtyRuleFor_(it).custom === false) ? "пресеты" : "пресеты или своё");
       return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-        '</div><div class="unit">' + qtyHint + selected +
+        '</div><div class="unit">' + esc(qtyHint) + selected +
         "</div></div>" + ste + "</div>";
     }).join("");
   }
@@ -2958,7 +3015,7 @@
       return;
     }
     if (treatOrderShort_()) {
-      softToast_("Минимальный заказ лакомств — 200 г");
+      softToast_("Минимальный заказ лакомств — 100 г");
       updateCartButton_();
       return;
     }
@@ -2987,7 +3044,7 @@
     }
     state.catalog.forEach(function (it) {
       if (it.id === "vr_c_banner" && !networkHasBanner_()) return;
-      if (it.type === "treat" && !networkHasTreats_()) return;
+      if ((it.type === "treat" || it.type === "allergy") && !networkHasTreats_()) return;
       var q = Number(state.cart[it.id]) || 0;
       if (q <= 0) return;
       var row = { id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) };
@@ -3026,7 +3083,7 @@
       if (!res || res.status !== "success") {
         var errText = (res && res.message) || "Не удалось отправить заявку";
         if (res && res.message === "price_unavailable") errText = "Не удалось посчитать сумму";
-        if (res && res.message === "min_treat_grams") errText = "Минимальный заказ лакомств — 200 г";
+        if (res && res.message === "min_treat_grams") errText = "Минимальный заказ лакомств — 100 г";
         if (res && res.message === "consent_pending") errText = consentMessage_("pending");
         if (res && res.message === "consent_declined") errText = consentMessage_("declined");
         softToast_(errText);
@@ -3409,7 +3466,7 @@
       if (!it || !it.id) return;
       var row = {
         id: it.id,
-        type: it.type === "treat" ? "treat" : "coupon",
+        type: it.type === "treat" || it.type === "allergy" ? it.type : "coupon",
         kind: it.kind || "",
         name: it.name || it.id,
         hint: it.hint || "",
@@ -3437,6 +3494,7 @@
         if (base.name) byId[base.id].name = base.name;
         if (base.hint) byId[base.id].hint = base.hint;
         if (base.kind) byId[base.id].kind = base.kind;
+        if (base.type === "allergy" || base.type === "treat") byId[base.id].type = base.type;
       }
       if (isNfcItem_(byId[base.id])) byId[base.id].kind = "nfc";
     });
