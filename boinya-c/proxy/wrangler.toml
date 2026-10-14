@@ -46,6 +46,10 @@ PARTNER_OWNER_USERNAMES = "one_more_person_228"
 [observability]
 enabled = true
 
+# 07:00 Europe/Minsk (UTC+3). Материализация завтра читает D1, лист не пишет.
+[triggers]
+crons = ["0 4 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "boinya-c"

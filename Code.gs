@@ -3165,6 +3165,21 @@ function handleApiAction(json, callback, fromPost) {
     if (_authGateP) return fromPost ? jsonpText(callback, _authGateP) : jsonp(callback, _authGateP);
   }
 
+  // Этап (б): лист заказов/календаря/CRM только чтение. Откат: Script Property ORDERS_SHEETS_READONLY=0.
+  if (ordersSheetsReadonly_() && ordersSheetsWriteAction_(action)) {
+    var sheetsSkipped = {
+      status: "success",
+      sheetsReadonly: true,
+      skipped: true,
+      action: action,
+      message: "sheets_readonly"
+    };
+    return fromPost ? jsonpText(callback, sheetsSkipped) : jsonp(callback, sheetsSkipped);
+  }
+  if (action === "exportStageBRows") {
+    return handleExportStageBRows_(json, callback, fromPost);
+  }
+
   if (action === "deleteClient") {
     return handleDeleteClient(ss, json, callback, fromPost);
   }
@@ -14917,6 +14932,11 @@ function getCutterNotifyChatIds_() {
 }
 
 function morningMaterializeTomorrow() {
+  if (ordersSheetsReadonly_()) {
+    var skippedMat = { ok: true, skipped: true, sheetsReadonly: true, reason: "sheets_readonly" };
+    Logger.log(JSON.stringify(skippedMat));
+    return skippedMat;
+  }
   var now = new Date();
   var tomorrow = addDaysDate_(new Date(now.getFullYear(), now.getMonth(), now.getDate()), 1);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -36430,6 +36450,166 @@ function handleGbLinkClient_(json, callback, fromPost) {
 
   var payload = gbBuildMePayload_(user);
   payload.link = gbLinkPublic_(link, payload.subscription);
+  return fromPost ? jsonpText(callback, payload) : jsonp(callback, payload);
+}
+
+/** Этап (б). По умолчанию лист не пишем. Откат записи: ORDERS_SHEETS_READONLY=0. */
+function ordersSheetsReadonly_() {
+  var v = "";
+  try {
+    v = String(PropertiesService.getScriptProperties().getProperty("ORDERS_SHEETS_READONLY") || "").trim();
+  } catch (eRo) {
+    v = "";
+  }
+  if (v === "0" || v === "off" || v === "write") return false;
+  return true;
+}
+
+function ordersSheetsWriteAction_(action) {
+  return /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveClientProfile|pullClientsFromMonth|pullClientFromMonth|materializeWeek|ensureDayMaterialized|saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch|ensureBpFromOrder|markBpTouch|recordBpToPpConversion|enrollDeferredToPp)$/i.test(String(action || ""));
+}
+
+/** CRM ПП/АФК/БП только чтение, без repairIds и без записи id. */
+function readCrmSubscriptionListReadonly_() {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (eCrm) { return []; }
+  var sheets = ["ПП", "АФК", "БП"];
+  var list = [];
+  for (var s = 0; s < sheets.length; s++) {
+    var sheetName = sheets[s];
+    var data = null;
+    try { data = getCrmSheetValuesFast_(crmSs, sheetName); } catch (eFast) { data = null; }
+    if (!data) {
+      try { data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5); } catch (eLive) { data = null; }
+    }
+    if (!data || data.length < 3) continue;
+    var seenInSheet = {};
+    for (var r = 2; r < data.length; r++) {
+      var nickRaw = String(data[r][0] || "").trim();
+      if (!nickRaw) continue;
+      if (/^себестоим/i.test(nickRaw) || /^стоимость\s*100/i.test(nickRaw)) continue;
+      var nick = extractInstagramNick_(nickRaw) || displayClientNick_(nickRaw) || nickRaw;
+      var subId = "";
+      try { subId = sanitizeSubId_(data[r][1]); } catch (eSid) { subId = String(data[r][1] || "").trim(); }
+      var key = subId
+        ? ("id:" + String(subId).toUpperCase())
+        : ("row:" + r + "|n:" + String(nick || "").toUpperCase());
+      if (seenInSheet[key]) continue;
+      seenInSheet[key] = true;
+      list.push({
+        nick: nick,
+        label: nickRaw.replace(/\s+/g, " ").trim().substring(0, 80),
+        subId: subId,
+        deliveries: Number(data[r][2]) || 0,
+        status: String(data[r][3] || ""),
+        stage: String(data[r][3] || ""),
+        wishes: String(data[r][4] || ""),
+        sheet: sheetName,
+        rowIndex: r + 1
+      });
+    }
+  }
+  return list;
+}
+
+function stageBIsoOk_(iso) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""));
+}
+
+function stageBRowIso_(raw, tz) {
+  var iso = String(raw && (raw.dateIso || raw.date_iso) || "").trim();
+  if (stageBIsoOk_(iso)) return iso;
+  var d = parseFlexibleDate_(raw && (raw.date || raw.dateIso), tz);
+  if (!d) return "";
+  return dateKey_(d, tz);
+}
+
+/** Чтение календаря, броней и CRM до октября. Ничего не пишет и не удаляет. */
+function handleExportStageBRows_(json, callback, fromPost) {
+  json = json || {};
+  var system = GAS_AUTH_ && GAS_AUTH_.system;
+  var owner = GAS_AUTH_ && GAS_AUTH_.verified && actorIsOwner_(GAS_AUTH_.tid);
+  if (!system && !owner) {
+    var denied = { status: "error", message: "auth_required" };
+    return fromPost ? jsonpText(callback, denied) : jsonp(callback, denied);
+  }
+  var kind = String(json.kind || "calendar").trim();
+  var offset = Math.max(0, Number(json.offset) || 0);
+  var limit = Math.max(1, Math.min(200, Number(json.limit) || 150));
+  var before = String(json.before || "2026-10-01");
+  if (!stageBIsoOk_(before)) before = "2026-10-01";
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var src = [];
+  if (kind === "bookings") src = readAllBookings_();
+  else if (kind === "subs") src = readCrmSubscriptionListReadonly_();
+  else {
+    kind = "calendar";
+    src = readAllCalendarRows_();
+  }
+  var rows = [];
+  var seen = 0;
+  for (var i = 0; i < src.length; i++) {
+    var raw = src[i] || {};
+    var iso = kind === "subs" ? "" : stageBRowIso_(raw, tz);
+    if (kind !== "subs") {
+      if (iso && iso >= before) continue;
+    }
+    if (seen < offset) {
+      seen++;
+      continue;
+    }
+    seen++;
+    if (rows.length >= limit) continue;
+    if (kind === "subs") {
+      rows.push({
+        subId: String(raw.subId || raw.id || ""),
+        nick: String(raw.nick || raw.client || ""),
+        label: String(raw.label || ""),
+        sheet: String(raw.sheet || raw.segment || ""),
+        price: raw.price != null ? raw.price : raw.orderPrice,
+        n: raw.deliveries || raw.deliveriesN || raw.n || "",
+        status: String(raw.status || raw.stage || ""),
+        bpStage: String(raw.bpStage || raw.stage || ""),
+        phone: String(raw.phone || ""),
+        address: String(raw.address || ""),
+        note: String(raw.wishes || raw.note || ""),
+        dogs: raw.dogNames || raw.dogs || "",
+        telegram: String(raw.telegram || raw.telegramId || "")
+      });
+    } else {
+      rows.push({
+        dateIso: iso,
+        client: String(raw.client || raw.nick || ""),
+        matchKey: String(raw.matchKey || ""),
+        segment: String(raw.segment || raw.source || ""),
+        address: String(raw.address || ""),
+        phone: String(raw.phone || ""),
+        note: String(raw.note || ""),
+        basket: raw.basket || [],
+        subId: String(raw.subId || ""),
+        source: String(raw.source || ""),
+        status: String(raw.status || ""),
+        dayName: String(raw.dayName || ""),
+        orderPrice: raw.orderPrice,
+        ppSlot: String(raw.ppSlot || ""),
+        sheetRow: raw.rowIndex || 0
+      });
+    }
+  }
+  var payload = {
+    status: "success",
+    kind: kind,
+    offset: offset,
+    limit: limit,
+    returned: rows.length,
+    scanned: seen,
+    done: offset + rows.length >= seen || rows.length < limit,
+    nextOffset: offset + rows.length,
+    before: before,
+    rows: rows,
+    sheetsReadonly: true
+  };
   return fromPost ? jsonpText(callback, payload) : jsonp(callback, payload);
 }
 
