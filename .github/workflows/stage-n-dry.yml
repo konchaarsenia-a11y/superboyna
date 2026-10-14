@@ -28,8 +28,8 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
-          required = ["boinya-c-worker", "boinya-c-worker-deploy"]
-          optional = ["clasp-deploy"]
+          required = ["boinya-c-worker"]
+          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
           deadline = time.time() + 20 * 60
           quiet = 0
