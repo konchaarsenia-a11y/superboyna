@@ -1010,6 +1010,11 @@ async function serveVarkaApp_() {
 
 export default {
   async scheduled(event, env, ctx) {
+    var cron = String((event && event.cron) || "");
+    if (cron === "* * * * *") {
+      ctx.waitUntil(stageNTick_(env, event && event.scheduledTime));
+      return;
+    }
     ctx.waitUntil(stageBMaterializeTomorrow_(env));
   },
   async fetch(request, env, ctx) {
@@ -1029,6 +1034,9 @@ export default {
     }
     if (url.pathname === "/admin/stage-g") {
       return stageGAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/stage-n") {
+      return stageNAdmin_(request, env);
     }
     if (request.method === "POST" && url.pathname === "/telegram/boinya") {
       return stageGTelegram_(request, env);
@@ -1904,7 +1912,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
       edgeSheets: edgeSheetsLabel_(env),
-      deployMarker: "orders-d1-stage-g-h1"
+      deployMarker: "orders-d1-stage-n-h1"
     };
   }
 
@@ -32900,6 +32908,11 @@ async function stageGStartText_(env, from, name) {
 async function stageGApplyUpdate_(env, update, opts) {
   opts = opts || {};
   const send = opts.send !== false;
+  const cq = update && update.callback_query;
+  if (cq && cq.data) {
+    const handled = await stageNCallback_(env, cq, send);
+    if (handled) return handled;
+  }
   const msg = update && (update.message || update.edited_message);
   const text = String((msg && msg.text) || "");
   const start = text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
@@ -33031,6 +33044,824 @@ async function stageGProbe_(env) {
     sheetsDelta: after - before,
     edgeSheets: edgeSheetsLabel_(env)
   };
+}
+
+function stageNNow_(input) {
+  if (input instanceof Date && !isNaN(input.getTime())) return input;
+  const n = Number(input);
+  if (isFinite(n) && n > 0) return new Date(n);
+  return new Date();
+}
+
+function stageNParts_(date, tz) {
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz || "Europe/Minsk",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  const g = {};
+  fmt.formatToParts(date || new Date()).forEach(function (p) {
+    g[p.type] = p.value;
+  });
+  let hour = Number(g.hour);
+  if (hour === 24) hour = 0;
+  const minute = Number(g.minute);
+  const ymd = g.year + "-" + g.month + "-" + g.day;
+  return {
+    ymd: ymd,
+    hour: hour,
+    minute: minute,
+    slot: ymd + "T" + String(hour).padStart(2, "0") + (minute < 30 ? ":00" : ":30")
+  };
+}
+
+function stageNShiftYmd_(ymd, days) {
+  const p = String(ymd || "").split("-");
+  const dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + Number(days || 0), 12));
+  return dt.toISOString().slice(0, 10);
+}
+
+function stageNDmy_(ymd) {
+  const p = String(ymd || "").split("-");
+  if (p.length !== 3) return String(ymd || "");
+  return p[2] + "." + p[1] + "." + p[0];
+}
+
+function stageNMs_(v) {
+  if (v == null || v === "") return 0;
+  if (typeof v === "number" && isFinite(v)) return v;
+  let s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) s += "+03:00";
+  const t = new Date(s).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function stageNQuiet_(date) {
+  const h = stageNParts_(date, "Europe/Minsk").hour;
+  return h >= 22 || h < 8;
+}
+
+async function stageNMeta_(env, key) {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
+    return row && row.value != null ? String(row.value) : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function stageNSetMeta_(env, key, value) {
+  await env.DB.prepare(
+    "INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+  )
+    .bind(key, String(value), new Date().toISOString())
+    .run();
+}
+
+async function stageNCutoff_(env, nowMs) {
+  const prev = await stageNMeta_(env, "notify_cron_cutoff_ms");
+  if (prev && Number(prev) > 0) return Number(prev);
+  await stageNSetMeta_(env, "notify_cron_cutoff_ms", String(nowMs));
+  return nowMs;
+}
+
+async function stageNStaff_(env, key, baseIds, opts) {
+  let ids = [];
+  try {
+    ids = await notifyRecipientsWorker_(env, key, baseIds || [], opts || {});
+  } catch (e) {
+    ids = [];
+  }
+  if (!Array.isArray(ids)) ids = [];
+  if (!(opts && opts.filterOnly)) {
+    const chatOn = notifyChatEnabledWorker_(env);
+    const chat = chatOn ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() : "";
+    if (chat && ids.indexOf(chat) < 0) ids.push(chat);
+  }
+  return ids;
+}
+
+function stageNSlotTag_(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  const frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (frac && (frac[1] === "1" || frac[1] === "2")) return "ПП" + frac[1];
+  if (s === "1" || s === "2") return "ПП" + s;
+  const word = s.match(/пп\s*([12])/i);
+  if (word) return "ПП" + word[1];
+  return "";
+}
+
+function stageNPreview_(text) {
+  return String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+const STAGE_N_SURVEY_BP2_ =
+  "Здравствуйте, ! Как себя чувствует после первой коробки? 🐾 Нам очень важно, чтобы лакомства действительно подошли — давайте немного уточним, чтобы вторая доставка была максимально точной. Можно отвечать прямо по пунктам:\n\n" +
+  "1. Какие лакомства из первой коробки особенно понравились вашему питомцу? А какие он проигнорировал или ел без интереса?\n" +
+  "2. Получилось ли использовать лакомства и в тренировках, и дома? Что было удобно, а что не очень?\n" +
+  "3. Как вам количество — хватило на неделю, было впритык или с запасом?\n" +
+  "4. Были ли сложности с хранением, дозировкой или формой лакомств?\n" +
+  "5. Есть ли замечания по составу, запаху, текстуре или размеру?\n" +
+  "6. Что бы вы хотели изменить, добавить или исключить во второй коробке, чтобы она идеально подошла именно вам и вашему пушистому другу?";
+
+const STAGE_N_SURVEY_FINAL_ =
+  "Здравствуйте, ! Как чувствует себя ваш питомец? 🐾 Мы очень рады, что вы были с нами весь пробный период. Хотим немного узнать, как вам опыт подписки — это поможет сделать её ещё удобнее. Можно отвечать прямо по пунктам:\n\n" +
+  "1. Стало ли вам проще с лакомствами — меньше беготни, больше пользы?\n" +
+  "2. Какие лакомства особенно понравились вашему питомцу? А какие можно исключить?\n" +
+  "3. Удобно ли было получать коробку дважды в месяц? Хотели бы продолжать в таком ритме или перейти на раз в месяц?\n" +
+  "4. Есть ли ещё моменты, которые стоит подправить, чтобы подписка стала идеальной именно для вас и вашего пушистого друга?\n" +
+  "5. Готовы ли вы продолжить подписку на постоянной основе? Если да — мы подберём формат и ритм, который будет максимально комфортным.\n" +
+  "6. И напоследок: что вам особенно понравилось в нашем подходе или коробке? Нам важно знать, что получилось хорошо 😊";
+
+function stageNPersonalize_(body, nick) {
+  let text = String(body || "");
+  const name = String(nick || "").trim();
+  if (name) text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте, " + name + "!");
+  else text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте!");
+  return text;
+}
+
+function stageNSplit_(text, limit) {
+  const max = limit || 3500;
+  const src = String(text || "");
+  if (src.length <= max) return src ? [src] : [];
+  const lines = src.split("\n");
+  const parts = [];
+  let buf = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = buf ? buf + "\n" + line : line;
+    if (next.length <= max) {
+      buf = next;
+      continue;
+    }
+    if (buf) parts.push(buf);
+    if (line.length <= max) buf = line;
+    else {
+      buf = "";
+      for (let p = 0; p < line.length; p += max) parts.push(line.slice(p, p + max));
+    }
+  }
+  if (buf) parts.push(buf);
+  return parts;
+}
+
+async function stageNEnsure_(env) {
+  const need = [];
+  async function empty(key, field) {
+    const snap = await getSnapRaw_(env, key);
+    const arr = snap && snap[field];
+    if (Array.isArray(arr) && arr.length) return false;
+    need.push(key);
+    return true;
+  }
+  await empty("listDeferred", "items");
+  await empty("listSurvey", "items");
+  await empty("listTemplates", "items");
+  await empty("listAccess", "people");
+  await empty("listCouriers", "items");
+  await empty("listBugReports", "items");
+  await empty("listDeficit", "items");
+  if (!need.length) return { imported: [], needed: [] };
+  const live = await gasProxy_("exportStageNRows", {}, env, { write: true });
+  if (!live || live.status !== "success") {
+    return { imported: [], needed: need, error: (live && live.message) || "export_failed" };
+  }
+  const imported = [];
+  async function putIf(key, field, rows, extra) {
+    if (need.indexOf(key) < 0) return;
+    const arr = Array.isArray(rows) ? rows : [];
+    if (!arr.length) return;
+    const body = Object.assign({ status: "success", fromStageN: true }, extra || {});
+    body[field] = arr;
+    await putSnap_(env, key, body);
+    imported.push(key + ":" + arr.length);
+  }
+  const deferred = (live.deferred || []).map(function (row) {
+    let payload = {};
+    try { payload = JSON.parse(String(row.payloadJson || "{}")); } catch (eP) { payload = {}; }
+    if (!payload || typeof payload !== "object") payload = {};
+    return {
+      id: row.id,
+      at: row.at || "",
+      telegramId: row.telegramId || "",
+      mode: String(row.mode || "").toLowerCase(),
+      title: row.title || "",
+      clientNick: row.clientNick || "",
+      status: row.status || "open",
+      payload: payload,
+      remindAt: payload.remindAt || "",
+      remindAtMs: Number(payload.remindAtMs) || 0,
+      remindSent: !!payload.remindSent,
+      targetTelegramId: String(payload.targetTelegramId || payload.forTelegramId || ""),
+      fromD1: true
+    };
+  });
+  await putIf("listDeferred", "items", deferred);
+  await putIf("listSurvey", "items", live.surveys || []);
+  await putIf("listTemplates", "items", live.templates || []);
+  if (need.indexOf("listTemplates") >= 0) {
+    const surveyTpl = (live.templates || []).filter(function (t) {
+      return /survey/i.test(String(t.kind || "")) || /survey_/i.test(String(t.id || ""));
+    });
+    const prevS = await getSnapRaw_(env, "listTemplates:survey");
+    if (!(prevS && Array.isArray(prevS.items) && prevS.items.length) && surveyTpl.length) {
+      await putSnap_(env, "listTemplates:survey", { status: "success", items: surveyTpl, fromStageN: true });
+    }
+  }
+  await putIf("listAccess", "people", live.access || []);
+  await putIf("listCouriers", "items", live.couriers || []);
+  await putIf("listBugReports", "items", live.bugs || []);
+  await putIf("listDeficit", "items", live.deficits || []);
+  return { imported: imported, needed: need, counts: live.counts || {} };
+}
+
+function stageNDeferredText_(item, people) {
+  const payload = item.payload || {};
+  const mode = String(item.mode || "").toLowerCase();
+  const title = String(item.title || "Отложенное").trim();
+  const nick = String(item.clientNick || "").trim();
+  const ownerTid = String(item.telegramId || "").trim();
+  const notifyTid = String(payload.targetTelegramId || payload.forTelegramId || item.targetTelegramId || ownerTid).trim();
+  const fromTid = String(payload.createdBy || ownerTid).trim() || ownerTid;
+  if (mode === "remind" && payload.mailPayCheck && payload.mailPayText) return String(payload.mailPayText);
+  if (mode === "remind") {
+    let text = "⏰ Напоминание\n" + title;
+    if (fromTid && notifyTid && fromTid !== notifyTid) {
+      text += "\nОт: " + stageNLabel_(people, fromTid, payload.createdByName);
+      text += "\nКому: " + stageNLabel_(people, notifyTid, payload.targetName);
+    } else {
+      text += "\n(себе)";
+    }
+    return text + "\nОткрой задачи ☰ в приложении.";
+  }
+  return "⏰ Напоминание\n" + title + (nick ? "\nКлиент: " + nick : "") + "\nОткрой задачи ☰ в приложении.";
+}
+
+function stageNLabel_(people, tid, fallback) {
+  const id = String(tid || "").trim();
+  let fb = String(fallback || "").trim();
+  if (fb === "себе" || fb.toLowerCase() === "self") fb = "";
+  const list = people || [];
+  for (let i = 0; i < list.length; i++) {
+    if (String(list[i].telegramId || "") !== id) continue;
+    const nm = String(list[i].name || "").trim();
+    const un = String(list[i].username || "").trim();
+    if (nm && un) return nm + " (@" + un + ")";
+    if (nm) return nm;
+    if (un) return "@" + un;
+  }
+  return fb || id || "—";
+}
+
+function stageNDue_(item) {
+  const payload = item.payload || {};
+  const ms = Number(item.remindAtMs != null && item.remindAtMs !== "" ? item.remindAtMs : payload.remindAtMs);
+  if (isFinite(ms) && ms > 0) return ms;
+  return stageNMs_(item.remindAt || payload.remindAt);
+}
+
+function stageNHide_(item, now) {
+  if (String(item.mode || "").toLowerCase() !== "remind") return false;
+  const payload = item.payload || {};
+  if (!payload.remindSent && !item.remindSent) return false;
+  const sentMs = stageNMs_(payload.remindSentAt);
+  if (!sentMs) return false;
+  return now - sentMs >= 86400000;
+}
+
+async function stageNDeferred_(env, opts) {
+  opts = opts || {};
+  const now = stageNNow_(opts.now).getTime();
+  const cutoff = await stageNCutoff_(env, now);
+  const send = !!opts.send;
+  const list = (await getSnapRaw_(env, "listDeferred")) || { items: [] };
+  const items = Array.isArray(list.items) ? list.items : [];
+  const access = (await getSnapRaw_(env, "listAccess")) || {};
+  const people = access.people || [];
+  const would = [];
+  const overdue = [];
+  let hidden = 0;
+  let changed = false;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] || {};
+    if (String(item.status || "open").toLowerCase() !== "open") continue;
+    const payload = item.payload && typeof item.payload === "object" ? item.payload : {};
+    item.payload = payload;
+    const silent = payload.remindSilent;
+    if (silent === true || silent === "1" || silent === 1) continue;
+    if (stageNHide_(item, now)) {
+      hidden++;
+      if (send) {
+        item.status = "done";
+        changed = true;
+      }
+      continue;
+    }
+    const due = stageNDue_(item);
+    if (!due || due > now) continue;
+    if ((payload.remindSent || item.remindSent) && !payload.remindSendError) continue;
+    const fails = Number(payload.remindFailCount) || 0;
+    if (fails >= 12) continue;
+    const notifyTid = String(payload.targetTelegramId || payload.forTelegramId || item.targetTelegramId || item.telegramId || "").trim();
+    const row = {
+      id: item.id || "",
+      title: String(item.title || "").slice(0, 80),
+      nick: String(item.clientNick || "").slice(0, 80),
+      to: notifyTid,
+      due: new Date(due).toISOString()
+    };
+    if (due < cutoff) {
+      overdue.push(row);
+      continue;
+    }
+    const text = stageNDeferredText_(item, people);
+    row.text = stageNPreview_(text);
+    would.push(row);
+    if (!send || !notifyTid) continue;
+    payload.remindSent = true;
+    payload.remindSentAt = new Date(now).toISOString();
+    delete payload.remindSendError;
+    item.remindSent = true;
+    changed = true;
+    let ok = false;
+    try {
+      const res = await telegramSendTextWorker_(env, notifyTid, text, null);
+      ok = !!(res && res.ok);
+    } catch (eSend) {
+      ok = false;
+    }
+    if (!ok) {
+      payload.remindSent = false;
+      item.remindSent = false;
+      payload.remindFailCount = fails + 1;
+      payload.remindSendError = true;
+      delete payload.remindSentAt;
+    } else {
+      delete payload.remindFailCount;
+    }
+  }
+  if (changed && send) await putSnap_(env, "listDeferred", list);
+  return { would: would, overdue: overdue, hidden: hidden, sent: send ? would.length : 0 };
+}
+
+async function stageNDeficit_(env, opts) {
+  opts = opts || {};
+  const nowDate = stageNNow_(opts.now);
+  const now = nowDate.getTime();
+  const send = !!opts.send;
+  const snap = (await getSnapRaw_(env, "listDeficit")) || { items: [] };
+  const items = Array.isArray(snap.items) ? snap.items : [];
+  const quiet = stageNQuiet_(nowDate);
+  const ids = await stageNStaff_(env, "cut_deficit");
+  const would = [];
+  let changed = false;
+  for (let i = 0; i < items.length; i++) {
+    const row = items[i] || {};
+    const st = String(row.status || "").toLowerCase();
+    if (st !== "open" && st !== "открыт") continue;
+    const from = stageNMs_(row.notifyFrom);
+    if (from && now < from) continue;
+    const last = stageNMs_(row.lastNotify);
+    if (last && now - last < 29 * 60 * 1000) continue;
+    let id = String(row.id || "").trim();
+    if (!/^d[a-f0-9]{8,}$/i.test(id)) {
+      if (send) {
+        row.id = "d" + Math.random().toString(16).slice(2, 14).padEnd(12, "a");
+        row.lastNotify = new Date(now).toISOString();
+        changed = true;
+      }
+      continue;
+    }
+    const text =
+      "⚠️ Дефицит нарезки\nДень: " + String(row.day || "") + "\nПозиция: " + String(row.item || "") +
+      "\n\nНужно купить и заготовить. Когда готово — нажми кнопку ниже.";
+    would.push({
+      id: id,
+      day: String(row.day || ""),
+      item: String(row.item || ""),
+      to: ids,
+      text: stageNPreview_(text),
+      quiet: quiet
+    });
+    if (!send || quiet) continue;
+    const markup = { inline_keyboard: [[{ text: "✅ Куплено и заготовлено", callback_data: "defdone:" + id }]] };
+    for (let t = 0; t < ids.length; t++) {
+      try { await telegramSendTextWorker_(env, ids[t], text, markup); } catch (eSend) {}
+    }
+    row.lastNotify = new Date(now).toISOString();
+    changed = true;
+  }
+  if (changed && send) await putSnap_(env, "listDeficit", snap);
+  return { quiet: quiet, recipients: ids, would: would, sent: send && !quiet ? would.length : 0 };
+}
+
+function stageNSurveyBody_(templates, kind, nick) {
+  const want = String(kind || "").toLowerCase();
+  const list = templates || [];
+  for (let i = 0; i < list.length; i++) {
+    const id = String(list[i].id || "").toLowerCase();
+    if (id === want) return stageNPersonalize_(list[i].body || "", nick);
+  }
+  if (want === "survey_final") return stageNPersonalize_(STAGE_N_SURVEY_FINAL_, nick);
+  return stageNPersonalize_(STAGE_N_SURVEY_BP2_, nick);
+}
+
+async function stageNSurvey_(env, opts) {
+  opts = opts || {};
+  const nowDate = stageNNow_(opts.now);
+  const send = !!opts.send;
+  const dayKey = nowDate.toISOString().slice(0, 10);
+  const sentKey = "bp_survey_remind_" + dayKey;
+  let already = (await getSnapRaw_(env, sentKey)) || {};
+  if (already && already.map) already = already.map;
+  if (!already || typeof already !== "object" || Array.isArray(already)) already = {};
+  const snap = (await getSnapRaw_(env, "listSurvey")) || { items: [] };
+  const items = Array.isArray(snap.items) ? snap.items : [];
+  const tplSnap = (await getSnapRaw_(env, "listTemplates:survey")) || (await getSnapRaw_(env, "listTemplates")) || {};
+  const templates = tplSnap.items || tplSnap.templates || [];
+  const access = (await getSnapRaw_(env, "listAccess")) || {};
+  const people = access.people || [];
+  const subsSnap = (await getSnapRaw_(env, "listSubscriptions")) || {};
+  const subs = subsSnap.subscriptions || subsSnap.items || [];
+  const would = [];
+  const today = [];
+  const skipped = { closed: 0, future: 0, window: 0, noTarget: 0, already: 0, off: 0 };
+  let changedSurvey = false;
+  for (let i = 0; i < items.length; i++) {
+    const obj = items[i] || {};
+    const nick = String(obj.nick || "").trim();
+    const due = String(obj.dueDate || "").slice(0, 10);
+    if (!nick || !due) continue;
+    const st = String(obj.status || "").toLowerCase();
+    if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") {
+      skipped.closed++;
+      continue;
+    }
+    if (String(obj.sentAt || "").trim()) {
+      skipped.closed++;
+      continue;
+    }
+    if (st && st !== "planned" && st !== "due" && st !== "open") {
+      skipped.closed++;
+      continue;
+    }
+    let tid = String(obj.ownerTelegramId || "").trim();
+    if (!tid) {
+      for (let s = 0; s < subs.length; s++) {
+        const sub = subs[s] || {};
+        if (!nicksMatchLooseD1_(sub.nick || sub.label, nick)) continue;
+        if (sub.ownerTelegramId) {
+          tid = String(sub.ownerTelegramId).trim();
+          break;
+        }
+      }
+    }
+    if (!tid) {
+      skipped.noTarget++;
+      continue;
+    }
+    const person = people.filter(function (p) { return String(p.telegramId) === tid; })[0] || {};
+    const tz = String(person.timezone || "Europe/Minsk") || "Europe/Minsk";
+    const local = stageNParts_(nowDate, tz);
+    if (due > local.ymd) {
+      skipped.future++;
+      continue;
+    }
+    const inWindow = local.hour >= 9 && local.hour < 21;
+    if (!inWindow) skipped.window++;
+    let targets = [tid];
+    try {
+      targets = await stageNStaff_(env, "survey", [tid], { filterOnly: true });
+    } catch (eNf) {
+      targets = [tid];
+    }
+    if (!targets.length) {
+      skipped.off++;
+      continue;
+    }
+    const kindKey = /final/i.test(String(obj.kind || obj.templateId || "")) ? "survey_final" : "survey_bp2";
+    const kindLabel = kindKey === "survey_final" ? "ПП (финал)" : "БП2";
+    const body = stageNSurveyBody_(templates, obj.templateId || kindKey, nick) || stageNSurveyBody_(templates, kindKey, nick);
+    const text =
+      "📋 Опросник · " + kindLabel + "\n" +
+      "Кому отправить: " + nick + "\n" +
+      (obj.stage ? "Этап: " + obj.stage + "\n" : "") +
+      "Дата: " + due + "\n" +
+      "Ваше время: " + local.slot.replace("T", " ") + " (" + tz + ")\n\n" +
+      "Текст опросника:\n" + body;
+    let any = false;
+    for (let t = 0; t < targets.length; t++) {
+      const to = targets[t];
+      const key = normalizeMatchKey_(nick) + "|" + kindKey + "|" + due + "|" + to;
+      if (already[key]) {
+        skipped.already++;
+        continue;
+      }
+      const line = { nick: nick, due: due, kind: kindLabel, to: to, text: stageNPreview_(text), inWindow: inWindow };
+      today.push(line);
+      if (!inWindow) continue;
+      would.push(line);
+      any = true;
+      if (!send) continue;
+      already[key] = 1;
+      const markup = obj.id
+        ? { inline_keyboard: [[{ text: "✅ Отправлено", callback_data: ("svsent:" + String(obj.id)).slice(0, 64) }]] }
+        : null;
+      try { await telegramSendTextWorker_(env, to, text, markup); } catch (eSend) {}
+    }
+    if (any && send && (st === "planned" || st === "due" || st === "open")) {
+      obj.status = "due";
+      obj.updatedAt = nowDate.toISOString();
+      changedSurvey = true;
+    }
+  }
+  if (send) {
+    try { await putSnap_(env, sentKey, Object.assign({}, already, { map: already, day: dayKey })); } catch (eSave) {}
+    if (changedSurvey) {
+      try { await putSnap_(env, "listSurvey", snap); } catch (eSv) {}
+    }
+  }
+  return { would: would, today: today, skipped: skipped, sent: send ? would.length : 0 };
+}
+
+async function stageNNudgePack_(env, ymd) {
+  const delivered = await listNudgeDeliveredDay_({ dateIso: ymd }, env);
+  const rows = (delivered && delivered.rows) || [];
+  let subs = {};
+  try {
+    const q = await env.DB.prepare("SELECT match_key, nick, sheet, bp_stage, status FROM subs").all();
+    ((q && q.results) || []).forEach(function (r) {
+      const sheet = String(r.sheet || "").toUpperCase();
+      [normalizeMatchKey_(r.match_key), normalizeMatchKey_(r.nick)].forEach(function (k) {
+        if (!k) return;
+        const prev = subs[k];
+        if (!prev || (sheet === "ПП" && String(prev.sheet || "").toUpperCase() !== "ПП")) subs[k] = r;
+      });
+    });
+  } catch (eSub) {
+    subs = {};
+  }
+  const pp = [];
+  const bp1 = [];
+  const seen = {};
+  let other = 0;
+  rows.forEach(function (row) {
+    const seg = String(row.segment || "").toUpperCase();
+    if (/ПАРТН/.test(seg) || seg === "Р" || seg === "R" || /РОЗНИЦ|RETAIL/.test(seg)) {
+      other++;
+      return;
+    }
+    const sub = subs[normalizeMatchKey_(row.matchKey)] || subs[normalizeMatchKey_(row.client)] || null;
+    const sheet = String((sub && sub.sheet) || "").toUpperCase();
+    const stage = String((sub && (sub.bp_stage || sub.status)) || "");
+    let kind = "";
+    if (sheet === "АФК" || seg === "АФК") kind = "";
+    else if (sheet === "ПП" || /ПП/.test(seg)) kind = "pp";
+    else if (sheet === "БП" || seg === "БП" || seg === "BP") {
+      kind = !stage || /БП\s*1|^1$|BP1/i.test(stage) ? "bp1" : "";
+    }
+    if (!kind) {
+      other++;
+      return;
+    }
+    const name = String((sub && sub.nick) || row.client || "").trim();
+    const key = normalizeMatchKey_(name) || normalizeMatchKey_(row.matchKey);
+    if (!name || seen[key]) return;
+    seen[key] = true;
+    const rec = { name: name, ppSlot: stageNSlotTag_(row.ppSlot || seg) };
+    if (kind === "pp") pp.push(rec);
+    else bp1.push(rec);
+  });
+  return { dateIso: ymd, dateText: stageNDmy_(ymd), pp: pp, bp1: bp1, other: other };
+}
+
+function stageNNudgeText_(pack, slot) {
+  const when = String(slot) === "19" ? "19:00" : "11:00";
+  const lines = [];
+  lines.push("📅 Подбейте даты доставок");
+  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП1:");
+  lines.push("");
+  const ppRows = pack.pp || [];
+  const bpRows = pack.bp1 || [];
+  if (!ppRows.length && !bpRows.length) lines.push("Нет таких клиентов за вчера.");
+  else {
+    if (ppRows.length) {
+      lines.push("ПП (" + ppRows.length + "):");
+      ppRows.forEach(function (r) {
+        const tag = stageNSlotTag_(r.ppSlot);
+        lines.push("• " + r.name + (tag ? " — " + tag : ""));
+      });
+      lines.push("");
+    }
+    if (bpRows.length) {
+      lines.push("БП1 (" + bpRows.length + "):");
+      bpRows.forEach(function (r) { lines.push("• " + r.name); });
+      lines.push("");
+    }
+  }
+  lines.push("Сверьте следующие даты в Просмотр.");
+  lines.push("У ПП — кнопка «В АФК», если клиент хочет перерыв.");
+  lines.push("⏰ " + when + " Минск");
+  return lines.join("\n");
+}
+
+async function stageNNudge_(env, opts) {
+  opts = opts || {};
+  const nowDate = stageNNow_(opts.now);
+  const parts = stageNParts_(nowDate, "Europe/Minsk");
+  const ymd = stageNShiftYmd_(parts.ymd, -1);
+  const pack = await stageNNudgePack_(env, ymd);
+  const ids = await stageNStaff_(env, "date_nudge");
+  const slots = opts.slot ? [String(opts.slot)] : ["11", "19"];
+  const out = [];
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const key = "DATE_NUDGE_" + parts.ymd + "_" + slot;
+    const marked = (await stageNMeta_(env, key)) === "1";
+    const text = stageNNudgeText_(pack, slot);
+    const row = {
+      slot: slot,
+      date: pack.dateText,
+      pp: pack.pp.map(function (r) { return r.name + (r.ppSlot ? " " + r.ppSlot : ""); }),
+      bp1: pack.bp1.map(function (r) { return r.name; }),
+      other: pack.other,
+      to: ids,
+      already: marked,
+      text: stageNPreview_(text)
+    };
+    out.push(row);
+    if (!opts.send || marked) continue;
+    const empty = !pack.pp.length && !pack.bp1.length;
+    if (!empty) {
+      const partsText = stageNSplit_(text, 3500);
+      const keyboard = [];
+      const maxBtn = Math.min(pack.pp.length, 24);
+      for (let b = 0; b < maxBtn; b++) {
+        const btnName = String(pack.pp[b].name || "").trim();
+        if (!btnName) continue;
+        const tok = Math.random().toString(16).slice(2, 12);
+        try {
+          await putSnap_(env, "ppafk_" + tok, { client: btnName, matchKey: normalizeMatchKey_(btnName), at: Date.now() });
+        } catch (eTok) {}
+        keyboard.push([{ text: "⏸ В АФК — " + btnName.slice(0, 28), callback_data: ("ppafk:" + tok).slice(0, 64) }]);
+      }
+      const markup = keyboard.length ? { inline_keyboard: keyboard } : null;
+      for (let n = 0; n < ids.length; n++) {
+        try {
+          const first = await telegramSendTextWorker_(env, ids[n], partsText[0], markup);
+          if (!(first && first.ok) && markup) await telegramSendTextWorker_(env, ids[n], partsText[0], null);
+          for (let pi = 1; pi < partsText.length; pi++) await telegramSendTextWorker_(env, ids[n], partsText[pi], null);
+        } catch (eSend) {}
+      }
+    }
+    try { await stageNSetMeta_(env, key, "1"); } catch (eMark) {}
+    row.sent = true;
+  }
+  return { slots: out, sent: opts.send ? out.filter(function (r) { return r.sent; }).length : 0 };
+}
+
+async function stageNClearMarkup_(env, cq) {
+  const token = getTelegramTokenWorker_(env);
+  const msg = cq && cq.message;
+  if (!token || !msg || !msg.chat) return;
+  try {
+    await fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: msg.chat.id,
+        message_id: msg.message_id,
+        reply_markup: { inline_keyboard: [] }
+      })
+    });
+  } catch (e) {}
+}
+
+async function stageNCallback_(env, cq, send) {
+  const data = String((cq && cq.data) || "");
+  const def = data.match(/^defdone:(.+)$/i);
+  const sv = data.match(/^svsent:(.+)$/i);
+  const afk = data.match(/^ppafk:(.+)$/i);
+  if (!def && !sv && !afk) return null;
+  if (!send) return { kind: def ? "defdone" : sv ? "svsent" : "ppafk", sent: false };
+  if (def) {
+    const id = def[1];
+    const snap = (await getSnapRaw_(env, "listDeficit")) || { items: [] };
+    (snap.items || []).forEach(function (row) {
+      if (String(row.id) === id) row.status = "done";
+    });
+    try { await putSnap_(env, "listDeficit", snap); } catch (ePut) {}
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Готово"); } catch (eA) {}
+    try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+    return { kind: "defdone", sent: true };
+  }
+  if (sv) {
+    const id = sv[1];
+    const snap = (await getSnapRaw_(env, "listSurvey")) || { items: [] };
+    (snap.items || []).forEach(function (row) {
+      if (String(row.id) === id) {
+        row.status = "sent";
+        row.sentAt = new Date().toISOString();
+      }
+    });
+    try { await putSnap_(env, "listSurvey", snap); } catch (ePut) {}
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Отмечено"); } catch (eA) {}
+    try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+    return { kind: "svsent", sent: true };
+  }
+  const tok = afk[1];
+  const info = await getSnapRaw_(env, "ppafk_" + tok);
+  if (!info || !info.client) {
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Кнопка устарела — открой мини-апп"); } catch (eA) {}
+    return { kind: "ppafk", sent: true };
+  }
+  let moved = null;
+  try {
+    moved = await upsertSubscription_({
+      action: "moveSubscription",
+      nick: info.client,
+      fromSheet: "ПП",
+      toSheet: "АФК"
+    }, env);
+  } catch (eMove) {
+    moved = { status: "error", message: String(eMove) };
+  }
+  if (!moved || moved.status !== "success") {
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Не вышло"); } catch (eA) {}
+    return { kind: "ppafk", sent: true, ok: false };
+  }
+  try { await telegramAnswerCallbackWorker_(env, cq.id, "В АФК: " + info.client); } catch (eA) {}
+  try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+  const chat = cq.message && cq.message.chat ? cq.message.chat.id : "";
+  if (chat) {
+    try {
+      await telegramSendTextWorker_(env, chat, "✅ " + info.client + " → лист АФК (пауза).\nСледующие даты в календаре сверь вручную.", null);
+    } catch (eT) {}
+  }
+  return { kind: "ppafk", sent: true, ok: true };
+}
+
+async function stageNTick_(env, when) {
+  const armed = (await stageNMeta_(env, "notify_cron_live")) === "1";
+  if (!armed) return { skipped: "not_armed" };
+  const now = stageNNow_(when);
+  const parts = stageNParts_(now, "Europe/Minsk");
+  const out = { deferred: await stageNDeferred_(env, { send: true, now: now }) };
+  if (parts.minute === 0 || parts.minute === 30) {
+    out.deficit = await stageNDeficit_(env, { send: true, now: now });
+    out.survey = await stageNSurvey_(env, { send: true, now: now });
+  }
+  if ((parts.hour === 11 || parts.hour === 19) && parts.minute === 0) {
+    out.nudge = await stageNNudge_(env, { send: true, slot: String(parts.hour), now: now });
+  }
+  return out;
+}
+
+async function stageNDry_(env) {
+  const before = await stageGSheetCalls_(env);
+  const ensured = await stageNEnsure_(env);
+  const now = new Date();
+  const deferred = await stageNDeferred_(env, { send: false, now: now });
+  const deficit = await stageNDeficit_(env, { send: false, now: now });
+  const survey = await stageNSurvey_(env, { send: false, now: now });
+  const nudge = await stageNNudge_(env, { send: false, now: now });
+  const after = await stageGSheetCalls_(env);
+  try { await putSnap_(env, "notify_overdue_deferred", { at: now.toISOString(), items: deferred.overdue }); } catch (eOver) {}
+  try { await stageNSetMeta_(env, "notify_cron_live", "1"); } catch (eArm) {}
+  const sent = (deferred.sent || 0) + (deficit.sent || 0) + (survey.sent || 0) + (nudge.sent || 0);
+  return {
+    status: sent === 0 ? "success" : "error",
+    sent: sent,
+    armed: true,
+    imported: ensured.imported,
+    importNeeded: ensured.needed,
+    importError: ensured.error || "",
+    counts: ensured.counts || {},
+    sheetCallsBefore: before,
+    sheetCallsAfter: after,
+    sheetsDelta: after - before,
+    nudge: nudge.slots,
+    deficit: { quiet: deficit.quiet, recipients: deficit.recipients, would: deficit.would },
+    survey: { would: survey.would, today: survey.today, skipped: survey.skipped },
+    deferred: { would: deferred.would, overdue: deferred.overdue, hidden: deferred.hidden },
+    when: stageNParts_(now, "Europe/Minsk")
+  };
+}
+
+async function stageNAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  try {
+    return json(await stageNDry_(env));
+  } catch (eRun) {
+    return json({ status: "error", message: String((eRun && eRun.message) || eRun) }, 500);
+  }
 }
 
 async function stageGAdmin_(request, env) {
