@@ -1022,6 +1022,7 @@ function saveCuttingState_(cutting, memorySheet, dateText, tz) {
 // ===================== onEdit: Нарезка дата =====================
 
 function onEdit(e) {
+  if (gasTriggersOff_()) return;
   var ss = e.source;
   var sheet = ss.getActiveSheet();
   var range = e.range;
@@ -1483,6 +1484,7 @@ function replyFinishWeek_(callback, fromPost, obj) {
  * Повторный запуск, пока job свежий, не создаёт второй триггер (+7).
  */
 function runScheduledFinishWeek_() {
+  if (gasTriggersOff_()) return;
   var job = readFinishWeekJob_();
   if (!job || String(job.state || "") !== "queued") return;
   var lock = LockService.getScriptLock();
@@ -1995,10 +1997,14 @@ function doPost(e) {
     var json = JSON.parse(e.postData.contents);
     // Входящие апдейты Telegram (если webhook смотрит на этот же URL)
     if (json && (json.message || json.callback_query || json.edited_message || json.update_id != null)) {
-      try {
-        handleTelegramUpdate_(json);
-      } catch (eTgPost) {
-        try { Logger.log("tg doPost: " + eTgPost); } catch (eL) {}
+      if (gasTriggersOff_()) {
+        try { forwardTelegramToWorker_(json); } catch (eFwd) {}
+      } else {
+        try {
+          handleTelegramUpdate_(json);
+        } catch (eTgPost) {
+          try { Logger.log("tg doPost: " + eTgPost); } catch (eL) {}
+        }
       }
       // всегда быстро «ok», иначе Telegram ретраит update и сыплет сообщениями
       return ContentService.createTextOutput("ok");
@@ -10732,6 +10738,29 @@ function telegramSendMarkup_(chatId, text, replyMarkup) {
   try { return JSON.parse(res.getContentText()); } catch (e) { return { ok: false, error: String(e) }; }
 }
 
+/** Этап (г). Триггеры GAS не трогают лист. Откат: Script Property GAS_TRIGGERS=on. */
+function gasTriggersOff_() {
+  var v = "";
+  try {
+    v = String(PropertiesService.getScriptProperties().getProperty("GAS_TRIGGERS") || "").trim().toLowerCase();
+  } catch (eTr) {
+    v = "";
+  }
+  if (v === "on" || v === "1" || v === "write" || v === "sheets") return false;
+  return true;
+}
+
+function forwardTelegramToWorker_(json) {
+  var secret = "";
+  try { secret = String(PropertiesService.getScriptProperties().getProperty("WORKER_SHARED_SECRET") || ""); } catch (eSec) { secret = ""; }
+  UrlFetchApp.fetch(boinyaWorkerUrl_() + "/telegram/boinya", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ update: json, _wk: secret }),
+    muteHttpExceptions: true
+  });
+}
+
 function boinyaWorkerUrl_() {
   var u = "";
   try {
@@ -10864,6 +10893,7 @@ function notifyOutNextStock_(info) {
 }
 
 function tickCuttingDeficit_() {
+  if (gasTriggersOff_()) return { skipped: true, reason: "gas_triggers_off" };
   try { ensureTelegramWebhookUrl_(); } catch (eWh) {}
   try { ensureDeliveryDatesNudgeTriggers_(); } catch (eNudgeTr) {}
   try { tickDeliveryDatesNudge_(); } catch (eNudge) {}
@@ -10928,6 +10958,7 @@ function collectAllActiveStaffTelegramIds_() {
  * Список = вчера доставленные (галочка) ПП + БП1; у ПП кнопка «В АФК».
  */
 function tickDeliveryDatesNudge_() {
+  if (gasTriggersOff_()) return { skipped: true, reason: "gas_triggers_off" };
   var tz = "Europe/Minsk";
   var now = new Date();
   var hour = Number(Utilities.formatDate(now, tz, "H"));
@@ -32701,6 +32732,7 @@ function getSurveyTemplateBody_(kind, nick) {
 }
 
 function tickBpSurveyReminders_() {
+  if (gasTriggersOff_()) return { skipped: true, reason: "gas_triggers_off" };
   return runBpSurveyReminders_({ force: false });
 }
 
@@ -34864,6 +34896,7 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
 
 /** Раз в ~1 мин: отправить TG-напоминания (абсолютное время remindAtMs). */
 function tickDeferredReminders_() {
+  if (gasTriggersOff_()) return;
   // Закрытие недели: HTTP только пишет задание. Тяжёлую работу делает этот минутный триггер, не веб-запрос.
   try {
     var finJob = readFinishWeekJob_();
