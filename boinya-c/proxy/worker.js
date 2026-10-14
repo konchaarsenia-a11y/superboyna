@@ -33832,8 +33832,10 @@ async function stageNTick_(env, when) {
   const parts = stageNParts_(now, "Europe/Minsk");
   const out = { deferred: await stageNDeferred_(env, { send: true, now: now }) };
   if (parts.minute === 0 || parts.minute === 30) {
-    out.deficit = await stageNDeficit_(env, { send: true, now: now });
     out.survey = await stageNSurvey_(env, { send: true, now: now });
+  }
+  if ((parts.hour === 10 || parts.hour === 12) && parts.minute === 0) {
+    out.deficit = await stageNDeficit_(env, { send: true, now: now });
   }
   if ((parts.hour === 11 || parts.hour === 19) && parts.minute === 0) {
     out.nudge = await stageNNudge_(env, { send: true, slot: String(parts.hour), now: now });
