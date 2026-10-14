@@ -28,8 +28,8 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
-          required = ["boinya-c-worker"]
-          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
+          required = ["boinya-c-worker", "boinya-c-worker-deploy"]
+          optional = ["clasp-deploy"]
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
           deadline = time.time() + 20 * 60
           quiet = 0
@@ -101,6 +101,9 @@ jobs:
             sleep 15
           done
           test "$marker" = "orders-d1-stage-n-h1"
+          latest=$(npx wrangler@4 versions list --json | python3 -c 'import json,sys; data=json.load(sys.stdin); data=data if isinstance(data, list) else (data.get("versions") or data.get("result") or []); print(data[0]["id"])')
+          echo "promote $latest"
+          npx wrangler@4 versions deploy "${latest}@100" -y --message "stage-n dry promote"
           TOKEN=$(openssl rand -hex 32)
           echo "::add-mask::$TOKEN"
           put_ok=0
@@ -109,6 +112,8 @@ jobs:
               put_ok=1
               break
             fi
+            echo "secret put retry $i"
+            npx wrangler@4 versions deploy "${latest}@100" -y --message "stage-n dry promote" || true
             sleep 20
           done
           test "$put_ok" = 1
