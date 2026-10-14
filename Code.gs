@@ -10901,6 +10901,10 @@ function tickCuttingDeficit_() {
   try { ensureDeliveryDatesNudgeTriggers_(); } catch (eNudgeTr) {}
   try { tickDeliveryDatesNudge_(); } catch (eNudge) {}
   try { tickBpSurveyReminders_(); } catch (eSurvey) {}
+  var minskDef = localPartsInTz_(new Date(), "Europe/Minsk");
+  if (!((minskDef.hour === 10 || minskDef.hour === 12) && minskDef.minute === 0)) {
+    return { skipped: true, reason: "deficit_hours", hour: minskDef.hour, minute: minskDef.minute };
+  }
   var sh = getDeficitSheet_();
   var data = sh.getDataRange().getValues();
   var now = new Date();
