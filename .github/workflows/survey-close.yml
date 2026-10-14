@@ -1,0 +1,142 @@
+name: survey-close
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/survey-close.yml
+
+permissions:
+  contents: read
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Close three old survey rows
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/survey-close"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key = 'listSurvey'" > "$GITHUB_WORKSPACE/artifacts/survey-close/before.json"
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          raw = json.load(open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-close/before.json", encoding="utf-8"))
+          block = raw[0] if isinstance(raw, list) else raw
+          rows = block.get("results") or []
+          row = next(r for r in rows if r.get("cache_key") == "listSurvey")
+          payload = json.loads(row["payload"])
+          items = payload.get("items") or []
+          before_n = len(items)
+          want = [
+              ("Maria_stsiapura", "2026-08-25", "21"),
+              ("dil", "2026-08-27", "27"),
+              ("_dyomkina", "2026-10-02", "48"),
+          ]
+          hits = {i: [] for i in range(len(want))}
+          for idx, it in enumerate(items):
+              nick = str((it or {}).get("nick") or "").strip()
+              due = str((it or {}).get("dueDate") or "")[:10]
+              sub = str((it or {}).get("linkedSubId") or "").strip()
+              for w, spec in enumerate(want):
+                  if nick.lower() == spec[0].lower() and due == spec[1] and sub == spec[2]:
+                      hits[w].append(idx)
+          for w, spec in enumerate(want):
+              if len(hits[w]) != 1:
+                  raise SystemExit("match %s count %s" % (spec, len(hits[w])))
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+          closed = []
+          for w, spec in enumerate(want):
+              it = items[hits[w][0]]
+              st = str(it.get("status") or "").lower()
+              if st not in ("closed", "cancelled", "cancel", "done"):
+                  it["status"] = "closed"
+                  it["updatedAt"] = now
+              closed.append({
+                  "nick": it.get("nick"),
+                  "due": str(it.get("dueDate") or "")[:10],
+                  "sub": str(it.get("linkedSubId") or ""),
+                  "id": it.get("id"),
+                  "status": it.get("status"),
+                  "sentAt": it.get("sentAt") or "",
+              })
+          if len(items) != before_n:
+              raise SystemExit("count changed")
+          body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+          sql = (
+              "UPDATE snap_cache SET payload = '"
+              + body.replace("'", "''")
+              + "', updated_at = '"
+              + now
+              + "' WHERE cache_key = 'listSurvey';\n"
+          )
+          open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-close/update.sql", "w", encoding="utf-8").write(sql)
+          json.dump({"closed": closed, "items": before_n}, open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-close/plan.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(closed, ensure_ascii=False))
+          PY
+          npx wrangler@4 d1 execute boinya-c --remote --file "$GITHUB_WORKSPACE/artifacts/survey-close/update.sql"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT payload FROM snap_cache WHERE cache_key = 'listSurvey'" > "$GITHUB_WORKSPACE/artifacts/survey-close/after.json"
+          python3 - <<'PY'
+          import json, os
+          raw = json.load(open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-close/after.json", encoding="utf-8"))
+          block = raw[0] if isinstance(raw, list) else raw
+          payload = json.loads(block["results"][0]["payload"])
+          items = payload.get("items") or []
+          want = [
+              ("maria_stsiapura", "2026-08-25", "21"),
+              ("dil", "2026-08-27", "27"),
+              ("_dyomkina", "2026-10-02", "48"),
+          ]
+          def takes(it):
+              st = str((it or {}).get("status") or "").lower()
+              if st in ("done", "cancelled", "cancel", "closed", "sent"):
+                  return False
+              if str((it or {}).get("sentAt") or "").strip():
+                  return False
+              if st and st not in ("planned", "due", "open"):
+                  return False
+              due = str((it or {}).get("dueDate") or "")[:10]
+              nick = str((it or {}).get("nick") or "").strip()
+              return bool(nick and due)
+          picked = []
+          still = []
+          for it in items:
+              nick = str((it or {}).get("nick") or "").strip().lower()
+              due = str((it or {}).get("dueDate") or "")[:10]
+              sub = str((it or {}).get("linkedSubId") or "").strip()
+              for spec in want:
+                  if nick == spec[0] and due == spec[1] and sub == spec[2]:
+                      row = {"nick": it.get("nick"), "due": due, "sub": sub, "status": it.get("status"), "sentAt": it.get("sentAt") or "", "cron": takes(it)}
+                      picked.append(row)
+                      if takes(it):
+                          still.append(row)
+          if len(picked) != 3 or still:
+              raise SystemExit("still open " + json.dumps(picked, ensure_ascii=False))
+          plan = json.load(open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-close/plan.json", encoding="utf-8"))
+          if len(items) != plan.get("items"):
+              raise SystemExit("items " + str(len(items)))
+          out = {"items": len(items), "picked": picked, "cronTakes": len(still)}
+          json.dump(out, open(os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-close/after-brief.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(out, ensure_ascii=False))
+          PY
+      - name: Drop raw survey payloads
+        if: always()
+        run: rm -f artifacts/survey-close/update.sql artifacts/survey-close/before.json artifacts/survey-close/after.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: survey-close
+          path: artifacts/survey-close/
+          if-no-files-found: warn
