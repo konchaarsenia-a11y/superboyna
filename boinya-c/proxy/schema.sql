@@ -140,3 +140,40 @@ CREATE TABLE IF NOT EXISTS goals (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Этап (в). Остатки и журнал. Розница и себес — отдельные от raw_cost_ver.
+CREATE TABLE IF NOT EXISTS stock_items (
+  sku TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  dry_g REAL,
+  raw_kg REAL,
+  yield REAL,
+  unit TEXT NOT NULL DEFAULT '',
+  row_num INTEGER,
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS stock_moves (
+  id TEXT PRIMARY KEY,
+  date_iso TEXT NOT NULL,
+  sku TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  qty REAL,
+  actor TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS retail_prices (
+  sku TEXT PRIMARY KEY,
+  price REAL,
+  source TEXT NOT NULL DEFAULT 'showcase',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS raw_costs (
+  sku TEXT PRIMARY KEY,
+  price REAL,
+  yield REAL,
+  source TEXT NOT NULL DEFAULT 'cost',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
