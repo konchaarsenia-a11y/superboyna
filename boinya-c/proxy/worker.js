@@ -32552,9 +32552,10 @@ async function stageCPeopleForRange_(env, fromIso, toIso) {
 
 async function stageCCheck_(env) {
   await stageCEnsureSchema_(env);
-  const sheet = await gasProxy_("exportStageCFormulas", { from: STAGE_C_FROM_, to: STAGE_C_TO_ }, env, { write: false });
+  // doGet не знает этот action: чтение идёт POST-ом, как exportStageBRows. Лист не пишется.
+  const sheet = await gasProxy_("exportStageCFormulas", { from: STAGE_C_FROM_, to: STAGE_C_TO_ }, env, { write: true });
   if (!sheet || sheet.status !== "success") {
-    return { status: "error", message: (sheet && sheet.message) || "sheet_read_failed", sheetsReadonly: true };
+    return { status: "error", message: (sheet && (sheet.message || sheet.status)) || "sheet_read_failed", sheetsReadonly: true };
   }
   const plan = sheet.plan || [];
   const whRows = (sheet.warehouse || []).map(function (r) {
@@ -32591,7 +32592,9 @@ async function stageCCheck_(env) {
   for (let i = 0; i < (sheet.ledger || []).length; i++) {
     const mv = sheet.ledger[i];
     const id = "led:" + String(mv.ts || "") + ":" + String(mv.skuRow || "") + ":" + String(mv.type || "") + ":" + String(mv.qty || "");
-    const date = String(mv.ts || "").slice(0, 10);
+    const tsRaw = String(mv.ts || "").trim();
+    const dmy = tsRaw.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    const date = /^\d{4}-\d{2}-\d{2}/.test(tsRaw) ? tsRaw.slice(0, 10) : (dmy ? dmy[3] + "-" + dmy[2] + "-" + dmy[1] : "");
     try {
       const res = await env.DB.prepare(
         "INSERT INTO stock_moves (id, date_iso, sku, kind, qty, actor, created_at) VALUES (?, ?, ?, ?, ?, '', ?) ON CONFLICT(id) DO NOTHING"

@@ -149,9 +149,11 @@ jobs:
           base = os.environ["GITHUB_WORKSPACE"] + "/artifacts/stage-c/"
           sync = json.load(open(base + "sync.json", encoding="utf-8"))
           chk = json.load(open(base + "check.json", encoding="utf-8"))
-          print("SYNC", json.dumps({k: sync.get(k) for k in ("stockItems","retailPrices","rawCosts","cuttingFlags","goals","expenses","sheets")}, ensure_ascii=False))
-          print("CHECK", json.dumps({k: chk.get(k) for k in ("week","planRows","orders","formulaDiffCount","formulaOk","ledgerRows","ledgerInserted","ledgerFrom","holes","closeApplies","colRSample")}, ensure_ascii=False))
+          print("SYNC", json.dumps({k: sync.get(k) for k in ("status","message","stockItems","retailPrices","rawCosts","cuttingFlags","goals","expenses","sheets")}, ensure_ascii=False))
+          print("CHECK", json.dumps({k: chk.get(k) for k in ("status","message","week","planRows","orders","formulaDiffCount","formulaOk","ledgerRows","ledgerInserted","ledgerFrom","holes","closeApplies","cuttingDays","colRSample")}, ensure_ascii=False))
           print("DIFFS", json.dumps(chk.get("formulaDiffs") or [], ensure_ascii=False))
+          if sync.get("status") != "success" or chk.get("status") != "success":
+              raise SystemExit("stage-c status not success")
           PY
       - name: Delete one-time token
         if: always()

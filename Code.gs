@@ -36548,8 +36548,21 @@ function handleExportStageCFormulas_(json, callback, fromPost) {
       colR.push({ name: rn, value: rVals[r][0] });
     }
   }
+  function stageCIso_(val) {
+    try {
+      if (val instanceof Date && !isNaN(val.getTime())) return isoDateKey_(val, tz);
+      var parsed = parseFlexibleDate_(val, tz);
+      if (parsed) return isoDateKey_(parsed, tz);
+    } catch (eIso) {}
+    var s = String(val || "").trim();
+    var m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    if (m) return m[3] + "-" + m[2] + "-" + m[1];
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    return "";
+  }
   var ledger = [];
   var ledgerFrom = "";
+  var ledgerHasSeptember = false;
   var led = ss.getSheetByName("Склад_Движения");
   if (led && led.getLastRow() > 1) {
     var lr = led.getLastRow();
@@ -36557,9 +36570,9 @@ function handleExportStageCFormulas_(json, callback, fromPost) {
     var data = led.getRange(start, 1, lr - start + 1, 7).getValues();
     for (var j = 0; j < data.length; j++) {
       var ts = data[j][0];
-      var iso = "";
-      try { iso = formatSheetDate(ts, tz); } catch (eDt) { iso = String(ts || "").slice(0, 10); }
+      var iso = stageCIso_(ts);
       if (!ledgerFrom || (iso && iso < ledgerFrom)) ledgerFrom = iso;
+      if (iso && iso >= "2026-09-01" && iso < "2026-10-01") ledgerHasSeptember = true;
       if (iso && iso < "2026-09-01") continue;
       ledger.push({
         ts: iso || String(ts || ""),
@@ -36576,11 +36589,11 @@ function handleExportStageCFormulas_(json, callback, fromPost) {
   var holes = [];
   if (!ledgerFrom) holes.push("Склад_Движения пуст");
   else if (ledgerFrom > "2026-09-01") holes.push("журнал движений начинается с " + ledgerFrom);
+  if (ledgerFrom && !ledgerHasSeptember) holes.push("в журнале нет движений сентября");
   if (mem && mem.getLastRow() >= 1) {
     var dates = mem.getRange(1, 1, mem.getLastRow(), 1).getValues();
     for (var d = 0; d < dates.length; d++) {
-      var day = "";
-      try { day = formatSheetDate(dates[d][0], tz); } catch (eDay) { day = ""; }
+      var day = stageCIso_(dates[d][0]);
       if (!day || day < from || day > to) continue;
       var saved = null;
       try { saved = JSON.parse(mem.getRange(d + 1, 2).getValue()); } catch (eJs) { saved = null; }
