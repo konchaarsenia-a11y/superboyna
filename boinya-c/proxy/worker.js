@@ -33215,6 +33215,7 @@ async function stageNEnsure_(env) {
   const need = [];
   async function empty(key, field) {
     const snap = await getSnapRaw_(env, key);
+    if (snap && snap.fromStageN) return false;
     const arr = snap && snap[field];
     if (Array.isArray(arr) && arr.length) return false;
     need.push(key);
@@ -33228,57 +33229,74 @@ async function stageNEnsure_(env) {
   await empty("listBugReports", "items");
   await empty("listDeficit", "items");
   if (!need.length) return { imported: [], needed: [] };
-  const live = await gasProxy_("exportStageNRows", {}, env, { write: true });
-  if (!live || live.status !== "success") {
-    return { imported: [], needed: need, error: (live && live.message) || "export_failed" };
-  }
   const imported = [];
-  async function putIf(key, field, rows, extra) {
-    if (need.indexOf(key) < 0) return;
-    const arr = Array.isArray(rows) ? rows : [];
-    if (!arr.length) return;
-    const body = Object.assign({ status: "success", fromStageN: true }, extra || {});
-    body[field] = arr;
-    await putSnap_(env, key, body);
-    imported.push(key + ":" + arr.length);
-  }
-  const deferred = (live.deferred || []).map(function (row) {
-    let payload = {};
-    try { payload = JSON.parse(String(row.payloadJson || "{}")); } catch (eP) { payload = {}; }
-    if (!payload || typeof payload !== "object") payload = {};
-    return {
-      id: row.id,
-      at: row.at || "",
-      telegramId: row.telegramId || "",
-      mode: String(row.mode || "").toLowerCase(),
-      title: row.title || "",
-      clientNick: row.clientNick || "",
-      status: row.status || "open",
-      payload: payload,
-      remindAt: payload.remindAt || "",
-      remindAtMs: Number(payload.remindAtMs) || 0,
-      remindSent: !!payload.remindSent,
-      targetTelegramId: String(payload.targetTelegramId || payload.forTelegramId || ""),
-      fromD1: true
-    };
-  });
-  await putIf("listDeferred", "items", deferred);
-  await putIf("listSurvey", "items", live.surveys || []);
-  await putIf("listTemplates", "items", live.templates || []);
-  if (need.indexOf("listTemplates") >= 0) {
-    const surveyTpl = (live.templates || []).filter(function (t) {
-      return /survey/i.test(String(t.kind || "")) || /survey_/i.test(String(t.id || ""));
+  const errors = [];
+  const counts = {};
+  function mapDeferred(rows) {
+    return (rows || []).map(function (row) {
+      let payload = {};
+      try { payload = JSON.parse(String(row.payloadJson || "{}")); } catch (eP) { payload = {}; }
+      if (!payload || typeof payload !== "object") payload = {};
+      return {
+        id: row.id,
+        at: row.at || "",
+        telegramId: row.telegramId || "",
+        mode: String(row.mode || "").toLowerCase(),
+        title: row.title || "",
+        clientNick: row.clientNick || "",
+        status: row.status || "open",
+        payload: payload,
+        remindAt: payload.remindAt || "",
+        remindAtMs: Number(payload.remindAtMs) || 0,
+        remindSent: !!payload.remindSent,
+        targetTelegramId: String(payload.targetTelegramId || payload.forTelegramId || ""),
+        fromD1: true
+      };
     });
-    const prevS = await getSnapRaw_(env, "listTemplates:survey");
-    if (!(prevS && Array.isArray(prevS.items) && prevS.items.length) && surveyTpl.length) {
-      await putSnap_(env, "listTemplates:survey", { status: "success", items: surveyTpl, fromStageN: true });
+  }
+  for (let i = 0; i < need.length; i++) {
+    const key = need[i];
+    let live = null;
+    try {
+      live = await gasProxy_("exportStageNRows", { only: key }, env, { write: true });
+    } catch (eCall) {
+      live = { status: "error", message: String((eCall && eCall.message) || eCall) };
+    }
+    if (!live || live.status !== "success") {
+      errors.push(key + ":" + ((live && (live.message || live.msg || live.status)) || "export_failed"));
+      continue;
+    }
+    if (live.errors && live.errors.length) {
+      errors.push(key + ":" + live.errors.join("|"));
+      continue;
+    }
+    let field = "items";
+    let rows = [];
+    if (key === "listDeferred") rows = mapDeferred(live.deferred);
+    else if (key === "listSurvey") rows = live.surveys || [];
+    else if (key === "listTemplates") rows = live.templates || [];
+    else if (key === "listAccess") {
+      field = "people";
+      rows = live.access || [];
+    } else if (key === "listCouriers") rows = live.couriers || [];
+    else if (key === "listBugReports") rows = live.bugs || [];
+    else if (key === "listDeficit") rows = live.deficits || [];
+    const body = { status: "success", fromStageN: true };
+    body[field] = rows;
+    await putSnap_(env, key, body);
+    imported.push(key + ":" + rows.length);
+    counts[key] = rows.length;
+    if (key === "listTemplates") {
+      const surveyTpl = rows.filter(function (t) {
+        return /survey/i.test(String(t.kind || "")) || /survey_/i.test(String(t.id || ""));
+      });
+      const prevS = await getSnapRaw_(env, "listTemplates:survey");
+      if (!(prevS && Array.isArray(prevS.items) && prevS.items.length)) {
+        await putSnap_(env, "listTemplates:survey", { status: "success", items: surveyTpl, fromStageN: true });
+      }
     }
   }
-  await putIf("listAccess", "people", live.access || []);
-  await putIf("listCouriers", "items", live.couriers || []);
-  await putIf("listBugReports", "items", live.bugs || []);
-  await putIf("listDeficit", "items", live.deficits || []);
-  return { imported: imported, needed: need, counts: live.counts || {} };
+  return { imported: imported, needed: need, error: errors.join("; "), counts: counts };
 }
 
 function stageNDeferredText_(item, people) {
