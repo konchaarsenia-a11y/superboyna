@@ -712,9 +712,16 @@ async function pollDesktopAuth_(params, env) {
   if (!bot) return { status: "error", message: "no_bot_token", linked: false };
   let live = null;
   try {
-    live = await gasProxy_("pollNativeAuth", { token: token }, env, { write: false });
-  } catch (e) {
+    live = await getSnapRaw_(env, "native_auth_" + token);
+  } catch (eSnap) {
     live = null;
+  }
+  if (!(live && live.telegramId) && !sheetsEdgeOff_(env)) {
+    try {
+      live = await gasProxy_("pollNativeAuth", { token: token }, env, { write: false });
+    } catch (e) {
+      live = null;
+    }
   }
   const tid = String((live && live.telegramId) || "").trim();
   if (!live || !live.linked || !/^\d+$/.test(tid)) {
@@ -775,7 +782,7 @@ async function authLookupRole_(tid, env) {
       }
     } catch (eA) {}
   }
-  if (!role && env && env.DB) {
+  if (!role && env && env.DB && !sheetsEdgeOff_(env)) {
     try {
       const live = await gasProxy_("getMyAccess", { telegramId: tid }, env, { write: false });
       if (live && live.status === "success") {
@@ -1019,6 +1026,12 @@ export default {
     }
     if (url.pathname === "/admin/stage-c") {
       return stageCAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/stage-g") {
+      return stageGAdmin_(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/telegram/boinya") {
+      return stageGTelegram_(request, env);
     }
     if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
       return handleGoodboyTelegramWebhook_(request, env, ctx);
@@ -1272,6 +1285,18 @@ function sheetsOpsReadonly_(env) {
 
 function opsSheetsLabel_(env) {
   return sheetsOpsReadonly_(env) ? "d1-readonly-sheets" : "sheets-mirror";
+}
+
+/** Этап (г): Варка, сайт, бот и триггеры не зовут лист. Откат: EDGE_SHEETS=write или PARTNER_CANON=sheets / GB_CANON=sheets. */
+function sheetsEdgeOff_(env) {
+  const v = env && env.EDGE_SHEETS ? String(env.EDGE_SHEETS).trim().toLowerCase() : "";
+  if (v === "write" || v === "on" || v === "sheets") return false;
+  if (v === "off" || v === "readonly" || v === "read-only") return true;
+  return isPartnerD1PrimaryCanon_(env) && isGbD1PrimaryCanon_(env);
+}
+
+function edgeSheetsLabel_(env) {
+  return sheetsEdgeOff_(env) ? "d1-no-sheets" : "sheets-mirror";
 }
 
 function isWeekD1GasAuthoritative_(env) {
@@ -1878,7 +1903,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
-      deployMarker: "orders-d1-stage-c-h1"
+      edgeSheets: edgeSheetsLabel_(env),
+      deployMarker: "orders-d1-stage-g-h1"
     };
   }
 
@@ -16334,6 +16360,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
   const snapKey = partnerMeSnapKey_(params);
 
   async function fetchLive_() {
+    if (sheetsEdgeOff_(env)) return { status: "skipped", sheetsReadonly: true, fromD1: true };
     const live = await gasProxy_("partnerGetMe", params, env, { write: false });
     let out = partnerGuardOrRewrite_("partnerGetMe", params, live);
     try {
@@ -18550,16 +18577,18 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eW) {
         d1W = { status: "error", message: String((eW && eW.message) || eW) };
       }
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(
-          gasProxy_(a, params, env, { write: true }).catch(function () {
-            return null;
-          })
-        );
-      } else {
-        try {
-          await gasProxy_(a, params, env, { write: true });
-        } catch (eGasW) {}
+      if (!sheetsEdgeOff_(env)) {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(
+            gasProxy_(a, params, env, { write: true }).catch(function () {
+              return null;
+            })
+          );
+        } else {
+          try {
+            await gasProxy_(a, params, env, { write: true });
+          } catch (eGasW) {}
+        }
       }
       return Object.assign(
         {
@@ -18567,7 +18596,8 @@ async function handleCutover_(a, params, env, ctx) {
           action: a,
           cutover: true,
           fromD1: true,
-          pendingSheets: true,
+          pendingSheets: !sheetsEdgeOff_(env),
+          sheetsReadonly: sheetsEdgeOff_(env),
           partnerCanon: partnerCanonLabel_(env)
         },
         d1W || {}
@@ -18607,10 +18637,16 @@ async function handleCutover_(a, params, env, ctx) {
       if (/^partnerVarkaBroadcast$/i.test(a)) {
         params = Object.assign({}, params, { skipSend: "1" });
       }
-      const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
+      const quietPartner =
+        String((params && params.skipPartnerNotify) || "") === "1" ||
+        /ТЕСТ/i.test(String((params && (params.note || params.userName)) || ""));
+      const gasP = sheetsEdgeOff_(env)
+        ? Promise.resolve(null)
+        : gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          });
       if (
+        !quietPartner &&
         /^partnerSubmitOrder$/i.test(a) &&
         d1P &&
         d1P.status === "success" &&
@@ -18621,6 +18657,7 @@ async function handleCutover_(a, params, env, ctx) {
         ctx.waitUntil(partnerNotifyOrderFastWorker_(d1P.order, env));
       }
       if (
+        !quietPartner &&
         /^partnerSetOrderSlot$/i.test(a) &&
         d1P &&
         d1P.status === "success" &&
@@ -18631,6 +18668,7 @@ async function handleCutover_(a, params, env, ctx) {
         ctx.waitUntil(partnerNotifySlotFastWorker_(d1P.order, env));
       }
       if (
+        !quietPartner &&
         /^partnerSetOrderStatus$/i.test(a) &&
         d1P &&
         d1P.status === "success" &&
@@ -18643,7 +18681,7 @@ async function handleCutover_(a, params, env, ctx) {
           ctx.waitUntil(partnerNotifyStatusFastWorker_(d1P.order, env, stN));
         }
       }
-      if (ctx && typeof ctx.waitUntil === "function") {
+      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasP.then(async function (live) {
             try {
@@ -18652,15 +18690,15 @@ async function handleCutover_(a, params, env, ctx) {
             return live;
           })
         );
-      } else {
+      } else if (!sheetsEdgeOff_(env) || !quietPartner) {
         try {
-          if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+          if (!quietPartner && /^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             await partnerNotifyOrderFastWorker_(d1P.order, env);
           }
-          if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+          if (!quietPartner && /^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             await partnerNotifySlotFastWorker_(d1P.order, env);
           }
-          if (/^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+          if (!quietPartner && /^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             const stN2 = String(d1P.orderStatus || d1P.order.status || "").trim().toLowerCase();
             if (stN2 === "in_transit" || stN2 === "delivered") {
               await partnerNotifyStatusFastWorker_(d1P.order, env, stN2);
@@ -18692,6 +18730,13 @@ async function handleCutover_(a, params, env, ctx) {
           cutover: true,
           fromD1: true,
           partnerCanon: partnerCanonLabel_(env),
+          action: a
+        });
+      }
+      if (sheetsEdgeOff_(env)) {
+        return Object.assign({}, d1P || { status: "error", message: "partner_write_failed" }, {
+          sheetsReadonly: true,
+          fromGas: false,
           action: a
         });
       }
@@ -18729,10 +18774,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eG0) {
         d1G = { status: "error", message: String((eG0 && eG0.message) || eG0) };
       }
-      const gasG = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") {
+      const gasG = sheetsEdgeOff_(env)
+        ? Promise.resolve(null)
+        : gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          });
+      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasG.then(async function (live) {
             try {
@@ -18754,6 +18801,13 @@ async function handleCutover_(a, params, env, ctx) {
           d1Verified: true,
           optimistic: false,
           gbCanon: gbCanonLabel_(env),
+          action: a
+        });
+      }
+      if (sheetsEdgeOff_(env)) {
+        return Object.assign({}, d1G || { status: "error", message: "gb_write_failed" }, {
+          sheetsReadonly: true,
+          fromGas: false,
           action: a
         });
       }
@@ -18787,16 +18841,25 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eTry) {
         d1Try = { status: "error", message: String((eTry && eTry.message) || eTry) };
       }
-      const gasTry = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasTry);
+      const gasTry = sheetsEdgeOff_(env)
+        ? Promise.resolve(null)
+        : gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          });
+      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasTry);
       if (d1Try && (d1Try.status === "ok" || d1Try.status === "success")) {
         return Object.assign({}, d1Try, {
           cutover: true,
           sandbox: false,
           d1Verified: true,
           gbCanon: gbCanonLabel_(env),
+          action: a
+        });
+      }
+      if (sheetsEdgeOff_(env)) {
+        return Object.assign({}, d1Try || { status: "error", message: "try_failed" }, {
+          sheetsReadonly: true,
+          fromGas: false,
           action: a
         });
       }
@@ -18918,6 +18981,24 @@ async function handleCutover_(a, params, env, ctx) {
         sandbox: false,
         action: a,
         skippedSheet: true
+      };
+    }
+    if (/^exportWorkbook$/i.test(a)) {
+      const role = String((params && params._actorRole) || "").toLowerCase();
+      if (role !== "owner" && role !== "all") {
+        return { status: "error", message: "owner_only", action: a };
+      }
+      const book = await stageGWorkbook_(env);
+      return {
+        status: "success",
+        filename: "boinya.xlsx",
+        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        base64: stageGBtoa_(book.bytes),
+        bytes: book.bytes.length,
+        counts: book.counts,
+        sheets: book.sheets,
+        sheetsReadonly: true,
+        action: a
       };
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
@@ -22160,9 +22241,24 @@ async function gasRead_(action, params, env) {
   return gasProxy_(action, params, env, { write: false });
 }
 
+async function noteSheetCall_(env, action) {
+  try {
+    if (!env || !env.DB) return;
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO meta (key, value, updated_at) VALUES ('sheet_calls', '1', ?) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at"
+    ).bind(now).run();
+  } catch (eNote) {}
+  try { console.log("SHEET_CALL " + String(action || "")); } catch (eLog) {}
+}
+
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
+  if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
+    return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
+  }
   try {
+    await noteSheetCall_(env, action);
     const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
     const clean = {};
     Object.keys(params || {}).forEach(function (k) {
@@ -28932,7 +29028,10 @@ function partnerBasketLinesWorker_(basket) {
 }
 
 async function partnerNotifyOrderFastWorker_(order, env) {
-  if (!order || !env) return;
+  if (!order || !env) return { skipped: "empty" };
+  if (order.quiet || order.skipNotify || /ТЕСТ/i.test(String(order.note || "") + " " + String(order.userName || ""))) {
+    return { skipped: "test" };
+  }
   const loc = order.locationName || order.locationId || "";
   const lines = partnerBasketLinesWorker_(order.basket);
   const partnerTid = String(order.telegramId || "").trim();
@@ -32628,6 +32727,320 @@ async function stageCCheck_(env) {
     closeApplies: ok,
     sheets: "readonly"
   };
+}
+
+function stageGCrc_(bytes) {
+  let c = ~0;
+  for (let i = 0; i < bytes.length; i++) {
+    c ^= bytes[i];
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+
+function stageGU16_(n) {
+  return new Uint8Array([n & 255, (n >> 8) & 255]);
+}
+
+function stageGU32_(n) {
+  return new Uint8Array([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255]);
+}
+
+function stageGCat_(parts) {
+  let n = 0;
+  for (let i = 0; i < parts.length; i++) n += parts[i].length;
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (let i = 0; i < parts.length; i++) {
+    out.set(parts[i], o);
+    o += parts[i].length;
+  }
+  return out;
+}
+
+function stageGZip_(files) {
+  const enc = new TextEncoder();
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (let i = 0; i < files.length; i++) {
+    const name = enc.encode(files[i].name);
+    const data = files[i].data;
+    const crc = stageGCrc_(data);
+    const local = stageGCat_([
+      stageGU32_(0x04034b50), stageGU16_(20), stageGU16_(0), stageGU16_(0),
+      stageGU16_(0), stageGU16_(0x21), stageGU32_(crc), stageGU32_(data.length), stageGU32_(data.length),
+      stageGU16_(name.length), stageGU16_(0), name, data
+    ]);
+    const central = stageGCat_([
+      stageGU32_(0x02014b50), stageGU16_(20), stageGU16_(20), stageGU16_(0), stageGU16_(0),
+      stageGU16_(0), stageGU16_(0x21), stageGU32_(crc), stageGU32_(data.length), stageGU32_(data.length),
+      stageGU16_(name.length), stageGU16_(0), stageGU16_(0), stageGU16_(0), stageGU16_(0), stageGU32_(0),
+      stageGU32_(offset), name
+    ]);
+    locals.push(local);
+    centrals.push(central);
+    offset += local.length;
+  }
+  const centralAll = stageGCat_(centrals);
+  const end = stageGCat_([
+    stageGU32_(0x06054b50), stageGU16_(0), stageGU16_(0), stageGU16_(files.length), stageGU16_(files.length),
+    stageGU32_(centralAll.length), stageGU32_(offset), stageGU16_(0)
+  ]);
+  return stageGCat_(locals.concat([centralAll, end]));
+}
+
+function stageGXml_(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stageGSheetXml_(rows) {
+  const lines = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+  ];
+  for (let r = 0; r < rows.length; r++) {
+    const cells = rows[r] || [];
+    let row = '<row r="' + (r + 1) + '">';
+    for (let c = 0; c < cells.length; c++) {
+      const col = c < 26 ? String.fromCharCode(65 + c) : "A" + String.fromCharCode(65 + (c - 26));
+      row += '<c r="' + col + (r + 1) + '" t="inlineStr"><is><t>' + stageGXml_(cells[c]) + "</t></is></c>";
+    }
+    lines.push(row + "</row>");
+  }
+  lines.push("</sheetData></worksheet>");
+  return lines.join("");
+}
+
+function stageGBtoa_(bytes) {
+  let bin = "";
+  const chunk = 0x4000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+async function stageGTable_(env, sql) {
+  try {
+    const res = await env.DB.prepare(sql).all();
+    return (res && res.results) || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function stageGWorkbook_(env) {
+  const clients = await stageGTable_(env, "SELECT id, match_key, nick, phone, address, telegram, updated_at FROM clients ORDER BY nick LIMIT 4000");
+  const subs = await stageGTable_(env, "SELECT id, client_id, match_key, nick, sheet, price, n, bp_stage, status, updated_at FROM subs ORDER BY nick LIMIT 4000");
+  const orders = await stageGTable_(env, "SELECT date_iso, day_name, client, match_key, status, segment, phone, address, updated_at FROM orders ORDER BY date_iso DESC LIMIT 4000");
+  const deliveries = await stageGTable_(env, "SELECT date_iso, match_key, delivered, updated_at FROM deliveries ORDER BY date_iso DESC LIMIT 4000");
+  const stock = await stageGTable_(env, "SELECT sku, name, dry_g, raw_kg, \"yield\" AS yield, unit, updated_at FROM stock_items ORDER BY name LIMIT 400");
+  const prices = await stageGTable_(env, "SELECT sku, price, source, updated_at FROM retail_prices ORDER BY sku LIMIT 400");
+  function grid(rows, headers) {
+    const out = [headers];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      out.push(headers.map(function (h) { return row[h] == null ? "" : row[h]; }));
+    }
+    return out;
+  }
+  const sheets = [
+    ["Клиенты", grid(clients, ["id", "match_key", "nick", "phone", "address", "telegram", "updated_at"])],
+    ["Подписки", grid(subs, ["id", "client_id", "match_key", "nick", "sheet", "price", "n", "bp_stage", "status", "updated_at"])],
+    ["Заказы", grid(orders, ["date_iso", "day_name", "client", "match_key", "status", "segment", "phone", "address", "updated_at"])],
+    ["Доставки", grid(deliveries, ["date_iso", "match_key", "delivered", "updated_at"])],
+    ["Склад", grid(stock, ["sku", "name", "dry_g", "raw_kg", "yield", "unit", "updated_at"])],
+    ["Прайс", grid(prices, ["sku", "price", "source", "updated_at"])]
+  ];
+  const enc = new TextEncoder();
+  const files = [
+    { name: "[Content_Types].xml", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + sheets.map(function (_s, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join("") + "</Types>") },
+    { name: "_rels/.rels", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
+    { name: "xl/workbook.xml", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map(function (s, i) { return '<sheet name="' + stageGXml_(s[0]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join("") + "</sheets></workbook>") },
+    { name: "xl/_rels/workbook.xml.rels", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map(function (_s, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join("") + "</Relationships>") }
+  ];
+  for (let i = 0; i < sheets.length; i++) {
+    files.push({ name: "xl/worksheets/sheet" + (i + 1) + ".xml", data: enc.encode(stageGSheetXml_(sheets[i][1])) });
+  }
+  return {
+    bytes: stageGZip_(files),
+    sheets: sheets.map(function (s) { return s[0]; }),
+    counts: {
+      clients: clients.length,
+      subs: subs.length,
+      orders: orders.length,
+      deliveries: deliveries.length,
+      stock: stock.length,
+      prices: prices.length
+    }
+  };
+}
+
+async function stageGStartText_(env, from, name) {
+  const tid = String((from && from.id) || "");
+  let role = "";
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    const people = (list && list.people) || [];
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) {
+        role = String(people[i].role || "");
+        break;
+      }
+    }
+  } catch (eRole) {}
+  return "Привет" + (name ? ", " + name : "") + "!\nID: " + (tid || "—") + (role ? "\nРоль: " + role : "\nОткрой мини-апп Бойни.") + "\nЗаявки и кабинет читаются из D1.";
+}
+
+async function stageGApplyUpdate_(env, update, opts) {
+  opts = opts || {};
+  const send = opts.send !== false;
+  const msg = update && (update.message || update.edited_message);
+  const text = String((msg && msg.text) || "");
+  const start = text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
+  if (start && msg && msg.chat) {
+    const payload = String(start[1] || "");
+    const from = msg.from || {};
+    const name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
+    if (/^gbi_/i.test(payload)) {
+      const token = payload.replace(/^gbi_/i, "");
+      try {
+        await putSnap_(env, "native_auth_" + token, {
+          linked: true,
+          telegramId: String(from.id || ""),
+          name: name,
+          username: String(from.username || ""),
+          cachedAt: new Date().toISOString()
+        });
+      } catch (eNat) {}
+      const reply = "GBI: Telegram подключён.\nИмя: " + (name || "—") + "\nID: " + (from.id || "—") + "\nВернись в приложение.";
+      if (send) await telegramSendTextWorker_(env, msg.chat.id, reply);
+      return { kind: "gbi", sent: !!send, reply: reply };
+    }
+    const reply = await stageGStartText_(env, from, name);
+    if (send) await telegramSendTextWorker_(env, msg.chat.id, reply);
+    return { kind: "start", sent: !!send, reply: reply };
+  }
+  return { kind: "ignored", sent: false, reply: "" };
+}
+
+async function stageGTelegram_(request, env) {
+  let body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
+  const got = String((body && body._wk) || "").trim();
+  if (sec && got !== sec) return json({ status: "error", message: "forbidden" }, 403);
+  const update = (body && body.update) || body;
+  const out = await stageGApplyUpdate_(env, update, { send: true });
+  return json({ status: "success", kind: out.kind, sent: out.sent });
+}
+
+async function stageGSheetCalls_(env) {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = 'sheet_calls'").first();
+    return Number(row && row.value) || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function stageGProbe_(env) {
+  const before = await stageGSheetCalls_(env);
+  let point = null;
+  try {
+    const admin = await getSnapRaw_(env, "partnerListAdmin");
+    const pts = (admin && admin.points) || [];
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i] && pts[i].id && pts[i].active !== false) {
+        point = pts[i];
+        break;
+      }
+    }
+  } catch (ePt) {}
+  if (!point) point = partnerLiveTestCurrentWorker_() || { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka" };
+  const made = await mutatePartnerD1_("partnerSubmitOrder", {
+    telegramId: "827494606",
+    username: "one_more_person_228",
+    locationId: point.id,
+    networkId: point.networkId,
+    userName: "ТЕСТ",
+    note: "ТЕСТ этап г",
+    skipPartnerNotify: "1",
+    basket: [{ id: "vr_t_lung", qty: 100 }]
+  }, env);
+  let cancelled = null;
+  if (made && made.order && made.order.id) {
+    cancelled = await mutatePartnerD1_("partnerSetOrderStatus", {
+      id: made.order.id,
+      status: "cancelled",
+      skipPartnerNotify: "1",
+      note: "ТЕСТ этап г",
+      userName: "ТЕСТ"
+    }, env);
+  }
+  const phone = "+375000000014";
+  const reg = await mutateGbD1_("gbRegister", {
+    name: "ТЕСТ этап г",
+    phone: phone,
+    nick: "zzz_stage_g",
+    telegramId: "stage-g-test",
+    hasSubscription: "0"
+  }, env);
+  const login = await mutateGbD1_("gbLogin", { phone: phone, nick: "zzz_stage_g" }, env);
+  const skipped = await gasProxy_("partnerGetMe", { username: "one_more_person_228" }, env, { write: false });
+  const notify = await partnerNotifyOrderFastWorker_({ note: "ТЕСТ этап г", userName: "ТЕСТ", id: "dry" }, env);
+  let meOk = false;
+  let botUser = "";
+  const token = getTelegramTokenWorker_(env);
+  if (token) {
+    try {
+      const res = await fetch("https://api.telegram.org/bot" + token + "/getMe");
+      const me = await res.json();
+      meOk = !!(me && me.ok);
+      botUser = (me && me.result && me.result.username) || "";
+    } catch (eMe) {}
+  }
+  const dry = await stageGApplyUpdate_(env, {
+    message: { chat: { id: 1, type: "private" }, from: { id: 1, first_name: "ТЕСТ" }, text: "/start" }
+  }, { send: false });
+  const book = await stageGWorkbook_(env);
+  const after = await stageGSheetCalls_(env);
+  const varkaOk = !!(made && made.status === "success" && cancelled && cancelled.orderStatus === "cancelled");
+  const gbOk = !!(login && login.loggedIn);
+  const sheetsOk = after === before && skipped && skipped.sheetsReadonly === true;
+  const excelOk = book.bytes.length > 64 && book.bytes[0] === 0x50 && book.bytes[1] === 0x4b;
+  return {
+    status: varkaOk && gbOk && sheetsOk && excelOk && meOk && dry.kind === "start" && notify && notify.skipped === "test" ? "success" : "error",
+    varka: {
+      status: made && made.status,
+      message: made && made.message,
+      id: made && made.order && made.order.id,
+      cancelled: cancelled && cancelled.orderStatus
+    },
+    gb: { registered: !!(reg && (reg.registered || reg.d1Verified)), login: gbOk },
+    bot: { getMe: meOk, username: botUser, reply: dry.reply, sent: false },
+    notify: notify,
+    excel: { bytes: book.bytes.length, pk: excelOk, counts: book.counts, sheets: book.sheets },
+    sheetCallsBefore: before,
+    sheetCallsAfter: after,
+    sheetsDelta: after - before,
+    edgeSheets: edgeSheetsLabel_(env)
+  };
+}
+
+async function stageGAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  try {
+    return json(await stageGProbe_(env));
+  } catch (eRun) {
+    return json({ status: "error", message: String((eRun && eRun.message) || eRun) }, 500);
+  }
 }
 
 async function stageCAdmin_(request, env) {
