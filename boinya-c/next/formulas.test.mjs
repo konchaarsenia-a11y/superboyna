@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -290,15 +291,17 @@ test("сентябрь: граница месяца, отвёз, пустой с
   eq(s.ppRevenue, 195 + 90, "пустой слот месяца один раз, слот 2 нет, новый слот 1 да");
   eq(s.retailRevenue, 40, "розница без состава со своей ценой");
   eq(s.revenue, 195 + 90 + 40, "оборот");
-  eq(s.N, 5, "пять отвезено, включая без состава");
-  eq(s.S, 10 + 8 + 9 + 2, "себес известных составов, слот 2 того же месяца не удвоен");
+  eq(s.N, 6, "пять отвезено плюс партнёр");
+  eq(s.S, 10 + 8 + 9 + 2 + 1, "себес известных составов плюс партнёр, слот 2 того же месяца не удвоен");
   eq(s.pp.N, 3, "пп доставки");
   eq(s.pp.S, 10 + 8 + 9, "сырьё пп");
   eq(s.missingBasket, 1, "без состава отмечен, но в обороте");
   eq(s.missingPrice, 1, "без цены");
   eq(s.pending.N, 1, "без отвёз");
   eq(s.pending.revenue, 13, "ожидается");
-  eq(s.skippedPartner, 1, "партнёр");
+  eq(s.partner.N, 1, "партнёр в числе поездок");
+  eq(s.partnerRevenue, 0, "партнёр без цены не в обороте");
+  eq(s.skippedPartner, 0, "партнёр больше не выбрасывается");
   assert.equal(s.from, "2026-09-01");
   assert.equal(s.to, "2026-09-30");
   const aug = F.formulaRollup_(rows, { monthKey: "2026-08" });
@@ -341,6 +344,32 @@ test("август и сентябрь без состава и без слот�
   eq(slot2.N, 1, "доставка слота 2 на месте");
 });
 
+test("партнёр с ценой в обороте, почта по треку одна поездка", () => {
+  const rows = [
+    { ck: "V", iso: "2026-10-05", src: "partner", delivered: true, price: 12, S: 1, G: 0, P: 0 },
+    { ck: "V0", iso: "2026-10-05", src: "partner", delivered: true, price: 0, S: 0, G: 0, P: 0 },
+    { ck: "M", iso: "2026-10-08", src: "pp", slot: 0, paid: "", price: 40, delivered: true, viaMail: true, S: 2, G: 10, P: 0, sig: "mail" }
+  ];
+  const s = F.formulaRollup_(rows, { monthKey: "2026-10" });
+  eq(s.N, 3, "две партнёрские и почта");
+  eq(s.partner.N, 2, "обе партнёрские в числе");
+  eq(s.partnerRevenue, 12, "в деньги только цена больше нуля");
+  eq(s.revenue, 52, "партнёр 12 и почта 40");
+  eq(s.mailN, 1, "трек одна поездка");
+  eq(s.pp.N, 1, "почта остаётся ПП");
+  const workerSrc = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
+  const start = workerSrc.indexOf("function statsKopeckD1_");
+  const end = workerSrc.indexOf("function statsOrderPriceD1_");
+  assert.ok(start > 0 && end > start, "кусок формулы D1 на месте");
+  const sandbox = { Math, Number, String, Object, isFinite };
+  vm.runInNewContext(workerSrc.slice(start, end), sandbox);
+  const d1 = sandbox.statsFormulaRollupD1_(rows, { monthKey: "2026-10" });
+  eq(d1.N, s.N, "воркер: то же число поездок");
+  eq(d1.revenue, s.revenue, "воркер: тот же оборот");
+  eq(d1.partnerRevenue, s.partnerRevenue, "воркер: те же деньги партнёра");
+  eq(d1.mailN, s.mailN, "воркер: та же почта");
+});
+
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {
   const gs = fs.readFileSync(path.resolve(here, "../../Code.gs"), "utf8");
   assert.match(gs, /function collectFormulaRollup_/);
@@ -357,6 +386,11 @@ test("код: формула только по отвезено, прежний 
   const worker = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
   assert.match(gs, /STATS28:/);
   assert.match(worker, /getStats28:/);
+  assert.match(worker, /function buildStatsFormulaD1_/);
+  assert.match(worker, /formulaSource = "d1"/);
+  assert.match(worker, /function stampStatsFormulaD1_/);
+  assert.match(gs, /partnerRevenue/);
+  assert.match(gs, /mailN/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_month_money/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS stats_role_assign/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS owner_expenses/);
