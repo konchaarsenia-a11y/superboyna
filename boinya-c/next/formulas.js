@@ -334,8 +334,9 @@
     }
 
     function addBp_(bucket, row) {
-      var dest = row.partnerPays ? bucket.covered : bucket.spent;
-      addUnits_(dest, row.S, row.G, row.P, 1, row.missingBasket ? 1 : 0);
+      // «Платит себестоимость» снят с UI. Дальше себес всегда в spent.
+      // Сырьё partnerPays не переписываем и в расчёте не учитываем.
+      addUnits_(bucket.spent, row.S, row.G, row.P, 1, row.missingBasket ? 1 : 0);
     }
     function pushNet_(bucket, piece, bpPiece) {
       addUnits_(bucket.net, piece.S, piece.G, piece.P, piece.N, piece.missingBasket || 0);
@@ -362,7 +363,6 @@
       var convMonth = !!(monthKey && convLife && (ymd === "" || ymd <= monthLast));
       if (ymd === "") coverage.convertDateUnknown++;
       var pb = c.partner ? partnerBucket_(c.partner) : null;
-      if (pb && c.partnerPays) pb.paysCost = true;
       var hadBp = false;
       var hadBpMonth = false;
       var bi;
@@ -427,7 +427,7 @@
       }
       for (bi = 0; bi < c.bp.length; bi++) {
         var br = c.bp[bi];
-        if (!br.delivered || br.partnerPays) continue;
+        if (!br.delivered) continue;
         var bpPiece = { S: br.S, G: br.G, P: br.P, N: 1, revenue: 0, missingBasket: br.missingBasket ? 1 : 0 };
         if (convLife) {
           pushNet_(life, bpPiece, bpPiece);

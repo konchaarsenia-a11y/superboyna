@@ -438,8 +438,11 @@
       }
     }
     if (state.orderType === "bp") {
+      var names = partners.map(function (p) { return String((p && p.name) || p || ""); }).filter(Boolean);
+      var legacy = state.ppPartner && names.indexOf(state.ppPartner) < 0 && state.ppPartner !== "Другое";
       html += '<p class="b-lbl">Кто привёл</p><label class="b-field"><select class="b-field__input" id="ppPartner" data-k="ppPartner">' +
-        '<option value="">— выберите партнёра —</option>' +
+        '<option value="">— точка —</option>' +
+        (legacy ? ('<option value="' + esc(state.ppPartner) + '" selected>' + esc(state.ppPartner) + "</option>") : "") +
         partners.map(function (p) {
           var name = p.name || p;
           return '<option value="' + esc(name) + '"' + (state.ppPartner === name ? " selected" : "") + ">" + esc(name) + "</option>";
@@ -926,9 +929,15 @@
   }
 
   async function loadPartners() {
-    var res = await api().apiGet({ action: "listPartners" }, { timeoutMs: 15000, cacheTtlMs: 60000 });
-    var list = (res && (res.partners || res.items || res.list)) || [];
-    partners = list.filter(function (p) { return !p || p.active !== false; });
+    var res = await api().apiGet({ action: "partnerListAdmin", telegramId: telegramId() }, { timeoutMs: 20000, cacheTtlMs: 20000 });
+    var pts = ((res && res.points) || []).filter(function (p) { return p && p.active !== false; });
+    var nets = (res && res.networks) || [];
+    partners = pts.map(function (p) {
+      var net = nets.filter(function (n) { return n && n.id === p.networkId; })[0];
+      var face = (p.name || p.id || "");
+      var label = net && net.name ? (net.name + " · " + face) : face;
+      return { name: label, id: p.id };
+    });
     var box = document.getElementById("nxExtras");
     if (box && state.orderType === "bp" && !sh().sheetOpen()) box.innerHTML = typeExtras();
   }

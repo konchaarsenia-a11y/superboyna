@@ -2844,11 +2844,7 @@
         </div>
         <div class="seg-row" id="phSubTabs" style="margin:0;">
           <button type="button" class="seg-btn active" data-ph-tab="orders" onclick="setPartnerHubTab_('orders')">Заказы</button>
-          <button type="button" class="seg-btn" data-ph-tab="people" onclick="setPartnerHubTab_('people')">Люди</button>
           <button type="button" class="seg-btn" data-ph-tab="points" onclick="setPartnerHubTab_('points')">Точки</button>
-          <button type="button" class="seg-btn" data-ph-tab="nets" onclick="setPartnerHubTab_('nets')">Сети</button>
-          <button type="button" class="seg-btn" data-ph-tab="notify" onclick="setPartnerHubTab_('notify')">Пуши</button>
-          <button type="button" class="seg-btn" data-ph-tab="bp" style="display:none;" onclick="setPartnerHubTab_('bp')">БП</button>
         </div>
       </div>
 
@@ -2980,10 +2976,6 @@
           <label>Заметка</label>
           <input type="text" id="partnerNoteInput" placeholder="условия, %…">
         </div>
-        <label class="check-line" style="margin:0 0 10px;">
-          <input type="checkbox" id="partnerPaysCostInput">
-          <span>Платит себестоимость (затрата БП не считается)</span>
-        </label>
         <input type="hidden" id="partnerEditId" value="">
         <div class="batch-bar-row" style="margin:0 0 8px;gap:8px;">
           <button class="btn-action btn-purple" type="button" id="btnPartnerSave" style="flex:1.4;margin:0;" onclick="savePartnerFromUi()">Добавить</button>

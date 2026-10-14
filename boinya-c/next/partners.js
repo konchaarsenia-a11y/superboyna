@@ -6,7 +6,9 @@
   var tab = "orders";
   var hub = null;
   var suggests = [];
+  var requests = [];
   var deferred = [];
+  var cardId = "";
   var bpList = [];
   var prompted = false;
   var VARKa = "https://konchaarsenia-a11y.github.io/superboyna/varka/";
@@ -23,36 +25,25 @@
   }
 
   function tabs() {
-    var list = [];
-    ["orders", "people", "points", "nets", "notify"].forEach(function (id) {
-      if (ax().tabHas(access, "partnerHubScreen." + id) || ax().tabHas(access, "partnerHubScreen")) {
-        if (ax().tabHas(access, "partnerHubScreen") || ax().tabHas(access, "partnerHubScreen." + id)) {
-          var labels = { orders: "Заказы", people: "Люди", points: "Точки", nets: "Сети", notify: "Пуши" };
-          if (ax().roleOwner && false) {}
-          if (!ax().tabHas(access, "partnerHubScreen." + id) && access && access.role !== "owner") {
-            var parentOnly = access.tabs && access.tabs.indexOf("partnerHubScreen") >= 0;
-            if (!parentOnly && !ax().tabHas(access, "partnerHubScreen." + id)) return;
-          }
-          list.push({ id: id, label: labels[id] });
-        }
+    var labels = { orders: "Заказы", points: "Точки" };
+    var legacy = ["people", "nets", "notify", "bp"];
+    function allowed(id) {
+      if (!access || access.role === "owner") return true;
+      if (ax().tabHas(access, "partnerHubScreen")) return true;
+      if (ax().tabHas(access, "partnerHubScreen." + id)) return true;
+      for (var i = 0; i < legacy.length; i++) {
+        if (ax().tabHas(access, "partnerHubScreen." + legacy[i])) return true;
       }
+      return false;
+    }
+    var list = [];
+    ["orders", "points"].forEach(function (id) {
+      if (allowed(id)) list.push({ id: id, label: labels[id] });
     });
     if (!list.length) {
-      list = [
-        { id: "orders", label: "Заказы" },
-        { id: "people", label: "Люди" },
-        { id: "points", label: "Точки" },
-        { id: "nets", label: "Сети" },
-        { id: "notify", label: "Пуши" }
-      ];
+      list = [{ id: "orders", label: "Заказы" }, { id: "points", label: "Точки" }];
     }
-    if (access && access.role === "owner") list.push({ id: "bp", label: "БП" });
-    var seen = Object.create(null);
-    return list.filter(function (s) {
-      if (seen[s.id]) return false;
-      seen[s.id] = 1;
-      return true;
-    });
+    return list;
   }
 
   function segBar() {
@@ -72,8 +63,6 @@
   }
 
   function paintChrome() {
-    var fresh = 0;
-    suggests.forEach(function (it) { if (it && String(it.status || "") === "новое") fresh++; });
     sh().dock("");
     sh().main(
       '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
@@ -86,14 +75,8 @@
           "</div></div>" +
         segBar() +
       "</article>" +
-      '<article class="b-card" style="margin-top:12px">' +
-        '<div class="nx-cut-head" style="justify-content:space-between"><p class="b-lbl" style="margin:0">Новые предложения <b id="phSuggestBadge">' + fresh + '</b></p>' +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-sug" aria-label="Обновить предложения">↻</button></div>' +
-        '<p class="b-note">Из мини-аппа партнёрки. Доступы и заказы ниже не меняются.</p>' +
-        '<div id="phSuggestList"></div></article>' +
       '<div id="phBody"></div>'
     );
-    paintSuggest();
     paintBody();
   }
 
@@ -196,30 +179,95 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="ph-acc-cancel">Отмена</button></div></div>' + list;
   }
 
-  function paintPoints() {
+  function pointById(id) {
+    return ((hub && hub.points) || []).filter(function (p) { return p && p.id === id; })[0] || null;
+  }
+
+  function accessOnPoint(pid, role) {
+    return ((hub && hub.access) || []).filter(function (a) {
+      if (!a || a.status === "revoked" || a.active === false) return false;
+      if (String(a.role || "partner") !== role) return false;
+      return (a.pointIds || []).indexOf(pid) >= 0;
+    });
+  }
+
+  function paintPointList() {
     var pts = ((hub && hub.points) || []).filter(function (p) { return p && !L().partnerPointHidden_(p); });
     var nets = (hub && hub.networks) || [];
     var list = pts.length ? pts.map(function (p) {
       var face = L().partnerPointFace_(p);
       var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
       var inactive = p.active === false;
-      return '<div class="nx-line"><div class="b-grow"><b>' + esc(face.name) + "</b>" + (inactive ? ' <span class="b-note">(выкл)</span>' : "") +
-        '<div class="b-note">' + esc((net && net.name) || p.networkId || "") + (face.address ? (", " + esc(face.address)) : "") + "</div></div>" +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-edit" data-id="' + esc(p.id) + '">Изменить</button>' +
-        (inactive
-          ? '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-back" data-id="' + esc(p.id) + '">Вернуть</button>'
-          : '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-del" data-id="' + esc(p.id) + '">Удалить</button>') +
-        "</div>";
+      return '<button type="button" class="nx-line" data-act="ph-pt-open" data-id="' + esc(p.id) + '" style="width:100%;text-align:left;background:transparent;border:0;color:inherit;padding:8px 0">' +
+        '<div class="b-grow"><b>' + esc(face.name) + "</b>" + (inactive ? ' <span class="b-note">(выкл)</span>' : "") +
+        '<div class="b-note">' + esc((net && net.name) || "") + (face.address ? (", " + esc(face.address)) : "") + "</div></div></button>";
     }).join("") : '<p class="b-note">Нет точек</p>';
-    return '<div class="nx-cut-head" style="justify-content:space-between"><p class="b-note" style="margin:0">Точки продаж</p>' +
-      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-toggle">+ Точка</button></div>' +
-      '<div id="phPointForm" hidden style="margin-top:8px">' +
-        '<label class="b-field"><span class="b-note">Сеть</span><select class="b-field__input" id="phPointNetwork">' + netOptions() + "</select></label>" +
-        '<label class="b-field" style="margin-top:8px"><span class="b-note">Название</span><input class="b-field__input" id="phPointName"></label>' +
-        '<label class="b-field" style="margin-top:8px"><span class="b-note">Адрес</span><input class="b-field__input" id="phPointAddr"></label>' +
-        '<input type="hidden" id="phPointEditId" value="">' +
-        '<div class="nx-actions" style="margin-top:8px"><button type="button" class="b-btn b-btn--main" data-act="ph-pt-save">Сохранить</button>' +
-        '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-cancel">Отмена</button></div></div>' + list;
+    return '<div class="nx-cut-head" style="justify-content:space-between"><p class="b-note" style="margin:0">Точки</p>' +
+      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-new">+ Точка</button></div>' + list;
+  }
+
+  function paintPointCard() {
+    var p = cardId && cardId !== "new" ? pointById(cardId) : null;
+    var face = p ? L().partnerPointFace_(p) : { name: "", address: "" };
+    var netId = p ? (p.networkId || "") : "";
+    var net = ((hub && hub.networks) || []).filter(function (n) { return n.id === netId; })[0];
+    var owner = p ? (accessOnPoint(p.id, "partner")[0] || null) : null;
+    var staff = p ? accessOnPoint(p.id, "staff") : [];
+    var consent = String((p && p.paidConsent) || "pending");
+    var inactive = !!(p && p.active === false);
+    var staffHtml = staff.length ? staff.map(function (a) {
+      var who = a.username ? ("@" + String(a.username).replace(/^@/, "")) : (a.name || a.telegramId || a.id);
+      return '<div class="nx-line"><div class="b-grow"><b>' + esc(who) + "</b>" +
+        (a.name ? (' <span class="b-note">' + esc(a.name) + "</span>") : "") +
+        (a.telegramId ? ('<div class="b-note">' + esc(a.telegramId) + "</div>") : "") +
+        "</div>" +
+        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-staff-x" data-id="' + esc(a.id) + '" data-user="' + esc(String(a.username || "").replace(/^@/, "")) + '" data-tid="' + esc(a.telegramId || "") + '">Убрать</button></div>';
+    }).join("") : '<p class="b-note">Сотрудников точки нет</p>';
+    return '<button type="button" class="nx-link" data-act="ph-pt-list">← К точкам</button>' +
+      '<p class="b-lbl">' + (p ? "Точка" : "Новая точка") + "</p>" +
+      '<input type="hidden" id="phCardId" value="' + esc(p ? p.id : "") + '">' +
+      '<label class="b-field"><span class="b-note">Название</span><input class="b-field__input" id="phCardName" value="' + esc(face.name || "") + '"></label>' +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Адрес</span><input class="b-field__input" id="phCardAddr" value="' + esc(face.address || "") + '"></label>' +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Сеть</span><select class="b-field__input" id="phCardNet">' +
+        netOptions(netId) +
+        '<option value="__new"' + (!netId ? " selected" : "") + ">+ новая сеть</option></select></label>" +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Название сети</span><input class="b-field__input" id="phCardNetName" value="' + esc((net && net.name) || "") + '" placeholder="для новой или переименования"></label>' +
+      '<p class="b-lbl" style="margin-top:14px">Хозяин точки</p>' +
+      '<input type="hidden" id="phOwnId" value="' + esc(owner ? (owner.id || "") : "") + '">' +
+      '<label class="b-field"><span class="b-note">@username</span><input class="b-field__input" id="phOwnUser" value="' + esc(owner ? (owner.username || "") : "") + '" autocomplete="off"></label>' +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Имя</span><input class="b-field__input" id="phOwnName" value="' + esc(owner ? (owner.name || "") : "") + '"></label>' +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Telegram ID</span><input class="b-field__input" id="phOwnTid" inputmode="numeric" value="' + esc(owner ? (owner.telegramId || "") : "") + '"></label>' +
+      '<p class="b-lbl" style="margin-top:14px">Сотрудники точки</p>' + staffHtml +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Новый сотрудник, @username</span><input class="b-field__input" id="phStaffUser" autocomplete="off"></label>' +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Имя</span><input class="b-field__input" id="phStaffName"></label>' +
+      '<label class="b-field" style="margin-top:8px"><span class="b-note">Telegram ID</span><input class="b-field__input" id="phStaffTid" inputmode="numeric"></label>' +
+      '<label class="b-field" style="margin-top:14px"><span class="b-note">Согласие на платные лакомства</span><select class="b-field__input" id="phCardConsent">' +
+        '<option value="pending"' + (consent === "pending" ? " selected" : "") + ">Ещё не ответили</option>" +
+        '<option value="accepted"' + (consent === "accepted" ? " selected" : "") + ">Согласны</option>" +
+        '<option value="declined"' + (consent === "declined" ? " selected" : "") + ">Отказались</option></select></label>" +
+      '<div class="nx-actions" style="margin-top:12px">' +
+        '<button type="button" class="b-btn b-btn--main" data-act="ph-card-save">Сохранить</button>' +
+        (p && inactive ? '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-back" data-id="' + esc(p.id) + '">Вернуть</button>' : "") +
+        (p && !inactive ? '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-del" data-id="' + esc(p.id) + '">Удалить</button>' : "") +
+      "</div>";
+  }
+
+  function paintRequests() {
+    var rows = (requests || []).filter(function (r) {
+      var st = String((r && r.status) || "new");
+      return st === "new" || st === "pending";
+    });
+    if (!rows.length) return '<p class="b-note">Новых запросов нет</p>';
+    return rows.map(function (r) {
+      var who = r.username ? ("@" + String(r.username).replace(/^@/, "")) : (r.name || r.telegramId || "");
+      return '<article class="b-card" style="margin-top:8px"><b>' + esc(r.venueName || "Точка") + "</b>" +
+        '<p class="b-note">' + esc(r.address || "") + "</p>" +
+        '<p class="b-note">' + esc(who) + (r.name ? (", " + esc(r.name)) : "") + (r.phone ? (", " + esc(r.phone)) : "") + "</p>" +
+        '<div class="nx-actions">' +
+          '<button type="button" class="b-btn b-btn--main b-btn--sm" data-act="ph-req-ok" data-id="' + esc(r.id) + '">Подключить</button>' +
+          '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-req-no" data-id="' + esc(r.id) + '">Отклонить</button>' +
+        "</div></article>";
+    }).join("");
   }
 
   function paintNets() {
@@ -261,7 +309,6 @@
     var list = bpList.length ? bpList.map(function (p) {
       return '<article class="b-card" style="margin-top:8px"><b>' + esc(p.name) + "</b>" +
         (p.active === false ? ' <span class="b-note">(выкл)</span>' : "") +
-        (p.paysCost ? ' <span class="b-note">платит себест</span>' : "") +
         (p.note ? ('<p class="b-note">' + esc(p.note) + "</p>") : "") +
         '<div class="nx-actions">' +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-bp-edit" data-id="' + esc(p.id) + '">Изменить</button>' +
@@ -273,28 +320,26 @@
       '<p class="b-note">При заказе БП обязательно указать, кто привёл. Здесь список для выбора (+ «Другое» в заказе).</p>' +
       '<label class="b-field"><span class="b-note">Имя</span><input class="b-field__input" id="partnerNameInput"></label>' +
       '<label class="b-field" style="margin-top:8px"><span class="b-note">Заметка</span><input class="b-field__input" id="partnerNoteInput"></label>' +
-      '<label class="nx-check"><input type="checkbox" id="partnerPaysCostInput"><span>Платит себестоимость (затрата БП не считается)</span></label>' +
       '<input type="hidden" id="partnerEditId" value="">' + list;
   }
 
   function paintBody() {
     var box = document.getElementById("phBody");
     if (!box) return;
-    var inner = tab === "people" ? paintPeople() : tab === "points" ? paintPoints() : tab === "nets" ? paintNets() : tab === "notify" ? paintNotify() : tab === "bp" ? paintBp() : paintOrders();
+    var inner = "";
+    if (tab === "points") {
+      inner = cardId ? paintPointCard() : paintPointList();
+    } else {
+      var fresh = 0;
+      suggests.forEach(function (it) { if (it && String(it.status || "") === "новое") fresh++; });
+      inner = '<p class="b-lbl">Заявки</p>' + paintOrders() +
+        '<p class="b-lbl" style="margin-top:16px">Запросы на подключение</p>' + paintRequests() +
+        '<div class="nx-cut-head" style="justify-content:space-between;margin-top:16px"><p class="b-lbl" style="margin:0">Предложения <b id="phSuggestBadge">' + fresh + "</b></p>" +
+        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-sug" aria-label="Обновить предложения">↻</button></div>' +
+        '<div id="phSuggestList"></div>';
+    }
     box.innerHTML = '<article class="b-card" style="margin-top:12px">' + inner + "</article>";
-    pinDock();
-  }
-
-  function pinDock() {
-    if (tab === "notify") {
-      sh().dock('<button type="button" class="b-btn b-btn--main" data-act="ph-notify-save">Сохранить</button>');
-      return;
-    }
-    if (tab === "bp") {
-      sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--main" id="btnPartnerSave" data-act="ph-bp-save">Добавить</button>' +
-        '<button type="button" class="b-btn b-btn--sec" id="btnPartnerEditCancel" data-act="ph-bp-cancel" hidden>Отмена</button></div>');
-      return;
-    }
+    if (tab !== "points") paintSuggest();
     sh().dock("");
   }
 
@@ -336,6 +381,221 @@
     } catch (e) {
       if (box && !suggests.length) box.innerHTML = '<p class="b-note">Ошибка загрузки</p>';
     }
+  }
+
+  async function loadRequests(opts) {
+    opts = opts || {};
+    try {
+      var res = await api().apiGet({
+        action: "partnerAccessRequestList",
+        telegramId: tid(),
+        force: opts.force ? "1" : undefined,
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (res && res.status === "success") requests = res.rows || res.requests || [];
+    } catch (e) {}
+    if (tab === "orders" && document.getElementById("phBody")) paintBody();
+  }
+
+  function fieldVal(id) {
+    return String((document.getElementById(id) || {}).value || "").trim();
+  }
+
+  async function saveCard() {
+    var name = fieldVal("phCardName");
+    var address = fieldVal("phCardAddr");
+    var netSel = fieldVal("phCardNet");
+    var netName = fieldVal("phCardNetName");
+    if (!name) { sh().toast("Название точки"); return; }
+    var networkId = netSel;
+    if (!networkId || networkId === "__new") {
+      if (!netName) { sh().toast("Название сети"); return; }
+      var made = await api().apiGet({
+        action: "partnerSaveNetwork",
+        telegramId: tid(),
+        name: netName,
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!made || made.status !== "success" || !made.id) {
+        sh().toast((made && made.message) || "Сеть не сохранилась");
+        return;
+      }
+      networkId = made.id;
+    } else if (netName) {
+      var cur = ((hub && hub.networks) || []).filter(function (n) { return n.id === networkId; })[0];
+      if (!cur || String(cur.name || "") !== netName) {
+        await api().apiGet({
+          action: "partnerSaveNetwork",
+          telegramId: tid(),
+          id: networkId,
+          name: netName,
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      }
+    }
+    var pointRes = await api().apiGet({
+      action: "partnerSavePoint",
+      telegramId: tid(),
+      id: fieldVal("phCardId"),
+      networkId: networkId,
+      name: name,
+      address: address,
+      paidConsent: fieldVal("phCardConsent") || "pending",
+      active: "yes",
+      _: String(Date.now())
+    }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    if (!pointRes || pointRes.status !== "success") {
+      sh().toast((pointRes && pointRes.message) || "Точка не сохранилась");
+      return;
+    }
+    var pointId = pointRes.id || fieldVal("phCardId");
+    var ownUser = fieldVal("phOwnUser").replace(/^@/, "");
+    var ownTid = fieldVal("phOwnTid");
+    var ownName = fieldVal("phOwnName");
+    if (ownUser || ownTid) {
+      var ownRes = await api().apiGet({
+        action: "partnerSaveAccess",
+        telegramId: tid(),
+        id: fieldVal("phOwnId"),
+        username: ownUser,
+        targetTelegramId: ownTid,
+        name: ownName,
+        networkId: networkId,
+        pointIds: JSON.stringify([pointId]),
+        role: "partner",
+        status: "active",
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!ownRes || ownRes.status !== "success") {
+        sh().toast((ownRes && ownRes.message) || "Хозяин не сохранился");
+      }
+    }
+    var staffUser = fieldVal("phStaffUser").replace(/^@/, "");
+    var staffTid = fieldVal("phStaffTid");
+    if (staffUser || staffTid) {
+      var staffRes = await api().apiGet({
+        action: "partnerSaveAccess",
+        telegramId: tid(),
+        username: staffUser,
+        targetTelegramId: staffTid,
+        name: fieldVal("phStaffName"),
+        networkId: networkId,
+        pointIds: JSON.stringify([pointId]),
+        role: "staff",
+        status: "active",
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!staffRes || staffRes.status !== "success") {
+        sh().toast((staffRes && staffRes.message) || "Сотрудник не сохранился");
+      }
+    }
+    sh().toast("Точка сохранена");
+    cardId = pointId || cardId;
+    hub = null;
+    await loadHub({ force: 1 });
+    if (cardId) paintBody();
+  }
+
+  async function declineRequest(id) {
+    var ok = await sh().confirm({ title: "Запрос", text: "Отклонить запрос на подключение?", ok: "Отклонить" });
+    if (!ok) return;
+    var res = await api().apiGet({
+      action: "partnerAccessRequestResolve",
+      telegramId: tid(),
+      id: id,
+      decision: "decline",
+      _: String(Date.now())
+    }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не отклонилось"); return; }
+    sh().toast("Отклонено");
+    await loadRequests({ force: 1 });
+  }
+
+  async function connectRequest(id) {
+    var req = (requests || []).filter(function (r) { return r && String(r.id) === String(id); })[0];
+    if (!req) return;
+    var nets = ((hub && hub.networks) || []).filter(function (n) { return n && n.active !== false; });
+    var opts = nets.map(function (n) {
+      return '<option value="' + esc(n.id) + '">' + esc(n.name) + "</option>";
+    }).join("") + '<option value="__new">+ новая сеть</option>';
+    sh().openSheet({
+      title: "Подключить точку",
+      html: '<p class="b-note">' + esc(req.venueName || "") + ", " + esc(req.address || "") + "</p>" +
+        '<label class="b-field"><span class="b-note">Сеть</span><select class="b-field__input" id="phReqNet">' + opts + "</select></label>" +
+        '<label class="b-field" style="margin-top:8px"><span class="b-note">Новая сеть</span><input class="b-field__input" id="phReqNetName" placeholder="если выбрана новая"></label>' +
+        '<input type="hidden" id="phReqId" value="' + esc(req.id) + '">',
+      foot: '<button type="button" class="b-btn b-btn--main" data-act="ph-req-go">Создать точку</button>'
+    });
+  }
+
+  async function finishConnect() {
+    var id = fieldVal("phReqId");
+    var req = (requests || []).filter(function (r) { return r && String(r.id) === String(id); })[0];
+    if (!req) { sh().toast("Запрос не найден"); return; }
+    var netSel = fieldVal("phReqNet");
+    var netName = fieldVal("phReqNetName");
+    var networkId = netSel;
+    if (!networkId || networkId === "__new") {
+      if (!netName) { sh().toast("Название сети"); return; }
+      var made = await api().apiGet({
+        action: "partnerSaveNetwork",
+        telegramId: tid(),
+        name: netName,
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!made || made.status !== "success" || !made.id) {
+        sh().toast((made && made.message) || "Сеть не сохранилась");
+        return;
+      }
+      networkId = made.id;
+    }
+    var pointRes = await api().apiGet({
+      action: "partnerSavePoint",
+      telegramId: tid(),
+      networkId: networkId,
+      name: req.venueName || "Точка",
+      address: req.address || "",
+      active: "yes",
+      _: String(Date.now())
+    }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    if (!pointRes || pointRes.status !== "success" || !pointRes.id) {
+      sh().toast((pointRes && pointRes.message) || "Точка не создалась");
+      return;
+    }
+    var accRes = await api().apiGet({
+      action: "partnerSaveAccess",
+      telegramId: tid(),
+      username: String(req.username || "").replace(/^@/, ""),
+      targetTelegramId: req.telegramId || "",
+      name: req.name || "",
+      networkId: networkId,
+      pointIds: JSON.stringify([pointRes.id]),
+      role: "partner",
+      status: "active",
+      _: String(Date.now())
+    }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    if (!accRes || accRes.status !== "success") {
+      sh().toast((accRes && accRes.message) || "Доступ не выдан");
+      return;
+    }
+    var done = await api().apiGet({
+      action: "partnerAccessRequestResolve",
+      telegramId: tid(),
+      id: id,
+      decision: "connect",
+      networkId: networkId,
+      pointId: pointRes.id,
+      _: String(Date.now())
+    }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    if (!done || done.status !== "success") {
+      sh().toast((done && done.message) || "Статус запроса не обновился");
+      return;
+    }
+    try { sh().closeTop("ok"); } catch (e) {}
+    sh().toast("Точка подключена");
+    hub = null;
+    await loadHub({ force: 1 });
+    await loadRequests({ force: 1 });
   }
 
   async function loadOrders(opts) {
@@ -380,15 +640,20 @@
     paintChrome();
     loadHub({ soft: true });
     loadSuggest({ soft: true });
+    loadRequests({});
     if (tab === "orders") loadOrders({});
-    if (tab === "bp") loadBp({ soft: true });
   }
 
   function setTab(next) {
     tab = next;
+    if (tab !== "points") cardId = "";
     paintChrome();
-    if (tab === "orders") loadOrders({ soft: true });
-    if (tab === "bp") loadBp({ soft: true });
+    if (tab === "orders") {
+      loadOrders({ soft: true });
+      loadSuggest({ soft: true });
+      loadRequests({});
+    }
+    if (tab === "points") loadHub({ soft: true });
   }
 
   function showForm(id, on) {
@@ -607,13 +872,12 @@
     var name = String((document.getElementById("partnerNameInput") || {}).value || "").trim();
     var note = String((document.getElementById("partnerNoteInput") || {}).value || "").trim();
     var editId = String((document.getElementById("partnerEditId") || {}).value || "").trim();
-    var pays = !!(document.getElementById("partnerPaysCostInput") || {}).checked;
     if (!name) { sh().toast("Укажите имя партнёра"); return; }
     var active = "yes";
     if (editId) {
       bpList.forEach(function (p) { if (String(p.id) === editId && p.active === false) active = "no"; });
     }
-    var body = { action: "savePartner", name: name, note: note, paysCost: pays ? "yes" : "no", active: active, telegramId: tid(), force: "1", _: String(Date.now()) };
+    var body = { action: "savePartner", name: name, note: note, active: active, telegramId: tid(), force: "1", _: String(Date.now()) };
     if (editId) body.id = editId;
     var res = await api().apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не сохранилось — Deploy Code.gs"); return; }
@@ -630,7 +894,6 @@
       id: id,
       name: hit.name,
       note: hit.note || "",
-      paysCost: hit.paysCost ? "yes" : "no",
       active: makeActive ? "yes" : "no",
       telegramId: tid(),
       force: "1",
@@ -655,7 +918,6 @@
     document.getElementById("partnerEditId").value = hit.id || "";
     document.getElementById("partnerNameInput").value = hit.name || "";
     document.getElementById("partnerNoteInput").value = hit.note || "";
-    document.getElementById("partnerPaysCostInput").checked = !!hit.paysCost;
     var save = document.getElementById("btnPartnerSave");
     var cancel = document.getElementById("btnPartnerEditCancel");
     if (save) save.textContent = "Сохранить";
@@ -665,7 +927,11 @@
 
   function onAct(act, node) {
     if (act === "ph-tab") { setTab(node.getAttribute("data-seg")); return true; }
-    if (act === "ph-reload") { loadHub({ force: 1 }); if (tab === "orders") loadOrders({ force: 1 }); if (tab === "bp") loadBp({ force: 1 }); return true; }
+    if (act === "ph-reload") {
+      loadHub({ force: 1 });
+      if (tab === "orders") { loadOrders({ force: 1 }); loadSuggest({ force: 1 }); loadRequests({ force: 1 }); }
+      return true;
+    }
     if (act === "ph-sug") { loadSuggest({ force: 1 }); return true; }
     if (act === "ph-st") { setSuggest(node.getAttribute("data-id"), node.getAttribute("data-st")); return true; }
     if (act === "ph-slot" || act === "ph-move") {
@@ -698,7 +964,15 @@
       return true;
     }
     if (act === "ph-acc-x") { revoke(node); return true; }
-    if (act === "ph-pt-toggle") { showForm("phPointForm", document.getElementById("phPointForm").hidden); return true; }
+    if (act === "ph-pt-new") { cardId = "new"; paintBody(); return true; }
+    if (act === "ph-pt-list") { cardId = ""; paintBody(); return true; }
+    if (act === "ph-pt-open") { cardId = node.getAttribute("data-id") || ""; paintBody(); return true; }
+    if (act === "ph-card-save") { saveCard(); return true; }
+    if (act === "ph-staff-x") { revoke(node); return true; }
+    if (act === "ph-req-ok") { connectRequest(node.getAttribute("data-id")); return true; }
+    if (act === "ph-req-no") { declineRequest(node.getAttribute("data-id")); return true; }
+    if (act === "ph-req-go") { finishConnect(); return true; }
+    if (act === "ph-pt-toggle") { cardId = "new"; paintBody(); return true; }
     if (act === "ph-pt-cancel") { showForm("phPointForm", false); return true; }
     if (act === "ph-pt-save") { savePoint(); return true; }
     if (act === "ph-pt-edit") {
@@ -734,7 +1008,6 @@
       document.getElementById("partnerEditId").value = "";
       document.getElementById("partnerNameInput").value = "";
       document.getElementById("partnerNoteInput").value = "";
-      document.getElementById("partnerPaysCostInput").checked = false;
       document.getElementById("btnPartnerSave").textContent = "Добавить";
       document.getElementById("btnPartnerEditCancel").hidden = true;
       return true;
@@ -751,8 +1024,8 @@
     if (a && box.contains(a)) return;
     loadHub({ force: true });
     loadSuggest({ force: true });
+    loadRequests({ force: true });
     if (tab === "orders") loadOrders({ force: true });
-    if (tab === "bp") loadBp({ force: true });
   }
 
   root.BoinyaPartners = {
