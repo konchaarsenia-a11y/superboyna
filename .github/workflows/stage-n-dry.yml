@@ -1,0 +1,177 @@
+name: stage-n-dry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/stage-n-dry.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  dry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Wait for Worker and clasp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          required = ["boinya-c-worker"]
+          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          deadline = time.time() + 20 * 60
+          quiet = 0
+
+          def last_of(mine):
+              return sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+
+          while time.time() < deadline:
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
+                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "stage-n"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  runs = json.load(resp).get("workflow_runs") or []
+              ready = True
+              for name in required:
+                  mine = [r for r in runs if r.get("name") == name]
+                  if not mine or any(r.get("status") in active for r in mine):
+                      print(name + ": ещё нет или идёт", flush=True)
+                      ready = False
+                      continue
+                  last = last_of(mine)
+                  if last.get("conclusion") != "success":
+                      raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
+                  print(name + ": success", flush=True)
+              missing = False
+              for name in optional:
+                  mine = [r for r in runs if r.get("name") == name]
+                  if not mine:
+                      print(name + ": нет на этом sha", flush=True)
+                      missing = True
+                      continue
+                  if any(r.get("status") in active for r in mine):
+                      print(name + ": ещё идёт", flush=True)
+                      ready = False
+                      continue
+                  last = last_of(mine)
+                  if last.get("conclusion") != "success":
+                      raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
+                  print(name + ": success", flush=True)
+              if ready:
+                  if missing:
+                      quiet += 1
+                      if quiet < 3:
+                          time.sleep(20)
+                          continue
+                  break
+              quiet = 0
+              time.sleep(20)
+          else:
+              raise SystemExit("деплой не дождались")
+          PY
+      - name: Dry-run notifications
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          for i in $(seq 1 20); do
+            marker=$(curl -sS --max-time 20 "https://boinya-c.konchaarsenia.workers.dev/?action=ping" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployMarker",""))' || true)
+            echo "ping $marker попытка $i"
+            if [ "$marker" = "orders-d1-stage-n-h1" ]; then
+              break
+            fi
+            sleep 15
+          done
+          test "$marker" = "orders-d1-stage-n-h1"
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          put_ok=0
+          for i in 1 2 3 4 5 6; do
+            if printf '%s' "$TOKEN" | npx wrangler@4 secret put STAGEB_ADMIN_TOKEN; then
+              put_ok=1
+              break
+            fi
+            sleep 20
+          done
+          test "$put_ok" = 1
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/stage-n"
+          code="000"
+          for n in 1 2 3 4 5 6; do
+            code=$(curl -sS -o "$GITHUB_WORKSPACE/artifacts/stage-n/dry.json" -w "%{http_code}" \
+              -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/stage-n" \
+              -H "Content-Type: application/json" \
+              -H "X-Stageb-Admin-Token: $TOKEN" \
+              --data '{"phase":"dry"}' \
+              --max-time 120 || true)
+            echo "dry HTTP $code попытка $n"
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            sleep 15
+          done
+          test "$code" = "200"
+          python3 - <<'PY'
+          import json, os
+          p = os.environ["GITHUB_WORKSPACE"] + "/artifacts/stage-n/dry.json"
+          data = json.load(open(p, encoding="utf-8"))
+          brief = {
+            "status": data.get("status"),
+            "sent": data.get("sent"),
+            "armed": data.get("armed"),
+            "imported": data.get("imported"),
+            "importError": data.get("importError"),
+            "sheetsDelta": data.get("sheetsDelta"),
+            "when": data.get("when"),
+            "nudge": [
+              {"slot": s.get("slot"), "date": s.get("date"), "pp": len(s.get("pp") or []), "bp1": len(s.get("bp1") or []), "to": len(s.get("to") or [])}
+              for s in (data.get("nudge") or [])
+            ],
+            "deficit": len((data.get("deficit") or {}).get("would") or []),
+            "surveyToday": len((data.get("survey") or {}).get("today") or []),
+            "deferredWould": len((data.get("deferred") or {}).get("would") or []),
+            "deferredOverdue": len((data.get("deferred") or {}).get("overdue") or []),
+          }
+          print("DRY", json.dumps(brief, ensure_ascii=False))
+          if data.get("status") != "success" or data.get("sent") not in (0, None):
+              raise SystemExit("dry sent or status")
+          delta = data.get("sheetsDelta")
+          if delta not in (0, 1, None):
+              raise SystemExit("sheets delta " + str(delta))
+          PY
+      - name: Delete one-time token
+        if: always()
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: "true"
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          npx wrangler@4 secret delete STAGEB_ADMIN_TOKEN || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage-n-report
+          path: artifacts/stage-n/
+          if-no-files-found: warn

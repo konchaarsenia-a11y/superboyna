@@ -3199,6 +3199,9 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "exportStageCFormulas") {
     return handleExportStageCFormulas_(json, callback, fromPost);
   }
+  if (action === "exportStageNRows") {
+    return handleExportStageNRows_(json, callback, fromPost);
+  }
 
   if (action === "deleteClient") {
     return handleDeleteClient(ss, json, callback, fromPost);
@@ -36841,4 +36844,158 @@ function handleGbSavePet_(json, callback, fromPost) {
   }
   var ok = { status: "success", demo: false, pet: saved.pet };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Этап уведомлений: одно чтение листов в D1. Листы не создаёт и не пишет. */
+function stageNCell_(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())) {
+    try { return Utilities.formatDate(v, "Europe/Minsk", "yyyy-MM-dd'T'HH:mm:ss"); } catch (eD) {}
+  }
+  return v;
+}
+
+function stageNExistingSheet_(ss, name) {
+  if (!ss || !name) return null;
+  var sh = null;
+  try { sh = ss.getSheetByName(name); } catch (e0) { sh = null; }
+  if (!sh) {
+    try { sh = findSheetByBaseName_(ss, name); } catch (e1) { sh = null; }
+  }
+  return sh;
+}
+
+function stageNSheetObjects_(sh, mapRow, cap) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  var cols = Math.min(Math.max(sh.getLastColumn(), 1), 16);
+  var last = Math.min(sh.getLastRow(), cap || 1500);
+  var values = sh.getRange(2, 1, last - 1, cols).getValues();
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var row = [];
+    for (var c = 0; c < values[i].length; c++) row.push(stageNCell_(values[i][c]));
+    var obj = mapRow(row, i + 2);
+    if (obj) out.push(obj);
+  }
+  return out;
+}
+
+function handleExportStageNRows_(json, callback, fromPost) {
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  var dataSs = active;
+  var crm = active;
+  try { dataSs = getDataSpreadsheet_() || active; } catch (eData) { dataSs = active; }
+  try { crm = getCrmSpreadsheet_() || active; } catch (eCrm) { crm = active; }
+  var deferred = stageNSheetObjects_(stageNExistingSheet_(active, "Отложенное"), function (row) {
+    if (!String(row[0] || "").trim()) return null;
+    return {
+      id: String(row[0] || "").trim(),
+      at: row[1] || "",
+      telegramId: String(row[2] || "").trim(),
+      mode: String(row[3] || "").trim(),
+      title: String(row[4] || "").trim(),
+      clientNick: String(row[5] || "").trim(),
+      status: String(row[6] || "").trim(),
+      payloadJson: String(row[7] || ""),
+      updatedAt: row[8] || ""
+    };
+  }, 1500);
+  var surveySh = stageNExistingSheet_(crm, "Опросник") || stageNExistingSheet_(active, "Опросник");
+  var surveys = [];
+  if (surveySh && surveySh.getLastRow() >= 2) {
+    var sCols = Math.min(Math.max(surveySh.getLastColumn(), 12), 16);
+    var sLast = Math.min(surveySh.getLastRow(), 1500);
+    var sVals = surveySh.getRange(2, 1, sLast - 1, sCols).getValues();
+    for (var s = 0; s < sVals.length; s++) {
+      var obj = surveyRowToObj_(sVals[s], s + 2);
+      if (!obj || !obj.nick) continue;
+      delete obj.rowIndex;
+      surveys.push(obj);
+    }
+  }
+  var templates = stageNSheetObjects_(
+    stageNExistingSheet_(crm, "Шаблоны") || stageNExistingSheet_(active, "Шаблоны"),
+    function (row) {
+      if (!String(row[0] || "").trim()) return null;
+      return {
+        id: String(row[0] || "").trim(),
+        kind: String(row[1] || "").trim(),
+        title: String(row[2] || "").trim(),
+        body: String(row[3] || "")
+      };
+    },
+    400
+  );
+  var access = stageNSheetObjects_(stageNExistingSheet_(active, "Доступы"), function (row) {
+    if (!String(row[0] || "").trim() && !String(row[1] || "").trim()) return null;
+    return {
+      telegramId: String(row[0] || "").trim(),
+      name: String(row[1] || ""),
+      username: String(row[2] || ""),
+      role: String(row[3] || "").toLowerCase(),
+      status: String(row[4] || "").toLowerCase(),
+      timezone: String(row[7] || ""),
+      notify: String(row[9] || "")
+    };
+  }, 400);
+  var couriers = stageNSheetObjects_(stageNExistingSheet_(active, "Курьеры_ТГ"), function (row) {
+    if (!String(row[0] || "").trim()) return null;
+    return {
+      chatId: String(row[0] || "").trim(),
+      name: String(row[1] || ""),
+      username: String(row[2] || ""),
+      updatedAt: row[3] || ""
+    };
+  }, 200);
+  var bugs = stageNSheetObjects_(stageNExistingSheet_(active, "Баг_Репорты"), function (row) {
+    if (!String(row[4] || "").trim() && !String(row[0] || "").trim()) return null;
+    return {
+      at: row[0] || "",
+      screen: String(row[1] || ""),
+      role: String(row[2] || ""),
+      telegramId: String(row[3] || ""),
+      what: String(row[4] || ""),
+      expected: String(row[5] || ""),
+      client: String(row[6] || ""),
+      day: String(row[7] || ""),
+      status: String(row[8] || "")
+    };
+  }, 400);
+  var deficits = stageNSheetObjects_(
+    stageNExistingSheet_(dataSs, "Дефицит_Нарезки") || stageNExistingSheet_(active, "Дефицит_Нарезки"),
+    function (row) {
+      if (!String(row[0] || "").trim() && !String(row[2] || "").trim()) return null;
+      return {
+        id: String(row[0] || "").trim(),
+        day: String(row[1] || ""),
+        item: String(row[2] || ""),
+        row: row[3] || "",
+        status: String(row[4] || ""),
+        created: row[5] || "",
+        notifyFrom: row[6] || "",
+        lastNotify: row[7] || ""
+      };
+    },
+    400
+  );
+  var out = {
+    status: "success",
+    readOnly: true,
+    deferred: deferred,
+    surveys: surveys,
+    templates: templates,
+    access: access,
+    couriers: couriers,
+    bugs: bugs,
+    deficits: deficits,
+    counts: {
+      deferred: deferred.length,
+      surveys: surveys.length,
+      templates: templates.length,
+      access: access.length,
+      couriers: couriers.length,
+      bugs: bugs.length,
+      deficits: deficits.length
+    }
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
