@@ -14022,7 +14022,479 @@ async function cutoverGetMyAccess_(params, env, ctx) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getMyAccess" };
 }
 
-/** Статистика: D1 сразу (~мс), GAS в фоне. force=1 — только GAS. */
+function statsKopeckD1_(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function statsIsoDayD1_(iso) {
+  return String(iso || "").slice(0, 10);
+}
+
+function statsAddDaysD1_(iso, n) {
+  const p = statsIsoDayD1_(iso).split("-");
+  const d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+  d.setUTCDate(d.getUTCDate() + (Number(n) || 0));
+  const m = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+  return d.getUTCFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+}
+
+function statsMonthBoundsD1_(mk) {
+  const y = Number(String(mk).slice(0, 4));
+  const m = Number(String(mk).slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: mk + "-01", to: mk + "-" + (last < 10 ? "0" : "") + last };
+}
+
+function statsDaysBetweenD1_(a, b) {
+  const pa = statsIsoDayD1_(a).split("-");
+  const pb = statsIsoDayD1_(b).split("-");
+  if (pa.length < 3 || pb.length < 3) return 0;
+  const ua = Date.UTC(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+  const ub = Date.UTC(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+  return Math.round((ub - ua) / 86400000);
+}
+
+function statsPpSlotD1_(row) {
+  return Number(row && row.slot) || 0;
+}
+
+function statsPpStartsCycleD1_(prev, row) {
+  const slot = statsPpSlotD1_(row);
+  const prevSlot = statsPpSlotD1_(prev);
+  const gap = statsDaysBetweenD1_(prev.iso, row.iso);
+  if (slot === 1) return true;
+  if (slot >= 1 && prevSlot >= 1 && slot < prevSlot) return true;
+  if (gap >= 18) return true;
+  return false;
+}
+
+function statsPpSplitCyclesD1_(rows) {
+  const list = (rows || []).slice().sort(function (a, b) {
+    if (a.iso !== b.iso) return a.iso < b.iso ? -1 : 1;
+    return statsPpSlotD1_(a) - statsPpSlotD1_(b);
+  });
+  const cycles = [];
+  let cur = [];
+  let prev = null;
+  for (let i = 0; i < list.length; i++) {
+    if (prev && statsPpStartsCycleD1_(prev, list[i])) {
+      cycles.push(cur);
+      cur = [];
+    }
+    cur.push(list[i]);
+    prev = list[i];
+  }
+  if (cur.length) cycles.push(cur);
+  return cycles;
+}
+
+function statsPpPayRowD1_(cycle) {
+  const yes = [];
+  const open = [];
+  for (let i = 0; i < cycle.length; i++) {
+    const row = cycle[i];
+    const paid = String(row.paid || "");
+    if (paid === "yes") yes.push(row);
+    else if (paid !== "no") {
+      const slot = statsPpSlotD1_(row);
+      if (slot >= 2) continue;
+      if (slot === 0 && row !== cycle[0]) continue;
+      open.push(row);
+    }
+  }
+  const pool = (yes.length ? yes : open).slice().sort(function (a, b) {
+    const as = statsPpSlotD1_(a) >= 1 ? statsPpSlotD1_(a) : 9;
+    const bs = statsPpSlotD1_(b) >= 1 ? statsPpSlotD1_(b) : 9;
+    if (as !== bs) return as - bs;
+    return a.iso < b.iso ? -1 : 1;
+  });
+  return pool.length ? pool[0] : null;
+}
+
+function statsPpMonthCarrierD1_(cycle, from, to) {
+  function inn(iso) {
+    iso = statsIsoDayD1_(iso);
+    return (!from || iso >= from) && (!to || iso <= to);
+  }
+  const pay = statsPpPayRowD1_(cycle);
+  if (pay && inn(pay.iso)) return pay;
+  let pick = null;
+  for (let i = 0; i < (cycle || []).length; i++) {
+    const row = cycle[i];
+    if (!row.delivered || !inn(row.iso)) continue;
+    const slot = statsPpSlotD1_(row);
+    if (slot >= 2 && String(row.paid || "") !== "yes") continue;
+    if (!pick || statsIsoDayD1_(row.iso) < statsIsoDayD1_(pick.iso)) pick = row;
+  }
+  return pick;
+}
+
+/** Та же формула, что formulaRollup_ в next/formulas.js: партнёр в N, деньги партнёра только при цене > 0, трек = одна поездка. */
+function statsFormulaRollupD1_(rows, opts) {
+  opts = opts || {};
+  let from = statsIsoDayD1_(opts.fromIso);
+  let to = statsIsoDayD1_(opts.toIso);
+  if (!from && !to && /^\d{4}-\d{2}$/.test(String(opts.monthKey || ""))) {
+    const bounds = statsMonthBoundsD1_(String(opts.monthKey));
+    from = bounds.from;
+    to = bounds.to;
+  }
+  const look = from ? statsAddDaysD1_(from, -35) : "";
+  const out = {
+    ok: true,
+    deliveredOnly: true,
+    formulaSource: "d1",
+    from: from,
+    to: to,
+    S: 0, G: 0, P: 0, N: 0,
+    revenue: 0,
+    ppRevenue: 0,
+    retailRevenue: 0,
+    pp: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    retail: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    bp: { S: 0, G: 0, P: 0, N: 0 },
+    partner: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    partnerRevenue: 0,
+    mailN: 0,
+    pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0, partnerRevenue: 0 },
+    skippedPartner: 0,
+    missingBasket: 0,
+    missingPrice: 0,
+    wageSplit: false,
+    wageNote: "В памяти доставок нет, кто нарезал каждую строку. Вся сумма за период у выбранного нарезчика-сборщика."
+  };
+  function inside(iso) {
+    return (!from || iso >= from) && (!to || iso <= to);
+  }
+  function looked(iso) {
+    return !!(look && iso >= look && from && iso < from);
+  }
+  function addU(bucket, S, G, P, n) {
+    bucket.S = statsKopeckD1_(bucket.S + (Number(S) || 0));
+    bucket.G += Number(G) || 0;
+    bucket.P += Number(P) || 0;
+    bucket.N += Number(n) || 0;
+  }
+  const pp = {};
+  const rest = [];
+  for (let i = 0; i < (rows || []).length; i++) {
+    const row = rows[i] || {};
+    const iso = statsIsoDayD1_(row.iso);
+    const src = String(row.src || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+    if (src === "pp") {
+      if (!inside(iso) && !looked(iso)) continue;
+      const ck = String(row.ck || "");
+      if (!ck) continue;
+      if (!pp[ck]) pp[ck] = [];
+      pp[ck].push(row);
+      continue;
+    }
+    if (!inside(iso)) continue;
+    if (src !== "retail" && src !== "bp" && src !== "partner") continue;
+    rest.push(row);
+  }
+  for (let i = 0; i < rest.length; i++) {
+    const one = rest[i];
+    const price = Number(one.price) || 0;
+    if (one.delivered && one.missingBasket) out.missingBasket++;
+    if (one.delivered) {
+      addU(out, one.S, one.G, one.P, 1);
+      if (one.viaMail) out.mailN += 1;
+      if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
+      else if (String(one.src) === "partner") {
+        addU(out.partner, one.S, one.G, one.P, 1);
+        if (price > 0) {
+          out.revenue = statsKopeckD1_(out.revenue + price);
+          out.partnerRevenue = statsKopeckD1_(out.partnerRevenue + price);
+          out.partner.revenue = statsKopeckD1_(out.partner.revenue + price);
+        }
+      } else {
+        addU(out.retail, one.S, one.G, one.P, 1);
+        if (price > 0) {
+          out.revenue = statsKopeckD1_(out.revenue + price);
+          out.retailRevenue = statsKopeckD1_(out.retailRevenue + price);
+          out.retail.revenue = statsKopeckD1_(out.retail.revenue + price);
+        } else out.missingPrice++;
+      }
+    } else {
+      out.pending.N += 1;
+      if (price > 0 && String(one.src) !== "bp") {
+        out.pending.revenue = statsKopeckD1_(out.pending.revenue + price);
+        if (String(one.src) === "partner") {
+          out.pending.partnerRevenue = statsKopeckD1_(out.pending.partnerRevenue + price);
+        } else {
+          out.pending.retailRevenue = statsKopeckD1_(out.pending.retailRevenue + price);
+        }
+      }
+    }
+  }
+  const keys = Object.keys(pp);
+  for (let i = 0; i < keys.length; i++) {
+    const cycles = statsPpSplitCyclesD1_(pp[keys[i]]);
+    for (let ci = 0; ci < cycles.length; ci++) {
+      const cycle = cycles[ci];
+      const pay = statsPpMonthCarrierD1_(cycle, from, to);
+      const seen = {};
+      for (let ri = 0; ri < cycle.length; ri++) {
+        const slotRow = cycle[ri];
+        const slotIso = statsIsoDayD1_(slotRow.iso);
+        if (!inside(slotIso)) continue;
+        if (slotRow.delivered && slotRow.missingBasket) out.missingBasket++;
+        if (slotRow.delivered) {
+          const sig = String(slotRow.sig || "");
+          if (!(sig && seen[sig])) {
+            addU(out, slotRow.S, slotRow.G, slotRow.P, 0);
+            addU(out.pp, slotRow.S, slotRow.G, slotRow.P, 0);
+          }
+          addU(out, 0, 0, 0, 1);
+          addU(out.pp, 0, 0, 0, 1);
+          if (slotRow.viaMail) out.mailN += 1;
+          if (sig) seen[sig] = true;
+        } else out.pending.N += 1;
+      }
+      if (!pay) continue;
+      const payIso = statsIsoDayD1_(pay.iso);
+      const payPrice = Number(pay.price) || 0;
+      if (!inside(payIso)) continue;
+      if (pay.delivered && payPrice > 0) {
+        out.revenue = statsKopeckD1_(out.revenue + payPrice);
+        out.ppRevenue = statsKopeckD1_(out.ppRevenue + payPrice);
+        out.pp.revenue = statsKopeckD1_(out.pp.revenue + payPrice);
+      } else if (!pay.delivered && payPrice > 0) {
+        out.pending.revenue = statsKopeckD1_(out.pending.revenue + payPrice);
+        out.pending.ppRevenue = statsKopeckD1_(out.pending.ppRevenue + payPrice);
+      } else if (pay.delivered && !(payPrice > 0)) out.missingPrice++;
+    }
+  }
+  return out;
+}
+
+function statsOrderPriceD1_(meta, note) {
+  const c = meta || {};
+  let raw = "";
+  if (priceFieldHasValue_(c.orderPrice) || c.orderPrice === 0) raw = c.orderPrice;
+  else if (priceFieldHasValue_(c.clientPrice)) raw = c.clientPrice;
+  else if (priceFieldHasValue_(c.statedCost)) raw = c.statedCost;
+  else raw = extractOrderPriceFromNoteD1_(note);
+  const n = Number(String(raw == null ? "" : raw).replace(",", "."));
+  return isFinite(n) && n > 0 ? statsKopeckD1_(n) : 0;
+}
+
+function statsSrcD1_(row, meta, price) {
+  const seg = normalizeSegmentLabel_(row.segment || meta.segment || meta.orderType || "");
+  let src = String(row.source || meta.source || meta.orderType || "").trim().toLowerCase();
+  if (src === "subscription" || src === "afk" || src === "пп") src = "pp";
+  else if (src === "розница" || src === "r") src = "retail";
+  else if (src === "бп") src = "bp";
+  else if (src.indexOf("парт") === 0 || src === "варка" || src === "partner") src = "partner";
+  if (src !== "pp" && src !== "retail" && src !== "bp" && src !== "partner") {
+    src = sourceFromSegment_(seg) || "";
+  }
+  if (!src && price > 0) src = "retail";
+  return src;
+}
+
+function statsBasketSigD1_(basket) {
+  const parts = [];
+  for (let i = 0; i < (basket || []).length; i++) {
+    const it = basket[i] || {};
+    const name = String(it.name || it.main || "").trim().toUpperCase();
+    const sub = String(it.sub || "").trim().toUpperCase();
+    const val = Number(it.val != null ? it.val : it.value) || 0;
+    if (!name || !(val > 0)) continue;
+    parts.push(name + "|" + sub + "|" + val);
+  }
+  parts.sort();
+  return parts.join(";");
+}
+
+function statsUnitsD1_(basket, costs) {
+  const items = Array.isArray(basket) ? basket : [];
+  let built = null;
+  try {
+    built = buildPpLinesFromCostsD1_(items, costs || {}, {});
+  } catch (eB) {
+    built = null;
+  }
+  let G = 0;
+  let P = 0;
+  const lines = built && built.lines ? built.lines : [];
+  if (lines.length) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] || {};
+      const val = Number(line.val) || 0;
+      if (!(val > 0)) continue;
+      if (line.piece) P += val;
+      else G += val;
+    }
+  } else {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i] || {};
+      const val = Number(it.val != null ? it.val : it.value) || 0;
+      if (!(val > 0)) continue;
+      const cat = String(it.cat || "").toLowerCase();
+      const name = String(it.name || it.main || "");
+      const piece = cat === "chew" || cat === "chews" || cat === "powder" || /шт/i.test(name);
+      if (piece) P += val;
+      else G += val;
+    }
+  }
+  return {
+    S: built ? Number(built.rawCost) || 0 : 0,
+    G: G,
+    P: P,
+    sig: statsBasketSigD1_(items),
+    missingBasket: !items.length
+  };
+}
+
+function statsDeliveredHitD1_(flags, iso, raw) {
+  const aliases = matchKeyAliases_(raw);
+  for (let i = 0; i < aliases.length; i++) {
+    if (flags[iso + "|" + aliases[i]]) return true;
+  }
+  return false;
+}
+
+/**
+ * Формула экрана статистики из D1. Листы не читает и не пишет.
+ * Доставка = галочка deliveries.delivered=1 или непустой трек. Одно и то же — одна поездка.
+ */
+async function buildStatsFormulaD1_(env, params, res) {
+  if (!env || !env.DB) return null;
+  params = params || {};
+  res = res || {};
+  const monthRaw = String(params.month || params.monthKey || res.monthKey || "").trim();
+  let from = String(params.dateFrom || params.fromDate || params.from || res.from || "").slice(0, 10);
+  let to = String(params.dateTo || params.toDate || params.to || res.to || "").slice(0, 10);
+  if (/^\d{4}-\d{2}$/.test(monthRaw)) {
+    const bounds = statsMonthBoundsD1_(monthRaw);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) from = bounds.from;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) to = bounds.to;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const lookFrom = statsAddDaysD1_(from, -35);
+  let orderRows = [];
+  let flagRows = [];
+  try {
+    const got = await Promise.all([
+      env.DB.prepare(
+        "SELECT date_iso, client, match_key, segment, source, status, note, basket_json, meta_json FROM orders WHERE date_iso >= ? AND date_iso <= ? AND lower(coalesce(status, '')) NOT IN ('cancelled', 'deleted') ORDER BY date_iso LIMIT 8000"
+      )
+        .bind(lookFrom, to)
+        .all(),
+      env.DB.prepare(
+        "SELECT date_iso, match_key FROM deliveries WHERE date_iso >= ? AND date_iso <= ? AND delivered = 1"
+      )
+        .bind(lookFrom, to)
+        .all()
+    ]);
+    orderRows = (got[0] && got[0].results) || [];
+    flagRows = (got[1] && got[1].results) || [];
+  } catch (eQ) {
+    return null;
+  }
+  const flags = Object.create(null);
+  for (let fi = 0; fi < flagRows.length; fi++) {
+    const fr = flagRows[fi] || {};
+    const iso = statsIsoDayD1_(fr.date_iso);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+    const aliases = matchKeyAliases_(fr.match_key);
+    for (let ai = 0; ai < aliases.length; ai++) flags[iso + "|" + aliases[ai]] = true;
+  }
+  let costs = {};
+  try {
+    const snapCosts = await getSnapRaw_(env, "priceCostsPp");
+    costs = await costsForCalcD1_(env, (snapCosts && snapCosts.costs) || {}, { asOf: to });
+  } catch (eC) {
+    costs = {};
+  }
+  const byKey = Object.create(null);
+  for (let i = 0; i < orderRows.length; i++) {
+    const row = orderRows[i] || {};
+    const st = String(row.status || "").toLowerCase();
+    if (st === "cancelled" || st === "deleted") continue;
+    const iso = statsIsoDayD1_(row.date_iso);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+    const meta = parseMeta_(row.meta_json);
+    const basket = parseBasket_(row.basket_json);
+    let price = statsOrderPriceD1_(meta, row.note);
+    const src = statsSrcD1_(row, meta, price);
+    if (!src) continue;
+    if (src === "bp") price = 0;
+    const ck = normalizeMatchKey_(row.match_key || row.client);
+    if (!ck) continue;
+    const track = String(meta.mailTrack || meta.track || "").trim();
+    const flagged =
+      statsDeliveredHitD1_(flags, iso, row.match_key) || statsDeliveredHitD1_(flags, iso, row.client);
+    const viaMail = !!track;
+    const delivered = flagged || viaMail;
+    const units = statsUnitsD1_(basket, costs);
+    const slot = src === "pp" ? parseForcedPpSlotD1_(meta.ppSlot || meta.deliverySlot, meta.deliveriesN) || 0 : 0;
+    const paid = src === "pp" ? normPaidFlagD1_(meta.paid != null && meta.paid !== "" ? meta.paid : meta.ppPaid) : "";
+    const ev = {
+      ck: ck,
+      iso: iso,
+      src: src,
+      delivered: delivered,
+      viaMail: viaMail,
+      price: price,
+      S: units.S,
+      G: units.G,
+      P: units.P,
+      sig: units.sig,
+      missingBasket: units.missingBasket,
+      slot: slot,
+      paid: paid,
+      basketN: basket.length
+    };
+    const dedupe = iso + "|" + ck;
+    const prev = byKey[dedupe];
+    if (!prev) {
+      byKey[dedupe] = ev;
+      continue;
+    }
+    const keep = ev.basketN > prev.basketN || (ev.basketN === prev.basketN && ev.price > prev.price) ? ev : prev;
+    const other = keep === ev ? prev : ev;
+    keep.delivered = !!(keep.delivered || other.delivered);
+    keep.viaMail = !!(keep.viaMail || other.viaMail);
+    if (!(keep.price > 0) && other.price > 0) keep.price = other.price;
+    if (!keep.slot && other.slot) keep.slot = other.slot;
+    if (keep.paid !== "yes" && other.paid === "yes") keep.paid = "yes";
+    if (keep.missingBasket && !other.missingBasket) {
+      keep.S = other.S;
+      keep.G = other.G;
+      keep.P = other.P;
+      keep.sig = other.sig;
+      keep.missingBasket = false;
+    }
+    byKey[dedupe] = keep;
+  }
+  const events = [];
+  const evKeys = Object.keys(byKey);
+  for (let ei = 0; ei < evKeys.length; ei++) events.push(byKey[evKeys[ei]]);
+  const rolled = statsFormulaRollupD1_(events, { fromIso: from, toIso: to, monthKey: monthRaw });
+  rolled.rows = events.length;
+  return rolled;
+}
+
+async function stampStatsFormulaD1_(res, params, env) {
+  if (!res || res.status !== "success" || !env || !env.DB) return res;
+  const canon = String((env && env.STATS_CANON) || "").toLowerCase();
+  if (canon === "sheets" || canon === "gas") return res;
+  try {
+    const formula = await buildStatsFormulaD1_(env, params, res);
+    if (formula && formula.ok !== false && formula.N != null) {
+      res.formula = formula;
+      res.formulaSource = "d1";
+    }
+  } catch (eF) {}
+  return res;
+}
+
+/** Статистика: GAS-снимок + формула доставок и оборота из D1. force=1 тоже с D1. */
 async function cutoverGetStats_(params, env, ctx) {
   const force = String((params && params.force) || "") === "1" || (params && params.force) === true;
   const mode = String((params && (params.mode || params.expected)) || "").toLowerCase();
@@ -14040,6 +14512,7 @@ async function cutoverGetStats_(params, env, ctx) {
     (params && (params.expected === "1" || params.expected === 1 || params.expected === true))
   ) {
     const live = await gasProxy_("getStats", params, env, { write: false });
+    if (live && live.status === "success") await stampStatsFormulaD1_(live, params, env);
     if (live && live.status === "success" && env && env.DB && !mode && !params.dateFrom && !params.fromDate) {
       try {
         const mk =
@@ -14076,6 +14549,7 @@ async function cutoverGetStats_(params, env, ctx) {
             try {
               const liveBg = await gasProxy_("getStats", params || {}, env, { write: false });
               if (liveBg && liveBg.status === "success" && env && env.DB) {
+                await stampStatsFormulaD1_(liveBg, params, env);
                 await putSnap_(
                   env,
                   "getStats28:" + monthKey,
@@ -14086,7 +14560,7 @@ async function cutoverGetStats_(params, env, ctx) {
           })()
         );
       }
-      return Object.assign({}, monthSnap, {
+      const monthOut = Object.assign({}, monthSnap, {
         cutover: true,
         swr: true,
         fromD1: true,
@@ -14094,9 +14568,12 @@ async function cutoverGetStats_(params, env, ctx) {
         sandbox: false,
         cachedAt: monthSnap.cachedAt || ""
       });
+      await stampStatsFormulaD1_(monthOut, params, env);
+      return monthOut;
     }
     // нет валидного snap на этот месяц — живой GAS
     const liveM = await gasProxy_("getStats", params || {}, env, { write: false });
+    if (liveM && liveM.status === "success") await stampStatsFormulaD1_(liveM, params, env);
     if (liveM && liveM.status === "success" && env && env.DB) {
       try {
         await putSnap_(
@@ -14122,6 +14599,7 @@ async function cutoverGetStats_(params, env, ctx) {
 
   async function fetchLive_() {
     const live = await gasProxy_("getStats", params || {}, env, { write: false });
+    if (live && live.status === "success") await stampStatsFormulaD1_(live, params, env);
     if (live && live.status === "success" && env && env.DB) {
       try {
         const mk = String((live && live.monthKey) || "").trim();
@@ -14154,6 +14632,7 @@ async function cutoverGetStats_(params, env, ctx) {
     out.swr = true;
     out.fromGas = false;
     out.sandbox = false;
+    await stampStatsFormulaD1_(out, params, env);
     return out;
   }
 
@@ -14173,6 +14652,7 @@ async function cutoverGetStats_(params, env, ctx) {
     outStale.fromGas = false;
     outStale.snapStale = true;
     outStale.sandbox = false;
+    await stampStatsFormulaD1_(outStale, params, env);
     return outStale;
   }
 

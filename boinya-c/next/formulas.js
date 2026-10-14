@@ -650,7 +650,10 @@
       pp: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
       retail: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
       bp: { S: 0, G: 0, P: 0, N: 0 },
-      pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0 },
+      partner: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+      partnerRevenue: 0,
+      mailN: 0,
+      pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0, partnerRevenue: 0 },
       skippedPartner: 0,
       missingBasket: 0,
       missingPrice: 0,
@@ -677,10 +680,6 @@
       var iso = isoDay_(row.iso);
       var src = String(row.src || "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
-      if (src === "partner") {
-        if (inside(iso)) out.skippedPartner++;
-        continue;
-      }
       if (src === "pp") {
         if (!inside(iso) && !looked(iso)) continue;
         var ck = String(row.ck || "");
@@ -690,7 +689,7 @@
         continue;
       }
       if (!inside(iso)) continue;
-      if (src !== "retail" && src !== "bp") continue;
+      if (src !== "retail" && src !== "bp" && src !== "partner") continue;
       rest.push(row);
     }
     for (i = 0; i < rest.length; i++) {
@@ -699,8 +698,16 @@
       if (one.delivered && one.missingBasket) out.missingBasket++;
       if (one.delivered) {
         addU(out, one.S, one.G, one.P, 1);
+        if (one.viaMail) out.mailN += 1;
         if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
-        else {
+        else if (String(one.src) === "partner") {
+          addU(out.partner, one.S, one.G, one.P, 1);
+          if (price > 0) {
+            out.revenue = kopeck_(out.revenue + price);
+            out.partnerRevenue = kopeck_(out.partnerRevenue + price);
+            out.partner.revenue = kopeck_(out.partner.revenue + price);
+          }
+        } else {
           addU(out.retail, one.S, one.G, one.P, 1);
           if (price > 0) {
             out.revenue = kopeck_(out.revenue + price);
@@ -712,7 +719,11 @@
         out.pending.N += 1;
         if (price > 0 && String(one.src) !== "bp") {
           out.pending.revenue = kopeck_(out.pending.revenue + price);
-          out.pending.retailRevenue = kopeck_(out.pending.retailRevenue + price);
+          if (String(one.src) === "partner") {
+            out.pending.partnerRevenue = kopeck_(out.pending.partnerRevenue + price);
+          } else {
+            out.pending.retailRevenue = kopeck_(out.pending.retailRevenue + price);
+          }
         }
       }
     }
@@ -736,6 +747,7 @@
             if (!(sig && seen[sig])) addU(out.pp, slotRow.S, slotRow.G, slotRow.P, 0);
             addU(out, 0, 0, 0, 1);
             addU(out.pp, 0, 0, 0, 1);
+            if (slotRow.viaMail) out.mailN += 1;
             if (sig) seen[sig] = true;
           } else out.pending.N += 1;
         }

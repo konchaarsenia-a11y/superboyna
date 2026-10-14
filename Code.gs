@@ -24779,7 +24779,10 @@ function formulaRollupRows_(rows, opts) {
     pp: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
     retail: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
     bp: { S: 0, G: 0, P: 0, N: 0 },
-    pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0 },
+    partner: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    partnerRevenue: 0,
+    mailN: 0,
+    pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0, partnerRevenue: 0 },
     skippedPartner: 0,
     missingBasket: 0,
     missingPrice: 0,
@@ -24803,10 +24806,6 @@ function formulaRollupRows_(rows, opts) {
     var iso = String(row.iso || "").slice(0, 10);
     var src = String(row.src || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
-    if (src === "partner") {
-      if (inside(iso)) out.skippedPartner++;
-      continue;
-    }
     if (src === "pp") {
       if (!inside(iso) && !looked(iso)) continue;
       var ck = String(row.ck || "");
@@ -24816,7 +24815,7 @@ function formulaRollupRows_(rows, opts) {
       continue;
     }
     if (!inside(iso)) continue;
-    if (src !== "retail" && src !== "bp") continue;
+    if (src !== "retail" && src !== "bp" && src !== "partner") continue;
     rest.push(row);
   }
   for (i = 0; i < rest.length; i++) {
@@ -24825,8 +24824,16 @@ function formulaRollupRows_(rows, opts) {
     if (one.delivered && one.missingBasket) out.missingBasket++;
     if (one.delivered) {
       addU(out, one.S, one.G, one.P, 1);
+      if (one.viaMail) out.mailN += 1;
       if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
-      else {
+      else if (String(one.src) === "partner") {
+        addU(out.partner, one.S, one.G, one.P, 1);
+        if (price > 0) {
+          out.revenue = money(out.revenue + price);
+          out.partnerRevenue = money(out.partnerRevenue + price);
+          out.partner.revenue = money(out.partner.revenue + price);
+        }
+      } else {
         addU(out.retail, one.S, one.G, one.P, 1);
         if (price > 0) {
           out.revenue = money(out.revenue + price);
@@ -24838,7 +24845,8 @@ function formulaRollupRows_(rows, opts) {
       out.pending.N += 1;
       if (price > 0 && String(one.src) !== "bp") {
         out.pending.revenue = money(out.pending.revenue + price);
-        out.pending.retailRevenue = money(out.pending.retailRevenue + price);
+        if (String(one.src) === "partner") out.pending.partnerRevenue = money(out.pending.partnerRevenue + price);
+        else out.pending.retailRevenue = money(out.pending.retailRevenue + price);
       }
     }
   }
@@ -24865,6 +24873,7 @@ function formulaRollupRows_(rows, opts) {
           }
           addU(out, 0, 0, 0, 1);
           addU(out.pp, 0, 0, 0, 1);
+          if (slotRow.viaMail) out.mailN += 1;
           if (sig) seen[sig] = true;
         } else out.pending.N += 1;
       }
@@ -24888,6 +24897,7 @@ function formulaRollupRows_(rows, opts) {
 /**
  * Сводка для экрана v2. Старые fact/costActual не трогает.
  * В деньги попадает только отвезено (Память_Доставок). ПП: цена один раз, на слоте оплаты, и только если эта доставка отвезена.
+ * Живой экран подменяет formula из D1: «отвёз» или трек, партнёр в поездках, цена партнёра больше нуля в обороте.
  */
 function collectFormulaRollup_(ss, opts) {
   opts = opts || {};
@@ -24901,7 +24911,10 @@ function collectFormulaRollup_(ss, opts) {
     pp: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
     retail: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
     bp: { S: 0, G: 0, P: 0, N: 0 },
-    pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0 },
+    partner: { S: 0, G: 0, P: 0, N: 0, revenue: 0 },
+    partnerRevenue: 0,
+    mailN: 0,
+    pending: { revenue: 0, N: 0, ppRevenue: 0, retailRevenue: 0, partnerRevenue: 0 },
     skippedPartner: 0,
     wageSplit: false,
     wageNote: "В памяти доставок нет, кто нарезал каждую строку. Вся сумма за период у выбранного нарезчика-сборщика."
@@ -25025,6 +25038,9 @@ function collectFormulaRollup_(ss, opts) {
     out.pp = rolled.pp;
     out.retail = rolled.retail;
     out.bp = rolled.bp;
+    out.partner = rolled.partner;
+    out.partnerRevenue = rolled.partnerRevenue;
+    out.mailN = rolled.mailN;
     out.pending = rolled.pending;
     out.skippedPartner = rolled.skippedPartner;
     out.missingBasket = rolled.missingBasket;

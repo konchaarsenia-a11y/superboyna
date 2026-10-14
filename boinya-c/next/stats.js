@@ -154,7 +154,7 @@
     html += '<article class="b-card"><p class="b-lbl" style="margin-top:0">Главное</p>';
     if (meta.compare) html += '<p class="b-note">' + esc(meta.compare) + "</p>";
     html += '<p class="b-note">Проценты справа показывают, насколько сумма отличается от этого отрезка</p>';
-    html += '<p class="b-note">В оборот входят только доставки с отметкой «отвёз»</p>';
+    html += '<p class="b-note">Поездка входит, если стоит «отвёз» или есть трек почты. Партнёр в числе поездок. В оборот партнёра входит цена больше нуля</p>';
     if (!now) {
       html += line("Оборот", "нет данных") + line("Прибыль", "нет данных") + line("Себестоимость", "нет данных") + line("Доставки", "нет данных");
     } else {
@@ -162,6 +162,8 @@
       html += shelfMoney("Прибыль", closed ? closed.afterTax : now.profit, beforeClose ? beforeClose.afterTax : (before ? before.profit : null));
       html += shelfMoney("Себестоимость", now.cost, before ? before.cost : null);
       html += shelfCount("Доставки", now.N, before ? before.N : null);
+      if (roll && Number(roll.mailN) > 0) html += line("Из них почта", String(roll.mailN));
+      if (roll && roll.partner && Number(roll.partner.N) > 0) html += line("Из них партнёры", String(roll.partner.N));
       if (roll && Number(roll.missingBasket) > 0) {
         html += line("Без состава", String(roll.missingBasket) + ", цена в обороте");
       }
@@ -183,12 +185,16 @@
       html += shelfMoney("ПП", roll.ppRevenue, prevRoll ? prevRoll.ppRevenue : null);
       html += '<p class="b-note">Розница, разовые заказы</p>';
       html += shelfMoney("Розница", roll.retailRevenue, prevRoll ? prevRoll.retailRevenue : null);
+      html += '<p class="b-note">Партнёр в числе поездок. В деньги входит только цена больше нуля</p>';
+      html += shelfMoney("Партнёры", roll.partnerRevenue || 0, prevRoll ? prevRoll.partnerRevenue : null);
       var bigger = "нет данных";
       var ppR = Number(roll.ppRevenue) || 0;
       var rtR = Number(roll.retailRevenue) || 0;
-      if (ppR > rtR) bigger = "ПП";
-      else if (rtR > ppR) bigger = "Розница";
-      else if (ppR > 0 || rtR > 0) bigger = "Поровну";
+      var ptR = Number(roll.partnerRevenue) || 0;
+      if (ppR > rtR && ppR > ptR) bigger = "ПП";
+      else if (rtR > ppR && rtR > ptR) bigger = "Розница";
+      else if (ptR > ppR && ptR > rtR) bigger = "Партнёры";
+      else if (ppR > 0 || rtR > 0 || ptR > 0) bigger = "Поровну";
       html += line("Что больше принесло", bigger);
     }
     html += "</article>";
@@ -311,7 +317,7 @@
       '<button type="button" class="nx-link" data-act="more-back">← Ещё</button>' +
       '<article class="b-card">' +
         '<p class="b-lbl" style="margin-top:0">Статистика</p>' +
-        '<p class="b-note">Деньги только после отметки «отвёз»</p>' +
+        '<p class="b-note">Поездки из D1: «отвёз» или трек. Партнёр в обороте, если цена больше нуля</p>' +
         '<div class="nx-cut-head" style="justify-content:space-between">' +
           '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="st-prev" aria-label="Предыдущий месяц">‹</button>' +
           '<b id="statsMonthLabel">' + esc(periodTitle()) + "</b>" +
