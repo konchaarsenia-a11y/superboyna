@@ -1157,6 +1157,7 @@ function finishFullWeekProduction(optSs, optOpts) {
   }
 
   var skipWhClose = !!(opts.skipWarehouseClose === true || opts.skipWarehouseClose === "1" || opts.skipWarehouseClose === 1 || opts.skipWarehouseClose === "true");
+  if (opsSheetsReadonly_()) skipWhClose = true;
   if (!skipWhClose) {
     var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
     // один read матрицы на все дни + skip [НЕ РЕЗАТЬ]
@@ -3178,6 +3179,19 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "exportStageBRows") {
     return handleExportStageBRows_(json, callback, fromPost);
+  }
+  if (opsSheetsReadonly_() && opsSheetsWriteAction_(action)) {
+    var opsSkipped = {
+      status: "success",
+      sheetsReadonly: true,
+      skipped: true,
+      action: action,
+      message: "sheets_readonly"
+    };
+    return fromPost ? jsonpText(callback, opsSkipped) : jsonp(callback, opsSkipped);
+  }
+  if (action === "exportStageCFormulas") {
+    return handleExportStageCFormulas_(json, callback, fromPost);
   }
 
   if (action === "deleteClient") {
@@ -36451,6 +36465,151 @@ function handleGbLinkClient_(json, callback, fromPost) {
   var payload = gbBuildMePayload_(user);
   payload.link = gbLinkPublic_(link, payload.subscription);
   return fromPost ? jsonpText(callback, payload) : jsonp(callback, payload);
+}
+
+/** Этап (в). Склад, нарезка, прайс и себес не пишутся в лист. Откат: OPS_SHEETS_READONLY=0. */
+function opsSheetsReadonly_() {
+  var v = "";
+  try {
+    v = String(PropertiesService.getScriptProperties().getProperty("OPS_SHEETS_READONLY") || "").trim();
+  } catch (eOps) {
+    v = "";
+  }
+  if (v === "0" || v === "off" || v === "write") return false;
+  return true;
+}
+
+function opsSheetsWriteAction_(action) {
+  return /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|saveRetailPrices|updateCutting|saveCuttingCutter)$/i.test(String(action || ""));
+}
+
+/** Чтение формул склада и прошлой недели. Ничего не пишет. */
+function handleExportStageCFormulas_(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var from = String((json && json.from) || "2026-10-05");
+  var to = String((json && json.to) || "2026-10-11");
+  var wh = ss.getSheetByName("Склад");
+  var warehouse = [];
+  if (wh) {
+    var last = Math.min(80, Math.max(2, wh.getLastRow()));
+    var num = last - 1;
+    if (num >= 1) {
+      var matrix = wh.getRange(2, 1, num, 13).getValues();
+      for (var i = 0; i < matrix.length; i++) {
+        var name = String(matrix[i][0] || "").trim();
+        if (!name) continue;
+        warehouse.push({
+          row: i + 2,
+          name: name,
+          arrival: round2_(matrix[i][1]),
+          coef: round2_(matrix[i][3]),
+          stock: round2_(matrix[i][5]),
+          satRemain: round2_(matrix[i][11]),
+          sunRemain: round2_(matrix[i][12]),
+          unit: isPieceWarehouseRow_(i + 2, name) ? "шт" : "кг"
+        });
+      }
+    }
+  }
+  var pack = null;
+  try {
+    pack = computeWarehouseWeekPlan_(ss, { dateFrom: from, dateTo: to, force: true, noCache: true });
+  } catch (ePlan) {
+    pack = { ok: false, message: String(ePlan) };
+  }
+  var plan = [];
+  var src = (pack && pack.plan) || [];
+  for (var p = 0; p < src.length; p++) {
+    var it = src[p];
+    plan.push({
+      row: it.row,
+      name: it.name,
+      piece: !!it.piece,
+      coef: it.coef,
+      dryG: it.dryG,
+      needRaw: it.needRaw,
+      priorRaw: it.priorRaw,
+      stock: it.stock,
+      arrival: it.arrival,
+      unit: it.unit
+    });
+  }
+  var manager = ss.getSheetByName("Прием заказов");
+  var colRSample = "";
+  var colR = [];
+  if (manager) {
+    colRSample = String(manager.getRange(309, 18).getFormula() || "");
+    var rNames = manager.getRange(309, 1, 20, 1).getValues();
+    var rVals = manager.getRange(309, 18, 20, 1).getValues();
+    for (var r = 0; r < rNames.length; r++) {
+      var rn = String(rNames[r][0] || "").trim();
+      if (!rn) continue;
+      colR.push({ name: rn, value: rVals[r][0] });
+    }
+  }
+  var ledger = [];
+  var ledgerFrom = "";
+  var led = ss.getSheetByName("Склад_Движения");
+  if (led && led.getLastRow() > 1) {
+    var lr = led.getLastRow();
+    var start = Math.max(2, lr - 399);
+    var data = led.getRange(start, 1, lr - start + 1, 7).getValues();
+    for (var j = 0; j < data.length; j++) {
+      var ts = data[j][0];
+      var iso = "";
+      try { iso = formatSheetDate(ts, tz); } catch (eDt) { iso = String(ts || "").slice(0, 10); }
+      if (!ledgerFrom || (iso && iso < ledgerFrom)) ledgerFrom = iso;
+      if (iso && iso < "2026-09-01") continue;
+      ledger.push({
+        ts: iso || String(ts || ""),
+        skuRow: data[j][2],
+        type: String(data[j][3] || ""),
+        qty: round2_(data[j][4])
+      });
+    }
+  }
+  var cuttingDays = [];
+  var mem = null;
+  try { mem = findSheetByBaseName_(ss, "Память_Нарезки"); } catch (eMem) { mem = null; }
+  if (!mem) mem = ss.getSheetByName("Память_Нарезки");
+  var holes = [];
+  if (!ledgerFrom) holes.push("Склад_Движения пуст");
+  else if (ledgerFrom > "2026-09-01") holes.push("журнал движений начинается с " + ledgerFrom);
+  if (mem && mem.getLastRow() >= 1) {
+    var dates = mem.getRange(1, 1, mem.getLastRow(), 1).getValues();
+    for (var d = 0; d < dates.length; d++) {
+      var day = "";
+      try { day = formatSheetDate(dates[d][0], tz); } catch (eDay) { day = ""; }
+      if (!day || day < from || day > to) continue;
+      var saved = null;
+      try { saved = JSON.parse(mem.getRange(d + 1, 2).getValue()); } catch (eJs) { saved = null; }
+      var done = 0;
+      if (saved && saved.length) {
+        for (var s = 0; s < saved.length; s++) {
+          var row = saved[s] || [];
+          if (row[3] === true || row[3] === "true" || row[3] === 1) done++;
+        }
+      }
+      cuttingDays.push({ date: day, rows: saved ? saved.length : 0, done: done });
+    }
+  } else {
+    holes.push("нет Память_Нарезки");
+  }
+  var out = {
+    status: "success",
+    week: (pack && pack.days) || [],
+    warehouse: warehouse,
+    plan: plan,
+    colRSample: colRSample,
+    colR: colR,
+    ledger: ledger,
+    ledgerFrom: ledgerFrom,
+    cuttingDays: cuttingDays,
+    holes: holes,
+    sheetsReadonly: true
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
 /** Этап (б). По умолчанию лист не пишем. Откат записи: ORDERS_SHEETS_READONLY=0. */

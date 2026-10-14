@@ -1017,6 +1017,9 @@ export default {
     if (url.pathname === "/admin/stage-b") {
       return stageBAdmin_(request, env);
     }
+    if (url.pathname === "/admin/stage-c") {
+      return stageCAdmin_(request, env);
+    }
     if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
       return handleGoodboyTelegramWebhook_(request, env, ctx);
     }
@@ -1257,6 +1260,18 @@ function sheetsOrdersReadonly_(env) {
 
 function ordersCanonLabel_(env) {
   return sheetsOrdersReadonly_(env) ? "d1-readonly-sheets" : "sheets-mirror";
+}
+
+/** Этап (в): склад, нарезка, прайс и себес не пишутся в лист. Откат: WAREHOUSE_CANON=sheets или OPS_SHEETS=write. */
+function sheetsOpsReadonly_(env) {
+  const v = env && env.OPS_SHEETS ? String(env.OPS_SHEETS).trim().toLowerCase() : "";
+  if (v === "write" || v === "on" || v === "sheets") return false;
+  if (v === "off" || v === "readonly" || v === "read-only") return true;
+  return isWarehouseD1PrimaryCanon_(env) && isPriceD1PrimaryCanon_(env) && isCuttingStructD1PrimaryCanon_(env);
+}
+
+function opsSheetsLabel_(env) {
+  return sheetsOpsReadonly_(env) ? "d1-readonly-sheets" : "sheets-mirror";
 }
 
 function isWeekD1GasAuthoritative_(env) {
@@ -1862,7 +1877,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "orders-d1-stage-b-h1"
+      opsSheets: opsSheetsLabel_(env),
+      deployMarker: "orders-d1-stage-c-h1"
     };
   }
 
@@ -3379,11 +3395,14 @@ async function saveCuttingCutter_(params, env, ctx) {
     countsInProfit: false
   };
   const gasParams = Object.assign({}, params || {}, { iso: iso, day: day, cutterId: id, cutterName: name, G: G, P: P, N: N, wage: wage });
-  if (ctx && typeof ctx.waitUntil === "function") {
-    ctx.waitUntil(gasProxy_("saveCuttingCutter", gasParams, env, { write: true }).catch(function () { return null; }));
-  } else {
-    try { await gasProxy_("saveCuttingCutter", gasParams, env, { write: true }); } catch (eGas) {}
+  if (!sheetsOpsReadonly_(env)) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(gasProxy_("saveCuttingCutter", gasParams, env, { write: true }).catch(function () { return null; }));
+    } else {
+      try { await gasProxy_("saveCuttingCutter", gasParams, env, { write: true }); } catch (eGas) {}
+    }
   }
+  ok.sheetsReadonly = sheetsOpsReadonly_(env);
   return ok;
 }
 
@@ -3699,6 +3718,7 @@ async function saveRawCost_(params, env, actor) {
   await env.DB.prepare(
     "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
   ).bind(sku, cost, shrink, from, new Date().toISOString()).run();
+  try { await stageCNoteRaw_(env, sku, cost, shrink); } catch (eRaw) {}
   return {
     status: "success",
     sku: sku,
@@ -17140,7 +17160,10 @@ async function handleCutover_(a, params, env, ctx) {
     }
     let whClosePack = null;
     const gasFinParams = Object.assign({}, params || {});
-    if (/^finishFullWeek$/i.test(a) && isWarehouseCloseD1Canon_(env)) {
+    const opsRoFin = /^finishFullWeek$/i.test(a) && sheetsOpsReadonly_(env);
+    if (opsRoFin) gasFinParams.skipWarehouseClose = "1";
+    const closeD1Fin = /^finishFullWeek$/i.test(a) && (isWarehouseCloseD1Canon_(env) || (opsRoFin && await stageCCloseAllowed_(env)));
+    if (closeD1Fin) {
       try {
         whClosePack = await computeWarehouseCloseD1_(env);
       } catch (eWhC) {
@@ -17163,13 +17186,7 @@ async function handleCutover_(a, params, env, ctx) {
       proxiedFin &&
       (proxiedFin.status === "success" ||
         /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
-    if (
-      okFin &&
-      /^finishFullWeek$/i.test(a) &&
-      isWarehouseCloseD1Canon_(env) &&
-      whClosePack &&
-      whClosePack.ok
-    ) {
+    if (okFin && closeD1Fin && whClosePack && whClosePack.ok) {
       try {
         await applyWarehouseCloseD1_(env, whClosePack);
         if (proxiedFin && typeof proxiedFin === "object") {
@@ -17206,7 +17223,7 @@ async function handleCutover_(a, params, env, ctx) {
         }
       } catch (eRf0) {}
       try {
-        if (!(isWarehouseCloseD1Canon_(env) && /^finishFullWeek$/i.test(a) && whClosePack && whClosePack.ok)) {
+        if (!(closeD1Fin && whClosePack && whClosePack.ok)) {
           await cutoverRevalidate_("getWarehouse", { force: "1" }, env);
         }
       } catch (eWhRf) {}
@@ -17673,7 +17690,8 @@ async function handleCutover_(a, params, env, ctx) {
       }
       // D1-primary: сразу success UI; Sheets только зеркало в фоне (не ждём 14с)
       if (opsPrimary) {
-        const bgMirror = (async function () {
+        const skipCutSheet = /^updateCutting$/i.test(a) && sheetsOpsReadonly_(env);
+        const bgMirror = skipCutSheet ? null : (async function () {
           let proxied = null;
           try {
             proxied = await gasProxy_(a, params, env, { write: true });
@@ -17687,13 +17705,16 @@ async function handleCutover_(a, params, env, ctx) {
             }
           } catch (eD1) {}
         })();
-        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgMirror);
-        else bgMirror.catch(function () {});
+        if (bgMirror) {
+          if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgMirror);
+          else bgMirror.catch(function () {});
+        }
         return {
           status: "success",
           wrote: 1,
           d1Verified: true,
           optimistic: false,
+          sheetsReadonly: !!skipCutSheet,
           opsCanon: "d1-primary",
           cutover: true,
           sandbox: false,
@@ -17806,21 +17827,25 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eWh) {
         d1Wh = { status: "error", message: String((eWh && eWh.message) || eWh) };
       }
-      const gasWhP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasWhP);
-      else {
-        try {
-          await gasWhP;
-        } catch (eGWh) {}
+      if (!sheetsOpsReadonly_(env)) {
+        const gasWhP = gasProxy_(a, params, env, { write: true }).catch(function () {
+          return null;
+        });
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasWhP);
+        else {
+          try {
+            await gasWhP;
+          } catch (eGWh) {}
+        }
       }
       if (d1Wh && d1Wh.status === "success") {
+        try { await stageCNoteStock_(env, null, a, params); } catch (eNote) {}
         return Object.assign({}, d1Wh, {
           cutover: true,
           sandbox: false,
           d1Verified: true,
           optimistic: false,
+          sheetsReadonly: sheetsOpsReadonly_(env),
           warehouseCanon: warehouseCanonLabel_(env),
           action: a
         });
@@ -18293,14 +18318,16 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (ePr) {
         d1Price = { status: "error", message: String((ePr && ePr.message) || ePr) };
       }
-      const gasPrP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasPrP);
-      else {
-        try {
-          await gasPrP;
-        } catch (eGPr) {}
+      if (!sheetsOpsReadonly_(env)) {
+        const gasPrP = gasProxy_(a, params, env, { write: true }).catch(function () {
+          return null;
+        });
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasPrP);
+        else {
+          try {
+            await gasPrP;
+          } catch (eGPr) {}
+        }
       }
       if (d1Price && d1Price.status === "success") {
         return Object.assign({}, d1Price, {
@@ -25198,6 +25225,7 @@ async function saveRetailPricesD1_(params, env) {
     _d1SavedAt: Date.now()
   };
   await putSnap_(env, "retailPrices", body);
+  try { await stageCNoteRetail_(env, outItems, delivery); } catch (eRet) {}
   return {
     status: "success",
     items: outItems,
@@ -32371,6 +32399,246 @@ async function stageBMaterializeTomorrow_(env) {
     .bind(day, new Date().toISOString(), iso)
     .run();
   return { ok: true, date: iso, day: day, wrote: (res && res.meta && res.meta.changes) || 0, source: "d1", sheets: false };
+}
+
+var STAGE_C_FROM_ = "2026-10-05";
+var STAGE_C_TO_ = "2026-10-11";
+
+async function stageCCloseAllowed_(env) {
+  if (!env || !env.DB) return false;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind("stage_c_formula_ok").first();
+    return !!(row && String(row.value) === "1");
+  } catch (eGate) {
+    return false;
+  }
+}
+
+async function stageCEnsureSchema_(env) {
+  if (!env || !env.DB) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS stock_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', dry_g REAL, raw_kg REAL, yield REAL, unit TEXT NOT NULL DEFAULT '', row_num INTEGER, updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS stock_moves (id TEXT PRIMARY KEY, date_iso TEXT NOT NULL, sku TEXT NOT NULL, kind TEXT NOT NULL, qty REAL, actor TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS retail_prices (sku TEXT PRIMARY KEY, price REAL, source TEXT NOT NULL DEFAULT 'showcase', updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS raw_costs (sku TEXT PRIMARY KEY, price REAL, yield REAL, source TEXT NOT NULL DEFAULT 'cost', updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+}
+
+function stageCRawKg_(dryG, coef, piece) {
+  const c = Number(coef) || (piece ? 1 : 0.2);
+  if (piece) return round2_(Number(dryG) || 0);
+  return round2_((Number(dryG) || 0) / 1000 / (c || 0.2));
+}
+
+async function stageCNoteStock_(env, _items, kind) {
+  if (!env || !env.DB) return;
+  await stageCEnsureSchema_(env);
+  const wh = await getSnapRaw_(env, "warehouse");
+  const items = warehouseRows_(wh);
+  const now = new Date().toISOString();
+  const stmts = [];
+  items.forEach(function (r) {
+    const sku = cutNameKey_(r.name) || ("row:" + r.row);
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO stock_items (sku, name, dry_g, raw_kg, yield, unit, row_num, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT(sku) DO UPDATE SET name = excluded.name, raw_kg = excluded.raw_kg, yield = excluded.yield, unit = excluded.unit, row_num = excluded.row_num, updated_at = excluded.updated_at"
+      ).bind(
+        sku,
+        String(r.name || ""),
+        null,
+        Number(r.stock) || 0,
+        Number(r.coef) || 0.2,
+        String(r.unit || ""),
+        Number(r.row) || 0,
+        now
+      )
+    );
+  });
+  if (kind) {
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO stock_moves (id, date_iso, sku, kind, qty, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).bind("mv:" + kind + ":" + now, now.slice(0, 10), kind, String(kind), items.length, "", now)
+    );
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+async function stageCNoteRetail_(env, items) {
+  if (!env || !env.DB || !items) return;
+  await stageCEnsureSchema_(env);
+  const now = new Date().toISOString();
+  const stmts = [];
+  items.forEach(function (it) {
+    const sku = String((it && (it.key || it.name || it.sku)) || "").trim();
+    if (!sku) return;
+    const price = Number(it.price != null ? it.price : it.retail);
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO retail_prices (sku, price, source, updated_at) VALUES (?, ?, 'showcase', ?) " +
+          "ON CONFLICT(sku) DO UPDATE SET price = excluded.price, updated_at = excluded.updated_at"
+      ).bind(sku, isFinite(price) ? price : null, now)
+    );
+  });
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+async function stageCNoteRaw_(env, sku, cost, shrink) {
+  if (!env || !env.DB) return;
+  await stageCEnsureSchema_(env);
+  const key = rawCostNormSku_(sku);
+  await env.DB.prepare(
+    "INSERT INTO raw_costs (sku, price, yield, source, updated_at) VALUES (?, ?, ?, 'cost', ?) " +
+      "ON CONFLICT(sku) DO UPDATE SET price = excluded.price, yield = COALESCE(excluded.yield, raw_costs.yield), updated_at = excluded.updated_at"
+  ).bind(key, cost, shrink, new Date().toISOString()).run();
+}
+
+async function stageCSync_(env) {
+  await stageCEnsureSchema_(env);
+  await stageCNoteStock_(env, null, "");
+  const retail = await getSnapRaw_(env, "retailPrices");
+  if (retail && Array.isArray(retail.items)) await stageCNoteRetail_(env, retail.items);
+  const versions = await loadRawCostVersions_(env);
+  for (let i = 0; i < RAW_COST_BUILTIN_.length; i++) {
+    const row = RAW_COST_BUILTIN_[i];
+    const eff = rawCostEffective_(versions, row.sku, "9999-12-31", row.cost);
+    await stageCNoteRaw_(env, row.sku, eff.cost != null ? eff.cost : row.cost, eff.yield != null ? eff.yield : null);
+  }
+  let goalsN = 0;
+  let expN = 0;
+  try { goalsN = Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM goals").first()).n) || 0; } catch (eG) {}
+  try { expN = Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM owner_expenses").first()).n) || 0; } catch (eE) {}
+  const stock = await env.DB.prepare("SELECT COUNT(*) AS n FROM stock_items").first();
+  const prices = await env.DB.prepare("SELECT COUNT(*) AS n FROM retail_prices").first();
+  const costs = await env.DB.prepare("SELECT COUNT(*) AS n FROM raw_costs").first();
+  const flags = await env.DB.prepare("SELECT COUNT(*) AS n FROM cutting_flags").first();
+  return {
+    status: "success",
+    phase: "sync",
+    stockItems: Number(stock && stock.n) || 0,
+    retailPrices: Number(prices && prices.n) || 0,
+    rawCosts: Number(costs && costs.n) || 0,
+    cuttingFlags: Number(flags && flags.n) || 0,
+    goals: goalsN,
+    expenses: expN,
+    sheets: "readonly"
+  };
+}
+
+async function stageCPeopleForRange_(env, fromIso, toIso) {
+  const q = await env.DB.prepare(
+    "SELECT client, match_key, basket_json, note, date_iso FROM orders WHERE lower(coalesce(status,'')) NOT IN ('deleted','cancelled') AND date_iso >= ? AND date_iso <= ?"
+  ).bind(fromIso, toIso).all();
+  return ((q && q.results) || []).map(function (r) {
+    let basket = [];
+    try { basket = JSON.parse(r.basket_json || "[]"); } catch (eB) { basket = []; }
+    return {
+      name: r.client,
+      matchKey: r.match_key,
+      basket: basket,
+      note: r.note || "",
+      noCut: /\[НЕ\s*РЕЗАТЬ\]/i.test(String(r.note || "")),
+      dateIso: r.date_iso || ""
+    };
+  });
+}
+
+async function stageCCheck_(env) {
+  await stageCEnsureSchema_(env);
+  const sheet = await gasProxy_("exportStageCFormulas", { from: STAGE_C_FROM_, to: STAGE_C_TO_ }, env, { write: false });
+  if (!sheet || sheet.status !== "success") {
+    return { status: "error", message: (sheet && sheet.message) || "sheet_read_failed", sheetsReadonly: true };
+  }
+  const plan = sheet.plan || [];
+  const whRows = (sheet.warehouse || []).map(function (r) {
+    return { row: r.row, name: r.name, coef: r.coef, stock: r.stock, arrival: r.arrival, unit: r.unit };
+  });
+  const people = await stageCPeopleForRange_(env, STAGE_C_FROM_, STAGE_C_TO_);
+  const acc = accumulateDryNeedD1_(people, whRows);
+  const diffs = [];
+  if (!plan.length) diffs.push({ name: "*", kind: "no_sheet_plan", sheet: 0, d1: people.length });
+  plan.forEach(function (it) {
+    const key = cutNameKey_(it.name);
+    const piece = !!it.piece;
+    const formula = stageCRawKg_(it.dryG, it.coef, piece);
+    const sheetRaw = Number(it.needRaw) || 0;
+    const tol = piece ? 0.05 : 0.02;
+    if (formula - sheetRaw > tol) {
+      diffs.push({ name: it.name, kind: "sheet_formula", sheet: round2_(sheetRaw), d1: formula });
+    }
+    const d1Dry = Number(acc.dryByKey[key]) || 0;
+    const d1Raw = warehouseRawForKey_({
+      planDryG: d1Dry,
+      key: key,
+      coef: Number(it.coef) || (piece ? 1 : 0.2),
+      piece: piece,
+      surplusKg: 0
+    }).raw;
+    if (Math.abs(d1Raw - sheetRaw) > (piece ? 0.5 : 0.05) && (d1Dry > 0 || sheetRaw > 0)) {
+      diffs.push({ name: it.name, kind: "week", sheet: round2_(sheetRaw), d1: d1Raw, drySheet: it.dryG, dryD1: round2_(d1Dry) });
+    }
+  });
+  const movesIn = (sheet.ledger || []).length;
+  let insertedMoves = 0;
+  const now = new Date().toISOString();
+  for (let i = 0; i < (sheet.ledger || []).length; i++) {
+    const mv = sheet.ledger[i];
+    const id = "led:" + String(mv.ts || "") + ":" + String(mv.skuRow || "") + ":" + String(mv.type || "") + ":" + String(mv.qty || "");
+    const date = String(mv.ts || "").slice(0, 10);
+    try {
+      const res = await env.DB.prepare(
+        "INSERT INTO stock_moves (id, date_iso, sku, kind, qty, actor, created_at) VALUES (?, ?, ?, ?, ?, '', ?) ON CONFLICT(id) DO NOTHING"
+      ).bind(id.slice(0, 180), /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : STAGE_C_FROM_, "row:" + String(mv.skuRow || ""), String(mv.type || "ledger"), Number(mv.qty) || 0, now).run();
+      if (res && res.meta && Number(res.meta.changes) === 1) insertedMoves++;
+    } catch (eMv) {}
+  }
+  const ok = diffs.length === 0;
+  try {
+    await env.DB.prepare(
+      "INSERT INTO meta (key, value, updated_at) VALUES ('stage_c_formula_ok', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).bind(ok ? "1" : "0", now).run();
+  } catch (eMeta) {}
+  return {
+    status: "success",
+    phase: "check",
+    week: { from: STAGE_C_FROM_, to: STAGE_C_TO_ },
+    sheetWeek: sheet.week || null,
+    planRows: plan.length,
+    orders: people.length,
+    formulaDiffs: diffs.slice(0, 40),
+    formulaDiffCount: diffs.length,
+    formulaOk: ok,
+    colRSample: String(sheet.colRSample || "").slice(0, 180),
+    colRRows: (sheet.colR || []).length,
+    cuttingDays: sheet.cuttingDays || [],
+    ledgerRows: movesIn,
+    ledgerInserted: insertedMoves,
+    ledgerFrom: sheet.ledgerFrom || "",
+    holes: sheet.holes || [],
+    closeApplies: ok,
+    sheets: "readonly"
+  };
+}
+
+async function stageCAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  var body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  var phase = String((body && body.phase) || "check");
+  try {
+    if (phase === "sync") return json(await stageCSync_(env));
+    return json(await stageCCheck_(env));
+  } catch (eRun) {
+    return json({ status: "error", phase: phase, message: String((eRun && eRun.message) || eRun) }, 500);
+  }
 }
 
 async function stageBAdmin_(request, env) {
