@@ -27492,6 +27492,8 @@ function partnerCatalogStatic_() {
   return [
     { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
     { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
+    { id: "vr_t_lamb_lung", type: "allergy", name: "Баранье лёгкое", unit: "г", active: true },
+    { id: "vr_t_turkey", type: "allergy", name: "Индейка", unit: "г", active: true },
     {
       id: "vr_c_piece",
       type: "coupon",
@@ -27539,7 +27541,9 @@ function partnerCatalogById_(id) {
  */
 var PARTNER_TREAT_PP_MAP_ = {
   vr_t_heart: { name: "СЕРДЦЕ", sub: "Ломтики", cat: "dressura" },
-  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" }
+  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" },
+  vr_t_lamb_lung: { name: "БАРАНЬЕ ЛЁГКОЕ", sub: "Целое", cat: "dressura", countMin: false },
+  vr_t_turkey: { name: "ИНДЕЙКА", sub: "Ломтики", cat: "other", countMin: false }
 };
 /** Партнёр не пакует дойпаки подписки — пакеты явно 0, не из сборки корзины. */
 var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
@@ -27547,8 +27551,8 @@ var PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 var PARTNER_VARKA_COEF = 2.2;
 /** Доставка только для Varka, фикс за заказ. Подписка остаётся на PP_RAW26_DELIVERY_PER_ = 7.60. */
 var PARTNER_VARKA_DELIVERY_BYN = 4;
-/** Минимум граммов лакомств. 0 г (только NFC / баннер / купон) — можно. */
-var PARTNER_VARKA_MIN_TREAT_GRAMS = 200;
+/** Минимум граммов сердца и лёгкого. Аллергики (countMin: false) не считаются. 0 г — можно. */
+var PARTNER_VARKA_MIN_TREAT_GRAMS = 100;
 
 function partnerTreatsToPpBasket_(basket) {
   var out = [];
@@ -27588,7 +27592,8 @@ function partnerTreatGrams_(basket) {
   var arr = Array.isArray(basket) ? basket : [];
   for (var i = 0; i < arr.length; i++) {
     var line = arr[i] || {};
-    if (!PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()]) continue;
+    var map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    if (!map || map.countMin === false) continue;
     var qty = Number(line.qty != null ? line.qty : (line.val != null ? line.val : line.value)) || 0;
     if (qty > 0) sum += qty;
   }

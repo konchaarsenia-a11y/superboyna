@@ -14443,6 +14443,8 @@ function partnerOwnerAllOverrideKey_() {
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
   { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
+  { id: "vr_t_lamb_lung", type: "allergy", name: "Баранье лёгкое", unit: "г", active: true },
+  { id: "vr_t_turkey", type: "allergy", name: "Индейка", unit: "г", active: true },
   {
     id: "vr_c_piece",
     type: "coupon",
@@ -14478,15 +14480,17 @@ const PARTNER_CATALOG_STATIC = [
  */
 const PARTNER_TREAT_PP_MAP_ = {
   vr_t_heart: { name: "СЕРДЦЕ", sub: "Ломтики", cat: "dressura" },
-  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" }
+  vr_t_lung: { name: "ЛЁГКОЕ", sub: "Ломтики", cat: "dressura" },
+  vr_t_lamb_lung: { name: "БАРАНЬЕ ЛЁГКОЕ", sub: "Целое", cat: "dressura", countMin: false },
+  vr_t_turkey: { name: "ИНДЕЙКА", sub: "Ломтики", cat: "other", countMin: false }
 };
 const PARTNER_PP_PACK_ZERO_ = { u1: 0, u2: 0, u3: 0, up4: 0 };
 /** Наценка только для Varka. Подписка (ПП) остаётся на PP_RAW26_COEF_DEFAULT_D1_ = 2.6. */
 const PARTNER_VARKA_COEF = 2.2;
 /** Доставка только для Varka, фикс за заказ. Подписка остаётся на PP_RAW26_DELIVERY_PER_D1_ = 7.6. */
 const PARTNER_VARKA_DELIVERY_BYN = 4;
-/** Минимум граммов лакомств. 0 г (только NFC / баннер / купон) — можно. */
-const PARTNER_VARKA_MIN_TREAT_GRAMS = 200;
+/** Минимум граммов сердца и лёгкого. Аллергики (countMin: false) не считаются. 0 г — можно. */
+const PARTNER_VARKA_MIN_TREAT_GRAMS = 100;
 
 function partnerTreatsToPpBasket_(basket) {
   const out = [];
@@ -14526,7 +14530,8 @@ function partnerTreatGrams_(basket) {
   const arr = Array.isArray(basket) ? basket : [];
   for (let i = 0; i < arr.length; i++) {
     const line = arr[i] || {};
-    if (!PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()]) continue;
+    const map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    if (!map || map.countMin === false) continue;
     const qty = Number(line.qty != null ? line.qty : line.val != null ? line.val : line.value) || 0;
     if (qty > 0) sum += qty;
   }
@@ -27200,9 +27205,32 @@ function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   if (/^УХО\s*К$/i.test(String(name || "").trim())) {
     return lookupPpCostInfoD1_(costs, "УХО Г", sub, zeroKeys);
   }
+  // priceCostsPp без бараньего лёгкого / индейки: сырьё из RAW_COST_BUILTIN_ (8.40 / 7.50 за 100 г).
+  const builtinUnit = rawCostBuiltinGramD1_(name);
+  if (builtinUnit > 0) {
+    return {
+      name: name,
+      sub: sub || "",
+      unitPrice: builtinUnit,
+      per100: builtinUnit,
+      piece: false
+    };
+  }
   // Чужая фракция того же имени — не эта позиция. Иначе после сброса кэша
   // «ТРАХЕЯ / СРЕД» закроется ценой «БОЛ», missing останется 0 и GAS не допишет ключ.
   return null;
+}
+
+function rawCostBuiltinGramD1_(name) {
+  const sku = String(name || "").trim().toUpperCase();
+  if (sku !== "БАРАНЬЕ ЛЁГКОЕ" && sku !== "ИНДЕЙКА") return 0;
+  for (let i = 0; i < RAW_COST_BUILTIN_.length; i++) {
+    const row = RAW_COST_BUILTIN_[i] || {};
+    if (String(row.sku || "").trim().toUpperCase() !== sku) continue;
+    const cost = Number(row.cost);
+    if (isFinite(cost) && cost > 0) return cost;
+  }
+  return 0;
 }
 
 async function mergePriceCostsPpFromLinesD1_(env, lines, canon) {
