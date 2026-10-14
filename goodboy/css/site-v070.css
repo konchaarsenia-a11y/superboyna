@@ -530,7 +530,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform: translate3d(0, 0, 0) rotate(-1.2deg);
 }
 
-/* Hero: только телефон, слоган и кнопка кабинета */
+/* Hero: слоган и кнопка отдельно от телефона, без zoom и auto-колонки */
 .hero-grid--features {
   width: min(1040px, 100%);
   margin: 0 auto;
@@ -542,45 +542,93 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   scroll-margin-top: 92px;
   width: 100%;
 }
+.site-hero--features .phone-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "copy" "phone";
+  align-items: start;
+  justify-items: center;
+  justify-content: stretch;
+  text-align: center;
+  gap: 28px 0;
+  width: min(100%, 28rem);
+  margin-inline: auto;
+}
+.site-hero--features .phone-block-copy {
+  grid-area: copy;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: 22rem;
+}
 .site-hero--features .phone-block-copy h1 {
   margin: 0;
+  max-width: 100%;
 }
-@media (min-width: 880px) {
+.site-hero--features .phone-stage {
+  grid-area: phone;
+  position: relative;
+  z-index: 0;
+  zoom: 1;
+  min-width: 0;
+  width: min(100%, 240px);
+  max-width: 100%;
+  margin: 0;
+  justify-self: center;
+  transform: none;
+}
+.site-hero--features .phone-block-copy.reveal,
+.site-hero--features .phone-stage.reveal,
+.site-hero--features .phone-block-copy.reveal.is-in,
+.site-hero--features .phone-stage.reveal.is-in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+.site-hero--features .phone-slides,
+.site-hero--features .phone-screen {
+  min-width: 0;
+  width: 100%;
+}
+.site-hero--features .phone-glow {
+  inset: 8% 4% 12% 4%;
+}
+.site-hero--features .phone-open-btn {
+  width: min(100%, 18rem);
+  margin-top: 16px;
+}
+@media (max-width: 1023px) {
+  .site-hero--features .phone-block-copy h1 {
+    font-size: clamp(1.75rem, 8vw, 2.2rem);
+  }
+}
+@media (min-width: 1024px) {
   .site-hero--features .phone-block {
-    grid-template-columns: minmax(16rem, 22rem) auto;
-    justify-content: center;
-    justify-items: start;
-    text-align: left;
-    gap: 28px 64px;
     width: 100%;
+    max-width: 920px;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-areas: "copy phone";
+    column-gap: 64px;
+    row-gap: 0;
+    align-items: center;
+    justify-items: stretch;
+    text-align: left;
   }
   .site-hero--features .phone-block-copy {
-    max-width: 22rem;
+    max-width: none;
     align-self: center;
   }
   .site-hero--features .phone-block-copy h1 {
-    font-size: clamp(2.6rem, 4.2vw, 3.6rem);
-    max-width: 9em;
-  }
-}
-@media (max-width: 879px) {
-  .site-hero--features .phone-block {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    text-align: center;
-    gap: 18px;
+    font-size: clamp(2.4rem, 4vw, 3.4rem);
+    max-width: 11ch;
   }
   .site-hero--features .phone-stage {
-    zoom: 0.78;
-    width: 260px;
-  }
-  .site-hero--features .phone-block-copy h1 {
-    font-size: clamp(1.85rem, 8vw, 2.25rem);
-    max-width: 12em;
+    width: 280px;
+    justify-self: end;
   }
   .site-hero--features .phone-open-btn {
-    width: min(100%, 18rem);
-    margin-top: 16px;
+    width: auto;
   }
 }
 .site-hero--features {
