@@ -421,6 +421,10 @@
       cancel: "Позже"
     });
     if (!go) return;
+    var cut = root.BoinyaWeek && root.BoinyaWeek.askMoveCut
+      ? await root.BoinyaWeek.askMoveCut({ name: task.clientNick || p.client || "", basket: p.basket || [] })
+      : { cutMode: "full", cutItemKeys: [], cutItemLabels: [] };
+    if (!cut) return;
     var picked = await sh().pickDate({
       title: "Дата",
       lead: task.clientNick || p.client || "Перенос",
@@ -436,14 +440,6 @@
     var newDay = (target && (target.dayName || target.day)) || "";
     if (!newDate) { sh().toast("Не удалось определить дату"); return; }
     if (root.BoinyaWeek && root.BoinyaWeek.confirmFullDay && !(await root.BoinyaWeek.confirmFullDay(newDate))) return;
-    var cut = await sh().confirm({
-      title: "Перенос клиента",
-      text: "Нарезать сырьё на этого клиента в новом дне вместе со всеми?",
-      ok: "Да, резать",
-      alt: "Нет — только перенос",
-      cancel: "Отмена"
-    });
-    if (!cut) return;
     var placed = await api().apiGet(L().placeTransferParams({
       telegramId: tid(),
       id: id,
@@ -455,7 +451,9 @@
       segment: p.segment || "",
       newDate: newDate,
       newDay: newDay,
-      cutRaw: cut === "alt" ? "no" : "yes"
+      cutMode: cut.cutMode,
+      cutItemKeys: cut.cutItemKeys,
+      cutItemLabels: cut.cutItemLabels
     }), { timeoutMs: 35000, cacheTtlMs: 0 });
     var xferChange = {
       op: "move",

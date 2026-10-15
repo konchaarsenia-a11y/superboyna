@@ -105,13 +105,78 @@
     return !!(res.status === "success" || res.status === "accepted" || res.writeId || res.sheetsVerified || res.pendingSheets || res.sent_opaque || res.d1Verified);
   }
 
+  function cutItemLabel(it) {
+    it = it || {};
+    var name = String(it.name || it.main || "").trim();
+    var sub = String(it.sub || "").trim();
+    var val = it.val != null ? it.val : it.value;
+    var unit = it.unit ? String(it.unit) : "";
+    var bit = name;
+    if (sub) bit += " / " + sub;
+    if (val != null && val !== "") bit += " " + val + (unit ? " " + unit : "");
+    return bit || "позиция";
+  }
+
+  function listFromMoveField(raw, sep) {
+    if (Array.isArray(raw)) return raw.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return [];
+    if (s.charAt(0) === "[") {
+      try {
+        var parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return listFromMoveField(parsed, sep);
+      } catch (e) {}
+    }
+    return s.split(sep || ",").map(function (x) { return String(x || "").trim(); }).filter(Boolean);
+  }
+
+  /** Полная / частичная нарезка. Пустая частичная = сразу курьеру, без нарезки и сборки. */
+  function moveCutPlan(opts) {
+    opts = opts || {};
+    var mode = String(opts.cutMode || "").trim().toLowerCase();
+    var explicit = mode === "full" || mode === "partial" || mode === "none";
+    if (!explicit) mode = (opts.cutRaw === "no" || opts.cutRaw === "0") ? "none" : "full";
+    var keys = listFromMoveField(opts.cutItemKeys, ",");
+    var labels = listFromMoveField(opts.cutItemLabels, "|");
+    var noCut = false;
+    var skipAssemble = false;
+    var topUp = false;
+    if (mode === "full") {
+      keys = [];
+      labels = [];
+    } else if (mode === "partial") {
+      if (!keys.length) {
+        mode = "none";
+        noCut = true;
+        skipAssemble = true;
+        labels = [];
+      } else {
+        noCut = false;
+        topUp = true;
+      }
+    } else {
+      noCut = true;
+      skipAssemble = String(opts.skipAssemble || "") === "1" || opts.skipAssemble === true;
+    }
+    return {
+      cutMode: mode,
+      cutRaw: noCut ? "0" : "1",
+      noCut: noCut ? "1" : "0",
+      assemble: skipAssemble ? "0" : "1",
+      skipAssemble: skipAssemble ? "1" : "0",
+      topUp: topUp ? "1" : "0",
+      cutItemKeys: topUp ? keys.join(",") : "",
+      cutItemLabels: topUp ? labels.join("|") : ""
+    };
+  }
+
   function moveParams(opts) {
     opts = opts || {};
     var calendarOnly = !!opts.calendarOnly;
     var newDay = calendarOnly ? "" : (opts.newDay || "");
     var oldDay = opts.oldDay || "";
     var dateOnly = !!(!calendarOnly && newDay && oldDay && newDay === oldDay);
-    var cutRaw = opts.cutRaw === "no" || opts.cutRaw === "0" ? "0" : "1";
+    var plan = moveCutPlan(opts);
     var params = {
       action: "moveClient",
       client: String(opts.client || ""),
@@ -121,8 +186,14 @@
       newDate: opts.newDate || "",
       dateOnly: dateOnly ? "1" : "0",
       calendarOnly: calendarOnly ? "1" : "0",
-      cutRaw: cutRaw,
-      noCut: cutRaw === "1" ? "0" : "1",
+      cutRaw: plan.cutRaw,
+      noCut: plan.noCut,
+      cutMode: plan.cutMode,
+      assemble: plan.assemble,
+      skipAssemble: plan.skipAssemble,
+      topUp: plan.topUp,
+      cutItemKeys: plan.cutItemKeys,
+      cutItemLabels: plan.cutItemLabels,
       matchKey: opts.matchKey || ""
     };
     if (opts.segment) params.segment = opts.segment;
@@ -579,7 +650,7 @@
 
   function placeTransferParams(opts) {
     opts = opts || {};
-    var cutRaw = opts.cutRaw === "no" || opts.cutRaw === "0" ? "0" : "1";
+    var plan = moveCutPlan(opts);
     return {
       action: "placeTransferTask",
       telegramId: opts.telegramId || "",
@@ -592,8 +663,14 @@
       segment: opts.segment || "",
       newDate: opts.newDate || "",
       newDay: opts.newDay || "",
-      cutRaw: cutRaw,
-      noCut: cutRaw === "1" ? "0" : "1"
+      cutRaw: plan.cutRaw,
+      noCut: plan.noCut,
+      cutMode: plan.cutMode,
+      assemble: plan.assemble,
+      skipAssemble: plan.skipAssemble,
+      topUp: plan.topUp,
+      cutItemKeys: plan.cutItemKeys,
+      cutItemLabels: plan.cutItemLabels
     };
   }
 
@@ -1148,6 +1225,8 @@
     finishBannerState: finishBannerState,
     finishGuard: finishGuard,
     placeTransferParams: placeTransferParams,
+    cutItemLabel: cutItemLabel,
+    moveCutPlan: moveCutPlan,
     collectAccessTabs: collectAccessTabs,
     NOTIFY_KEYS: NOTIFY_KEYS,
     NOTIFY_DEFAULTS: NOTIFY_DEFAULTS,

@@ -5707,12 +5707,18 @@ async function relocateTransferDelivery_(env, spec) {
       ? spec.basket
       : source && source.basket_json
   );
-  const metaJson = transferPlaceMetaJson_(source && source.meta_json, {
-    noCut: !!spec.noCut,
+  const metaJson = transferPlaceMetaJson_(source && source.meta_json, applyMoveCutMeta_({
     segment: spec.segment || undefined,
     ppPartner: spec.ppPartner || undefined,
     orderType: "transfer"
-  });
+  }, {
+    cutMode: spec.cutMode,
+    noCut: spec.noCut,
+    topUp: spec.topUp,
+    skipAssemble: spec.skipAssemble,
+    cutItemKeys: spec.cutItemKeys,
+    cutItemLabels: spec.cutItemLabels
+  }));
   const now = new Date().toISOString();
   let dateIso = newIso;
   if (!dateIso && newDay) {
@@ -5877,6 +5883,267 @@ async function dropClientFromOpsSnaps_(env, day, client, matchKey) {
   } catch (eA) {}
 }
 
+function moveCutSpec_(params) {
+  params = params || {};
+  let mode = String(params.cutMode || "").trim().toLowerCase();
+  const explicit = mode === "full" || mode === "partial" || mode === "none";
+  if (!explicit) {
+    const cut = parseExplicitCutRaw_(params.cutRaw);
+    mode = cut === false || toBool_(params.noCut) ? "none" : "full";
+  }
+  let keys = params.cutItemKeys;
+  if (typeof keys === "string") {
+    const raw = keys.trim();
+    if (raw.charAt(0) === "[") {
+      try {
+        keys = JSON.parse(raw);
+      } catch (eK) {
+        keys = raw.split(",");
+      }
+    } else keys = raw ? raw.split(",") : [];
+  }
+  if (!Array.isArray(keys)) keys = [];
+  keys = keys.map(function (k) { return String(k == null ? "" : k).trim(); }).filter(Boolean);
+  let labels = params.cutItemLabels;
+  if (typeof labels === "string") {
+    const rawL = labels.trim();
+    if (rawL.charAt(0) === "[") {
+      try {
+        labels = JSON.parse(rawL);
+      } catch (eL) {
+        labels = rawL.split("|");
+      }
+    } else labels = rawL ? rawL.split("|") : [];
+  }
+  if (!Array.isArray(labels)) labels = [];
+  labels = labels.map(function (s) { return String(s || "").trim(); }).filter(Boolean);
+  let noCut = false;
+  let skipAssemble = false;
+  let topUp = false;
+  if (mode === "full") {
+    keys = [];
+    labels = [];
+  } else if (mode === "partial") {
+    if (!keys.length) {
+      mode = "none";
+      noCut = true;
+      skipAssemble = true;
+      labels = [];
+    } else {
+      topUp = true;
+    }
+  } else {
+    noCut = true;
+    skipAssemble = explicit && (toBool_(params.skipAssemble) || String(params.assemble || "") === "0");
+    keys = [];
+    labels = [];
+  }
+  return {
+    cutMode: mode,
+    noCut: noCut,
+    skipAssemble: skipAssemble,
+    topUp: topUp,
+    cutItemKeys: topUp ? keys : [],
+    cutItemLabels: topUp ? labels : []
+  };
+}
+
+function applyCutPlanNote_(note, spec) {
+  let t = String(note || "")
+    .replace(/\s*\[НЕ\s*РЕЗАТЬ\]/gi, "")
+    .replace(/\s*\[ДОРЕЗАТЬ:[^\]]*\]/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  spec = spec || {};
+  if (spec.noCut) return (t ? t + " " : "") + "[НЕ РЕЗАТЬ]";
+  if (spec.topUp && spec.cutItemLabels && spec.cutItemLabels.length) {
+    return (t ? t + " " : "") + "[ДОРЕЗАТЬ:" + spec.cutItemLabels.join(";") + "]";
+  }
+  return t;
+}
+
+function applyMoveCutMeta_(meta, spec) {
+  meta = meta || {};
+  spec = spec || {};
+  meta.cutMode = spec.cutMode || "full";
+  meta.noCut = !!spec.noCut;
+  meta.topUp = !!spec.topUp;
+  meta.skipAssemble = !!spec.skipAssemble;
+  meta.cutItemKeys = spec.topUp && spec.cutItemKeys && spec.cutItemKeys.length ? spec.cutItemKeys.slice() : [];
+  meta.cutItemLabels = spec.topUp && spec.cutItemLabels && spec.cutItemLabels.length ? spec.cutItemLabels.slice() : [];
+  return meta;
+}
+
+function snapClientIs_(c, mk, name) {
+  if (!c) return false;
+  const aliases = matchKeyAliases_(mk).concat(matchKeyAliases_(name));
+  const mine = matchKeyAliases_(c.matchKey || c.name || c.ownerName);
+  for (let i = 0; i < mine.length; i++) if (aliases.indexOf(mine[i]) >= 0) return true;
+  if (name && String(c.name || "").toLowerCase() === String(name).toLowerCase()) return true;
+  return false;
+}
+
+function basketForCutting_(p) {
+  if (!p) return [];
+  if (p.noCut || p.skipAssemble || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || ""))) return [];
+  const basket = Array.isArray(p.basket) ? p.basket : [];
+  let keys = p.cutItemKeys;
+  if (typeof keys === "string") keys = keys.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  if (!Array.isArray(keys)) keys = [];
+  const mode = String(p.cutMode || "");
+  const tag = String(p.note || "").match(/\[ДОРЕЗАТЬ:([^\]]*)\]/i);
+  if (!keys.length && tag) {
+    const want = String(tag[1] || "")
+      .split(/[;|]/)
+      .map(function (s) { return s.trim().toUpperCase().replace(/Ё/g, "Е"); })
+      .filter(Boolean);
+    if (!want.length) return [];
+    return basket.filter(function (it) {
+      const nm = String((it && (it.main || it.name)) || "").toUpperCase().replace(/Ё/g, "Е");
+      if (!nm) return false;
+      for (let i = 0; i < want.length; i++) {
+        if (nm.indexOf(want[i]) >= 0 || want[i].indexOf(nm) >= 0) return true;
+      }
+      return false;
+    });
+  }
+  if (mode === "partial" || p.topUp || keys.length) {
+    if (!keys.length) return [];
+    const set = Object.create(null);
+    keys.forEach(function (k) { set[String(k)] = true; });
+    return basket.filter(function (it, i) { return !!set[String(i)]; });
+  }
+  return basket;
+}
+
+async function touchArriveSnaps_(env, day, row, spec) {
+  if (!env || !day || !row) return;
+  spec = spec || { noCut: false, skipAssemble: false, topUp: false, cutItemLabels: [], cutMode: "full" };
+  const name = row.client || "";
+  const mk = row.match_key || normalizeMatchKey_(name);
+  const card = {
+    name: name,
+    matchKey: mk,
+    address: row.address || "",
+    note: row.note || "",
+    phone: row.phone || "",
+    basket: parseBasket_(row.basket_json != null ? row.basket_json : row.basket),
+    segment: row.segment || "",
+    noCut: !!spec.noCut,
+    topUp: !!spec.topUp,
+    cutMode: spec.cutMode || "",
+    cutItemLabels: spec.cutItemLabels || [],
+    skipAssemble: !!spec.skipAssemble,
+    delivered: false,
+    assembled: !!spec.skipAssemble
+  };
+  try {
+    const cour = await getSnapRaw_(env, "courier:" + day);
+    if (cour && Array.isArray(cour.clients)) {
+      let found = false;
+      cour.clients.forEach(function (c) {
+        if (!snapClientIs_(c, mk, name)) return;
+        found = true;
+        c.noCut = !!spec.noCut;
+        c.topUp = !!spec.topUp;
+        c.cutMode = spec.cutMode || "";
+        c.cutItemLabels = spec.cutItemLabels || [];
+        if (spec.skipAssemble) c.assembled = true;
+      });
+      if (!found) cour.clients.push(card);
+      cour.flagsTouchedAt = Date.now();
+      await putSnap_(env, "courier:" + day, cour);
+    }
+  } catch (eC) {}
+  if (spec.skipAssemble) {
+    try {
+      const asm = await getSnapRaw_(env, "assembly:" + day);
+      if (asm && Array.isArray(asm.clients)) {
+        asm.clients = asm.clients.filter(function (c) { return !snapClientIs_(c, mk, name); });
+        asm.flagsTouchedAt = Date.now();
+        await putSnap_(env, "assembly:" + day, asm);
+      }
+    } catch (eSkip) {}
+    return;
+  }
+  try {
+    const asm = await getSnapRaw_(env, "assembly:" + day);
+    if (asm && Array.isArray(asm.clients)) {
+      let foundA = false;
+      asm.clients.forEach(function (c) {
+        if (!snapClientIs_(c, mk, name)) return;
+        foundA = true;
+        c.topUp = !!spec.topUp;
+        c.cutMode = spec.cutMode || "";
+        c.cutItemLabels = spec.cutItemLabels || [];
+        c.noCut = !!spec.noCut;
+      });
+      if (!foundA) asm.clients.push(Object.assign({}, card, { assembled: false, printed: false }));
+      asm.flagsTouchedAt = Date.now();
+      await putSnap_(env, "assembly:" + day, asm);
+    }
+  } catch (eA) {}
+}
+
+async function ensureCourierDay_(env, day) {
+  if (!env || !day) return { rebuilt: false };
+  let hit = null;
+  try {
+    hit = await getSnapRaw_(env, "courier:" + day);
+  } catch (eHit) {
+    hit = null;
+  }
+  const live = await getClients_({ day: day }, env);
+  const clients = (live && live.clients) || [];
+  let info = null;
+  try {
+    info = await dayDateInfo_(env, day);
+  } catch (eInfo) {
+    info = null;
+  }
+  const want = String((info && (info.date || info.iso)) || "");
+  const snapDate = String((hit && hit.date) || "");
+  const dateBad = !!(want && snapDate && !sameCutDate_(snapDate, want));
+  const by = indexByMatchAliases_((hit && hit.clients) || []);
+  let missing = !hit || dateBad;
+  if (!missing) {
+    for (let i = 0; i < clients.length; i++) {
+      const c = clients[i];
+      if (!lookupByMatchAliases_(by, (c && (c.matchKey || c.name)) || "")) {
+        missing = true;
+        break;
+      }
+    }
+  }
+  if (!missing) return { rebuilt: false, day: day, n: clients.length };
+  await rebuildCourierDay_(env, day);
+  return { rebuilt: true, day: day, n: clients.length };
+}
+
+async function reconcileTodayCourier_(env) {
+  if (!env || !env.DB) return { skipped: "no_db" };
+  let iso = "";
+  try {
+    iso = todayIsoMinskD1_();
+  } catch (eIso) {
+    iso = "";
+  }
+  if (!iso) return { skipped: "no_date" };
+  let day = "";
+  try {
+    const r = await resolveDay_({ date: iso }, env);
+    if (r && r.onWeek && r.dayName) day = r.dayName;
+  } catch (eDay) {
+    day = "";
+  }
+  if (!day) return { skipped: "off_week", iso: iso };
+  try {
+    return await ensureCourierDay_(env, day);
+  } catch (eEns) {
+    return { rebuilt: false, error: String((eEns && eEns.message) || eEns) };
+  }
+}
+
 /** Курьер «не получил»: мягкий park в D1 без тяжёлого invalidateDays_ (иначе CF/UI «Ошибка сети»). */
 async function parkMissedDeliveryD1_(params, env, proxied) {
   params = params || {};
@@ -6039,12 +6306,9 @@ async function placeTransferTaskD1_(params, env) {
     if (r.onWeek && r.dayName) newDay = r.dayName;
   }
 
-  const explicitCut = parseExplicitCutRaw_(params.cutRaw);
-  const parkedNoCut = !!(p.noCut) || noteHasNoCutFlag_(p.note);
-  const noCut = explicitCut == null ? parkedNoCut : !explicitCut;
-  let note = String(p.note || "").trim();
-  note = note.replace(/\s*\[НЕ РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
-  if (noCut) note = (note ? note + " " : "") + "[НЕ РЕЗАТЬ]";
+  const cutSpec = moveCutSpec_(params);
+  const noCut = !!cutSpec.noCut;
+  let note = applyCutPlanNote_(p.note || "", cutSpec);
 
   const basket = Array.isArray(p.basket) ? p.basket : parseBasket_(p.basket);
   const seg = String(p.segment || params.segment || "");
@@ -6065,10 +6329,28 @@ async function placeTransferTaskD1_(params, env) {
     segment: seg,
     ppPartner: ppPartner,
     noCut: noCut,
+    cutMode: cutSpec.cutMode,
+    topUp: cutSpec.topUp,
+    skipAssemble: cutSpec.skipAssemble,
+    cutItemKeys: cutSpec.cutItemKeys,
+    cutItemLabels: cutSpec.cutItemLabels,
     _skipInvalidate: "1"
   });
   if (!saveRes || saveRes.status !== "success") {
     return Object.assign({}, saveRes || { status: "error", message: "save_failed" }, { cutover: true });
+  }
+  if (newDay) {
+    try {
+      await touchArriveSnaps_(env, newDay, {
+        client: client,
+        match_key: matchKey,
+        address: String(p.address || params.address || ""),
+        note: note,
+        phone: String(p.phone || params.phone || ""),
+        basket: basket,
+        segment: seg
+      }, cutSpec);
+    } catch (eArr) {}
   }
 
   // не удалять — пометить done (иначе «пропали из переносов» сразу после клика)
@@ -9063,8 +9345,8 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
   });
   const acc = Object.create(null);
   (people || []).forEach(function (p) {
-    if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
-    expandCrumbsForCuttingD1_(p.basket || []).forEach(function (it) {
+    if (p && (p.noCut || p.skipAssemble || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
+    expandCrumbsForCuttingD1_(basketForCutting_(p)).forEach(function (it) {
       const name = cuttingNameFromBasketItem_(it);
       if (!name) return;
       if (/^КРОШКА/i.test(name) && isCrumbBasketItemD1_(it)) return;
@@ -10403,7 +10685,13 @@ async function rebuildCourierDay_(env, day) {
     const asm = lookupByMatchAliases_(asmBy, c.matchKey || c.name);
     const merged = Object.assign({}, c, {
       delivered: sameDate ? !!old.delivered : false,
-      assembled: sameDate ? !!(old.assembled || (asm && asm.assembled)) : !!(asm && asm.assembled),
+      assembled: sameDate
+        ? !!(old.assembled || (asm && asm.assembled) || c.skipAssemble)
+        : !!((asm && asm.assembled) || c.skipAssemble),
+      topUp: !!c.topUp,
+      cutMode: c.cutMode || "",
+      cutItemLabels: c.cutItemLabels || [],
+      skipAssemble: !!c.skipAssemble,
       paid: (sameDate && old.paid) || c.paid || null,
       col: old.col,
       courierCol: old.courierCol,
@@ -10523,6 +10811,7 @@ async function rebuildAssemblyDay_(env, day) {
         dogName: ""
       });
     }
+    if (c.skipAssemble) return;
     entries.forEach(function (ent) {
       const old =
         (sameDate &&
@@ -10559,8 +10848,11 @@ async function rebuildAssemblyDay_(env, day) {
         craftBags: sameDate ? old.craftBags || 0 : 0,
         lightByFraction: sameDate ? old.lightByFraction || {} : {},
         lightBagsByCounter: sameDate ? old.lightBagsByCounter || {} : {},
-        assembled: assembled,
+        assembled: !!(assembled || c.skipAssemble),
         printed: printed,
+        topUp: !!c.topUp,
+        cutMode: c.cutMode || "",
+        cutItemLabels: c.cutItemLabels || [],
         dogPart: ent.dogPart || 0,
         ownerName: baseName,
         matchKey: c.matchKey
@@ -10866,6 +11158,9 @@ async function refreshCourierAskPaid_(env, snap) {
 
 async function getCourier_(params, env) {
   const day = String(params.day || "Понедельник");
+  try {
+    await ensureCourierDay_(env, day);
+  } catch (eEns) {}
   let hit = await getSnapRaw_(env, "courier:" + day);
   if (!hit) {
     await rebuildCourierDay_(env, day);
@@ -12905,7 +13200,13 @@ async function moveClient_(params, env) {
             .bind(now, fromDays[ti], matchKey, clientLow || matchKey)
             .run();
         } catch (eDelOld) {}
+        try {
+          await dropClientFromOpsSnaps_(env, fromDays[ti], client, matchKey);
+        } catch (eDropOld) {}
       }
+      try {
+        await touchArriveSnaps_(env, newDay, already, moveCutSpec_(params));
+      } catch (eArr0) {}
       return {
         status: "success",
         sandbox: true,
@@ -13085,9 +13386,9 @@ async function moveClient_(params, env) {
   row = enrichOrderRowSegment_(row);
 
   const meta = parseMeta_(row.meta_json);
-  if (cutRaw === "0" || cutRaw === "no") meta.noCut = true;
-  else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
-  const movedNote = applyNoCutNoteD1_(row.note || "", !!meta.noCut);
+  const cutSpec = moveCutSpec_(params);
+  applyMoveCutMeta_(meta, cutSpec);
+  const movedNote = applyCutPlanNote_(row.note || "", cutSpec);
 
   // канонический from = где человек реально сидит (не «Пн» при слоте «Будущая»)
   if (row.day_name) addFromDay_(row.day_name);
@@ -13336,6 +13637,19 @@ async function moveClient_(params, env) {
       try {
         await dropClientFromOpsSnaps_(env, fromDays[fj], clearName || client, matchKey);
       } catch (eDropF) {}
+    }
+    if (newDay) {
+      try {
+        await touchArriveSnaps_(env, newDay, {
+          client: clearName || client,
+          match_key: matchKey,
+          address: row.address || "",
+          note: movedNote,
+          phone: row.phone || "",
+          basket_json: row.basket_json || "[]",
+          segment: row.segment || ""
+        }, cutSpec);
+      } catch (eArr) {}
     }
   }
   // calendar-only / даты: сбросить snap по датам (дёшево)
@@ -20540,7 +20854,8 @@ async function cutoverStoreRead_(a, params, env, payload) {
       if (recentC || opsP) {
         const inGas = indexByMatchAliases_(payload.clients);
         prevC.clients.forEach(function (pc) {
-          if (!pc || !(pc.delivered || pc.assembled)) return;
+          if (!pc) return;
+          if (!opsP && !(pc.delivered || pc.assembled)) return;
           if (!lookupByMatchAliases_(inGas, pc.matchKey || pc.name)) payload.clients.push(pc);
         });
       }
@@ -26323,7 +26638,7 @@ async function loadPeopleForDaysD1_(env, dayMetas) {
       let rows = [];
       if (day) {
         const q = await env.DB.prepare(
-          "SELECT client, match_key, basket_json, note, date_iso, day_name FROM orders WHERE status = 'active' AND day_name = ? LIMIT 200"
+          "SELECT client, match_key, basket_json, note, date_iso, day_name, meta_json FROM orders WHERE status = 'active' AND day_name = ? LIMIT 200"
         )
           .bind(day)
           .all();
@@ -26331,7 +26646,7 @@ async function loadPeopleForDaysD1_(env, dayMetas) {
       }
       if (iso) {
         const q2 = await env.DB.prepare(
-          "SELECT client, match_key, basket_json, note, date_iso, day_name FROM orders WHERE status = 'active' AND date_iso = ? AND (day_name = '' OR day_name IS NULL) LIMIT 200"
+          "SELECT client, match_key, basket_json, note, date_iso, day_name, meta_json FROM orders WHERE status = 'active' AND date_iso = ? AND (day_name = '' OR day_name IS NULL) LIMIT 200"
         )
           .bind(iso)
           .all();
@@ -26344,12 +26659,23 @@ async function loadPeopleForDaysD1_(env, dayMetas) {
         } catch (eB) {
           basket = [];
         }
+        let rowMeta = {};
+        try {
+          rowMeta = JSON.parse(r.meta_json || "{}") || {};
+        } catch (eMeta) {
+          rowMeta = {};
+        }
         people.push({
           name: r.client,
           matchKey: r.match_key,
           basket: basket,
           note: r.note || "",
-          noCut: /\[НЕ\s*РЕЗАТЬ\]/i.test(String(r.note || "")),
+          noCut: !!(rowMeta.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(r.note || ""))),
+          skipAssemble: !!rowMeta.skipAssemble,
+          topUp: !!rowMeta.topUp,
+          cutMode: rowMeta.cutMode || "",
+          cutItemKeys: rowMeta.cutItemKeys || [],
+          cutItemLabels: rowMeta.cutItemLabels || [],
           dateIso: r.date_iso || iso || "",
           day: r.day_name || day || ""
         });
@@ -26364,8 +26690,8 @@ function accumulateDryNeedD1_(people, warehouseRows) {
   const dryByKeyDay = Object.create(null);
   const metaByKey = Object.create(null);
   (people || []).forEach(function (p) {
-    if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
-    expandCrumbsForCuttingD1_(p.basket || []).forEach(function (it) {
+    if (p && (p.noCut || p.skipAssemble || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
+    expandCrumbsForCuttingD1_(basketForCutting_(p)).forEach(function (it) {
       const cname = cuttingNameFromBasketItem_(it);
       if (!cname) return;
       if (/^КРОШКА/i.test(cname) && isCrumbBasketItemD1_(it)) return;
@@ -33826,6 +34152,9 @@ async function stageNCallback_(env, cq, send) {
 }
 
 async function stageNTick_(env, when) {
+  try {
+    await reconcileTodayCourier_(env);
+  } catch (eCour) {}
   const armed = (await stageNMeta_(env, "notify_cron_live")) === "1";
   if (!armed) return { skipped: "not_armed" };
   const now = stageNNow_(when);

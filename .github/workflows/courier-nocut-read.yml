@@ -1,0 +1,124 @@
+name: courier-nocut-read
+# Чтение заказов 14–15.10 и снимка курьера. Без записи и без Telegram.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/courier-nocut-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read courier vs orders
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/courier-nocut"
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/courier-nocut"
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+          orders_sql = (
+              "SELECT client, day_name, date_iso, status, updated_at, "
+              "CASE WHEN instr(upper(ifnull(note,'')), 'НЕ РЕЗАТЬ')>0 THEN 1 ELSE 0 END AS nocut, "
+              "CASE WHEN instr(upper(ifnull(note,'')), 'ДОРЕЗАТЬ')>0 THEN 1 ELSE 0 END AS partial "
+              "FROM orders WHERE (date_iso IN ('2026-10-14','2026-10-15') OR day_name IN ('Среда','Четверг')) "
+              "AND updated_at >= '2026-10-13' ORDER BY updated_at DESC LIMIT 400"
+          )
+          snap_sql = (
+              "SELECT cache_key, updated_at, payload FROM snap_cache "
+              "WHERE cache_key IN ('courier:Среда','courier:Четверг','assembly:Среда','assembly:Четверг')"
+          )
+          def brief(tag):
+              op = run(orders_sql, tag + "-orders")
+              sp = run(snap_sql, tag + "-snaps")
+              def rows(path):
+                  data = json.loads(open(path, encoding="utf-8").read())
+                  out = []
+                  blocks = data if isinstance(data, list) else [data]
+                  for block in blocks:
+                      if isinstance(block, dict) and isinstance(block.get("results"), list):
+                          out.extend(block["results"])
+                  return out
+              orders = rows(op)
+              snaps = {}
+              for row in rows(sp):
+                  key = row.get("cache_key") or ""
+                  try:
+                      payload = json.loads(row.get("payload") or "null")
+                  except Exception:
+                      payload = None
+                  names = []
+                  if isinstance(payload, dict):
+                      for c in payload.get("clients") or []:
+                          if isinstance(c, dict) and c.get("name"):
+                              names.append(str(c.get("name")))
+                  snaps[key] = {
+                      "updated_at": row.get("updated_at") or "",
+                      "date": (payload or {}).get("date") if isinstance(payload, dict) else "",
+                      "n": len(names),
+                      "names": names
+                  }
+              active = []
+              for o in orders:
+                  if str(o.get("status") or "") != "active":
+                      continue
+                  active.append({
+                      "client": o.get("client"),
+                      "day": o.get("day_name") or "",
+                      "date": o.get("date_iso") or "",
+                      "nocut": o.get("nocut"),
+                      "partial": o.get("partial"),
+                      "updated_at": o.get("updated_at") or ""
+                  })
+              thu = [a for a in active if a["day"] == "Четверг" or a["date"] == "2026-10-15"]
+              cour = set(snaps.get("courier:Четверг", {}).get("names") or [])
+              missing = []
+              for a in thu:
+                  name = str(a.get("client") or "")
+                  if name and name not in cour and int(a.get("nocut") or 0) == 1:
+                      missing.append(name)
+              out = {
+                  "tag": tag,
+                  "activeThuOr15": len(thu),
+                  "courierThu": snaps.get("courier:Четверг", {}).get("n"),
+                  "courierThuDate": snaps.get("courier:Четверг", {}).get("date"),
+                  "courierThuAt": snaps.get("courier:Четверг", {}).get("updated_at"),
+                  "missingNoCut": missing,
+                  "nocutOn15": [a["client"] for a in thu if int(a.get("nocut") or 0) == 1],
+                  "snapNamesThu": snaps.get("courier:Четверг", {}).get("names") or []
+              }
+              json.dump(out, open(root + "/" + tag + "-brief.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+              print(json.dumps(out, ensure_ascii=False)[:5000])
+              return out
+          brief("before")
+          time.sleep(240)
+          brief("after")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: courier-nocut-read
+          path: artifacts/courier-nocut
+          retention-days: 7

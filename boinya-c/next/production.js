@@ -926,11 +926,17 @@
       var summary = order.filter(function (k) { return by[k] > 0; }).map(function (k) { return by[k] + " " + k; }).join(", ") || "—";
       var lines = basketLinesHtml(c.basket);
       lines = lines ? '<div class="b-note mix-list">' + lines + "</div>" : '<p class="b-note">Пустой состав</p>';
+      var topLabels = c.cutItemLabels;
+      if (typeof topLabels === "string") topLabels = topLabels.split("|").filter(Boolean);
+      if (!Array.isArray(topLabels)) topLabels = [];
+      var topUp = !c.assembled && (!!(c.topUp) || String(c.cutMode || "") === "partial") && topLabels.length;
+      var plaque = c.assembled ? "собран" : (topUp ? "доложить" : "не собран");
       html += '<article class="b-card' + (c.assembled ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
         esc(asmTitle(c)) + ", " + bags + " пак. " +
-        '<span class="plaque ' + (c.assembled ? "plaque--gold" : "plaque--bad") + '">' + (c.assembled ? "собран" : "не собран") + "</span>" +
+        '<span class="plaque ' + (c.assembled || topUp ? "plaque--gold" : "plaque--bad") + '">' + plaque + "</span>" +
         (c.printed ? ", пропечатано" : "") + "</label>" +
+        (topUp ? '<p class="b-note">Доложить: ' + esc(topLabels.join(", ")) + "</p>" : "") +
         '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
         lines +
         '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? ", без лакомств" : "") + "</p></article>";
