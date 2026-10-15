@@ -1349,7 +1349,7 @@
       if (price) accentBits.push(price);
       var accent = accentBits.join(", ");
       var packsApi = root.BoinyaAsmPacks;
-      var dogLine = c.twoDogs && packsApi && packsApi.courierDogLine ? packsApi.courierDogLine(c) : (c.twoDogs ? "2 собаки · 2 пакета" : "");
+      var dogLine = c.twoDogs && packsApi && packsApi.courierDogLine ? packsApi.courierDogLine(c) : (c.twoDogs ? "2 собаки, 2 пакета" : "");
       var basket = c.twoDogs && c.dogSections && c.dogSections.length > 1 ? dogPackHtml(c) : basketLinesHtml(c.basket);
       var telHtml = tel
         ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>"

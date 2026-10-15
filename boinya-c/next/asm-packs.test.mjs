@@ -97,7 +97,7 @@ test("courier: one order, two dogs, one price, two sections", () => {
   assert.equal(stops[0].dogSections[1].title, "Собака 2 (Патрик)");
   assert.deepEqual(stops[0].dogSections[0].basket.map((it) => it.name), ["ЛЁГКОЕ", "СЕРДЦЕ"]);
   assert.deepEqual(stops[0].dogSections[1].basket.map((it) => it.name), ["ЛЁГКОЕ", "ПОЧКИ"]);
-  assert.equal(packs.courierDogLine(stops[0]), "2 собаки: Барни, Патрик · 2 пакета");
+  assert.equal(packs.courierDogLine(stops[0]), "2 собаки: Барни, Патрик, 2 пакета");
 });
 
 test("courier: dog parts on one nick collapse, price is not added", () => {
@@ -117,7 +117,7 @@ test("courier: dog parts on one nick collapse, price is not added", () => {
   assert.equal(stops[0].dogSections[1].title, "Собака 2 (Патрик)");
   assert.equal(stops[0].dogSections[0].basket[0].name, "ЛЁГКОЕ");
   assert.equal(stops[0].dogSections[1].basket[0].name, "ПОЧКИ");
-  assert.equal(packs.courierDogLine(stops[0]), "2 собаки: Барни, Патрик · 2 пакета");
+  assert.equal(packs.courierDogLine(stops[0]), "2 собаки: Барни, Патрик, 2 пакета");
 });
 
 test("courier: same basket twice is one card without a second dog", () => {
@@ -146,7 +146,7 @@ test("courier: two different baskets, one nick, one price", () => {
   assert.notEqual(Number(stops[0].orderPrice), 90);
   assert.equal(stops[0].dogSections[0].title, "Собака 1");
   assert.equal(stops[0].dogSections[1].title, "Собака 2");
-  assert.equal(packs.courierDogLine(stops[0]), "2 собаки · 2 пакета");
+  assert.equal(packs.courierDogLine(stops[0]), "2 собаки, 2 пакета");
 });
 
 test("duplicate row does not double craft", () => {

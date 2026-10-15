@@ -428,7 +428,7 @@
       var n = String(dn[part] || dn[String(part)] || "").trim();
       if (n && n !== "Собака " + part) names.push(n);
     });
-    return (names.length ? ("2 собаки: " + names.join(", ")) : "2 собаки") + " · 2 пакета";
+    return (names.length ? ("2 собаки: " + names.join(", ")) : "2 собаки") + ", 2 пакета";
   }
 
   return {
