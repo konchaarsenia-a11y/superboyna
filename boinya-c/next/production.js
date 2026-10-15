@@ -107,6 +107,16 @@
     return { qty: q, unit: src.unit || g.unit || "г" };
   }
 
+  function dogPackHtml(c) {
+    var secs = c && c.dogSections;
+    if (!secs || secs.length < 2) return basketLinesHtml(c && c.basket);
+    return secs.map(function (s) {
+      var lines = basketLinesHtml(s.basket);
+      return '<p class="b-lbl" style="margin:8px 0 0">' + esc(s.title || "") + "</p>" +
+        (lines || '<p class="b-note">Состав не указан</p>');
+    }).join("");
+  }
+
   function basketLinesHtml(basket) {
     var mix = root.BoinyaCrumbMix;
     if (mix && mix.linesHtml) return mix.linesHtml(basket, prettyName);
@@ -1338,7 +1348,9 @@
       if (slot && slot !== kind && /^ПП/.test(slot)) accentBits.push(slot);
       if (price) accentBits.push(price);
       var accent = accentBits.join(", ");
-      var basket = basketLinesHtml(c.basket);
+      var packsApi = root.BoinyaAsmPacks;
+      var dogLine = c.twoDogs && packsApi && packsApi.courierDogLine ? packsApi.courierDogLine(c) : (c.twoDogs ? "2 собаки, 2 пакета" : "");
+      var basket = c.twoDogs && c.dogSections && c.dogSections.length > 1 ? dogPackHtml(c) : basketLinesHtml(c.basket);
       var telHtml = tel
         ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>"
         : '<p class="b-note">нет телефона</p>';
@@ -1352,6 +1364,7 @@
         '<div class="nx-nickrow"><div class="nx-nickbox">' + esc(nick) + "</div>" +
         (kind ? '<span class="nx-type">' + esc(kind) + "</span>" : "") + "</div>" +
         (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
+        (dogLine ? '<p class="nx-accent">' + esc(dogLine) + "</p>" : "") +
         '<p class="nx-addr">' + esc(addr.street || "Адрес не указан") + "</p>" +
         details +
         (note ? '<p class="b-lbl">Доп информация</p><p class="nx-extra-info">' + esc(note) + "</p>" : "") +
@@ -1404,6 +1417,8 @@
       asmClients = asm.clients;
     }
     overlayCour(list, asmClients);
+    var packsFold = root.BoinyaAsmPacks;
+    if (packsFold && packsFold.courierStops) list = packsFold.courierStops(list);
     list.sort(function (a, b) {
       var d = (a.delivered ? 1 : 0) - (b.delivered ? 1 : 0);
       if (d) return d;
