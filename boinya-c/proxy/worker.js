@@ -5681,9 +5681,82 @@ async function findParkedSourceOrder_(env, matchKey, client, fromDay, fromIso) {
   return (await one("active", day, iso)) || (await one("deleted", day, iso)) || null;
 }
 
+function dateIsoVariants_(raw) {
+  const s = String(raw || "").trim();
+  const iso = coerceDateIso_(s) || "";
+  const out = [];
+  function add(v) {
+    v = String(v || "").trim();
+    if (v && out.indexOf(v) < 0) out.push(v);
+  }
+  add(s);
+  add(iso);
+  if (iso) add(isoToDmy_(iso));
+  return out;
+}
+
+/** Та же доставка вторым id (импорт + CAL, ISO и 15.10.2026). Другой день не трогаем. */
+async function retireSameDeliveryTwins_(env, opts) {
+  opts = opts || {};
+  if (!env || !env.DB) return [];
+  const keepId = String(opts.keepId || "");
+  const matchKey = normalizeMatchKey_(opts.matchKey || opts.client || "");
+  const client = String(opts.client || "");
+  const fromDays = [];
+  (opts.fromDays || []).forEach(function (d) {
+    d = String(d || "").trim();
+    if (d && fromDays.indexOf(d) < 0) fromDays.push(d);
+  });
+  const dates = [];
+  (opts.dates || []).forEach(function (d) {
+    dateIsoVariants_(d).forEach(function (v) {
+      if (dates.indexOf(v) < 0) dates.push(v);
+    });
+  });
+  if ((!matchKey && !client) || (!fromDays.length && !dates.length)) return [];
+  const now = new Date().toISOString();
+  const seen = Object.create(null);
+  const deleted = [];
+  async function consider(row) {
+    if (!row || !row.id || seen[row.id]) return;
+    seen[row.id] = true;
+    if (String(row.id) === keepId) return;
+    if (String(row.status || "active") !== "active") return;
+    if (!orderRowLooseMatch_(row, matchKey, client)) return;
+    const day = String(row.day_name || "");
+    const date = String(row.date_iso || "");
+    if (!(day && fromDays.indexOf(day) >= 0) && !(date && dates.indexOf(date) >= 0)) return;
+    await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+    )
+      .bind(now, row.id)
+      .run();
+    deleted.push(String(row.id));
+  }
+  for (let di = 0; di < fromDays.length; di++) {
+    const q = await env.DB.prepare(
+      "SELECT id, client, match_key, day_name, date_iso, status FROM orders WHERE status = 'active' AND day_name = ? LIMIT 80"
+    )
+      .bind(fromDays[di])
+      .all();
+    const list = (q && q.results) || [];
+    for (let i = 0; i < list.length; i++) await consider(list[i]);
+  }
+  for (let ti = 0; ti < dates.length; ti++) {
+    const q2 = await env.DB.prepare(
+      "SELECT id, client, match_key, day_name, date_iso, status FROM orders WHERE status = 'active' AND date_iso = ? LIMIT 80"
+    )
+      .bind(dates[ti])
+      .all();
+    const list2 = (q2 && q2.results) || [];
+    for (let j = 0; j < list2.length; j++) await consider(list2[j]);
+  }
+  return deleted;
+}
+
 /**
  * Перенос одной доставки: новая строка на целевой дате, meta с ценами источника.
- * Сносится только id источника, если он ещё active. Другие дни и календарь живы.
+ * Сносится id источника и второй id той же доставки. Другой день не трогаем.
  */
 async function relocateTransferDelivery_(env, spec) {
   spec = spec || {};
@@ -5758,6 +5831,24 @@ async function relocateTransferDelivery_(env, spec) {
         .run();
     } catch (eDel) {}
   }
+  try {
+    const twinDays = [];
+    if (spec.fromDay) twinDays.push(String(spec.fromDay));
+    if (source && source.day_name) twinDays.push(String(source.day_name));
+    const twinIds = await retireSameDeliveryTwins_(env, {
+      matchKey: matchKey,
+      client: client,
+      fromDays: twinDays,
+      dates: [spec.fromDate, source && source.date_iso],
+      keepId: targetId
+    });
+    for (let tw = 0; tw < twinIds.length; tw++) {
+      if (delIds.indexOf(twinIds[tw]) < 0) delIds.push(twinIds[tw]);
+    }
+    for (let sd = 0; sd < twinDays.length; sd++) {
+      await dropClientFromOpsSnaps_(env, twinDays[sd], client, matchKey);
+    }
+  } catch (eTwin) {}
   try {
     if (source && source.day_name && String(source.id || "") !== targetId) {
       await putDeleteTombstone_(env, source.day_name, matchKey);
@@ -6113,6 +6204,14 @@ async function ensureCourierDay_(env, day) {
         missing = true;
         break;
       }
+    }
+  }
+  if (!missing && hit && Array.isArray(hit.clients)) {
+    const liveBy = indexByMatchAliases_(clients);
+    if (hit.clients.length > clients.length) missing = true;
+    for (let j = 0; j < hit.clients.length && !missing; j++) {
+      const sc = hit.clients[j];
+      if (!lookupByMatchAliases_(liveBy, (sc && (sc.matchKey || sc.name)) || "")) missing = true;
     }
   }
   if (!missing) return { rebuilt: false, day: day, n: clients.length };
@@ -13610,6 +13709,21 @@ async function moveClient_(params, env) {
       await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
     } catch (eFinal) {}
   }
+
+  try {
+    const keepMoveId = newDay
+      ? newDay + ":" + matchKey
+      : newDate
+        ? "CAL:" + matchKey + ":" + newDate
+        : "";
+    await retireSameDeliveryTwins_(env, {
+      matchKey: matchKey,
+      client: clearName || client,
+      fromDays: fromDays,
+      dates: [oldDate, row.date_iso],
+      keepId: keepMoveId
+    });
+  } catch (eTwinMove) {}
 
   const invDays = fromDays.concat([newDay]).filter(Boolean);
   // Hot path (accept UI): только лёгкий bust snap — иначе invalidateDays_ ~20–40с →

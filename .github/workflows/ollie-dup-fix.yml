@@ -1,0 +1,159 @@
+name: ollie-dup-fix
+# Мягко снять только строку переноса Пятница:OLLIE. Оригинал CAL:OLLIE:2026-10-15 не трогать.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ollie-dup-fix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Soft-delete transfer duplicate only
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/ollie-dup-fix"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/ollie-dup-fix"
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+          def blocks(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              return data if isinstance(data, list) else [data]
+          def rows(path):
+              out = []
+              for block in blocks(path):
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+          def changes(path):
+              n = 0
+              for block in blocks(path):
+                  meta = block.get("meta") if isinstance(block, dict) else None
+                  if isinstance(meta, dict):
+                      n += int(meta.get("changes") or 0)
+              return n
+          ident = (
+              "SELECT id, client, match_key, day_name, date_iso, status, source, segment, updated_at, "
+              "length(ifnull(note,'')) AS note_len, length(ifnull(basket_json,'')) AS basket_len "
+              "FROM orders WHERE client = 'Border collie ollie' OR id IN ("
+              "'CAL:OLLIE:2026-10-15','imp:15.10.2026:OLLIE|OLLIE','Пятница:OLLIE','imp:15.10.2026:OLLIE') "
+              "ORDER BY updated_at"
+          )
+          counts = (
+              "SELECT "
+              "(SELECT count(*) FROM orders WHERE client = 'Border collie ollie') AS orders_all, "
+              "(SELECT count(*) FROM orders WHERE client = 'Border collie ollie' AND status = 'active') AS orders_active, "
+              "(SELECT count(*) FROM subs WHERE match_key = 'OLLIE' OR nick = 'ollie' OR nick = 'Border collie ollie') AS subs_n"
+          )
+          run(ident, "before-orders")
+          run(counts, "before-counts")
+          before = rows(root + "/before-orders.json")
+          target = [r for r in before if r.get("id") == "Пятница:OLLIE" and r.get("status") == "active" and r.get("source") == "transfer"]
+          original = [r for r in before if r.get("id") == "CAL:OLLIE:2026-10-15" and r.get("status") == "active"]
+          if len(target) != 1 or len(original) != 1:
+              raise SystemExit("refuse: target %s original %s" % (len(target), len(original)))
+          json.dump({"deletedRow": target[0], "keptOriginal": original[0], "before": before, "beforeCounts": rows(root + "/before-counts.json")}, open(root + "/backup.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          run(
+              "UPDATE orders SET status = 'deleted', updated_at = '2026-10-15T18:10:00.000Z' "
+              "WHERE id = 'Пятница:OLLIE' AND status = 'active' AND client = 'Border collie ollie' "
+              "AND source = 'transfer' AND day_name = 'Пятница' AND date_iso = '2026-10-16'",
+              "update"
+          )
+          if changes(root + "/update.json") != 1:
+              raise SystemExit("refuse: changes != 1")
+          def patch_snap(key, name):
+              run("SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key = '" + key + "'", name)
+              got = rows(root + "/" + name + ".json")
+              if not got:
+                  return {"key": key, "removed": 0, "reason": "no snap"}
+              payload = json.loads(got[0].get("payload") or "null")
+              clients = payload.get("clients") if isinstance(payload, dict) else None
+              if not isinstance(clients, list):
+                  return {"key": key, "removed": 0, "reason": "no clients"}
+              hit = []
+              keep = []
+              for c in clients:
+                  name_l = str((c or {}).get("name") or "").strip().lower()
+                  mk = str((c or {}).get("matchKey") or "")
+                  src = str((c or {}).get("source") or "")
+                  if name_l == "border collie ollie" and mk == "OLLIE" and src == "transfer":
+                      hit.append({"name": c.get("name"), "matchKey": mk, "source": src})
+                  else:
+                      keep.append(c)
+              if len(hit) == 0:
+                  return {"key": key, "removed": 0}
+              if len(hit) != 1:
+                  raise SystemExit("refuse snap " + key + " hits " + str(len(hit)))
+              payload["clients"] = keep
+              payload["flagsTouchedAt"] = 1760551800000
+              raw = json.dumps(payload, ensure_ascii=False).replace("'", "''")
+              sql = "UPDATE snap_cache SET payload = '" + raw + "', updated_at = '2026-10-15T18:10:00.000Z' WHERE cache_key = '" + key + "'"
+              open(root + "/" + name + ".sql", "w", encoding="utf-8").write(sql)
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--file", root + "/" + name + ".sql"
+              ], stdout=open(root + "/" + name + "-write.json", "w", encoding="utf-8"))
+              return {"key": key, "removed": 1, "card": hit[0], "left": len(keep)}
+          snaps = [
+              patch_snap("courier:Пятница", "snap-fri-courier"),
+              patch_snap("assembly:Пятница", "snap-fri-asm"),
+          ]
+          run(ident, "after-orders")
+          run(counts, "after-counts")
+          after = rows(root + "/after-orders.json")
+          after_counts = rows(root + "/after-counts.json")
+          before_counts = rows(root + "/before-counts.json")
+          def active_named(rs):
+              return [r.get("id") for r in rs if r.get("client") == "Border collie ollie" and r.get("status") == "active"]
+          b_act = before_counts[0]["orders_active"]
+          a_act = after_counts[0]["orders_active"]
+          report = {
+              "beforeCounts": before_counts[0],
+              "afterCounts": after_counts[0],
+              "activeBefore": active_named(before),
+              "activeAfter": active_named(after),
+              "fridayStatus": [r for r in after if r.get("id") == "Пятница:OLLIE"],
+              "originalStatus": [r for r in after if r.get("id") == "CAL:OLLIE:2026-10-15"],
+              "doubtStatus": [r for r in after if r.get("id") == "imp:15.10.2026:OLLIE|OLLIE"],
+              "snaps": snaps,
+              "subsUnchanged": before_counts[0]["subs_n"] == after_counts[0]["subs_n"]
+          }
+          json.dump(report, open(root + "/report.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if a_act != b_act - 1:
+              raise SystemExit("count mismatch %s -> %s" % (b_act, a_act))
+          if report["fridayStatus"][0]["status"] != "deleted":
+              raise SystemExit("friday not deleted")
+          if report["originalStatus"][0]["status"] != "active":
+              raise SystemExit("original touched")
+          if report["doubtStatus"][0]["status"] != "active":
+              raise SystemExit("doubtful row touched")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ollie-dup-fix
+          path: artifacts/ollie-dup-fix
+          retention-days: 7
