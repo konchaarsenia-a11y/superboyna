@@ -1,0 +1,176 @@
+name: stage-c-check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/stage-c-check.yml
+      - scripts/stage-c-selftest.mjs
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Formula self-test
+        run: node scripts/stage-c-selftest.mjs
+      - name: Wait for Worker and clasp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          required = ["boinya-c-worker"]
+          optional = ["boinya-c-worker-deploy", "clasp-deploy"]
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          deadline = time.time() + 20 * 60
+          quiet = 0
+
+          def last_of(mine):
+              return sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+
+          while time.time() < deadline:
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
+                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "stage-c"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  runs = json.load(resp).get("workflow_runs") or []
+              ready = True
+              for name in required:
+                  mine = [r for r in runs if r.get("name") == name]
+                  if not mine:
+                      print(name + ": ещё нет", flush=True)
+                      ready = False
+                      continue
+                  if any(r.get("status") in active for r in mine):
+                      print(name + ": ещё идёт", flush=True)
+                      ready = False
+                      continue
+                  last = last_of(mine)
+                  if last.get("conclusion") != "success":
+                      raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
+                  print(name + ": success", flush=True)
+              missing_opt = False
+              for name in optional:
+                  mine = [r for r in runs if r.get("name") == name]
+                  if not mine:
+                      print(name + ": нет на этом sha", flush=True)
+                      missing_opt = True
+                      continue
+                  if any(r.get("status") in active for r in mine):
+                      print(name + ": ещё идёт", flush=True)
+                      ready = False
+                      continue
+                  last = last_of(mine)
+                  if last.get("conclusion") != "success":
+                      raise SystemExit(name + " conclusion=" + str(last.get("conclusion")))
+                  print(name + ": success", flush=True)
+              if ready:
+                  if missing_opt:
+                      quiet += 1
+                      if quiet < 3:
+                          print("ждём необязательные деплои, попытка " + str(quiet), flush=True)
+                          time.sleep(20)
+                          continue
+                      print("необязательные деплои не стартовали, идём по живому marker", flush=True)
+                  break
+              quiet = 0
+              time.sleep(20)
+          else:
+              raise SystemExit("деплой не дождались")
+          PY
+      - name: Sync D1 tables and compare the past week
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          for i in $(seq 1 20); do
+            marker=$(curl -sS --max-time 20 "https://boinya-c.konchaarsenia.workers.dev/?action=ping" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployMarker",""))' || true)
+            echo "ping $marker попытка $i"
+            if [ "$marker" = "orders-d1-stage-c-h1" ]; then
+              break
+            fi
+            sleep 15
+          done
+          test "$marker" = "orders-d1-stage-c-h1"
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          put_ok=0
+          for i in 1 2 3 4 5 6; do
+            if printf '%s' "$TOKEN" | npx wrangler@4 secret put STAGEB_ADMIN_TOKEN; then
+              put_ok=1
+              break
+            fi
+            sleep 20
+          done
+          test "$put_ok" = 1
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/stage-c"
+          post() {
+            local phase="$1"
+            local out="$2"
+            local code="000"
+            for n in 1 2 3 4 5 6; do
+              code=$(curl -sS -o "$out" -w "%{http_code}" \
+                -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/stage-c" \
+                -H "Content-Type: application/json" \
+                -H "X-Stageb-Admin-Token: $TOKEN" \
+                --data "{\"phase\":\"$phase\"}" \
+                --max-time 120 || true)
+              echo "$phase HTTP $code попытка $n"
+              if [ "$code" = "200" ]; then
+                return 0
+              fi
+              sleep 15
+            done
+            echo "fail $phase HTTP $code"
+            return 1
+          }
+          post sync "$GITHUB_WORKSPACE/artifacts/stage-c/sync.json"
+          post check "$GITHUB_WORKSPACE/artifacts/stage-c/check.json"
+          python3 - <<'PY'
+          import json, os
+          base = os.environ["GITHUB_WORKSPACE"] + "/artifacts/stage-c/"
+          sync = json.load(open(base + "sync.json", encoding="utf-8"))
+          chk = json.load(open(base + "check.json", encoding="utf-8"))
+          print("SYNC", json.dumps({k: sync.get(k) for k in ("status","message","stockItems","retailPrices","rawCosts","cuttingFlags","goals","expenses","sheets")}, ensure_ascii=False))
+          print("CHECK", json.dumps({k: chk.get(k) for k in ("status","message","week","planRows","orders","formulaDiffCount","formulaOk","ledgerRows","ledgerInserted","ledgerFrom","holes","closeApplies","cuttingDays","colRSample")}, ensure_ascii=False))
+          print("DIFFS", json.dumps(chk.get("formulaDiffs") or [], ensure_ascii=False))
+          if sync.get("status") != "success" or chk.get("status") != "success":
+              raise SystemExit("stage-c status not success")
+          PY
+      - name: Delete one-time token
+        if: always()
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: "true"
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          npx wrangler@4 secret delete STAGEB_ADMIN_TOKEN || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage-c-report
+          path: artifacts/stage-c/
+          if-no-files-found: warn

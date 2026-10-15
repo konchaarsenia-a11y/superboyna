@@ -712,9 +712,16 @@ async function pollDesktopAuth_(params, env) {
   if (!bot) return { status: "error", message: "no_bot_token", linked: false };
   let live = null;
   try {
-    live = await gasProxy_("pollNativeAuth", { token: token }, env, { write: false });
-  } catch (e) {
+    live = await getSnapRaw_(env, "native_auth_" + token);
+  } catch (eSnap) {
     live = null;
+  }
+  if (!(live && live.telegramId) && !sheetsEdgeOff_(env)) {
+    try {
+      live = await gasProxy_("pollNativeAuth", { token: token }, env, { write: false });
+    } catch (e) {
+      live = null;
+    }
   }
   const tid = String((live && live.telegramId) || "").trim();
   if (!live || !live.linked || !/^\d+$/.test(tid)) {
@@ -775,7 +782,7 @@ async function authLookupRole_(tid, env) {
       }
     } catch (eA) {}
   }
-  if (!role && env && env.DB) {
+  if (!role && env && env.DB && !sheetsEdgeOff_(env)) {
     try {
       const live = await gasProxy_("getMyAccess", { telegramId: tid }, env, { write: false });
       if (live && live.status === "success") {
@@ -1003,6 +1010,11 @@ async function serveVarkaApp_() {
 
 export default {
   async scheduled(event, env, ctx) {
+    var cron = String((event && event.cron) || "");
+    if (cron === "* * * * *") {
+      ctx.waitUntil(stageNTick_(env, event && event.scheduledTime));
+      return;
+    }
     ctx.waitUntil(stageBMaterializeTomorrow_(env));
   },
   async fetch(request, env, ctx) {
@@ -1016,6 +1028,18 @@ export default {
     }
     if (url.pathname === "/admin/stage-b") {
       return stageBAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/stage-c") {
+      return stageCAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/stage-g") {
+      return stageGAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/stage-n") {
+      return stageNAdmin_(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/telegram/boinya") {
+      return stageGTelegram_(request, env);
     }
     if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
       return handleGoodboyTelegramWebhook_(request, env, ctx);
@@ -1257,6 +1281,30 @@ function sheetsOrdersReadonly_(env) {
 
 function ordersCanonLabel_(env) {
   return sheetsOrdersReadonly_(env) ? "d1-readonly-sheets" : "sheets-mirror";
+}
+
+/** Этап (в): склад, нарезка, прайс и себес не пишутся в лист. Откат: WAREHOUSE_CANON=sheets или OPS_SHEETS=write. */
+function sheetsOpsReadonly_(env) {
+  const v = env && env.OPS_SHEETS ? String(env.OPS_SHEETS).trim().toLowerCase() : "";
+  if (v === "write" || v === "on" || v === "sheets") return false;
+  if (v === "off" || v === "readonly" || v === "read-only") return true;
+  return isWarehouseD1PrimaryCanon_(env) && isPriceD1PrimaryCanon_(env) && isCuttingStructD1PrimaryCanon_(env);
+}
+
+function opsSheetsLabel_(env) {
+  return sheetsOpsReadonly_(env) ? "d1-readonly-sheets" : "sheets-mirror";
+}
+
+/** Этап (г): Варка, сайт, бот и триггеры не зовут лист. Откат: EDGE_SHEETS=write или PARTNER_CANON=sheets / GB_CANON=sheets. */
+function sheetsEdgeOff_(env) {
+  const v = env && env.EDGE_SHEETS ? String(env.EDGE_SHEETS).trim().toLowerCase() : "";
+  if (v === "write" || v === "on" || v === "sheets") return false;
+  if (v === "off" || v === "readonly" || v === "read-only") return true;
+  return isPartnerD1PrimaryCanon_(env) && isGbD1PrimaryCanon_(env);
+}
+
+function edgeSheetsLabel_(env) {
+  return sheetsEdgeOff_(env) ? "d1-no-sheets" : "sheets-mirror";
 }
 
 function isWeekD1GasAuthoritative_(env) {
@@ -1862,7 +1910,9 @@ async function handleActionInner_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "orders-d1-stage-b-h1"
+      opsSheets: opsSheetsLabel_(env),
+      edgeSheets: edgeSheetsLabel_(env),
+      deployMarker: "orders-d1-stage-n-h1"
     };
   }
 
@@ -3379,11 +3429,14 @@ async function saveCuttingCutter_(params, env, ctx) {
     countsInProfit: false
   };
   const gasParams = Object.assign({}, params || {}, { iso: iso, day: day, cutterId: id, cutterName: name, G: G, P: P, N: N, wage: wage });
-  if (ctx && typeof ctx.waitUntil === "function") {
-    ctx.waitUntil(gasProxy_("saveCuttingCutter", gasParams, env, { write: true }).catch(function () { return null; }));
-  } else {
-    try { await gasProxy_("saveCuttingCutter", gasParams, env, { write: true }); } catch (eGas) {}
+  if (!sheetsOpsReadonly_(env)) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(gasProxy_("saveCuttingCutter", gasParams, env, { write: true }).catch(function () { return null; }));
+    } else {
+      try { await gasProxy_("saveCuttingCutter", gasParams, env, { write: true }); } catch (eGas) {}
+    }
   }
+  ok.sheetsReadonly = sheetsOpsReadonly_(env);
   return ok;
 }
 
@@ -3699,6 +3752,7 @@ async function saveRawCost_(params, env, actor) {
   await env.DB.prepare(
     "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
   ).bind(sku, cost, shrink, from, new Date().toISOString()).run();
+  try { await stageCNoteRaw_(env, sku, cost, shrink); } catch (eRaw) {}
   return {
     status: "success",
     sku: sku,
@@ -16314,6 +16368,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
   const snapKey = partnerMeSnapKey_(params);
 
   async function fetchLive_() {
+    if (sheetsEdgeOff_(env)) return { status: "skipped", sheetsReadonly: true, fromD1: true };
     const live = await gasProxy_("partnerGetMe", params, env, { write: false });
     let out = partnerGuardOrRewrite_("partnerGetMe", params, live);
     try {
@@ -17140,7 +17195,10 @@ async function handleCutover_(a, params, env, ctx) {
     }
     let whClosePack = null;
     const gasFinParams = Object.assign({}, params || {});
-    if (/^finishFullWeek$/i.test(a) && isWarehouseCloseD1Canon_(env)) {
+    const opsRoFin = /^finishFullWeek$/i.test(a) && sheetsOpsReadonly_(env);
+    if (opsRoFin) gasFinParams.skipWarehouseClose = "1";
+    const closeD1Fin = /^finishFullWeek$/i.test(a) && (isWarehouseCloseD1Canon_(env) || (opsRoFin && await stageCCloseAllowed_(env)));
+    if (closeD1Fin) {
       try {
         whClosePack = await computeWarehouseCloseD1_(env);
       } catch (eWhC) {
@@ -17163,13 +17221,7 @@ async function handleCutover_(a, params, env, ctx) {
       proxiedFin &&
       (proxiedFin.status === "success" ||
         /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
-    if (
-      okFin &&
-      /^finishFullWeek$/i.test(a) &&
-      isWarehouseCloseD1Canon_(env) &&
-      whClosePack &&
-      whClosePack.ok
-    ) {
+    if (okFin && closeD1Fin && whClosePack && whClosePack.ok) {
       try {
         await applyWarehouseCloseD1_(env, whClosePack);
         if (proxiedFin && typeof proxiedFin === "object") {
@@ -17206,7 +17258,7 @@ async function handleCutover_(a, params, env, ctx) {
         }
       } catch (eRf0) {}
       try {
-        if (!(isWarehouseCloseD1Canon_(env) && /^finishFullWeek$/i.test(a) && whClosePack && whClosePack.ok)) {
+        if (!(closeD1Fin && whClosePack && whClosePack.ok)) {
           await cutoverRevalidate_("getWarehouse", { force: "1" }, env);
         }
       } catch (eWhRf) {}
@@ -17673,7 +17725,8 @@ async function handleCutover_(a, params, env, ctx) {
       }
       // D1-primary: сразу success UI; Sheets только зеркало в фоне (не ждём 14с)
       if (opsPrimary) {
-        const bgMirror = (async function () {
+        const skipCutSheet = /^updateCutting$/i.test(a) && sheetsOpsReadonly_(env);
+        const bgMirror = skipCutSheet ? null : (async function () {
           let proxied = null;
           try {
             proxied = await gasProxy_(a, params, env, { write: true });
@@ -17687,13 +17740,16 @@ async function handleCutover_(a, params, env, ctx) {
             }
           } catch (eD1) {}
         })();
-        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgMirror);
-        else bgMirror.catch(function () {});
+        if (bgMirror) {
+          if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgMirror);
+          else bgMirror.catch(function () {});
+        }
         return {
           status: "success",
           wrote: 1,
           d1Verified: true,
           optimistic: false,
+          sheetsReadonly: !!skipCutSheet,
           opsCanon: "d1-primary",
           cutover: true,
           sandbox: false,
@@ -17806,21 +17862,25 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eWh) {
         d1Wh = { status: "error", message: String((eWh && eWh.message) || eWh) };
       }
-      const gasWhP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasWhP);
-      else {
-        try {
-          await gasWhP;
-        } catch (eGWh) {}
+      if (!sheetsOpsReadonly_(env)) {
+        const gasWhP = gasProxy_(a, params, env, { write: true }).catch(function () {
+          return null;
+        });
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasWhP);
+        else {
+          try {
+            await gasWhP;
+          } catch (eGWh) {}
+        }
       }
       if (d1Wh && d1Wh.status === "success") {
+        try { await stageCNoteStock_(env, null, a, params); } catch (eNote) {}
         return Object.assign({}, d1Wh, {
           cutover: true,
           sandbox: false,
           d1Verified: true,
           optimistic: false,
+          sheetsReadonly: sheetsOpsReadonly_(env),
           warehouseCanon: warehouseCanonLabel_(env),
           action: a
         });
@@ -18293,14 +18353,16 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (ePr) {
         d1Price = { status: "error", message: String((ePr && ePr.message) || ePr) };
       }
-      const gasPrP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasPrP);
-      else {
-        try {
-          await gasPrP;
-        } catch (eGPr) {}
+      if (!sheetsOpsReadonly_(env)) {
+        const gasPrP = gasProxy_(a, params, env, { write: true }).catch(function () {
+          return null;
+        });
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasPrP);
+        else {
+          try {
+            await gasPrP;
+          } catch (eGPr) {}
+        }
       }
       if (d1Price && d1Price.status === "success") {
         return Object.assign({}, d1Price, {
@@ -18523,16 +18585,18 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eW) {
         d1W = { status: "error", message: String((eW && eW.message) || eW) };
       }
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(
-          gasProxy_(a, params, env, { write: true }).catch(function () {
-            return null;
-          })
-        );
-      } else {
-        try {
-          await gasProxy_(a, params, env, { write: true });
-        } catch (eGasW) {}
+      if (!sheetsEdgeOff_(env)) {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(
+            gasProxy_(a, params, env, { write: true }).catch(function () {
+              return null;
+            })
+          );
+        } else {
+          try {
+            await gasProxy_(a, params, env, { write: true });
+          } catch (eGasW) {}
+        }
       }
       return Object.assign(
         {
@@ -18540,7 +18604,8 @@ async function handleCutover_(a, params, env, ctx) {
           action: a,
           cutover: true,
           fromD1: true,
-          pendingSheets: true,
+          pendingSheets: !sheetsEdgeOff_(env),
+          sheetsReadonly: sheetsEdgeOff_(env),
           partnerCanon: partnerCanonLabel_(env)
         },
         d1W || {}
@@ -18580,10 +18645,16 @@ async function handleCutover_(a, params, env, ctx) {
       if (/^partnerVarkaBroadcast$/i.test(a)) {
         params = Object.assign({}, params, { skipSend: "1" });
       }
-      const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
+      const quietPartner =
+        String((params && params.skipPartnerNotify) || "") === "1" ||
+        /ТЕСТ/i.test(String((params && (params.note || params.userName)) || ""));
+      const gasP = sheetsEdgeOff_(env)
+        ? Promise.resolve(null)
+        : gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          });
       if (
+        !quietPartner &&
         /^partnerSubmitOrder$/i.test(a) &&
         d1P &&
         d1P.status === "success" &&
@@ -18594,6 +18665,7 @@ async function handleCutover_(a, params, env, ctx) {
         ctx.waitUntil(partnerNotifyOrderFastWorker_(d1P.order, env));
       }
       if (
+        !quietPartner &&
         /^partnerSetOrderSlot$/i.test(a) &&
         d1P &&
         d1P.status === "success" &&
@@ -18604,6 +18676,7 @@ async function handleCutover_(a, params, env, ctx) {
         ctx.waitUntil(partnerNotifySlotFastWorker_(d1P.order, env));
       }
       if (
+        !quietPartner &&
         /^partnerSetOrderStatus$/i.test(a) &&
         d1P &&
         d1P.status === "success" &&
@@ -18616,7 +18689,7 @@ async function handleCutover_(a, params, env, ctx) {
           ctx.waitUntil(partnerNotifyStatusFastWorker_(d1P.order, env, stN));
         }
       }
-      if (ctx && typeof ctx.waitUntil === "function") {
+      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasP.then(async function (live) {
             try {
@@ -18625,15 +18698,15 @@ async function handleCutover_(a, params, env, ctx) {
             return live;
           })
         );
-      } else {
+      } else if (!sheetsEdgeOff_(env) || !quietPartner) {
         try {
-          if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+          if (!quietPartner && /^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             await partnerNotifyOrderFastWorker_(d1P.order, env);
           }
-          if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+          if (!quietPartner && /^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             await partnerNotifySlotFastWorker_(d1P.order, env);
           }
-          if (/^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+          if (!quietPartner && /^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             const stN2 = String(d1P.orderStatus || d1P.order.status || "").trim().toLowerCase();
             if (stN2 === "in_transit" || stN2 === "delivered") {
               await partnerNotifyStatusFastWorker_(d1P.order, env, stN2);
@@ -18665,6 +18738,13 @@ async function handleCutover_(a, params, env, ctx) {
           cutover: true,
           fromD1: true,
           partnerCanon: partnerCanonLabel_(env),
+          action: a
+        });
+      }
+      if (sheetsEdgeOff_(env)) {
+        return Object.assign({}, d1P || { status: "error", message: "partner_write_failed" }, {
+          sheetsReadonly: true,
+          fromGas: false,
           action: a
         });
       }
@@ -18702,10 +18782,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eG0) {
         d1G = { status: "error", message: String((eG0 && eG0.message) || eG0) };
       }
-      const gasG = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") {
+      const gasG = sheetsEdgeOff_(env)
+        ? Promise.resolve(null)
+        : gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          });
+      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasG.then(async function (live) {
             try {
@@ -18727,6 +18809,13 @@ async function handleCutover_(a, params, env, ctx) {
           d1Verified: true,
           optimistic: false,
           gbCanon: gbCanonLabel_(env),
+          action: a
+        });
+      }
+      if (sheetsEdgeOff_(env)) {
+        return Object.assign({}, d1G || { status: "error", message: "gb_write_failed" }, {
+          sheetsReadonly: true,
+          fromGas: false,
           action: a
         });
       }
@@ -18760,16 +18849,25 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eTry) {
         d1Try = { status: "error", message: String((eTry && eTry.message) || eTry) };
       }
-      const gasTry = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasTry);
+      const gasTry = sheetsEdgeOff_(env)
+        ? Promise.resolve(null)
+        : gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          });
+      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasTry);
       if (d1Try && (d1Try.status === "ok" || d1Try.status === "success")) {
         return Object.assign({}, d1Try, {
           cutover: true,
           sandbox: false,
           d1Verified: true,
           gbCanon: gbCanonLabel_(env),
+          action: a
+        });
+      }
+      if (sheetsEdgeOff_(env)) {
+        return Object.assign({}, d1Try || { status: "error", message: "try_failed" }, {
+          sheetsReadonly: true,
+          fromGas: false,
           action: a
         });
       }
@@ -18891,6 +18989,24 @@ async function handleCutover_(a, params, env, ctx) {
         sandbox: false,
         action: a,
         skippedSheet: true
+      };
+    }
+    if (/^exportWorkbook$/i.test(a)) {
+      const role = String((params && params._actorRole) || "").toLowerCase();
+      if (role !== "owner" && role !== "all") {
+        return { status: "error", message: "owner_only", action: a };
+      }
+      const book = await stageGWorkbook_(env);
+      return {
+        status: "success",
+        filename: "boinya.xlsx",
+        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        base64: stageGBtoa_(book.bytes),
+        bytes: book.bytes.length,
+        counts: book.counts,
+        sheets: book.sheets,
+        sheetsReadonly: true,
+        action: a
       };
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
@@ -22133,9 +22249,24 @@ async function gasRead_(action, params, env) {
   return gasProxy_(action, params, env, { write: false });
 }
 
+async function noteSheetCall_(env, action) {
+  try {
+    if (!env || !env.DB) return;
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO meta (key, value, updated_at) VALUES ('sheet_calls', '1', ?) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT), updated_at = excluded.updated_at"
+    ).bind(now).run();
+  } catch (eNote) {}
+  try { console.log("SHEET_CALL " + String(action || "")); } catch (eLog) {}
+}
+
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
+  if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
+    return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
+  }
   try {
+    await noteSheetCall_(env, action);
     const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
     const clean = {};
     Object.keys(params || {}).forEach(function (k) {
@@ -25198,6 +25329,7 @@ async function saveRetailPricesD1_(params, env) {
     _d1SavedAt: Date.now()
   };
   await putSnap_(env, "retailPrices", body);
+  try { await stageCNoteRetail_(env, outItems, delivery); } catch (eRet) {}
   return {
     status: "success",
     items: outItems,
@@ -28904,7 +29036,10 @@ function partnerBasketLinesWorker_(basket) {
 }
 
 async function partnerNotifyOrderFastWorker_(order, env) {
-  if (!order || !env) return;
+  if (!order || !env) return { skipped: "empty" };
+  if (order.quiet || order.skipNotify || /ТЕСТ/i.test(String(order.note || "") + " " + String(order.userName || ""))) {
+    return { skipped: "test" };
+  }
   const loc = order.locationName || order.locationId || "";
   const lines = partnerBasketLinesWorker_(order.basket);
   const partnerTid = String(order.telegramId || "").trim();
@@ -32371,6 +32506,1406 @@ async function stageBMaterializeTomorrow_(env) {
     .bind(day, new Date().toISOString(), iso)
     .run();
   return { ok: true, date: iso, day: day, wrote: (res && res.meta && res.meta.changes) || 0, source: "d1", sheets: false };
+}
+
+var STAGE_C_FROM_ = "2026-10-05";
+var STAGE_C_TO_ = "2026-10-11";
+
+async function stageCCloseAllowed_(env) {
+  if (!env || !env.DB) return false;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind("stage_c_formula_ok").first();
+    return !!(row && String(row.value) === "1");
+  } catch (eGate) {
+    return false;
+  }
+}
+
+async function stageCEnsureSchema_(env) {
+  if (!env || !env.DB) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS stock_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', dry_g REAL, raw_kg REAL, yield REAL, unit TEXT NOT NULL DEFAULT '', row_num INTEGER, updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS stock_moves (id TEXT PRIMARY KEY, date_iso TEXT NOT NULL, sku TEXT NOT NULL, kind TEXT NOT NULL, qty REAL, actor TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS retail_prices (sku TEXT PRIMARY KEY, price REAL, source TEXT NOT NULL DEFAULT 'showcase', updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS raw_costs (sku TEXT PRIMARY KEY, price REAL, yield REAL, source TEXT NOT NULL DEFAULT 'cost', updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+}
+
+function stageCRawKg_(dryG, coef, piece) {
+  const c = Number(coef) || (piece ? 1 : 0.2);
+  if (piece) return round2_(Number(dryG) || 0);
+  return round2_((Number(dryG) || 0) / 1000 / (c || 0.2));
+}
+
+async function stageCNoteStock_(env, _items, kind) {
+  if (!env || !env.DB) return;
+  await stageCEnsureSchema_(env);
+  const wh = await getSnapRaw_(env, "warehouse");
+  const items = warehouseRows_(wh);
+  const now = new Date().toISOString();
+  const stmts = [];
+  items.forEach(function (r) {
+    const sku = cutNameKey_(r.name) || ("row:" + r.row);
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO stock_items (sku, name, dry_g, raw_kg, yield, unit, row_num, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT(sku) DO UPDATE SET name = excluded.name, raw_kg = excluded.raw_kg, yield = excluded.yield, unit = excluded.unit, row_num = excluded.row_num, updated_at = excluded.updated_at"
+      ).bind(
+        sku,
+        String(r.name || ""),
+        null,
+        Number(r.stock) || 0,
+        Number(r.coef) || 0.2,
+        String(r.unit || ""),
+        Number(r.row) || 0,
+        now
+      )
+    );
+  });
+  if (kind) {
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO stock_moves (id, date_iso, sku, kind, qty, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).bind("mv:" + kind + ":" + now, now.slice(0, 10), kind, String(kind), items.length, "", now)
+    );
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+async function stageCNoteRetail_(env, items) {
+  if (!env || !env.DB || !items) return;
+  await stageCEnsureSchema_(env);
+  const now = new Date().toISOString();
+  const stmts = [];
+  items.forEach(function (it) {
+    const sku = String((it && (it.key || it.name || it.sku)) || "").trim();
+    if (!sku) return;
+    const price = Number(it.price != null ? it.price : it.retail);
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO retail_prices (sku, price, source, updated_at) VALUES (?, ?, 'showcase', ?) " +
+          "ON CONFLICT(sku) DO UPDATE SET price = excluded.price, updated_at = excluded.updated_at"
+      ).bind(sku, isFinite(price) ? price : null, now)
+    );
+  });
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+async function stageCNoteRaw_(env, sku, cost, shrink) {
+  if (!env || !env.DB) return;
+  await stageCEnsureSchema_(env);
+  const key = rawCostNormSku_(sku);
+  await env.DB.prepare(
+    "INSERT INTO raw_costs (sku, price, yield, source, updated_at) VALUES (?, ?, ?, 'cost', ?) " +
+      "ON CONFLICT(sku) DO UPDATE SET price = excluded.price, yield = COALESCE(excluded.yield, raw_costs.yield), updated_at = excluded.updated_at"
+  ).bind(key, cost, shrink, new Date().toISOString()).run();
+}
+
+async function stageCSync_(env) {
+  await stageCEnsureSchema_(env);
+  await stageCNoteStock_(env, null, "");
+  const retail = await getSnapRaw_(env, "retailPrices");
+  if (retail && Array.isArray(retail.items)) await stageCNoteRetail_(env, retail.items);
+  const versions = await loadRawCostVersions_(env);
+  for (let i = 0; i < RAW_COST_BUILTIN_.length; i++) {
+    const row = RAW_COST_BUILTIN_[i];
+    const eff = rawCostEffective_(versions, row.sku, "9999-12-31", row.cost);
+    await stageCNoteRaw_(env, row.sku, eff.cost != null ? eff.cost : row.cost, eff.yield != null ? eff.yield : null);
+  }
+  let goalsN = 0;
+  let expN = 0;
+  try { goalsN = Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM goals").first()).n) || 0; } catch (eG) {}
+  try { expN = Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM owner_expenses").first()).n) || 0; } catch (eE) {}
+  const stock = await env.DB.prepare("SELECT COUNT(*) AS n FROM stock_items").first();
+  const prices = await env.DB.prepare("SELECT COUNT(*) AS n FROM retail_prices").first();
+  const costs = await env.DB.prepare("SELECT COUNT(*) AS n FROM raw_costs").first();
+  const flags = await env.DB.prepare("SELECT COUNT(*) AS n FROM cutting_flags").first();
+  return {
+    status: "success",
+    phase: "sync",
+    stockItems: Number(stock && stock.n) || 0,
+    retailPrices: Number(prices && prices.n) || 0,
+    rawCosts: Number(costs && costs.n) || 0,
+    cuttingFlags: Number(flags && flags.n) || 0,
+    goals: goalsN,
+    expenses: expN,
+    sheets: "readonly"
+  };
+}
+
+async function stageCPeopleForRange_(env, fromIso, toIso) {
+  const q = await env.DB.prepare(
+    "SELECT client, match_key, basket_json, note, date_iso FROM orders WHERE lower(coalesce(status,'')) NOT IN ('deleted','cancelled') AND date_iso >= ? AND date_iso <= ?"
+  ).bind(fromIso, toIso).all();
+  return ((q && q.results) || []).map(function (r) {
+    let basket = [];
+    try { basket = JSON.parse(r.basket_json || "[]"); } catch (eB) { basket = []; }
+    return {
+      name: r.client,
+      matchKey: r.match_key,
+      basket: basket,
+      note: r.note || "",
+      noCut: /\[НЕ\s*РЕЗАТЬ\]/i.test(String(r.note || "")),
+      dateIso: r.date_iso || ""
+    };
+  });
+}
+
+async function stageCCheck_(env) {
+  await stageCEnsureSchema_(env);
+  // doGet не знает этот action: чтение идёт POST-ом, как exportStageBRows. Лист не пишется.
+  const sheet = await gasProxy_("exportStageCFormulas", { from: STAGE_C_FROM_, to: STAGE_C_TO_ }, env, { write: true });
+  if (!sheet || sheet.status !== "success") {
+    return { status: "error", message: (sheet && (sheet.message || sheet.status)) || "sheet_read_failed", sheetsReadonly: true };
+  }
+  const plan = sheet.plan || [];
+  const whRows = (sheet.warehouse || []).map(function (r) {
+    return { row: r.row, name: r.name, coef: r.coef, stock: r.stock, arrival: r.arrival, unit: r.unit };
+  });
+  const people = await stageCPeopleForRange_(env, STAGE_C_FROM_, STAGE_C_TO_);
+  const acc = accumulateDryNeedD1_(people, whRows);
+  const diffs = [];
+  if (!plan.length) diffs.push({ name: "*", kind: "no_sheet_plan", sheet: 0, d1: people.length });
+  plan.forEach(function (it) {
+    const key = cutNameKey_(it.name);
+    const piece = !!it.piece;
+    const formula = stageCRawKg_(it.dryG, it.coef, piece);
+    const sheetRaw = Number(it.needRaw) || 0;
+    const tol = piece ? 0.05 : 0.02;
+    if (formula - sheetRaw > tol) {
+      diffs.push({ name: it.name, kind: "sheet_formula", sheet: round2_(sheetRaw), d1: formula });
+    }
+    const d1Dry = Number(acc.dryByKey[key]) || 0;
+    const d1Raw = warehouseRawForKey_({
+      planDryG: d1Dry,
+      key: key,
+      coef: Number(it.coef) || (piece ? 1 : 0.2),
+      piece: piece,
+      surplusKg: 0
+    }).raw;
+    if (Math.abs(d1Raw - sheetRaw) > (piece ? 0.5 : 0.05) && (d1Dry > 0 || sheetRaw > 0)) {
+      diffs.push({ name: it.name, kind: "week", sheet: round2_(sheetRaw), d1: d1Raw, drySheet: it.dryG, dryD1: round2_(d1Dry) });
+    }
+  });
+  const movesIn = (sheet.ledger || []).length;
+  let insertedMoves = 0;
+  const now = new Date().toISOString();
+  for (let i = 0; i < (sheet.ledger || []).length; i++) {
+    const mv = sheet.ledger[i];
+    const id = "led:" + String(mv.ts || "") + ":" + String(mv.skuRow || "") + ":" + String(mv.type || "") + ":" + String(mv.qty || "");
+    const tsRaw = String(mv.ts || "").trim();
+    const dmy = tsRaw.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    const date = /^\d{4}-\d{2}-\d{2}/.test(tsRaw) ? tsRaw.slice(0, 10) : (dmy ? dmy[3] + "-" + dmy[2] + "-" + dmy[1] : "");
+    try {
+      const res = await env.DB.prepare(
+        "INSERT INTO stock_moves (id, date_iso, sku, kind, qty, actor, created_at) VALUES (?, ?, ?, ?, ?, '', ?) ON CONFLICT(id) DO NOTHING"
+      ).bind(id.slice(0, 180), /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : STAGE_C_FROM_, "row:" + String(mv.skuRow || ""), String(mv.type || "ledger"), Number(mv.qty) || 0, now).run();
+      if (res && res.meta && Number(res.meta.changes) === 1) insertedMoves++;
+    } catch (eMv) {}
+  }
+  const ok = diffs.length === 0;
+  try {
+    await env.DB.prepare(
+      "INSERT INTO meta (key, value, updated_at) VALUES ('stage_c_formula_ok', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).bind(ok ? "1" : "0", now).run();
+  } catch (eMeta) {}
+  return {
+    status: "success",
+    phase: "check",
+    week: { from: STAGE_C_FROM_, to: STAGE_C_TO_ },
+    sheetWeek: sheet.week || null,
+    planRows: plan.length,
+    orders: people.length,
+    formulaDiffs: diffs.slice(0, 40),
+    formulaDiffCount: diffs.length,
+    formulaOk: ok,
+    colRSample: String(sheet.colRSample || "").slice(0, 180),
+    colRRows: (sheet.colR || []).length,
+    cuttingDays: sheet.cuttingDays || [],
+    ledgerRows: movesIn,
+    ledgerInserted: insertedMoves,
+    ledgerFrom: sheet.ledgerFrom || "",
+    holes: sheet.holes || [],
+    closeApplies: ok,
+    sheets: "readonly"
+  };
+}
+
+function stageGCrc_(bytes) {
+  let c = ~0;
+  for (let i = 0; i < bytes.length; i++) {
+    c ^= bytes[i];
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+
+function stageGU16_(n) {
+  return new Uint8Array([n & 255, (n >> 8) & 255]);
+}
+
+function stageGU32_(n) {
+  return new Uint8Array([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255]);
+}
+
+function stageGCat_(parts) {
+  let n = 0;
+  for (let i = 0; i < parts.length; i++) n += parts[i].length;
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (let i = 0; i < parts.length; i++) {
+    out.set(parts[i], o);
+    o += parts[i].length;
+  }
+  return out;
+}
+
+function stageGZip_(files) {
+  const enc = new TextEncoder();
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (let i = 0; i < files.length; i++) {
+    const name = enc.encode(files[i].name);
+    const data = files[i].data;
+    const crc = stageGCrc_(data);
+    const local = stageGCat_([
+      stageGU32_(0x04034b50), stageGU16_(20), stageGU16_(0), stageGU16_(0),
+      stageGU16_(0), stageGU16_(0x21), stageGU32_(crc), stageGU32_(data.length), stageGU32_(data.length),
+      stageGU16_(name.length), stageGU16_(0), name, data
+    ]);
+    const central = stageGCat_([
+      stageGU32_(0x02014b50), stageGU16_(20), stageGU16_(20), stageGU16_(0), stageGU16_(0),
+      stageGU16_(0), stageGU16_(0x21), stageGU32_(crc), stageGU32_(data.length), stageGU32_(data.length),
+      stageGU16_(name.length), stageGU16_(0), stageGU16_(0), stageGU16_(0), stageGU16_(0), stageGU32_(0),
+      stageGU32_(offset), name
+    ]);
+    locals.push(local);
+    centrals.push(central);
+    offset += local.length;
+  }
+  const centralAll = stageGCat_(centrals);
+  const end = stageGCat_([
+    stageGU32_(0x06054b50), stageGU16_(0), stageGU16_(0), stageGU16_(files.length), stageGU16_(files.length),
+    stageGU32_(centralAll.length), stageGU32_(offset), stageGU16_(0)
+  ]);
+  return stageGCat_(locals.concat([centralAll, end]));
+}
+
+function stageGXml_(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stageGSheetXml_(rows) {
+  const lines = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+  ];
+  for (let r = 0; r < rows.length; r++) {
+    const cells = rows[r] || [];
+    let row = '<row r="' + (r + 1) + '">';
+    for (let c = 0; c < cells.length; c++) {
+      const col = c < 26 ? String.fromCharCode(65 + c) : "A" + String.fromCharCode(65 + (c - 26));
+      row += '<c r="' + col + (r + 1) + '" t="inlineStr"><is><t>' + stageGXml_(cells[c]) + "</t></is></c>";
+    }
+    lines.push(row + "</row>");
+  }
+  lines.push("</sheetData></worksheet>");
+  return lines.join("");
+}
+
+function stageGBtoa_(bytes) {
+  let bin = "";
+  const chunk = 0x4000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+async function stageGTable_(env, sql) {
+  try {
+    const res = await env.DB.prepare(sql).all();
+    return (res && res.results) || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function stageGWorkbook_(env) {
+  const clients = await stageGTable_(env, "SELECT id, match_key, nick, phone, address, telegram, updated_at FROM clients ORDER BY nick LIMIT 4000");
+  const subs = await stageGTable_(env, "SELECT id, client_id, match_key, nick, sheet, price, n, bp_stage, status, updated_at FROM subs ORDER BY nick LIMIT 4000");
+  const orders = await stageGTable_(env, "SELECT date_iso, day_name, client, match_key, status, segment, phone, address, updated_at FROM orders ORDER BY date_iso DESC LIMIT 4000");
+  const deliveries = await stageGTable_(env, "SELECT date_iso, match_key, delivered, updated_at FROM deliveries ORDER BY date_iso DESC LIMIT 4000");
+  const stock = await stageGTable_(env, "SELECT sku, name, dry_g, raw_kg, \"yield\" AS yield, unit, updated_at FROM stock_items ORDER BY name LIMIT 400");
+  const prices = await stageGTable_(env, "SELECT sku, price, source, updated_at FROM retail_prices ORDER BY sku LIMIT 400");
+  function grid(rows, headers) {
+    const out = [headers];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      out.push(headers.map(function (h) { return row[h] == null ? "" : row[h]; }));
+    }
+    return out;
+  }
+  const sheets = [
+    ["Клиенты", grid(clients, ["id", "match_key", "nick", "phone", "address", "telegram", "updated_at"])],
+    ["Подписки", grid(subs, ["id", "client_id", "match_key", "nick", "sheet", "price", "n", "bp_stage", "status", "updated_at"])],
+    ["Заказы", grid(orders, ["date_iso", "day_name", "client", "match_key", "status", "segment", "phone", "address", "updated_at"])],
+    ["Доставки", grid(deliveries, ["date_iso", "match_key", "delivered", "updated_at"])],
+    ["Склад", grid(stock, ["sku", "name", "dry_g", "raw_kg", "yield", "unit", "updated_at"])],
+    ["Прайс", grid(prices, ["sku", "price", "source", "updated_at"])]
+  ];
+  const enc = new TextEncoder();
+  const files = [
+    { name: "[Content_Types].xml", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + sheets.map(function (_s, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join("") + "</Types>") },
+    { name: "_rels/.rels", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') },
+    { name: "xl/workbook.xml", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map(function (s, i) { return '<sheet name="' + stageGXml_(s[0]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join("") + "</sheets></workbook>") },
+    { name: "xl/_rels/workbook.xml.rels", data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map(function (_s, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join("") + "</Relationships>") }
+  ];
+  for (let i = 0; i < sheets.length; i++) {
+    files.push({ name: "xl/worksheets/sheet" + (i + 1) + ".xml", data: enc.encode(stageGSheetXml_(sheets[i][1])) });
+  }
+  return {
+    bytes: stageGZip_(files),
+    sheets: sheets.map(function (s) { return s[0]; }),
+    counts: {
+      clients: clients.length,
+      subs: subs.length,
+      orders: orders.length,
+      deliveries: deliveries.length,
+      stock: stock.length,
+      prices: prices.length
+    }
+  };
+}
+
+async function stageGStartText_(env, from, name) {
+  const tid = String((from && from.id) || "");
+  let role = "";
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    const people = (list && list.people) || [];
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) {
+        role = String(people[i].role || "");
+        break;
+      }
+    }
+  } catch (eRole) {}
+  return "Привет" + (name ? ", " + name : "") + "!\nID: " + (tid || "—") + (role ? "\nРоль: " + role : "\nОткрой мини-апп Бойни.") + "\nЗаявки и кабинет читаются из D1.";
+}
+
+async function stageGApplyUpdate_(env, update, opts) {
+  opts = opts || {};
+  const send = opts.send !== false;
+  const cq = update && update.callback_query;
+  if (cq && cq.data) {
+    const handled = await stageNCallback_(env, cq, send);
+    if (handled) return handled;
+  }
+  const msg = update && (update.message || update.edited_message);
+  const text = String((msg && msg.text) || "");
+  const start = text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
+  if (start && msg && msg.chat) {
+    const payload = String(start[1] || "");
+    const from = msg.from || {};
+    const name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
+    if (/^gbi_/i.test(payload)) {
+      const token = payload.replace(/^gbi_/i, "");
+      try {
+        await putSnap_(env, "native_auth_" + token, {
+          linked: true,
+          telegramId: String(from.id || ""),
+          name: name,
+          username: String(from.username || ""),
+          cachedAt: new Date().toISOString()
+        });
+      } catch (eNat) {}
+      const reply = "GBI: Telegram подключён.\nИмя: " + (name || "—") + "\nID: " + (from.id || "—") + "\nВернись в приложение.";
+      if (send) await telegramSendTextWorker_(env, msg.chat.id, reply);
+      return { kind: "gbi", sent: !!send, reply: reply };
+    }
+    const reply = await stageGStartText_(env, from, name);
+    if (send) await telegramSendTextWorker_(env, msg.chat.id, reply);
+    return { kind: "start", sent: !!send, reply: reply };
+  }
+  return { kind: "ignored", sent: false, reply: "" };
+}
+
+async function stageGTelegram_(request, env) {
+  let body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
+  const got = String((body && body._wk) || "").trim();
+  if (sec && got !== sec) return json({ status: "error", message: "forbidden" }, 403);
+  const update = (body && body.update) || body;
+  const out = await stageGApplyUpdate_(env, update, { send: true });
+  return json({ status: "success", kind: out.kind, sent: out.sent });
+}
+
+async function stageGSheetCalls_(env) {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = 'sheet_calls'").first();
+    return Number(row && row.value) || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function stageGProbe_(env) {
+  const before = await stageGSheetCalls_(env);
+  let point = null;
+  try {
+    const admin = await getSnapRaw_(env, "partnerListAdmin");
+    const pts = (admin && admin.points) || [];
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i] && pts[i].id && pts[i].active !== false) {
+        point = pts[i];
+        break;
+      }
+    }
+  } catch (ePt) {}
+  if (!point) point = partnerLiveTestCurrentWorker_() || { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka" };
+  const made = await mutatePartnerD1_("partnerSubmitOrder", {
+    telegramId: "827494606",
+    username: "one_more_person_228",
+    locationId: point.id,
+    networkId: point.networkId,
+    userName: "ТЕСТ",
+    note: "ТЕСТ этап г",
+    skipPartnerNotify: "1",
+    basket: [{ id: "vr_t_lung", qty: 100 }]
+  }, env);
+  let cancelled = null;
+  if (made && made.order && made.order.id) {
+    cancelled = await mutatePartnerD1_("partnerSetOrderStatus", {
+      id: made.order.id,
+      status: "cancelled",
+      skipPartnerNotify: "1",
+      note: "ТЕСТ этап г",
+      userName: "ТЕСТ"
+    }, env);
+  }
+  const phone = "+375000000014";
+  const reg = await mutateGbD1_("gbRegister", {
+    name: "ТЕСТ этап г",
+    phone: phone,
+    nick: "zzz_stage_g",
+    telegramId: "stage-g-test",
+    hasSubscription: "0"
+  }, env);
+  const login = await mutateGbD1_("gbLogin", { phone: phone, nick: "zzz_stage_g" }, env);
+  const skipped = await gasProxy_("partnerGetMe", { username: "one_more_person_228" }, env, { write: false });
+  const notify = await partnerNotifyOrderFastWorker_({ note: "ТЕСТ этап г", userName: "ТЕСТ", id: "dry" }, env);
+  let meOk = false;
+  let botUser = "";
+  const token = getTelegramTokenWorker_(env);
+  if (token) {
+    try {
+      const res = await fetch("https://api.telegram.org/bot" + token + "/getMe");
+      const me = await res.json();
+      meOk = !!(me && me.ok);
+      botUser = (me && me.result && me.result.username) || "";
+    } catch (eMe) {}
+  }
+  const dry = await stageGApplyUpdate_(env, {
+    message: { chat: { id: 1, type: "private" }, from: { id: 1, first_name: "ТЕСТ" }, text: "/start" }
+  }, { send: false });
+  const book = await stageGWorkbook_(env);
+  const after = await stageGSheetCalls_(env);
+  const varkaOk = !!(made && made.status === "success" && cancelled && cancelled.orderStatus === "cancelled");
+  const gbOk = !!(login && login.loggedIn);
+  const sheetsOk = after === before && skipped && skipped.sheetsReadonly === true;
+  const excelOk = book.bytes.length > 64 && book.bytes[0] === 0x50 && book.bytes[1] === 0x4b;
+  return {
+    status: varkaOk && gbOk && sheetsOk && excelOk && meOk && dry.kind === "start" && notify && notify.skipped === "test" ? "success" : "error",
+    varka: {
+      status: made && made.status,
+      message: made && made.message,
+      id: made && made.order && made.order.id,
+      cancelled: cancelled && cancelled.orderStatus
+    },
+    gb: { registered: !!(reg && (reg.registered || reg.d1Verified)), login: gbOk },
+    bot: { getMe: meOk, username: botUser, reply: dry.reply, sent: false },
+    notify: notify,
+    excel: { bytes: book.bytes.length, pk: excelOk, counts: book.counts, sheets: book.sheets },
+    sheetCallsBefore: before,
+    sheetCallsAfter: after,
+    sheetsDelta: after - before,
+    edgeSheets: edgeSheetsLabel_(env)
+  };
+}
+
+function stageNNow_(input) {
+  if (input instanceof Date && !isNaN(input.getTime())) return input;
+  const n = Number(input);
+  if (isFinite(n) && n > 0) return new Date(n);
+  return new Date();
+}
+
+function stageNParts_(date, tz) {
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz || "Europe/Minsk",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  const g = {};
+  fmt.formatToParts(date || new Date()).forEach(function (p) {
+    g[p.type] = p.value;
+  });
+  let hour = Number(g.hour);
+  if (hour === 24) hour = 0;
+  const minute = Number(g.minute);
+  const ymd = g.year + "-" + g.month + "-" + g.day;
+  return {
+    ymd: ymd,
+    hour: hour,
+    minute: minute,
+    slot: ymd + "T" + String(hour).padStart(2, "0") + (minute < 30 ? ":00" : ":30")
+  };
+}
+
+function stageNShiftYmd_(ymd, days) {
+  const p = String(ymd || "").split("-");
+  const dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + Number(days || 0), 12));
+  return dt.toISOString().slice(0, 10);
+}
+
+function stageNDmy_(ymd) {
+  const p = String(ymd || "").split("-");
+  if (p.length !== 3) return String(ymd || "");
+  return p[2] + "." + p[1] + "." + p[0];
+}
+
+function stageNMs_(v) {
+  if (v == null || v === "") return 0;
+  if (typeof v === "number" && isFinite(v)) return v;
+  let s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) s += "+03:00";
+  const t = new Date(s).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function stageNQuiet_(date) {
+  const h = stageNParts_(date, "Europe/Minsk").hour;
+  return h >= 22 || h < 8;
+}
+
+async function stageNMeta_(env, key) {
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
+    return row && row.value != null ? String(row.value) : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+async function stageNSetMeta_(env, key, value) {
+  await env.DB.prepare(
+    "INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+  )
+    .bind(key, String(value), new Date().toISOString())
+    .run();
+}
+
+async function stageNCutoff_(env, nowMs) {
+  const prev = await stageNMeta_(env, "notify_cron_cutoff_ms");
+  if (prev && Number(prev) > 0) return Number(prev);
+  await stageNSetMeta_(env, "notify_cron_cutoff_ms", String(nowMs));
+  return nowMs;
+}
+
+async function stageNStaff_(env, key, baseIds, opts) {
+  let ids = [];
+  try {
+    ids = await notifyRecipientsWorker_(env, key, baseIds || [], opts || {});
+  } catch (e) {
+    ids = [];
+  }
+  if (!Array.isArray(ids)) ids = [];
+  if (!(opts && opts.filterOnly)) {
+    const chatOn = notifyChatEnabledWorker_(env);
+    const chat = chatOn ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() : "";
+    if (chat && ids.indexOf(chat) < 0) ids.push(chat);
+  }
+  return ids;
+}
+
+function stageNSlotTag_(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  const frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (frac && (frac[1] === "1" || frac[1] === "2")) return "ПП" + frac[1];
+  if (s === "1" || s === "2") return "ПП" + s;
+  const word = s.match(/пп\s*([12])/i);
+  if (word) return "ПП" + word[1];
+  return "";
+}
+
+function stageNPreview_(text) {
+  return String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+const STAGE_N_SURVEY_BP2_ =
+  "Здравствуйте, ! Как себя чувствует после первой коробки? 🐾 Нам очень важно, чтобы лакомства действительно подошли — давайте немного уточним, чтобы вторая доставка была максимально точной. Можно отвечать прямо по пунктам:\n\n" +
+  "1. Какие лакомства из первой коробки особенно понравились вашему питомцу? А какие он проигнорировал или ел без интереса?\n" +
+  "2. Получилось ли использовать лакомства и в тренировках, и дома? Что было удобно, а что не очень?\n" +
+  "3. Как вам количество — хватило на неделю, было впритык или с запасом?\n" +
+  "4. Были ли сложности с хранением, дозировкой или формой лакомств?\n" +
+  "5. Есть ли замечания по составу, запаху, текстуре или размеру?\n" +
+  "6. Что бы вы хотели изменить, добавить или исключить во второй коробке, чтобы она идеально подошла именно вам и вашему пушистому другу?";
+
+const STAGE_N_SURVEY_FINAL_ =
+  "Здравствуйте, ! Как чувствует себя ваш питомец? 🐾 Мы очень рады, что вы были с нами весь пробный период. Хотим немного узнать, как вам опыт подписки — это поможет сделать её ещё удобнее. Можно отвечать прямо по пунктам:\n\n" +
+  "1. Стало ли вам проще с лакомствами — меньше беготни, больше пользы?\n" +
+  "2. Какие лакомства особенно понравились вашему питомцу? А какие можно исключить?\n" +
+  "3. Удобно ли было получать коробку дважды в месяц? Хотели бы продолжать в таком ритме или перейти на раз в месяц?\n" +
+  "4. Есть ли ещё моменты, которые стоит подправить, чтобы подписка стала идеальной именно для вас и вашего пушистого друга?\n" +
+  "5. Готовы ли вы продолжить подписку на постоянной основе? Если да — мы подберём формат и ритм, который будет максимально комфортным.\n" +
+  "6. И напоследок: что вам особенно понравилось в нашем подходе или коробке? Нам важно знать, что получилось хорошо 😊";
+
+function stageNPersonalize_(body, nick) {
+  let text = String(body || "");
+  const name = String(nick || "").trim();
+  if (name) text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте, " + name + "!");
+  else text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте!");
+  return text;
+}
+
+function stageNSplit_(text, limit) {
+  const max = limit || 3500;
+  const src = String(text || "");
+  if (src.length <= max) return src ? [src] : [];
+  const lines = src.split("\n");
+  const parts = [];
+  let buf = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = buf ? buf + "\n" + line : line;
+    if (next.length <= max) {
+      buf = next;
+      continue;
+    }
+    if (buf) parts.push(buf);
+    if (line.length <= max) buf = line;
+    else {
+      buf = "";
+      for (let p = 0; p < line.length; p += max) parts.push(line.slice(p, p + max));
+    }
+  }
+  if (buf) parts.push(buf);
+  return parts;
+}
+
+async function stageNEnsure_(env) {
+  const need = [];
+  async function empty(key, field) {
+    const snap = await getSnapRaw_(env, key);
+    if (snap && snap.fromStageN) return false;
+    const arr = snap && snap[field];
+    if (Array.isArray(arr) && arr.length) return false;
+    need.push(key);
+    return true;
+  }
+  await empty("listDeferred", "items");
+  await empty("listSurvey", "items");
+  await empty("listTemplates", "items");
+  await empty("listAccess", "people");
+  await empty("listCouriers", "items");
+  await empty("listBugReports", "items");
+  await empty("listDeficit", "items");
+  if (!need.length) return { imported: [], needed: [] };
+  const imported = [];
+  const errors = [];
+  const counts = {};
+  function mapDeferred(rows) {
+    return (rows || []).map(function (row) {
+      let payload = {};
+      try { payload = JSON.parse(String(row.payloadJson || "{}")); } catch (eP) { payload = {}; }
+      if (!payload || typeof payload !== "object") payload = {};
+      return {
+        id: row.id,
+        at: row.at || "",
+        telegramId: row.telegramId || "",
+        mode: String(row.mode || "").toLowerCase(),
+        title: row.title || "",
+        clientNick: row.clientNick || "",
+        status: row.status || "open",
+        payload: payload,
+        remindAt: payload.remindAt || "",
+        remindAtMs: Number(payload.remindAtMs) || 0,
+        remindSent: !!payload.remindSent,
+        targetTelegramId: String(payload.targetTelegramId || payload.forTelegramId || ""),
+        fromD1: true
+      };
+    });
+  }
+  for (let i = 0; i < need.length; i++) {
+    const key = need[i];
+    let live = null;
+    try {
+      live = await gasProxy_("exportStageNRows", { only: key }, env, { write: true });
+    } catch (eCall) {
+      live = { status: "error", message: String((eCall && eCall.message) || eCall) };
+    }
+    if (!live || live.status !== "success") {
+      errors.push(key + ":" + ((live && (live.message || live.msg || live.status)) || "export_failed"));
+      continue;
+    }
+    if (live.errors && live.errors.length) {
+      errors.push(key + ":" + live.errors.join("|"));
+      continue;
+    }
+    let field = "items";
+    let rows = [];
+    if (key === "listDeferred") rows = mapDeferred(live.deferred);
+    else if (key === "listSurvey") rows = live.surveys || [];
+    else if (key === "listTemplates") rows = live.templates || [];
+    else if (key === "listAccess") {
+      field = "people";
+      rows = live.access || [];
+    } else if (key === "listCouriers") rows = live.couriers || [];
+    else if (key === "listBugReports") rows = live.bugs || [];
+    else if (key === "listDeficit") rows = live.deficits || [];
+    const body = { status: "success", fromStageN: true };
+    body[field] = rows;
+    await putSnap_(env, key, body);
+    imported.push(key + ":" + rows.length);
+    counts[key] = rows.length;
+    if (key === "listTemplates") {
+      const surveyTpl = rows.filter(function (t) {
+        return /survey/i.test(String(t.kind || "")) || /survey_/i.test(String(t.id || ""));
+      });
+      const prevS = await getSnapRaw_(env, "listTemplates:survey");
+      if (!(prevS && Array.isArray(prevS.items) && prevS.items.length)) {
+        await putSnap_(env, "listTemplates:survey", { status: "success", items: surveyTpl, fromStageN: true });
+      }
+    }
+  }
+  return { imported: imported, needed: need, error: errors.join("; "), counts: counts };
+}
+
+function stageNDeferredText_(item, people) {
+  const payload = item.payload || {};
+  const mode = String(item.mode || "").toLowerCase();
+  const title = String(item.title || "Отложенное").trim();
+  const nick = String(item.clientNick || "").trim();
+  const ownerTid = String(item.telegramId || "").trim();
+  const notifyTid = String(payload.targetTelegramId || payload.forTelegramId || item.targetTelegramId || ownerTid).trim();
+  const fromTid = String(payload.createdBy || ownerTid).trim() || ownerTid;
+  if (mode === "remind" && payload.mailPayCheck && payload.mailPayText) return String(payload.mailPayText);
+  if (mode === "remind") {
+    let text = "⏰ Напоминание\n" + title;
+    if (fromTid && notifyTid && fromTid !== notifyTid) {
+      text += "\nОт: " + stageNLabel_(people, fromTid, payload.createdByName);
+      text += "\nКому: " + stageNLabel_(people, notifyTid, payload.targetName);
+    } else {
+      text += "\n(себе)";
+    }
+    return text + "\nОткрой задачи ☰ в приложении.";
+  }
+  return "⏰ Напоминание\n" + title + (nick ? "\nКлиент: " + nick : "") + "\nОткрой задачи ☰ в приложении.";
+}
+
+function stageNLabel_(people, tid, fallback) {
+  const id = String(tid || "").trim();
+  let fb = String(fallback || "").trim();
+  if (fb === "себе" || fb.toLowerCase() === "self") fb = "";
+  const list = people || [];
+  for (let i = 0; i < list.length; i++) {
+    if (String(list[i].telegramId || "") !== id) continue;
+    const nm = String(list[i].name || "").trim();
+    const un = String(list[i].username || "").trim();
+    if (nm && un) return nm + " (@" + un + ")";
+    if (nm) return nm;
+    if (un) return "@" + un;
+  }
+  return fb || id || "—";
+}
+
+function stageNDue_(item) {
+  const payload = item.payload || {};
+  const ms = Number(item.remindAtMs != null && item.remindAtMs !== "" ? item.remindAtMs : payload.remindAtMs);
+  if (isFinite(ms) && ms > 0) return ms;
+  return stageNMs_(item.remindAt || payload.remindAt);
+}
+
+function stageNHide_(item, now) {
+  if (String(item.mode || "").toLowerCase() !== "remind") return false;
+  const payload = item.payload || {};
+  if (!payload.remindSent && !item.remindSent) return false;
+  const sentMs = stageNMs_(payload.remindSentAt);
+  if (!sentMs) return false;
+  return now - sentMs >= 86400000;
+}
+
+async function stageNDeferred_(env, opts) {
+  opts = opts || {};
+  const now = stageNNow_(opts.now).getTime();
+  const cutoff = await stageNCutoff_(env, now);
+  const send = !!opts.send;
+  const list = (await getSnapRaw_(env, "listDeferred")) || { items: [] };
+  const items = Array.isArray(list.items) ? list.items : [];
+  const access = (await getSnapRaw_(env, "listAccess")) || {};
+  const people = access.people || [];
+  const would = [];
+  const overdue = [];
+  let hidden = 0;
+  let changed = false;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] || {};
+    if (String(item.status || "open").toLowerCase() !== "open") continue;
+    const payload = item.payload && typeof item.payload === "object" ? item.payload : {};
+    item.payload = payload;
+    const silent = payload.remindSilent;
+    if (silent === true || silent === "1" || silent === 1) continue;
+    if (stageNHide_(item, now)) {
+      hidden++;
+      if (send) {
+        item.status = "done";
+        changed = true;
+      }
+      continue;
+    }
+    const due = stageNDue_(item);
+    if (!due || due > now) continue;
+    if ((payload.remindSent || item.remindSent) && !payload.remindSendError) continue;
+    const fails = Number(payload.remindFailCount) || 0;
+    if (fails >= 12) continue;
+    const notifyTid = String(payload.targetTelegramId || payload.forTelegramId || item.targetTelegramId || item.telegramId || "").trim();
+    const row = {
+      id: item.id || "",
+      title: String(item.title || "").slice(0, 80),
+      nick: String(item.clientNick || "").slice(0, 80),
+      to: notifyTid,
+      due: new Date(due).toISOString()
+    };
+    if (due < cutoff) {
+      overdue.push(row);
+      continue;
+    }
+    const text = stageNDeferredText_(item, people);
+    row.text = stageNPreview_(text);
+    would.push(row);
+    if (!send || !notifyTid) continue;
+    payload.remindSent = true;
+    payload.remindSentAt = new Date(now).toISOString();
+    delete payload.remindSendError;
+    item.remindSent = true;
+    changed = true;
+    let ok = false;
+    try {
+      const res = await telegramSendTextWorker_(env, notifyTid, text, null);
+      ok = !!(res && res.ok);
+    } catch (eSend) {
+      ok = false;
+    }
+    if (!ok) {
+      payload.remindSent = false;
+      item.remindSent = false;
+      payload.remindFailCount = fails + 1;
+      payload.remindSendError = true;
+      delete payload.remindSentAt;
+    } else {
+      delete payload.remindFailCount;
+    }
+  }
+  if (changed && send) await putSnap_(env, "listDeferred", list);
+  return { would: would, overdue: overdue, hidden: hidden, sent: send ? would.length : 0 };
+}
+
+async function stageNDeficit_(env, opts) {
+  opts = opts || {};
+  const nowDate = stageNNow_(opts.now);
+  const now = nowDate.getTime();
+  const send = !!opts.send;
+  const snap = (await getSnapRaw_(env, "listDeficit")) || { items: [] };
+  const items = Array.isArray(snap.items) ? snap.items : [];
+  const quiet = stageNQuiet_(nowDate);
+  const ids = await stageNStaff_(env, "cut_deficit");
+  const would = [];
+  let changed = false;
+  for (let i = 0; i < items.length; i++) {
+    const row = items[i] || {};
+    const st = String(row.status || "").toLowerCase();
+    if (st !== "open" && st !== "открыт") continue;
+    const from = stageNMs_(row.notifyFrom);
+    if (from && now < from) continue;
+    const last = stageNMs_(row.lastNotify);
+    if (last && now - last < 29 * 60 * 1000) continue;
+    let id = String(row.id || "").trim();
+    if (!/^d[a-f0-9]{8,}$/i.test(id)) {
+      if (send) {
+        row.id = "d" + Math.random().toString(16).slice(2, 14).padEnd(12, "a");
+        row.lastNotify = new Date(now).toISOString();
+        changed = true;
+      }
+      continue;
+    }
+    const text =
+      "⚠️ Дефицит нарезки\nДень: " + String(row.day || "") + "\nПозиция: " + String(row.item || "") +
+      "\n\nНужно купить и заготовить. Когда готово — нажми кнопку ниже.";
+    would.push({
+      id: id,
+      day: String(row.day || ""),
+      item: String(row.item || ""),
+      to: ids,
+      text: stageNPreview_(text),
+      quiet: quiet
+    });
+    if (!send || quiet) continue;
+    const markup = { inline_keyboard: [[{ text: "✅ Куплено и заготовлено", callback_data: "defdone:" + id }]] };
+    for (let t = 0; t < ids.length; t++) {
+      try { await telegramSendTextWorker_(env, ids[t], text, markup); } catch (eSend) {}
+    }
+    row.lastNotify = new Date(now).toISOString();
+    changed = true;
+  }
+  if (changed && send) await putSnap_(env, "listDeficit", snap);
+  return { quiet: quiet, recipients: ids, would: would, sent: send && !quiet ? would.length : 0 };
+}
+
+function stageNSurveyBody_(templates, kind, nick) {
+  const want = String(kind || "").toLowerCase();
+  const list = templates || [];
+  for (let i = 0; i < list.length; i++) {
+    const id = String(list[i].id || "").toLowerCase();
+    if (id === want) return stageNPersonalize_(list[i].body || "", nick);
+  }
+  if (want === "survey_final") return stageNPersonalize_(STAGE_N_SURVEY_FINAL_, nick);
+  return stageNPersonalize_(STAGE_N_SURVEY_BP2_, nick);
+}
+
+async function stageNSurvey_(env, opts) {
+  opts = opts || {};
+  const nowDate = stageNNow_(opts.now);
+  const send = !!opts.send;
+  const dayKey = nowDate.toISOString().slice(0, 10);
+  const sentKey = "bp_survey_remind_" + dayKey;
+  let already = (await getSnapRaw_(env, sentKey)) || {};
+  if (already && already.map) already = already.map;
+  if (!already || typeof already !== "object" || Array.isArray(already)) already = {};
+  const snap = (await getSnapRaw_(env, "listSurvey")) || { items: [] };
+  const items = Array.isArray(snap.items) ? snap.items : [];
+  const tplSnap = (await getSnapRaw_(env, "listTemplates:survey")) || (await getSnapRaw_(env, "listTemplates")) || {};
+  const templates = tplSnap.items || tplSnap.templates || [];
+  const access = (await getSnapRaw_(env, "listAccess")) || {};
+  const people = access.people || [];
+  const subsSnap = (await getSnapRaw_(env, "listSubscriptions")) || {};
+  const subs = subsSnap.subscriptions || subsSnap.items || [];
+  const would = [];
+  const today = [];
+  const skipped = { closed: 0, future: 0, window: 0, noTarget: 0, already: 0, off: 0 };
+  let changedSurvey = false;
+  for (let i = 0; i < items.length; i++) {
+    const obj = items[i] || {};
+    const nick = String(obj.nick || "").trim();
+    const due = String(obj.dueDate || "").slice(0, 10);
+    if (!nick || !due) continue;
+    const st = String(obj.status || "").toLowerCase();
+    if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") {
+      skipped.closed++;
+      continue;
+    }
+    if (String(obj.sentAt || "").trim()) {
+      skipped.closed++;
+      continue;
+    }
+    if (st && st !== "planned" && st !== "due" && st !== "open") {
+      skipped.closed++;
+      continue;
+    }
+    let tid = String(obj.ownerTelegramId || "").trim();
+    if (!tid) {
+      for (let s = 0; s < subs.length; s++) {
+        const sub = subs[s] || {};
+        if (!nicksMatchLooseD1_(sub.nick || sub.label, nick)) continue;
+        if (sub.ownerTelegramId) {
+          tid = String(sub.ownerTelegramId).trim();
+          break;
+        }
+      }
+    }
+    if (!tid) {
+      skipped.noTarget++;
+      continue;
+    }
+    const person = people.filter(function (p) { return String(p.telegramId) === tid; })[0] || {};
+    const tz = String(person.timezone || "Europe/Minsk") || "Europe/Minsk";
+    const local = stageNParts_(nowDate, tz);
+    if (due > local.ymd) {
+      skipped.future++;
+      continue;
+    }
+    const inWindow = local.hour >= 9 && local.hour < 21;
+    if (!inWindow) skipped.window++;
+    let targets = [tid];
+    try {
+      targets = await stageNStaff_(env, "survey", [tid], { filterOnly: true });
+    } catch (eNf) {
+      targets = [tid];
+    }
+    if (!targets.length) {
+      skipped.off++;
+      continue;
+    }
+    const kindKey = /final/i.test(String(obj.kind || obj.templateId || "")) ? "survey_final" : "survey_bp2";
+    const kindLabel = kindKey === "survey_final" ? "ПП (финал)" : "БП2";
+    const body = stageNSurveyBody_(templates, obj.templateId || kindKey, nick) || stageNSurveyBody_(templates, kindKey, nick);
+    const text =
+      "📋 Опросник · " + kindLabel + "\n" +
+      "Кому отправить: " + nick + "\n" +
+      (obj.stage ? "Этап: " + obj.stage + "\n" : "") +
+      "Дата: " + due + "\n" +
+      "Ваше время: " + local.slot.replace("T", " ") + " (" + tz + ")\n\n" +
+      "Текст опросника:\n" + body;
+    let any = false;
+    for (let t = 0; t < targets.length; t++) {
+      const to = targets[t];
+      const key = normalizeMatchKey_(nick) + "|" + kindKey + "|" + due + "|" + to;
+      if (already[key]) {
+        skipped.already++;
+        continue;
+      }
+      const line = { nick: nick, due: due, kind: kindLabel, to: to, text: stageNPreview_(text), inWindow: inWindow };
+      today.push(line);
+      if (!inWindow) continue;
+      would.push(line);
+      any = true;
+      if (!send) continue;
+      already[key] = 1;
+      const markup = obj.id
+        ? { inline_keyboard: [[{ text: "✅ Отправлено", callback_data: ("svsent:" + String(obj.id)).slice(0, 64) }]] }
+        : null;
+      try { await telegramSendTextWorker_(env, to, text, markup); } catch (eSend) {}
+    }
+    if (any && send && (st === "planned" || st === "due" || st === "open")) {
+      obj.status = "due";
+      obj.updatedAt = nowDate.toISOString();
+      changedSurvey = true;
+    }
+  }
+  if (send) {
+    try { await putSnap_(env, sentKey, Object.assign({}, already, { map: already, day: dayKey })); } catch (eSave) {}
+    if (changedSurvey) {
+      try { await putSnap_(env, "listSurvey", snap); } catch (eSv) {}
+    }
+  }
+  return { would: would, today: today, skipped: skipped, sent: send ? would.length : 0 };
+}
+
+async function stageNNudgePack_(env, ymd) {
+  const delivered = await listNudgeDeliveredDay_({ dateIso: ymd }, env);
+  const rows = (delivered && delivered.rows) || [];
+  let subs = {};
+  try {
+    const q = await env.DB.prepare("SELECT match_key, nick, sheet, bp_stage, status FROM subs").all();
+    ((q && q.results) || []).forEach(function (r) {
+      const sheet = String(r.sheet || "").toUpperCase();
+      [normalizeMatchKey_(r.match_key), normalizeMatchKey_(r.nick)].forEach(function (k) {
+        if (!k) return;
+        const prev = subs[k];
+        if (!prev || (sheet === "ПП" && String(prev.sheet || "").toUpperCase() !== "ПП")) subs[k] = r;
+      });
+    });
+  } catch (eSub) {
+    subs = {};
+  }
+  const pp = [];
+  const bp1 = [];
+  const seen = {};
+  let other = 0;
+  rows.forEach(function (row) {
+    const seg = String(row.segment || "").toUpperCase();
+    if (/ПАРТН/.test(seg) || seg === "Р" || seg === "R" || /РОЗНИЦ|RETAIL/.test(seg)) {
+      other++;
+      return;
+    }
+    const sub = subs[normalizeMatchKey_(row.matchKey)] || subs[normalizeMatchKey_(row.client)] || null;
+    const sheet = String((sub && sub.sheet) || "").toUpperCase();
+    const stage = String((sub && (sub.bp_stage || sub.status)) || "");
+    let kind = "";
+    if (sheet === "АФК" || seg === "АФК") kind = "";
+    else if (sheet === "ПП" || /ПП/.test(seg)) kind = "pp";
+    else if (sheet === "БП" || seg === "БП" || seg === "BP") {
+      kind = !stage || /БП\s*1|^1$|BP1/i.test(stage) ? "bp1" : "";
+    }
+    if (!kind) {
+      other++;
+      return;
+    }
+    const name = String((sub && sub.nick) || row.client || "").trim();
+    const key = normalizeMatchKey_(name) || normalizeMatchKey_(row.matchKey);
+    if (!name || seen[key]) return;
+    seen[key] = true;
+    const rec = { name: name, ppSlot: stageNSlotTag_(row.ppSlot || seg) };
+    if (kind === "pp") pp.push(rec);
+    else bp1.push(rec);
+  });
+  return { dateIso: ymd, dateText: stageNDmy_(ymd), pp: pp, bp1: bp1, other: other };
+}
+
+function stageNNudgeText_(pack, slot) {
+  const when = String(slot) === "19" ? "19:00" : "11:00";
+  const lines = [];
+  lines.push("📅 Подбейте даты доставок");
+  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП1:");
+  lines.push("");
+  const ppRows = pack.pp || [];
+  const bpRows = pack.bp1 || [];
+  if (!ppRows.length && !bpRows.length) lines.push("Нет таких клиентов за вчера.");
+  else {
+    if (ppRows.length) {
+      lines.push("ПП (" + ppRows.length + "):");
+      ppRows.forEach(function (r) {
+        const tag = stageNSlotTag_(r.ppSlot);
+        lines.push("• " + r.name + (tag ? " — " + tag : ""));
+      });
+      lines.push("");
+    }
+    if (bpRows.length) {
+      lines.push("БП1 (" + bpRows.length + "):");
+      bpRows.forEach(function (r) { lines.push("• " + r.name); });
+      lines.push("");
+    }
+  }
+  lines.push("Сверьте следующие даты в Просмотр.");
+  lines.push("У ПП — кнопка «В АФК», если клиент хочет перерыв.");
+  lines.push("⏰ " + when + " Минск");
+  return lines.join("\n");
+}
+
+async function stageNNudge_(env, opts) {
+  opts = opts || {};
+  const nowDate = stageNNow_(opts.now);
+  const parts = stageNParts_(nowDate, "Europe/Minsk");
+  const ymd = stageNShiftYmd_(parts.ymd, -1);
+  const pack = await stageNNudgePack_(env, ymd);
+  const ids = await stageNStaff_(env, "date_nudge");
+  const slots = opts.slot ? [String(opts.slot)] : ["11", "19"];
+  const out = [];
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const key = "DATE_NUDGE_" + parts.ymd + "_" + slot;
+    const marked = (await stageNMeta_(env, key)) === "1";
+    const text = stageNNudgeText_(pack, slot);
+    const row = {
+      slot: slot,
+      date: pack.dateText,
+      pp: pack.pp.map(function (r) { return r.name + (r.ppSlot ? " " + r.ppSlot : ""); }),
+      bp1: pack.bp1.map(function (r) { return r.name; }),
+      other: pack.other,
+      to: ids,
+      already: marked,
+      text: stageNPreview_(text)
+    };
+    out.push(row);
+    if (!opts.send || marked) continue;
+    const empty = !pack.pp.length && !pack.bp1.length;
+    if (!empty) {
+      const partsText = stageNSplit_(text, 3500);
+      const keyboard = [];
+      const maxBtn = Math.min(pack.pp.length, 24);
+      for (let b = 0; b < maxBtn; b++) {
+        const btnName = String(pack.pp[b].name || "").trim();
+        if (!btnName) continue;
+        const tok = Math.random().toString(16).slice(2, 12);
+        try {
+          await putSnap_(env, "ppafk_" + tok, { client: btnName, matchKey: normalizeMatchKey_(btnName), at: Date.now() });
+        } catch (eTok) {}
+        keyboard.push([{ text: "⏸ В АФК — " + btnName.slice(0, 28), callback_data: ("ppafk:" + tok).slice(0, 64) }]);
+      }
+      const markup = keyboard.length ? { inline_keyboard: keyboard } : null;
+      for (let n = 0; n < ids.length; n++) {
+        try {
+          const first = await telegramSendTextWorker_(env, ids[n], partsText[0], markup);
+          if (!(first && first.ok) && markup) await telegramSendTextWorker_(env, ids[n], partsText[0], null);
+          for (let pi = 1; pi < partsText.length; pi++) await telegramSendTextWorker_(env, ids[n], partsText[pi], null);
+        } catch (eSend) {}
+      }
+    }
+    try { await stageNSetMeta_(env, key, "1"); } catch (eMark) {}
+    row.sent = true;
+  }
+  return { slots: out, sent: opts.send ? out.filter(function (r) { return r.sent; }).length : 0 };
+}
+
+async function stageNClearMarkup_(env, cq) {
+  const token = getTelegramTokenWorker_(env);
+  const msg = cq && cq.message;
+  if (!token || !msg || !msg.chat) return;
+  try {
+    await fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: msg.chat.id,
+        message_id: msg.message_id,
+        reply_markup: { inline_keyboard: [] }
+      })
+    });
+  } catch (e) {}
+}
+
+async function stageNCallback_(env, cq, send) {
+  const data = String((cq && cq.data) || "");
+  const def = data.match(/^defdone:(.+)$/i);
+  const sv = data.match(/^svsent:(.+)$/i);
+  const afk = data.match(/^ppafk:(.+)$/i);
+  if (!def && !sv && !afk) return null;
+  if (!send) return { kind: def ? "defdone" : sv ? "svsent" : "ppafk", sent: false };
+  if (def) {
+    const id = def[1];
+    const snap = (await getSnapRaw_(env, "listDeficit")) || { items: [] };
+    (snap.items || []).forEach(function (row) {
+      if (String(row.id) === id) row.status = "done";
+    });
+    try { await putSnap_(env, "listDeficit", snap); } catch (ePut) {}
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Готово"); } catch (eA) {}
+    try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+    return { kind: "defdone", sent: true };
+  }
+  if (sv) {
+    const id = sv[1];
+    const snap = (await getSnapRaw_(env, "listSurvey")) || { items: [] };
+    (snap.items || []).forEach(function (row) {
+      if (String(row.id) === id) {
+        row.status = "sent";
+        row.sentAt = new Date().toISOString();
+      }
+    });
+    try { await putSnap_(env, "listSurvey", snap); } catch (ePut) {}
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Отмечено"); } catch (eA) {}
+    try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+    return { kind: "svsent", sent: true };
+  }
+  const tok = afk[1];
+  const info = await getSnapRaw_(env, "ppafk_" + tok);
+  if (!info || !info.client) {
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Кнопка устарела — открой мини-апп"); } catch (eA) {}
+    return { kind: "ppafk", sent: true };
+  }
+  let moved = null;
+  try {
+    moved = await upsertSubscription_({
+      action: "moveSubscription",
+      nick: info.client,
+      fromSheet: "ПП",
+      toSheet: "АФК"
+    }, env);
+  } catch (eMove) {
+    moved = { status: "error", message: String(eMove) };
+  }
+  if (!moved || moved.status !== "success") {
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Не вышло"); } catch (eA) {}
+    return { kind: "ppafk", sent: true, ok: false };
+  }
+  try { await telegramAnswerCallbackWorker_(env, cq.id, "В АФК: " + info.client); } catch (eA) {}
+  try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+  const chat = cq.message && cq.message.chat ? cq.message.chat.id : "";
+  if (chat) {
+    try {
+      await telegramSendTextWorker_(env, chat, "✅ " + info.client + " → лист АФК (пауза).\nСледующие даты в календаре сверь вручную.", null);
+    } catch (eT) {}
+  }
+  return { kind: "ppafk", sent: true, ok: true };
+}
+
+async function stageNTick_(env, when) {
+  const armed = (await stageNMeta_(env, "notify_cron_live")) === "1";
+  if (!armed) return { skipped: "not_armed" };
+  const now = stageNNow_(when);
+  const parts = stageNParts_(now, "Europe/Minsk");
+  const out = { deferred: await stageNDeferred_(env, { send: true, now: now }) };
+  if (parts.minute === 0 || parts.minute === 30) {
+    out.survey = await stageNSurvey_(env, { send: true, now: now });
+  }
+  if ((parts.hour === 10 || parts.hour === 12) && parts.minute === 0) {
+    out.deficit = await stageNDeficit_(env, { send: true, now: now });
+  }
+  if ((parts.hour === 11 || parts.hour === 19) && parts.minute === 0) {
+    out.nudge = await stageNNudge_(env, { send: true, slot: String(parts.hour), now: now });
+  }
+  return out;
+}
+
+async function stageNDry_(env) {
+  const before = await stageGSheetCalls_(env);
+  const ensured = await stageNEnsure_(env);
+  const now = new Date();
+  const deferred = await stageNDeferred_(env, { send: false, now: now });
+  const deficit = await stageNDeficit_(env, { send: false, now: now });
+  const survey = await stageNSurvey_(env, { send: false, now: now });
+  const nudge = await stageNNudge_(env, { send: false, now: now });
+  const after = await stageGSheetCalls_(env);
+  try { await putSnap_(env, "notify_overdue_deferred", { at: now.toISOString(), items: deferred.overdue }); } catch (eOver) {}
+  try { await stageNSetMeta_(env, "notify_cron_live", "1"); } catch (eArm) {}
+  const sent = (deferred.sent || 0) + (deficit.sent || 0) + (survey.sent || 0) + (nudge.sent || 0);
+  return {
+    status: sent === 0 ? "success" : "error",
+    sent: sent,
+    armed: true,
+    imported: ensured.imported,
+    importNeeded: ensured.needed,
+    importError: ensured.error || "",
+    counts: ensured.counts || {},
+    sheetCallsBefore: before,
+    sheetCallsAfter: after,
+    sheetsDelta: after - before,
+    nudge: nudge.slots,
+    deficit: { quiet: deficit.quiet, recipients: deficit.recipients, would: deficit.would },
+    survey: { would: survey.would, today: survey.today, skipped: survey.skipped },
+    deferred: { would: deferred.would, overdue: deferred.overdue, hidden: deferred.hidden },
+    when: stageNParts_(now, "Europe/Minsk")
+  };
+}
+
+async function stageNAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  try {
+    return json(await stageNDry_(env));
+  } catch (eRun) {
+    return json({ status: "error", message: String((eRun && eRun.message) || eRun) }, 500);
+  }
+}
+
+async function stageGAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  try {
+    return json(await stageGProbe_(env));
+  } catch (eRun) {
+    return json({ status: "error", message: String((eRun && eRun.message) || eRun) }, 500);
+  }
+}
+
+async function stageCAdmin_(request, env) {
+  if (request.method !== "POST") return json({ status: "error", message: "post_only" }, 405);
+  if (!stageBSecretOk_(request, env)) return json({ status: "error", message: "forbidden" }, 403);
+  var body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  var phase = String((body && body.phase) || "check");
+  try {
+    if (phase === "sync") return json(await stageCSync_(env));
+    return json(await stageCCheck_(env));
+  } catch (eRun) {
+    return json({ status: "error", phase: phase, message: String((eRun && eRun.message) || eRun) }, 500);
+  }
 }
 
 async function stageBAdmin_(request, env) {

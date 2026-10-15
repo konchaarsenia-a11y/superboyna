@@ -1,0 +1,126 @@
+name: survey-read
+# повторное чтение после 21:30 Минск, без записи
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/survey-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read survey snaps
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/survey-read"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN ('bp_survey_remind_2026-10-14','listSurvey','listAccess')" > "$GITHUB_WORKSPACE/artifacts/survey-read/raw.json"
+          python3 - <<'PY'
+          import json, os, re
+          raw_path = os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-read/raw.json"
+          text = open(raw_path, encoding="utf-8").read()
+          data = json.loads(text)
+          rows = []
+          if isinstance(data, list):
+              for block in data:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      rows.extend(block["results"])
+                  elif isinstance(block, list):
+                      rows.extend(block)
+          elif isinstance(data, dict):
+              rows = data.get("results") or data.get("result") or []
+          by = {}
+          for row in rows:
+              if isinstance(row, dict) and row.get("cache_key"):
+                  by[row["cache_key"]] = row
+          def load(key):
+              row = by.get(key) or {}
+              try:
+                  return json.loads(row.get("payload") or "null"), row.get("updated_at") or ""
+              except Exception:
+                  return None, row.get("updated_at") or ""
+          def scrub(s):
+              s = str(s or "")
+              s = re.sub(r"\+?\d[\d\-\s()]{8,}\d", "[tel]", s)
+              return s
+          want = ("maria_stsiapura", "dil", "_dyomkina")
+          survey, survey_at = load("listSurvey")
+          items = (survey or {}).get("items") or []
+          picked = []
+          for it in items:
+              nick = str((it or {}).get("nick") or "").strip().lower()
+              if nick not in want:
+                  continue
+              body = scrub(it.get("note") or "")
+              picked.append({
+                  "id": it.get("id"),
+                  "nick": it.get("nick"),
+                  "stage": it.get("stage"),
+                  "kind": it.get("kind"),
+                  "dueDate": it.get("dueDate"),
+                  "status": it.get("status"),
+                  "sentAt": it.get("sentAt"),
+                  "templateId": it.get("templateId"),
+                  "ownerTelegramId": it.get("ownerTelegramId"),
+                  "ownerName": it.get("ownerName"),
+                  "linkedSheet": it.get("linkedSheet"),
+                  "linkedSubId": it.get("linkedSubId"),
+                  "updatedAt": it.get("updatedAt"),
+                  "note": body[:240]
+              })
+          remind, remind_at = load("bp_survey_remind_2026-10-14")
+          access, access_at = load("listAccess")
+          people = (access or {}).get("people") or []
+          staff = []
+          for p in people:
+              tid = str((p or {}).get("telegramId") or "")
+              if tid in ("827494606", "650923866", "762080386", "8971437538"):
+                  staff.append({
+                      "telegramId": tid,
+                      "name": p.get("name") or "",
+                      "role": p.get("role") or "",
+                      "timezone": p.get("timezone") or "",
+                      "notify": p.get("notify") or ""
+                  })
+          keys = []
+          if isinstance(remind, dict):
+              src = remind.get("map") if isinstance(remind.get("map"), dict) else remind
+              for k, v in src.items():
+                  if k in ("map", "day", "status", "fromStageN"):
+                      continue
+                  keys.append({"key": k, "v": v})
+          out = {
+              "surveyUpdatedAt": survey_at,
+              "surveyCount": len(items),
+              "picked": picked,
+              "remindUpdatedAt": remind_at,
+              "remindKeys": keys,
+              "accessUpdatedAt": access_at,
+              "staff": staff
+          }
+          dest = os.environ["GITHUB_WORKSPACE"] + "/artifacts/survey-read/brief.json"
+          json.dump(out, open(dest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(out, ensure_ascii=False)[:4000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: survey-read
+          path: artifacts/survey-read/
+          if-no-files-found: warn

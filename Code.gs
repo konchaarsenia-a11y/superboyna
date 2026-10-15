@@ -1022,6 +1022,7 @@ function saveCuttingState_(cutting, memorySheet, dateText, tz) {
 // ===================== onEdit: Нарезка дата =====================
 
 function onEdit(e) {
+  if (gasTriggersOff_()) return;
   var ss = e.source;
   var sheet = ss.getActiveSheet();
   var range = e.range;
@@ -1157,6 +1158,7 @@ function finishFullWeekProduction(optSs, optOpts) {
   }
 
   var skipWhClose = !!(opts.skipWarehouseClose === true || opts.skipWarehouseClose === "1" || opts.skipWarehouseClose === 1 || opts.skipWarehouseClose === "true");
+  if (opsSheetsReadonly_()) skipWhClose = true;
   if (!skipWhClose) {
     var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
     // один read матрицы на все дни + skip [НЕ РЕЗАТЬ]
@@ -1482,6 +1484,7 @@ function replyFinishWeek_(callback, fromPost, obj) {
  * Повторный запуск, пока job свежий, не создаёт второй триггер (+7).
  */
 function runScheduledFinishWeek_() {
+  if (gasTriggersOff_()) return;
   var job = readFinishWeekJob_();
   if (!job || String(job.state || "") !== "queued") return;
   var lock = LockService.getScriptLock();
@@ -1994,10 +1997,14 @@ function doPost(e) {
     var json = JSON.parse(e.postData.contents);
     // Входящие апдейты Telegram (если webhook смотрит на этот же URL)
     if (json && (json.message || json.callback_query || json.edited_message || json.update_id != null)) {
-      try {
-        handleTelegramUpdate_(json);
-      } catch (eTgPost) {
-        try { Logger.log("tg doPost: " + eTgPost); } catch (eL) {}
+      if (gasTriggersOff_()) {
+        try { forwardTelegramToWorker_(json); } catch (eFwd) {}
+      } else {
+        try {
+          handleTelegramUpdate_(json);
+        } catch (eTgPost) {
+          try { Logger.log("tg doPost: " + eTgPost); } catch (eL) {}
+        }
       }
       // всегда быстро «ok», иначе Telegram ретраит update и сыплет сообщениями
       return ContentService.createTextOutput("ok");
@@ -3178,6 +3185,22 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "exportStageBRows") {
     return handleExportStageBRows_(json, callback, fromPost);
+  }
+  if (opsSheetsReadonly_() && opsSheetsWriteAction_(action)) {
+    var opsSkipped = {
+      status: "success",
+      sheetsReadonly: true,
+      skipped: true,
+      action: action,
+      message: "sheets_readonly"
+    };
+    return fromPost ? jsonpText(callback, opsSkipped) : jsonp(callback, opsSkipped);
+  }
+  if (action === "exportStageCFormulas") {
+    return handleExportStageCFormulas_(json, callback, fromPost);
+  }
+  if (action === "exportStageNRows") {
+    return handleExportStageNRows_(json, callback, fromPost);
   }
 
   if (action === "deleteClient") {
@@ -10718,6 +10741,29 @@ function telegramSendMarkup_(chatId, text, replyMarkup) {
   try { return JSON.parse(res.getContentText()); } catch (e) { return { ok: false, error: String(e) }; }
 }
 
+/** Этап (г). Триггеры GAS не трогают лист. Откат: Script Property GAS_TRIGGERS=on. */
+function gasTriggersOff_() {
+  var v = "";
+  try {
+    v = String(PropertiesService.getScriptProperties().getProperty("GAS_TRIGGERS") || "").trim().toLowerCase();
+  } catch (eTr) {
+    v = "";
+  }
+  if (v === "on" || v === "1" || v === "write" || v === "sheets") return false;
+  return true;
+}
+
+function forwardTelegramToWorker_(json) {
+  var secret = "";
+  try { secret = String(PropertiesService.getScriptProperties().getProperty("WORKER_SHARED_SECRET") || ""); } catch (eSec) { secret = ""; }
+  UrlFetchApp.fetch(boinyaWorkerUrl_() + "/telegram/boinya", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ update: json, _wk: secret }),
+    muteHttpExceptions: true
+  });
+}
+
 function boinyaWorkerUrl_() {
   var u = "";
   try {
@@ -10850,10 +10896,15 @@ function notifyOutNextStock_(info) {
 }
 
 function tickCuttingDeficit_() {
+  if (gasTriggersOff_()) return { skipped: true, reason: "gas_triggers_off" };
   try { ensureTelegramWebhookUrl_(); } catch (eWh) {}
   try { ensureDeliveryDatesNudgeTriggers_(); } catch (eNudgeTr) {}
   try { tickDeliveryDatesNudge_(); } catch (eNudge) {}
   try { tickBpSurveyReminders_(); } catch (eSurvey) {}
+  var minskDef = localPartsInTz_(new Date(), "Europe/Minsk");
+  if (!((minskDef.hour === 10 || minskDef.hour === 12) && minskDef.minute === 0)) {
+    return { skipped: true, reason: "deficit_hours", hour: minskDef.hour, minute: minskDef.minute };
+  }
   var sh = getDeficitSheet_();
   var data = sh.getDataRange().getValues();
   var now = new Date();
@@ -10914,6 +10965,7 @@ function collectAllActiveStaffTelegramIds_() {
  * Список = вчера доставленные (галочка) ПП + БП1; у ПП кнопка «В АФК».
  */
 function tickDeliveryDatesNudge_() {
+  if (gasTriggersOff_()) return { skipped: true, reason: "gas_triggers_off" };
   var tz = "Europe/Minsk";
   var now = new Date();
   var hour = Number(Utilities.formatDate(now, tz, "H"));
@@ -32687,6 +32739,7 @@ function getSurveyTemplateBody_(kind, nick) {
 }
 
 function tickBpSurveyReminders_() {
+  if (gasTriggersOff_()) return { skipped: true, reason: "gas_triggers_off" };
   return runBpSurveyReminders_({ force: false });
 }
 
@@ -34850,6 +34903,7 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
 
 /** Раз в ~1 мин: отправить TG-напоминания (абсолютное время remindAtMs). */
 function tickDeferredReminders_() {
+  if (gasTriggersOff_()) return;
   // Закрытие недели: HTTP только пишет задание. Тяжёлую работу делает этот минутный триггер, не веб-запрос.
   try {
     var finJob = readFinishWeekJob_();
@@ -36453,6 +36507,164 @@ function handleGbLinkClient_(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, payload) : jsonp(callback, payload);
 }
 
+/** Этап (в). Склад, нарезка, прайс и себес не пишутся в лист. Откат: OPS_SHEETS_READONLY=0. */
+function opsSheetsReadonly_() {
+  var v = "";
+  try {
+    v = String(PropertiesService.getScriptProperties().getProperty("OPS_SHEETS_READONLY") || "").trim();
+  } catch (eOps) {
+    v = "";
+  }
+  if (v === "0" || v === "off" || v === "write") return false;
+  return true;
+}
+
+function opsSheetsWriteAction_(action) {
+  return /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|saveRetailPrices|updateCutting|saveCuttingCutter)$/i.test(String(action || ""));
+}
+
+/** Чтение формул склада и прошлой недели. Ничего не пишет. */
+function handleExportStageCFormulas_(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var from = String((json && json.from) || "2026-10-05");
+  var to = String((json && json.to) || "2026-10-11");
+  var wh = ss.getSheetByName("Склад");
+  var warehouse = [];
+  if (wh) {
+    var last = Math.min(80, Math.max(2, wh.getLastRow()));
+    var num = last - 1;
+    if (num >= 1) {
+      var matrix = wh.getRange(2, 1, num, 13).getValues();
+      for (var i = 0; i < matrix.length; i++) {
+        var name = String(matrix[i][0] || "").trim();
+        if (!name) continue;
+        warehouse.push({
+          row: i + 2,
+          name: name,
+          arrival: round2_(matrix[i][1]),
+          coef: round2_(matrix[i][3]),
+          stock: round2_(matrix[i][5]),
+          satRemain: round2_(matrix[i][11]),
+          sunRemain: round2_(matrix[i][12]),
+          unit: isPieceWarehouseRow_(i + 2, name) ? "шт" : "кг"
+        });
+      }
+    }
+  }
+  var pack = null;
+  try {
+    pack = computeWarehouseWeekPlan_(ss, { dateFrom: from, dateTo: to, force: true, noCache: true });
+  } catch (ePlan) {
+    pack = { ok: false, message: String(ePlan) };
+  }
+  var plan = [];
+  var src = (pack && pack.plan) || [];
+  for (var p = 0; p < src.length; p++) {
+    var it = src[p];
+    plan.push({
+      row: it.row,
+      name: it.name,
+      piece: !!it.piece,
+      coef: it.coef,
+      dryG: it.dryG,
+      needRaw: it.needRaw,
+      priorRaw: it.priorRaw,
+      stock: it.stock,
+      arrival: it.arrival,
+      unit: it.unit
+    });
+  }
+  var manager = ss.getSheetByName("Прием заказов");
+  var colRSample = "";
+  var colR = [];
+  if (manager) {
+    colRSample = String(manager.getRange(309, 18).getFormula() || "");
+    var rNames = manager.getRange(309, 1, 20, 1).getValues();
+    var rVals = manager.getRange(309, 18, 20, 1).getValues();
+    for (var r = 0; r < rNames.length; r++) {
+      var rn = String(rNames[r][0] || "").trim();
+      if (!rn) continue;
+      colR.push({ name: rn, value: rVals[r][0] });
+    }
+  }
+  function stageCIso_(val) {
+    try {
+      if (val instanceof Date && !isNaN(val.getTime())) return isoDateKey_(val, tz);
+      var parsed = parseFlexibleDate_(val, tz);
+      if (parsed) return isoDateKey_(parsed, tz);
+    } catch (eIso) {}
+    var s = String(val || "").trim();
+    var m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    if (m) return m[3] + "-" + m[2] + "-" + m[1];
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    return "";
+  }
+  var ledger = [];
+  var ledgerFrom = "";
+  var ledgerHasSeptember = false;
+  var led = ss.getSheetByName("Склад_Движения");
+  if (led && led.getLastRow() > 1) {
+    var lr = led.getLastRow();
+    var start = Math.max(2, lr - 399);
+    var data = led.getRange(start, 1, lr - start + 1, 7).getValues();
+    for (var j = 0; j < data.length; j++) {
+      var ts = data[j][0];
+      var iso = stageCIso_(ts);
+      if (!ledgerFrom || (iso && iso < ledgerFrom)) ledgerFrom = iso;
+      if (iso && iso >= "2026-09-01" && iso < "2026-10-01") ledgerHasSeptember = true;
+      if (iso && iso < "2026-09-01") continue;
+      ledger.push({
+        ts: iso || String(ts || ""),
+        skuRow: data[j][2],
+        type: String(data[j][3] || ""),
+        qty: round2_(data[j][4])
+      });
+    }
+  }
+  var cuttingDays = [];
+  var mem = null;
+  try { mem = findSheetByBaseName_(ss, "Память_Нарезки"); } catch (eMem) { mem = null; }
+  if (!mem) mem = ss.getSheetByName("Память_Нарезки");
+  var holes = [];
+  if (!ledgerFrom) holes.push("Склад_Движения пуст");
+  else if (ledgerFrom > "2026-09-01") holes.push("журнал движений начинается с " + ledgerFrom);
+  if (ledgerFrom && !ledgerHasSeptember) holes.push("в журнале нет движений сентября");
+  if (mem && mem.getLastRow() >= 1) {
+    var dates = mem.getRange(1, 1, mem.getLastRow(), 1).getValues();
+    for (var d = 0; d < dates.length; d++) {
+      var day = stageCIso_(dates[d][0]);
+      if (!day || day < from || day > to) continue;
+      var saved = null;
+      try { saved = JSON.parse(mem.getRange(d + 1, 2).getValue()); } catch (eJs) { saved = null; }
+      var done = 0;
+      if (saved && saved.length) {
+        for (var s = 0; s < saved.length; s++) {
+          var row = saved[s] || [];
+          if (row[3] === true || row[3] === "true" || row[3] === 1) done++;
+        }
+      }
+      cuttingDays.push({ date: day, rows: saved ? saved.length : 0, done: done });
+    }
+  } else {
+    holes.push("нет Память_Нарезки");
+  }
+  var out = {
+    status: "success",
+    week: (pack && pack.days) || [],
+    warehouse: warehouse,
+    plan: plan,
+    colRSample: colRSample,
+    colR: colR,
+    ledger: ledger,
+    ledgerFrom: ledgerFrom,
+    cuttingDays: cuttingDays,
+    holes: holes,
+    sheetsReadonly: true
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
 /** Этап (б). По умолчанию лист не пишем. Откат записи: ORDERS_SHEETS_READONLY=0. */
 function ordersSheetsReadonly_() {
   var v = "";
@@ -36636,4 +36848,197 @@ function handleGbSavePet_(json, callback, fromPost) {
   }
   var ok = { status: "success", demo: false, pet: saved.pet };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Этап уведомлений: одно чтение листов в D1. Листы не создаёт и не пишет. */
+function stageNCell_(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())) {
+    try { return Utilities.formatDate(v, "Europe/Minsk", "yyyy-MM-dd'T'HH:mm:ss"); } catch (eD) {}
+  }
+  return v;
+}
+
+function stageNExistingSheet_(ss, name) {
+  if (!ss || !name) return null;
+  var sh = null;
+  try { sh = ss.getSheetByName(name); } catch (e0) { sh = null; }
+  if (!sh) {
+    try { sh = findSheetByBaseName_(ss, name); } catch (e1) { sh = null; }
+  }
+  return sh;
+}
+
+function stageNSheetObjects_(sh, mapRow, cap) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  var cols = Math.min(Math.max(sh.getLastColumn(), 1), 16);
+  var last = Math.min(sh.getLastRow(), cap || 1500);
+  var values = sh.getRange(2, 1, last - 1, cols).getValues();
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var row = [];
+    for (var c = 0; c < values[i].length; c++) row.push(stageNCell_(values[i][c]));
+    var obj = mapRow(row, i + 2);
+    if (obj) out.push(obj);
+  }
+  return out;
+}
+
+function handleExportStageNRows_(json, callback, fromPost) {
+  var only = String((json && (json.only || json.key)) || "").trim();
+  function want(name) { return !only || only === name; }
+  var errors = [];
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  var dataSs = active;
+  var crm = active;
+  try { dataSs = getDataSpreadsheet_() || active; } catch (eData) { dataSs = active; }
+  try { crm = getCrmSpreadsheet_() || active; } catch (eCrm) { crm = active; }
+  var deferred = [];
+  if (want("listDeferred")) {
+    try {
+      deferred = stageNSheetObjects_(stageNExistingSheet_(active, "Отложенное"), function (row) {
+    if (!String(row[0] || "").trim()) return null;
+    return {
+      id: String(row[0] || "").trim(),
+      at: row[1] || "",
+      telegramId: String(row[2] || "").trim(),
+      mode: String(row[3] || "").trim(),
+      title: String(row[4] || "").trim(),
+      clientNick: String(row[5] || "").trim(),
+      status: String(row[6] || "").trim(),
+      payloadJson: String(row[7] || ""),
+      updatedAt: row[8] || ""
+    };
+  }, 1500);
+    } catch (eDef) { errors.push("listDeferred: " + eDef); }
+  }
+  var surveys = [];
+  if (want("listSurvey")) {
+    try {
+      var surveySh = stageNExistingSheet_(crm, "Опросник") || stageNExistingSheet_(active, "Опросник");
+      if (surveySh && surveySh.getLastRow() >= 2) {
+        var sCols = Math.min(Math.max(surveySh.getLastColumn(), 12), 16);
+        var sLast = Math.min(surveySh.getLastRow(), 1500);
+        var sVals = surveySh.getRange(2, 1, sLast - 1, sCols).getValues();
+        for (var s = 0; s < sVals.length; s++) {
+          var obj = surveyRowToObj_(sVals[s], s + 2);
+          if (!obj || !obj.nick) continue;
+          delete obj.rowIndex;
+          surveys.push(obj);
+        }
+      }
+    } catch (eSv) { errors.push("listSurvey: " + eSv); }
+  }
+  var templates = [];
+  if (want("listTemplates")) {
+    try {
+      templates = stageNSheetObjects_(
+        stageNExistingSheet_(crm, "Шаблоны") || stageNExistingSheet_(active, "Шаблоны"),
+        function (row) {
+          if (!String(row[0] || "").trim()) return null;
+          return {
+            id: String(row[0] || "").trim(),
+            kind: String(row[1] || "").trim(),
+            title: String(row[2] || "").trim(),
+            body: String(row[3] || "")
+          };
+        },
+        400
+      );
+    } catch (eTpl) { errors.push("listTemplates: " + eTpl); }
+  }
+  var access = [];
+  if (want("listAccess")) {
+    try {
+      access = stageNSheetObjects_(stageNExistingSheet_(active, "Доступы"), function (row) {
+        if (!String(row[0] || "").trim() && !String(row[1] || "").trim()) return null;
+        return {
+          telegramId: String(row[0] || "").trim(),
+          name: String(row[1] || ""),
+          username: String(row[2] || ""),
+          role: String(row[3] || "").toLowerCase(),
+          status: String(row[4] || "").toLowerCase(),
+          timezone: String(row[7] || ""),
+          notify: String(row[9] || "")
+        };
+      }, 400);
+    } catch (eAcc) { errors.push("listAccess: " + eAcc); }
+  }
+  var couriers = [];
+  if (want("listCouriers")) {
+    try {
+      couriers = stageNSheetObjects_(stageNExistingSheet_(active, "Курьеры_ТГ"), function (row) {
+        if (!String(row[0] || "").trim()) return null;
+        return {
+          chatId: String(row[0] || "").trim(),
+          name: String(row[1] || ""),
+          username: String(row[2] || ""),
+          updatedAt: row[3] || ""
+        };
+      }, 200);
+    } catch (eCo) { errors.push("listCouriers: " + eCo); }
+  }
+  var bugs = [];
+  if (want("listBugReports")) {
+    try {
+      bugs = stageNSheetObjects_(stageNExistingSheet_(active, "Баг_Репорты"), function (row) {
+        if (!String(row[4] || "").trim() && !String(row[0] || "").trim()) return null;
+        return {
+          at: row[0] || "",
+          screen: String(row[1] || ""),
+          role: String(row[2] || ""),
+          telegramId: String(row[3] || ""),
+          what: String(row[4] || ""),
+          expected: String(row[5] || ""),
+          client: String(row[6] || ""),
+          day: String(row[7] || ""),
+          status: String(row[8] || "")
+        };
+      }, 400);
+    } catch (eBug) { errors.push("listBugReports: " + eBug); }
+  }
+  var deficits = [];
+  if (want("listDeficit")) {
+    try {
+      deficits = stageNSheetObjects_(
+        stageNExistingSheet_(dataSs, "Дефицит_Нарезки") || stageNExistingSheet_(active, "Дефицит_Нарезки"),
+        function (row) {
+          if (!String(row[0] || "").trim() && !String(row[2] || "").trim()) return null;
+          return {
+            id: String(row[0] || "").trim(),
+            day: String(row[1] || ""),
+            item: String(row[2] || ""),
+            row: row[3] || "",
+            status: String(row[4] || ""),
+            created: row[5] || "",
+            notifyFrom: row[6] || "",
+            lastNotify: row[7] || ""
+          };
+        },
+        400
+      );
+    } catch (eDf) { errors.push("listDeficit: " + eDf); }
+  }
+  var out = {
+    status: "success",
+    readOnly: true,
+    only: only,
+    errors: errors,
+    deferred: deferred,
+    surveys: surveys,
+    templates: templates,
+    access: access,
+    couriers: couriers,
+    bugs: bugs,
+    deficits: deficits,
+    counts: {
+      deferred: deferred.length,
+      surveys: surveys.length,
+      templates: templates.length,
+      access: access.length,
+      couriers: couriers.length,
+      bugs: bugs.length,
+      deficits: deficits.length
+    }
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }

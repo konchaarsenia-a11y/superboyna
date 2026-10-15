@@ -526,6 +526,9 @@
     if (ax().tabHas(access, "statsScreen")) {
       more += '<button type="button" class="b-li" data-act="more-stats"><span class="b-li__body"><span class="b-li__title">Статистика</span><span class="b-li__sub">Оборот, расходы, проба</span></span><span class="b-li__chev">›</span></button>';
     }
+    if (access.role === "owner") {
+      more += '<button type="button" class="b-li" data-act="more-excel"><span class="b-li__body"><span class="b-li__title">Скачать Excel</span><span class="b-li__sub">Клиенты, подписки, заказы, доставки, склад, прайс</span></span><span class="b-li__chev">›</span></button>';
+    }
     if (ax().tabHas(access, "partnerHubScreen")) {
       more += '<button type="button" class="b-li" data-act="more-partners"><span class="b-li__body"><span class="b-li__title">Партнёры</span><span class="b-li__sub">Заказы и точки</span></span><span class="b-li__chev">›</span></button>';
     }
@@ -537,6 +540,29 @@
       more += '<button type="button" class="b-li" data-act="desk-logout"><span class="b-li__body"><span class="b-li__title">Выйти</span><span class="b-li__sub">Вход с компьютера через Telegram</span></span><span class="b-li__chev">›</span></button>';
     }
     sh().main('<div class="b-list">' + (more || '<p class="b-note">В этом разделе пока пусто.</p>') + "</div>" + '<p class="b-mark">' + sh().esc(badgeLabel() || "Бойня") + "</p>");
+  }
+
+  function downloadWorkbook_() {
+    sh().toast("Собираю книгу…");
+    api().apiGet({ action: "exportWorkbook" }, { timeoutMs: 60000 }).then(function (res) {
+      if (!res || res.status !== "success" || !res.base64) {
+        sh().toast((res && res.message) || "Не вышло собрать книгу");
+        return;
+      }
+      var bin = atob(res.base64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 255;
+      var blob = new Blob([bytes], { type: res.mime || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = res.filename || "boinya.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      sh().toast("Книга скачана");
+    }).catch(function () {
+      sh().toast("Не вышло собрать книгу");
+    });
   }
 
   function helpText() {
@@ -681,6 +707,7 @@
     if (act === "more-templates") { moreView = "templates"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-price") { moreView = "price"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-stats") { moreView = "stats"; route.tab = "more"; sh().resetScroll(); render(); return; }
+    if (act === "more-excel") { downloadWorkbook_(); return; }
     if (act === "more-partners") { moreView = "partners"; route.tab = "more"; sh().resetScroll(); render(); return; }
     if (act === "more-goals") { route.tab = "goals"; moreView = ""; sh().resetScroll(); render(); return; }
     if (act === "more-back") { route.tab = "more"; moreView = ""; priceView = ""; priceFrom = null; sh().resetScroll(); render(); return; }
