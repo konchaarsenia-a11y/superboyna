@@ -1,0 +1,308 @@
+name: ollie-friday-restore
+# Ollie только на пятнице 16.10. Barney, patrick и Варку не трогать. Код приложения не меняется.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ollie-friday-restore.yml
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Restore Friday order and retire Thursday twins
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/ollie-friday"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/ollie-friday"
+          STAMP = "2026-10-15T18:20:00.000Z"
+
+          def run(sql, name, file_sql=False):
+              path = root + "/" + name + ".json"
+              cmd = ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json"]
+              if file_sql:
+                  open(root + "/" + name + ".sql", "w", encoding="utf-8").write(sql)
+                  cmd += ["--file", root + "/" + name + ".sql"]
+              else:
+                  cmd += ["--command", sql]
+              subprocess.check_call(cmd, stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def blocks(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              return data if isinstance(data, list) else [data]
+
+          def rows(path):
+              out = []
+              for block in blocks(path):
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          def changes(path):
+              n = 0
+              for block in blocks(path):
+                  meta = block.get("meta") if isinstance(block, dict) else None
+                  if isinstance(meta, dict):
+                      n += int(meta.get("changes") or 0)
+              return n
+
+          def q(s):
+              return str(s).replace("'", "''")
+
+          ORDERS = (
+              "SELECT id, client, match_key, day_name, date_iso, status, source, segment, updated_at, "
+              "length(ifnull(note,'')) AS note_len, length(ifnull(basket_json,'')) AS basket_len, "
+              "address, phone, note, basket_json, meta_json "
+              "FROM orders WHERE client = 'Border collie ollie' "
+              "OR match_key IN ('OLLIE','OLLIE|OLLIE') "
+              "OR id IN ('CAL:OLLIE:2026-10-15','imp:15.10.2026:OLLIE|OLLIE','Пятница:OLLIE','imp:15.10.2026:OLLIE') "
+              "ORDER BY id"
+          )
+          COUNTS = (
+              "SELECT "
+              "(SELECT count(*) FROM orders WHERE client = 'Border collie ollie' AND status = 'active') AS orders_active, "
+              "(SELECT count(*) FROM orders WHERE client = 'Border collie ollie') AS orders_all, "
+              "(SELECT count(*) FROM subs WHERE match_key = 'OLLIE' OR nick = 'ollie' OR nick = 'Border collie ollie') AS subs_n"
+          )
+
+          def pub(row):
+              return {k: row.get(k) for k in (
+                  "id", "client", "match_key", "day_name", "date_iso", "status", "source", "segment", "updated_at", "note_len", "basket_len"
+              )}
+
+          def is_ollie(c):
+              if not isinstance(c, dict):
+                  return False
+              name = str(c.get("name") or c.get("ownerName") or "").strip().lower()
+              mk = str(c.get("matchKey") or "").strip().upper()
+              return name == "border collie ollie" or mk in ("OLLIE", "OLLIE|OLLIE")
+
+          def watch(clients):
+              want = {"mr.barney.corgi": 0, "patrick_beagleminsk": 0, "варка": 0}
+              for c in clients or []:
+                  n = str((c or {}).get("name") or "").strip().lower()
+                  if n in want:
+                      want[n] += 1
+              return want
+
+          def load_snap(key, name):
+              run("SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key = '" + q(key) + "'", name)
+              got = rows(root + "/" + name + ".json")
+              if not got:
+                  return None, None
+              payload = json.loads(got[0].get("payload") or "null")
+              return got[0], payload
+
+          def write_snap(key, payload, name):
+              raw = json.dumps(payload, ensure_ascii=False).replace("'", "''")
+              sql = "UPDATE snap_cache SET payload = '" + raw + "', updated_at = '" + STAMP + "' WHERE cache_key = '" + q(key) + "'"
+              run(sql, name + "-write", file_sql=True)
+
+          run(ORDERS, "before-orders")
+          run(COUNTS, "before-counts")
+          before = rows(root + "/before-orders.json")
+          by_id = {r.get("id"): r for r in before}
+          friday = by_id.get("Пятница:OLLIE")
+          cal = by_id.get("CAL:OLLIE:2026-10-15")
+          twin = by_id.get("imp:15.10.2026:OLLIE|OLLIE")
+          old_imp = by_id.get("imp:15.10.2026:OLLIE")
+          if not friday or friday.get("status") != "deleted" or friday.get("source") != "transfer" or friday.get("date_iso") != "2026-10-16":
+              raise SystemExit("refuse friday row")
+          if not cal or cal.get("status") != "active" or cal.get("day_name") != "Четверг":
+              raise SystemExit("refuse cal row")
+          if not twin or twin.get("status") != "active":
+              raise SystemExit("refuse twin row")
+          if not old_imp or old_imp.get("status") != "deleted":
+              raise SystemExit("refuse old import row")
+          backup = {
+              "orders": [pub(r) for r in before],
+              "counts": rows(root + "/before-counts.json"),
+              "fridayFull": {k: friday.get(k) for k in friday if k not in ("address", "phone", "basket_json", "meta_json")},
+          }
+          json.dump(backup, open(root + "/backup.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          # полная копия трёх строк без телефона и адреса — в отдельном файле для сверки состава
+          full_copy = []
+          for r in (friday, cal, twin, old_imp):
+              item = pub(r)
+              item["note"] = r.get("note") or ""
+              try:
+                  item["basket"] = json.loads(r.get("basket_json") or "[]")
+              except Exception:
+                  item["basket"] = []
+              try:
+                  meta = json.loads(r.get("meta_json") or "{}")
+              except Exception:
+                  meta = {}
+              item["meta_flags"] = {k: meta.get(k) for k in ("noCut", "skipAssemble", "cutMode", "topUp", "orderType", "segment", "ppPartner") if k in meta}
+              full_copy.append(item)
+          json.dump(full_copy, open(root + "/backup-rows.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
+          run(
+              "UPDATE orders SET status = 'active', updated_at = '" + STAMP + "' "
+              "WHERE id = 'Пятница:OLLIE' AND status = 'deleted' AND source = 'transfer' "
+              "AND client = 'Border collie ollie' AND day_name = 'Пятница' AND date_iso = '2026-10-16'",
+              "up-friday"
+          )
+          run(
+              "UPDATE orders SET status = 'deleted', updated_at = '" + STAMP + "' "
+              "WHERE id = 'CAL:OLLIE:2026-10-15' AND status = 'active' AND client = 'Border collie ollie' "
+              "AND day_name = 'Четверг' AND date_iso = '2026-10-15'",
+              "up-cal"
+          )
+          run(
+              "UPDATE orders SET status = 'deleted', updated_at = '" + STAMP + "' "
+              "WHERE id = 'imp:15.10.2026:OLLIE|OLLIE' AND status = 'active' AND client = 'Border collie ollie' "
+              "AND match_key = 'OLLIE|OLLIE' AND date_iso = '15.10.2026'",
+              "up-twin"
+          )
+          if changes(root + "/up-friday.json") != 1 or changes(root + "/up-cal.json") != 1 or changes(root + "/up-twin.json") != 1:
+              raise SystemExit("refuse: update count")
+
+          meta = {}
+          try:
+              meta = json.loads(friday.get("meta_json") or "{}")
+          except Exception:
+              meta = {}
+          if not isinstance(meta, dict):
+              meta = {}
+          try:
+              basket = json.loads(friday.get("basket_json") or "[]")
+          except Exception:
+              basket = []
+          if not isinstance(basket, list):
+              basket = []
+          card = dict(meta)
+          card.update({
+              "name": "Border collie ollie",
+              "matchKey": "OLLIE",
+              "address": friday.get("address") or meta.get("address") or "",
+              "phone": friday.get("phone") or meta.get("phone") or "",
+              "note": friday.get("note") or "",
+              "basket": basket,
+              "segment": friday.get("segment") or meta.get("segment") or "БП",
+              "source": "transfer",
+              "orderType": meta.get("orderType") or "transfer",
+              "orderCount": len(basket),
+              "updatedAt": friday.get("updated_at"),
+              "dateIso": "2026-10-16",
+              "day": "Пятница",
+              "noCut": True,
+              "skipAssemble": True,
+              "cutMode": meta.get("cutMode") or "none",
+              "topUp": False,
+              "delivered": False,
+              "assembled": True,
+              "paid": None,
+              "askPaid": False,
+              "deliveriesN": int(meta.get("deliveriesN") or 0),
+          })
+
+          snap_report = {}
+          row, payload = load_snap("courier:Пятница", "snap-fri")
+          if not isinstance(payload, dict) or not isinstance(payload.get("clients"), list):
+              raise SystemExit("refuse friday courier snap")
+          before_watch = watch(payload["clients"])
+          ollie_already = [c for c in payload["clients"] if is_ollie(c)]
+          if len(ollie_already) > 1:
+              raise SystemExit("refuse friday already has several ollie")
+          if not ollie_already:
+              payload["clients"].append(card)
+          write_snap("courier:Пятница", payload, "snap-fri")
+          snap_report["courierFri"] = {"added": 0 if ollie_already else 1, "n": len(payload["clients"]), "watch": before_watch}
+
+          def strip(key, name):
+              row_s, pay = load_snap(key, name)
+              if not isinstance(pay, dict) or not isinstance(pay.get("clients"), list):
+                  return {"key": key, "removed": 0, "reason": "no clients"}
+              w0 = watch(pay["clients"])
+              kept = [c for c in pay["clients"] if not is_ollie(c)]
+              removed = len(pay["clients"]) - len(kept)
+              if removed:
+                  pay["clients"] = kept
+                  write_snap(key, pay, name)
+              w1 = watch(kept)
+              if w0 != w1:
+                  raise SystemExit("refuse watch changed " + key)
+              return {"key": key, "removed": removed, "left": len(kept), "watch": w0}
+
+          snap_report["thuCourier"] = strip("courier:Четверг", "snap-thu-c")
+          snap_report["thuAsm"] = strip("assembly:Четверг", "snap-thu-a")
+          # сборку пятницы не пополняем; если Ollie там есть — это ошибка данных, не добавляем и не чистим чужих
+          _, fri_asm = load_snap("assembly:Пятница", "snap-fri-a")
+          fri_asm_ollie = 0
+          if isinstance(fri_asm, dict) and isinstance(fri_asm.get("clients"), list):
+              fri_asm_ollie = len([c for c in fri_asm["clients"] if is_ollie(c)])
+              if watch(fri_asm["clients"]) != watch(fri_asm["clients"]):
+                  pass
+          snap_report["friAsmOllie"] = fri_asm_ollie
+          if fri_asm_ollie:
+              raise SystemExit("refuse ollie already in friday assembly")
+
+          run(ORDERS, "after-orders")
+          run(COUNTS, "after-counts")
+          after = rows(root + "/after-orders.json")
+          after_by = {r.get("id"): r for r in after}
+          active = [pub(r) for r in after if r.get("client") == "Border collie ollie" and r.get("status") == "active"]
+          changed = []
+          for r in after:
+              prev = by_id.get(r.get("id"))
+              if not prev:
+                  changed.append(r.get("id"))
+                  continue
+              if prev.get("status") != r.get("status") or prev.get("updated_at") != r.get("updated_at"):
+                  changed.append(r.get("id"))
+          report = {
+              "beforeCounts": rows(root + "/before-counts.json")[0],
+              "afterCounts": rows(root + "/after-counts.json")[0],
+              "activeAfter": active,
+              "changedIds": changed,
+              "friday": pub(after_by.get("Пятница:OLLIE") or {}),
+              "cal": pub(after_by.get("CAL:OLLIE:2026-10-15") or {}),
+              "twin": pub(after_by.get("imp:15.10.2026:OLLIE|OLLIE") or {}),
+              "oldImp": pub(after_by.get("imp:15.10.2026:OLLIE") or {}),
+              "snaps": snap_report,
+          }
+          json.dump(report, open(root + "/report.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if report["afterCounts"]["orders_active"] != 1:
+              raise SystemExit("active count")
+          if report["afterCounts"]["subs_n"] != report["beforeCounts"]["subs_n"] or report["afterCounts"]["subs_n"] != 1:
+              raise SystemExit("subs")
+          if len(active) != 1 or active[0]["id"] != "Пятница:OLLIE" or active[0]["date_iso"] != "2026-10-16":
+              raise SystemExit("not exactly friday")
+          if set(changed) != {"Пятница:OLLIE", "CAL:OLLIE:2026-10-15", "imp:15.10.2026:OLLIE|OLLIE"}:
+              raise SystemExit("unexpected rows changed " + str(changed))
+          if report["oldImp"]["status"] != "deleted" or report["oldImp"]["updated_at"] != old_imp.get("updated_at"):
+              raise SystemExit("old import changed")
+          if report["cal"]["status"] != "deleted" or report["twin"]["status"] != "deleted" or report["friday"]["status"] != "active":
+              raise SystemExit("status mismatch")
+          if snap_report["courierFri"]["added"] != 1:
+              raise SystemExit("friday card not added")
+          if snap_report["thuCourier"]["removed"] < 1:
+              raise SystemExit("thursday courier still has ollie or had none")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ollie-friday-restore
+          path: artifacts/ollie-friday
+          retention-days: 7
