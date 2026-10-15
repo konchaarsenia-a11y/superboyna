@@ -677,6 +677,49 @@
     });
   }
 
+  function askChecks(opts) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        resolve(v);
+      }
+      var rows = (opts.items || []).map(function (it, i) {
+        return '<label class="nx-check" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input type="checkbox" data-cut-i="' + i + '"> <span>' + esc((it && it.label) || "") + "</span></label>";
+      }).join("");
+      openSheet({
+        title: opts.title || "",
+        html:
+          '<p class="b-note" style="color:var(--b-text);font-size:var(--b-f16);margin:0 0 8px">' + esc(opts.text || "") + "</p>" +
+          (rows || '<p class="b-note">В составе нет позиций</p>') +
+          '<button class="b-btn b-btn--main" type="button" data-act="dlg-checks-ok" style="margin-top:12px">' + esc(opts.ok || "Дальше") + "</button>",
+        onClose: function () { done(null); }
+      });
+      var prev = actHandler;
+      actHandler = function (act, node, e) {
+        if (act === "dlg-checks-ok") {
+          var box = el("nxScrim");
+          var picked = [];
+          if (box) {
+            var inputs = box.querySelectorAll("input[data-cut-i]");
+            for (var i = 0; i < inputs.length; i++) {
+              if (inputs[i].checked) picked.push(Number(inputs[i].getAttribute("data-cut-i")));
+            }
+          }
+          closeTop("ok");
+          done(picked);
+          return;
+        }
+        if (prev) prev(act, node, e);
+      };
+      sheetStack[sheetStack.length - 1].onClose = function (how) {
+        actHandler = prev;
+        if (how !== "ok") done(null);
+      };
+    });
+  }
+
   function choice(opts) {
     return new Promise(function (resolve) {
       var settled = false;
@@ -1259,6 +1302,7 @@
     closeAll: closeAll,
     sheetOpen: sheetOpen,
     confirm: confirm,
+    askChecks: askChecks,
     choice: choice,
     prompt: prompt,
     askTrackCode: askTrackCode,

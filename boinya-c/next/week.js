@@ -872,8 +872,38 @@
     if (root.__nxOpenNew) root.__nxOpenNew();
   }
 
+  async function askMoveCut(c) {
+    var ans = await sh().confirm({
+      title: "Перенос",
+      text: "Нарезка полная или частичная?",
+      ok: "Полная",
+      alt: "Частичная",
+      cancel: "Отмена"
+    });
+    if (!ans) return null;
+    if (ans !== "alt") return { cutMode: "full", cutItemKeys: [], cutItemLabels: [] };
+    var basket = (c && c.basket) || [];
+    var picked = await sh().askChecks({
+      title: "Что нарезать",
+      text: "Отметьте позиции, которые нужно нарезать. Если ничего не отмечено, заказ сразу попадёт к курьеру.",
+      ok: "Дальше",
+      items: basket.map(function (it) { return { label: logic().cutItemLabel(it) }; })
+    });
+    if (!picked) return null;
+    var keys = [];
+    var labels = [];
+    picked.forEach(function (i) {
+      if (!basket[i]) return;
+      keys.push(String(i));
+      labels.push(logic().cutItemLabel(basket[i]));
+    });
+    return { cutMode: "partial", cutItemKeys: keys, cutItemLabels: labels };
+  }
+
   async function moveOne(c) {
     if (!c) return;
+    var cut = await askMoveCut(c);
+    if (!cut) return;
     var picked = await sh().pickDate({
       title: "Перенести",
       lead: c.name || "",
@@ -892,15 +922,6 @@
     if (!sameDate && !(await confirmFullDay(newDate))) return;
     var onWeek = target && (target.onWeek || target.dayName);
     var calendarOnly = !!(view.calendarOnly || !onWeek);
-    var ans = await sh().confirm({
-      title: "Нарезка при переносе",
-      text: "Нарезать сырьё на этого клиента в новом дне вместе со всеми?",
-      ok: "Да, резать",
-      alt: "Нет — только перенос",
-      cancel: "Отмена"
-    });
-    if (!ans) return;
-    var cut = ans === "alt" ? "no" : "yes";
     var ot = logic().resolveOrderType(c);
     var params = logic().moveParams({
       client: c.name,
@@ -910,7 +931,9 @@
       newDay: newDay,
       newDate: newDate,
       calendarOnly: calendarOnly,
-      cutRaw: cut,
+      cutMode: cut.cutMode,
+      cutItemKeys: cut.cutItemKeys,
+      cutItemLabels: cut.cutItemLabels,
       segment: c.segment || logic().orderTypeToSegment(ot),
       orderType: ot
     });
@@ -1474,6 +1497,7 @@
     onAct: onAct,
     confirmWrite: confirmWrite,
     confirmFullDay: confirmFullDay,
+    askMoveCut: askMoveCut,
     noteMonth: noteMonth,
     setRole: function (role) { view.role = role || ""; },
     setDay: function (day) {

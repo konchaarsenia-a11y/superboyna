@@ -873,6 +873,8 @@ function recalculateCuttingForDate_(ss, dateText) {
   // 61+ строк: примечание «Будущей» на row 61 — раньше matrix=60 и skip [НЕ РЕЗАТЬ] не работал
   var matrixRows = sourceSheet === future ? 61 : 427;
   var matrix = sourceSheet ? sourceSheet.getRange(1, 3, matrixRows, 15).getValues() : null;
+  var nameCol = sourceSheet ? sourceSheet.getRange(1, 1, matrixRows, 1).getValues() : null;
+  var partialByCol = [];
   var skipCols = sheetColSkipForBlock_(sourceSheet, block);
   if (matrix && block && !Object.keys(skipCols).length) {
     var noteRowIdx = block.note - 1;
@@ -881,6 +883,10 @@ function recalculateCuttingForDate_(ss, dateText) {
         if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(matrix[noteRowIdx][sc] || ""))) skipCols[sc] = true;
       }
     }
+  }
+  if (matrix && block) {
+    var noteIdxP = block.note - 1;
+    if (noteIdxP >= 0 && noteIdxP < matrix.length) partialByCol = partialNamesByCol_(matrix[noteIdxP]);
   }
   for (var cRow = 3; cRow <= 48; cRow++) {
     var total = 0;
@@ -891,6 +897,7 @@ function recalculateCuttingForDate_(ss, dateText) {
         if (rowIndex < 0 || rowIndex >= matrix.length) continue;
         for (var col = 0; col < 15; col++) {
           if (skipCols[col]) continue;
+          if (partialByCol[col] && !partialQtyAllowed_(partialByCol[col], nameCol && nameCol[rowIndex] && nameCol[rowIndex][0])) continue;
           total += Number(matrix[rowIndex][col]) || 0;
         }
       }
@@ -902,6 +909,38 @@ function recalculateCuttingForDate_(ss, dateText) {
 }
 
 /** Колонки C–Q (0..14) с [НЕ РЕЗАТЬ] в примечании блока дня. */
+function partialNamesByCol_(notesRow) {
+  var out = [];
+  notesRow = notesRow || [];
+  for (var i = 0; i < 15; i++) {
+    var m = String(notesRow[i] || "").match(/\[ДОРЕЗАТЬ:([^\]]*)\]/i);
+    if (!m) {
+      out.push(null);
+      continue;
+    }
+    var set = {};
+    String(m[1] || "").split(/[;|]/).forEach(function (part) {
+      var k = String(part || "").trim().toUpperCase().replace(/Ё/g, "Е");
+      if (k) set[k] = true;
+    });
+    out.push(set);
+  }
+  return out;
+}
+
+function partialQtyAllowed_(nameSet, productName) {
+  if (!nameSet) return true;
+  var p = String(productName || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  if (!p) return false;
+  if (nameSet[p]) return true;
+  var keys = Object.keys(nameSet);
+  for (var i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue;
+    if (p.indexOf(keys[i]) >= 0 || keys[i].indexOf(p) >= 0) return true;
+  }
+  return false;
+}
+
 function noCutSkipColsForBlock_(sheet, block) {
   var skip = {};
   if (!sheet || !block) return skip;
@@ -5174,7 +5213,11 @@ function handleMoveClient(ss, json, callback, fromPost) {
     var movePayload = gatherClientMovePayload_(ss, clientName, matchKey, oldDate, srcDayName);
     // FAR_DATE_CUT: дата дальше «Будущей недели» — тот же ответ «резать / только перенос».
     var noCutMove = resolveNoCutFlag_(json, movePayload.note || "");
+    if (String(json.cutMode || "") === "full") noCutMove = false;
+    if (String(json.cutMode || "") === "none") noCutMove = true;
+    if (String(json.cutMode || "") === "partial") noCutMove = !String(json.cutItemKeys || "").trim();
     movePayload.note = applyNoCutToNote_(movePayload.note || "", noCutMove);
+    movePayload.note = applyCutPlanToNote_(movePayload.note || "", json);
     var cleared = 0;
     if (srcBlock) cleared += clearClientColumnFromDay_(ss, json.oldDay, clientName, matchKey);
     // на всякий случай снять и с «Будущей» / других дней
@@ -5324,7 +5367,11 @@ function handleMoveClient(ss, json, callback, fromPost) {
   var oldNoteValue = sourceSheet.getRange(srcBlock.note, oldClientCol).getValue();
   var noteStr = String(oldNoteValue || "");
   var noCutMove = resolveNoCutFlag_(json, noteStr);
+  if (String(json.cutMode || "") === "full") noCutMove = false;
+  if (String(json.cutMode || "") === "none") noCutMove = true;
+  if (String(json.cutMode || "") === "partial") noCutMove = !String(json.cutItemKeys || "").trim();
   noteStr = applyNoCutToNote_(noteStr, noCutMove);
+  noteStr = applyCutPlanToNote_(noteStr, json);
   var cutRaw = !noCutMove;
 
   var newClientCol = -1;
@@ -7998,6 +8045,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
   if (futureDay && futureDay.dateIso) sheetIsoCovered[futureDay.dateIso] = true;
 
   var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
+  var mgrNameCol = sheetManager.getRange(1, 1, 427, 1).getValues();
   var noCutByDayOffset = {};
   for (var nd = 0; nd < weekDaysGeo.length; nd++) {
     var dayBlk = getDayBlock(MANAGER_DAY_NAMES_[nd]);
@@ -8039,12 +8087,18 @@ function computeWarehouseWeekPlan_(ss, opts) {
       var day = weekDaysGeo[d];
       var dayOffset = day.start - 4;
       var skipCols = noCutByDayOffset[day.start] || {};
+      var partialDay = [];
+      try {
+        var noteAbs = day.start + 57;
+        if (noteAbs >= 1 && noteAbs <= fullManagerMatrix.length) partialDay = partialNamesByCol_(fullManagerMatrix[noteAbs - 1]);
+      } catch (ePart) { partialDay = []; }
       var dayG = 0;
       for (var ri = 0; ri < rowsToSum.length; ri++) {
         var targetRowIdx = rowsToSum[ri] + dayOffset - 1;
         if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) continue;
         for (var colM = 0; colM < 15; colM++) {
           if (skipCols[colM]) continue;
+          if (partialDay[colM] && !partialQtyAllowed_(partialDay[colM], mgrNameCol[targetRowIdx] && mgrNameCol[targetRowIdx][0])) continue;
           dayG += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
         }
       }
@@ -15281,6 +15335,7 @@ function noteHasNoCut_(note) {
 function stripCutTagsFromNote_(note) {
   return String(note || "")
     .replace(/\s*\[НЕ\s*РЕЗАТЬ\]/gi, "")
+    .replace(/\s*\[ДОРЕЗАТЬ:[^\]]*\]/gi, "")
     .replace(/\s*\[РЕЗАТЬ\]/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -15327,6 +15382,25 @@ function applyNoCutToNote_(note, noCut) {
   var clean = stripCutTagsFromNote_(stripTechFromNote_(note));
   if (noCut) return (clean ? clean + " " : "") + "[НЕ РЕЗАТЬ]";
   return clean;
+}
+
+/** Полная — без метки. Частичная — [ДОРЕЗАТЬ:позиции]. Пустая частичная и «не резать» — [НЕ РЕЗАТЬ]. */
+function applyCutPlanToNote_(note, json) {
+  json = json || {};
+  var mode = String(json.cutMode || "").toLowerCase();
+  var keys = String(json.cutItemKeys || "").trim();
+  var labels = String(json.cutItemLabels || "").trim().replace(/\|/g, ";");
+  if (mode === "partial" && !keys) mode = "none";
+  if (mode === "none" || String(json.skipAssemble || "") === "1" && mode !== "full" && mode !== "partial") {
+    return applyNoCutToNote_(note, true);
+  }
+  if (mode === "partial" && labels) {
+    var clean = stripCutTagsFromNote_(stripTechFromNote_(note));
+    return (clean ? clean + " " : "") + "[ДОРЕЗАТЬ:" + labels + "]";
+  }
+  if (mode === "full") return applyNoCutToNote_(note, false);
+  var noCut = resolveNoCutFlag_(json, note);
+  return applyNoCutToNote_(note, noCut);
 }
 
 function extractOrderPriceFromNote_(note) {

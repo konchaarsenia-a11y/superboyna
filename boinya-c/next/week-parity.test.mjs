@@ -115,12 +115,15 @@ test("перенос дальше будущей недели спрашивае
   const week = fs.readFileSync(path.join(dir, "week.js"), "utf8");
   const gs = fs.readFileSync(path.resolve(dir, "../../Code.gs"), "utf8");
   const at = week.indexOf("async function moveOne");
+  const askAt = week.indexOf("async function askMoveCut");
   const body = week.slice(at, week.indexOf("async function delOne", at));
-  assert.match(body, /Нарезка при переносе/);
-  assert.match(body, /Да, резать/);
-  assert.match(body, /Нет — только перенос/);
+  const askBody = week.slice(askAt, at);
+  assert.match(askBody, /Нарезка полная или частичная/);
+  assert.match(askBody, /Полная/);
+  assert.match(askBody, /Частичная/);
+  assert.match(body, /askMoveCut/);
   assert.equal(body.includes("if (!calendarOnly)"), false);
-  assert.match(body, /cutRaw:\s*cut/);
+  assert.match(body, /cutMode:\s*cut\.cutMode/);
   const mark = gs.indexOf("FAR_DATE_CUT");
   assert.ok(mark > 0);
   const block = gs.slice(mark, gs.indexOf("var dstBlock = getDayBlock(targetDayName);", mark));
@@ -172,6 +175,21 @@ test("слот ПП и черновик месяца", () => {
 });
 
 test("перенос из задач — placeTransferTask", () => {
+  var full = L.moveCutPlan({ cutMode: "full" });
+  assert.equal(full.cutRaw, "1");
+  assert.equal(full.noCut, "0");
+  assert.equal(full.topUp, "0");
+  assert.equal(full.skipAssemble, "0");
+  var part = L.moveCutPlan({ cutMode: "partial", cutItemKeys: ["0", "2"], cutItemLabels: ["Лёгкое 100 г", "Трахея 2 шт"] });
+  assert.equal(part.cutRaw, "1");
+  assert.equal(part.topUp, "1");
+  assert.equal(part.cutItemKeys, "0,2");
+  assert.equal(part.skipAssemble, "0");
+  var straight = L.moveCutPlan({ cutMode: "partial", cutItemKeys: [] });
+  assert.equal(straight.cutMode, "none");
+  assert.equal(straight.noCut, "1");
+  assert.equal(straight.skipAssemble, "1");
+  assert.equal(straight.cutItemKeys, "");
   var p = L.placeTransferParams({ id: "t1", client: "Анна", newDate: "2026-10-01", newDay: "Четверг", cutRaw: "no", segment: "ПП" });
   assert.equal(p.action, "placeTransferTask");
   assert.equal(p.cutRaw, "0");
