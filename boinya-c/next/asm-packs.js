@@ -215,6 +215,222 @@
     return { totals: totals, rows: rows, groups: groups };
   }
 
+  function copyOf(src) {
+    var dst = {};
+    var k;
+    for (k in src) if (Object.prototype.hasOwnProperty.call(src, k)) dst[k] = src[k];
+    return dst;
+  }
+
+  function dogNick(c, part) {
+    c = c || {};
+    var names = c.dogNames;
+    var n = "";
+    if (names && typeof names === "object") n = String(names[part] || names[String(part)] || "").trim();
+    if (!n && Number(c.dogPart) === Number(part)) n = String(c.dogName || "").trim();
+    if (n === "Собака " + part) n = "";
+    return n;
+  }
+
+  function dogTitle(part, nick) {
+    var n = String(nick || "").trim();
+    if (!n || n === "Собака " + part) return "Собака " + part;
+    return "Собака " + part + " (" + n + ")";
+  }
+
+  function splitBasket(basket) {
+    var d1 = [];
+    var d2 = [];
+    (basket || []).forEach(function (it) {
+      if (!it) return;
+      if (Number(it.dog) === 2) d2.push(it);
+      else d1.push(it);
+    });
+    return { dog1: d1, dog2: d2 };
+  }
+
+  function basketHasDog2(c) {
+    return ((c && c.basket) || []).some(function (it) { return Number(it && it.dog) === 2; });
+  }
+
+  function rowIsTwo(c) {
+    if (!c) return false;
+    if (Number(c.dogCount) === 2 || c.twoDogs === true) return true;
+    if (dogNick(c, 2)) return true;
+    return basketHasDog2(c);
+  }
+
+  function stopKey(c) {
+    var mk = String((c && c.matchKey) || "").trim().toUpperCase();
+    if (mk) return "m:" + mk;
+    var name = String((c && (c.ownerName || c.name)) || "")
+      .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+    return "n:" + name + "|" + String((c && c.address) || "").trim().toUpperCase();
+  }
+
+  function basketSig(basket) {
+    return (basket || []).map(function (it) {
+      if (!it) return "";
+      var val = it.val != null ? it.val : it.value;
+      return [it.name || it.main || "", val, it.unit || "", it.sub || ""].join("~");
+    }).join("|");
+  }
+
+  function tagDog(items, part) {
+    return (items || []).map(function (it) {
+      var copy = copyOf(it);
+      if (Number(copy.dog) !== 1 && Number(copy.dog) !== 2) copy.dog = part;
+      return copy;
+    });
+  }
+
+  function firstPrice(rows) {
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var raw = rows[i] && rows[i].orderPrice;
+      var n = Number(raw);
+      if (raw != null && raw !== "" && isFinite(n) && n > 0) return raw;
+    }
+    return null;
+  }
+
+  function applyTwo(base, names, b1, b2, members) {
+    var basket1 = tagDog(b1, 1);
+    var basket2 = tagDog(b2, 2);
+    base.twoDogs = true;
+    base.dogCount = 2;
+    base.dogNames = { 1: names[1] || "", 2: names[2] || "" };
+    base.dogSections = [
+      { part: 1, title: dogTitle(1, names[1]), basket: basket1 },
+      { part: 2, title: dogTitle(2, names[2]), basket: basket2 }
+    ];
+    base.packages = 2;
+    base.basket = basket1.concat(basket2);
+    base.name = String(base.ownerName || base.name || "").replace(/\s*[·•#]\s*\d+\s*$/i, "").trim() || base.name;
+    if (members && members.length) {
+      base._members = members;
+      base.delivered = members.every(function (r) { return !!r.delivered; });
+      var price = firstPrice(members);
+      if (price != null) base.orderPrice = price;
+    }
+    return base;
+  }
+
+  function namesFrom(rows) {
+    var names = { 1: "", 2: "" };
+    (rows || []).forEach(function (r) {
+      var p = Number(r.dogPart) || 0;
+      if (p === 1 || p === 2) names[p] = names[p] || dogNick(r, p);
+      if (!names[1]) names[1] = dogNick(r, 1);
+      if (!names[2]) names[2] = dogNick(r, 2);
+    });
+    return names;
+  }
+
+  /* Курьер: один адрес = одна карточка. Две собаки — две секции состава, цена одна. */
+  function courierStops(list) {
+    var order = [];
+    var map = {};
+    (list || []).forEach(function (c) {
+      if (!c) return;
+      var k = stopKey(c);
+      if (!map[k]) {
+        map[k] = [];
+        order.push(k);
+      }
+      map[k].push(c);
+    });
+    return order.map(function (k) {
+      var rows = map[k];
+      if (rows.length === 1) {
+        var one = copyOf(rows[0]);
+        if (!rowIsTwo(one)) {
+          one.twoDogs = false;
+          one.dogSections = null;
+          return one;
+        }
+        var parts = splitBasket(one.basket);
+        var names = { 1: dogNick(one, 1), 2: dogNick(one, 2) };
+        if (!parts.dog2.length) {
+          one.twoDogs = true;
+          one.dogCount = 2;
+          one.packages = 2;
+          one.dogNames = names;
+          one.dogSections = null;
+          return one;
+        }
+        return applyTwo(one, names, parts.dog1, parts.dog2, null);
+      }
+      var namesMany = namesFrom(rows);
+      var byPart = { 1: [], 2: [] };
+      var loose = [];
+      rows.forEach(function (r) {
+        var p = Number(r.dogPart) || 0;
+        if (p === 1 || p === 2) byPart[p].push(r);
+        else loose.push(r);
+      });
+      if (byPart[1].length || byPart[2].length) {
+        var b1 = [];
+        var b2 = [];
+        byPart[1].forEach(function (r) {
+          var sp = splitBasket(r.basket);
+          b1 = b1.concat(sp.dog2.length ? sp.dog1 : (r.basket || []));
+        });
+        byPart[2].forEach(function (r) {
+          var sp2 = splitBasket(r.basket);
+          b2 = b2.concat(sp2.dog2.length ? sp2.dog2 : (r.basket || []));
+        });
+        loose.forEach(function (r) {
+          var sp3 = splitBasket(r.basket);
+          if (sp3.dog2.length) {
+            b1 = b1.concat(sp3.dog1);
+            b2 = b2.concat(sp3.dog2);
+          }
+        });
+        return applyTwo(copyOf(rows[0]), namesMany, b1, b2, rows);
+      }
+      var host = null;
+      rows.forEach(function (r) {
+        if (!host && splitBasket(r.basket).dog2.length) host = r;
+      });
+      if (host) {
+        var mixed = splitBasket(host.basket);
+        namesMany[1] = namesMany[1] || dogNick(host, 1);
+        namesMany[2] = namesMany[2] || dogNick(host, 2);
+        return applyTwo(copyOf(host), namesMany, mixed.dog1, mixed.dog2, rows);
+      }
+      var sigs = {};
+      rows.forEach(function (r) { sigs[basketSig(r.basket)] = 1; });
+      var distinct = Object.keys(sigs).length;
+      if (!rows.some(rowIsTwo) && distinct < 2) {
+        var keep = copyOf(rows[0]);
+        keep.twoDogs = false;
+        keep.dogSections = null;
+        keep._members = rows;
+        keep.delivered = rows.every(function (r) { return !!r.delivered; });
+        var samePrice = firstPrice(rows);
+        if (samePrice != null) keep.orderPrice = samePrice;
+        return keep;
+      }
+      var take = rows.slice(0, 2);
+      return applyTwo(copyOf(take[0]), namesMany, take[0].basket || [], (take[1] && take[1].basket) || [], rows);
+    });
+  }
+
+  function courierDogLine(c) {
+    if (!c || !c.twoDogs) return "";
+    var names = [];
+    var dn = c.dogNames || {};
+    [1, 2].forEach(function (part) {
+      var n = String(dn[part] || dn[String(part)] || "").trim();
+      if (n && n !== "Собака " + part) names.push(n);
+    });
+    return (names.length ? ("2 собаки: " + names.join(", ")) : "2 собаки") + " · 2 пакета";
+  }
+
   return {
     dedupe: dedupe,
     ownerKey: ownerKey,
@@ -222,6 +438,8 @@
     collapse: collapse,
     rowMarked: rowMarked,
     tally: tally,
-    normDate: normDate
+    normDate: normDate,
+    courierStops: courierStops,
+    courierDogLine: courierDogLine
   };
 });
