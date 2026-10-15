@@ -878,9 +878,11 @@
       text: "Нарезка полная или частичная?",
       ok: "Полная",
       alt: "Частичная",
+      alt2: "Без нарезки",
       cancel: "Отмена"
     });
     if (!ans) return null;
+    if (ans === "alt2") return { cutMode: "partial", cutItemKeys: [], cutItemLabels: [] };
     if (ans !== "alt") return { cutMode: "full", cutItemKeys: [], cutItemLabels: [] };
     var basket = (c && c.basket) || [];
     var picked = await sh().askChecks({

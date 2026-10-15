@@ -657,6 +657,7 @@
           (opts.extra || "") +
           '<button class="b-btn ' + (opts.danger ? "b-btn--danger" : "b-btn--main") + '" type="button" data-act="dlg-ok">' + esc(opts.ok || "Да") + "</button>" +
           (opts.alt ? '<button class="b-btn b-btn--sec" type="button" data-act="dlg-alt" style="margin-top:8px">' + esc(opts.alt) + "</button>" : "") +
+          (opts.alt2 ? '<button class="b-btn b-btn--sec" type="button" data-act="dlg-alt2" style="margin-top:8px">' + esc(opts.alt2) + "</button>" : "") +
           (opts.cancel === "" ? "" : '<button class="b-btn b-btn--sec" type="button" data-act="dlg-no" style="margin-top:8px">' + esc(opts.cancel || "Отмена") + "</button>"),
         onClose: function () { done(false); }
       });
@@ -664,6 +665,7 @@
       var wrap = function (act, node, e) {
         if (act === "dlg-ok") { closeTop("ok"); done(true); return; }
         if (act === "dlg-alt") { closeTop("alt"); done("alt"); return; }
+        if (act === "dlg-alt2") { closeTop("alt2"); done("alt2"); return; }
         if (act === "dlg-no") { closeTop("no"); done(false); return; }
         if (prev) prev(act, node, e);
       };
@@ -671,8 +673,8 @@
       var origClose = sheetStack[sheetStack.length - 1].onClose;
       sheetStack[sheetStack.length - 1].onClose = function (how) {
         actHandler = prev;
-        if (origClose && how !== "ok" && how !== "alt" && how !== "no") origClose(how);
-        if (how !== "ok" && how !== "alt") done(false);
+        if (origClose && how !== "ok" && how !== "alt" && how !== "alt2" && how !== "no") origClose(how);
+        if (how !== "ok" && how !== "alt" && how !== "alt2") done(false);
       };
     });
   }
