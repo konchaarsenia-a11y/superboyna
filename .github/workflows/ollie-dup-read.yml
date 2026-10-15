@@ -1,0 +1,187 @@
+name: ollie-dup-read
+# Чтение дублей Border collie ollie и переносов 14–15.10. Без записи и без Telegram.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ollie-dup-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read ollie duplicates
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/ollie-dup"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/ollie-dup"
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+          def rows(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              out = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+          ollie_sql = (
+              "SELECT id, client, match_key, day_name, date_iso, status, source, segment, updated_at, "
+              "CASE WHEN instr(upper(ifnull(note,'')), 'НЕ РЕЗАТЬ')>0 THEN 1 ELSE 0 END AS nocut, "
+              "CASE WHEN instr(upper(ifnull(note,'')), 'ДОРЕЗАТЬ')>0 THEN 1 ELSE 0 END AS partial, "
+              "length(ifnull(basket_json,'')) AS basket_len, length(ifnull(note,'')) AS note_len "
+              "FROM orders WHERE lower(client) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%' "
+              "ORDER BY updated_at"
+          )
+          counts_sql = (
+              "SELECT "
+              "(SELECT count(*) FROM orders WHERE lower(client) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%') AS orders_all, "
+              "(SELECT count(*) FROM orders WHERE status='active' AND (lower(client) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%')) AS orders_active, "
+              "(SELECT count(*) FROM subs WHERE lower(nick) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%') AS subs_n, "
+              "(SELECT count(*) FROM clients WHERE lower(nick) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%') AS clients_n"
+          )
+          subs_sql = (
+              "SELECT id, nick, match_key, sheet, status, n, updated_at FROM subs "
+              "WHERE lower(nick) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%'"
+          )
+          clients_sql = (
+              "SELECT id, nick, match_key, updated_at FROM clients "
+              "WHERE lower(nick) LIKE '%ollie%' OR lower(ifnull(match_key,'')) LIKE '%ollie%'"
+          )
+          recent_sql = (
+              "SELECT id, client, match_key, day_name, date_iso, status, updated_at FROM orders "
+              "WHERE updated_at >= '2026-10-13' AND ("
+              "date_iso IN ('2026-10-14','2026-10-15','14.10.2026','15.10.2026') "
+              "OR day_name IN ('Среда','Четверг')) "
+              "ORDER BY updated_at DESC LIMIT 500"
+          )
+          days = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье","Будущая неделя"]
+          keys = []
+          for d in days:
+              keys.append("courier:" + d)
+              keys.append("assembly:" + d)
+              keys.append("cutting:" + d)
+          snap_sql = (
+              "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN ("
+              + ",".join("'" + k.replace("'", "") + "'" for k in keys) + ")"
+          )
+          run(ollie_sql, "ollie-orders")
+          run(counts_sql, "ollie-counts")
+          run(subs_sql, "ollie-subs")
+          run(clients_sql, "ollie-clients")
+          run(recent_sql, "recent-orders")
+          run(snap_sql, "snaps")
+          def norm(raw):
+              s = " ".join(str(raw or "").split())
+              if not s:
+                  return ""
+              parts = s.split(" ")
+              handle = ""
+              for p in reversed(parts):
+                  p = p.strip(".,;:")
+                  if len(p) >= 3 and any(ch.isalpha() and ord(ch) < 128 for ch in p) and all(ch.isalnum() or ch in "._" for ch in p):
+                      handle = p
+                      break
+              if handle:
+                  return handle.upper().replace(".", "").replace("_", "")
+              return s.upper().replace("Ё", "Е")
+          ollie = rows(root + "/ollie-orders.json")
+          counts = rows(root + "/ollie-counts.json")
+          subs = rows(root + "/ollie-subs.json")
+          clients = rows(root + "/ollie-clients.json")
+          recent = rows(root + "/recent-orders.json")
+          snaps_raw = rows(root + "/snaps.json")
+          snap_hits = []
+          for row in snaps_raw:
+              key = row.get("cache_key") or ""
+              try:
+                  payload = json.loads(row.get("payload") or "null")
+              except Exception:
+                  payload = None
+              names = []
+              if isinstance(payload, dict):
+                  if isinstance(payload.get("clients"), list):
+                      for c in payload["clients"]:
+                          if isinstance(c, dict):
+                              names.append({
+                                  "name": c.get("name") or "",
+                                  "matchKey": c.get("matchKey") or "",
+                                  "source": c.get("source") or "",
+                                  "noCut": c.get("noCut"),
+                                  "delivered": c.get("delivered"),
+                                  "assembled": c.get("assembled"),
+                                  "hasSheet": "sheetRow" in c or "import" in c
+                              })
+                  elif isinstance(payload.get("items"), list) and "ollie" in json.dumps(payload.get("items"), ensure_ascii=False).lower():
+                      names.append({"name": "(cutting mentions ollie)", "matchKey": "", "source": "cutting"})
+              by = {}
+              for n in names:
+                  k = (str(n.get("name") or "").strip().lower(), norm(n.get("matchKey") or n.get("name")))
+                  by.setdefault(k, []).append(n)
+              dups = []
+              for k, arr in by.items():
+                  if k[0] and len(arr) > 1:
+                      dups.append({"name": arr[0]["name"], "n": len(arr), "matchKeys": [a.get("matchKey") for a in arr]})
+              ollie_cards = [n for n in names if "ollie" in str(n.get("name") or "").lower() or "ollie" in str(n.get("matchKey") or "").lower()]
+              if dups or ollie_cards:
+                  snap_hits.append({
+                      "key": key,
+                      "updated_at": row.get("updated_at") or "",
+                      "date": (payload or {}).get("date") if isinstance(payload, dict) else "",
+                      "n": len(names),
+                      "ollie": ollie_cards,
+                      "dups": dups
+                  })
+          groups = {}
+          for o in recent:
+              if str(o.get("status") or "") != "active":
+                  continue
+              g = norm(o.get("match_key") or o.get("client")) + "|" + str(o.get("day_name") or "") + "|" + str(o.get("date_iso") or "")
+              groups.setdefault(g, []).append({
+                  "id": o.get("id"),
+                  "client": o.get("client"),
+                  "match_key": o.get("match_key"),
+                  "day": o.get("day_name"),
+                  "date": o.get("date_iso"),
+                  "updated_at": o.get("updated_at")
+              })
+          order_dups = [v for v in groups.values() if len(v) > 1]
+          brief = {
+              "counts": counts,
+              "ollieOrders": ollie,
+              "ollieSubs": subs,
+              "ollieClients": clients,
+              "snapHits": snap_hits,
+              "recentActiveDupGroups": order_dups
+          }
+          json.dump(brief, open(root + "/brief.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(brief, ensure_ascii=False)[:12000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ollie-dup-read
+          path: artifacts/ollie-dup
+          retention-days: 7
