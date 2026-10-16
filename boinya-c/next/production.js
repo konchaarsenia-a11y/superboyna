@@ -107,19 +107,118 @@
     return { qty: q, unit: src.unit || g.unit || "г" };
   }
 
-  function dogPackHtml(c) {
+  function dogPackHtml(c, ctx) {
+    ctx = ctx || { note: c && c.note, role: "cour" };
     var secs = c && c.dogSections;
-    if (!secs || secs.length < 2) return basketLinesHtml(c && c.basket);
+    if (!secs || secs.length < 2) return basketLinesHtml(c && c.basket, ctx);
     return secs.map(function (s) {
-      var lines = basketLinesHtml(s.basket);
+      var lines = basketLinesHtml(s.basket, ctx);
       return '<p class="b-lbl" style="margin:8px 0 0">' + esc(s.title || "") + "</p>" +
         (lines || '<p class="b-note">Состав не указан</p>');
     }).join("");
   }
 
-  function basketLinesHtml(basket) {
+  function parseBoundNotes_(note) {
+    var out = [];
+    var raw = String(note || "");
+    var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+    var m;
+    while ((m = re.exec(raw))) {
+      var item = String(m[3] || "").trim();
+      var text = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s+/g, " ").trim();
+      if (!item || !text) continue;
+      var roles = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+      out.push({ item: item, text: text, roles: roles });
+    }
+    return out;
+  }
+
+  function noteNameKey_(name) {
+    var raw = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    var squish = raw.replace(/[^A-ZА-Я0-9]+/g, "");
+    if (/ЛОПАТОЧ/.test(raw) && /ХРЯЩ/.test(raw)) return "ЛОП ХРЯЩ";
+    if (/ЛОП/.test(squish) && /ХРЯЩ/.test(squish)) return "ЛОП ХРЯЩ";
+    return raw.replace(/\s*ШТ\.?$/i, "").trim();
+  }
+
+  function noteMatchesLine_(itemKey, name, sub) {
+    var key = String(itemKey || "").trim();
+    if (!key) return false;
+    var parts = key.split("/");
+    var wantName = noteNameKey_(parts[0]);
+    var wantSub = String(parts[1] || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    var n = noteNameKey_(name);
+    var s = String(sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    if (!wantName || !n) return false;
+    var nameOk = n === wantName || n.indexOf(wantName) >= 0 || wantName.indexOf(n) >= 0;
+    if (!nameOk) return false;
+    if (wantSub) {
+      if (!s) return false;
+      if (s !== wantSub && s.indexOf(wantSub) < 0 && wantSub.indexOf(s) < 0) return false;
+    }
+    return true;
+  }
+
+  function notesForRole_(note, role) {
+    return parseBoundNotes_(note).filter(function (n) {
+      if (role === "asm") return true;
+      return (n.roles || []).indexOf(role) >= 0;
+    });
+  }
+
+  function itemNoteHtml_(note, role, g, nick) {
+    if (!g) return "";
+    var hits = notesForRole_(note, role).filter(function (n) {
+      return noteMatchesLine_(n.item, g.name || g.main, g.sub);
+    });
+    if (!hits.length) return "";
+    return hits.map(function (n) {
+      var text = "прим.: " + n.text;
+      if (nick) text += " · " + nick;
+      return '<p class="b-note nx-item-note">' + esc(text) + "</p>";
+    }).join("");
+  }
+
+  function crumbFp_(it) {
+    if (!it) return "";
+    var cat = String(it.cat || "").toLowerCase();
+    var name = String(it.name || it.main || "");
+    var crumb = cat === "crumb" || it.crumbKind || (Array.isArray(it.sources) && it.sources.length) || /^крошк/i.test(name);
+    if (!crumb) return "";
+    var grams = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+    var src = (Array.isArray(it.sources) ? it.sources : []).map(function (s) {
+      return String((s && (s.name || s.main)) || "").toUpperCase().replace(/Ё/g, "Е").trim();
+    }).filter(Boolean).sort().join("+");
+    return grams + "|" + (src || String(it.sub || "").toUpperCase());
+  }
+
+  function viewBasket(c) {
+    var base = ((c && c.basket) || []).slice();
+    var extra = (c && c.crumbOverlay) || [];
+    if (!extra.length) return base;
+    var have = Object.create(null);
+    base.forEach(function (it) {
+      var k = crumbFp_(it);
+      if (k) have[k] = true;
+    });
+    extra.forEach(function (it) {
+      var k = crumbFp_(it);
+      if (!k || have[k]) return;
+      have[k] = true;
+      base.push(it);
+    });
+    return base;
+  }
+
+  function basketLinesHtml(basket, ctx) {
     var mix = root.BoinyaCrumbMix;
-    if (mix && mix.linesHtml) return mix.linesHtml(basket, prettyName);
+    var noteOf = null;
+    if (ctx && ctx.note) {
+      noteOf = function (g) {
+        return itemNoteHtml_(ctx.note, ctx.role || "asm", g, ctx.nick || "");
+      };
+    }
+    if (mix && mix.linesHtml) return mix.linesHtml(basket, prettyName, noteOf);
     return (basket || []).map(function (g) {
       if (!g) return "";
       var nm = prettyName(g.name || g.main || "");
@@ -133,7 +232,8 @@
       }
       var bit = val != null && val !== "" ? (" " + val + (unit ? " " + unit : "")) : "";
       if (word) bit += " " + word;
-      return "<div>" + esc(nm + bit) + "</div>";
+      var extra = noteOf ? noteOf(g) : "";
+      return "<div>" + esc(nm + bit) + "</div>" + (extra || "");
     }).filter(Boolean).join("");
   }
 
@@ -259,19 +359,16 @@
 
   function cutNote(item) {
     var info = item && item.noteInfo;
-    if (!info || !info.noted || !info.groups || !info.groups.length) return "";
+    if (!info || !info.groups || !info.groups.length) return "";
     var unit = item.unit === "шт" ? "шт" : "гр";
-    var total = Number(item.dry) || 0;
-    var noted = Math.min(Number(info.noted) || 0, total);
-    var plain = Math.max(0, total - noted);
-    var html = '<p class="b-note">';
-    if (plain > 0 && noted > 0) html += "Обычных: " + plain + " " + unit + " · с примечанием: " + noted + " " + unit;
-    else if (noted > 0) html += "Все с примечанием: " + noted + " " + unit;
-    html += info.groups.map(function (g) {
-      var who = (g.clients || []).slice(0, 3).join(", ");
-      return "<br>" + esc(String(g.qty)) + " " + unit + " — «" + esc(g.text || "") + "»" + (who ? " · " + esc(who) : "");
+    return info.groups.map(function (g) {
+      var who = (g.clients || []).filter(Boolean).join(", ");
+      var qty = Number(g.qty) || 0;
+      var text = "прим.: " + (g.text || "");
+      if (qty > 0) text += " · " + qty + " " + unit;
+      if (who) text += " · " + who;
+      return '<p class="b-note nx-item-note">' + esc(text) + "</p>";
     }).join("");
-    return html + "</p>";
   }
 
   function cutSizesNote(item) {
@@ -307,8 +404,8 @@
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
     if (!readonly && chew) html += '<button type="button" class="b-chip nx-mini-bang' + (sur ? " b-chip--on" : "") + '" data-act="pr-surplus-open" data-k="' + esc(key) + '" aria-label="Излишек">!</button>';
     html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
-    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (sur ? ", излишек " + esc(String(sur)) : "") + "</p>";
     html += cutNote(it);
+    html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (sur ? ", излишек " + esc(String(sur)) : "") + "</p>";
     html += cutSizesNote(it);
     if (!readonly) {
       html += '<button type="button" class="b-btn nx-cut-btn ' + (it.laid ? "b-btn--main" : "b-btn--sec") + '" data-act="pr-laid" data-key="' + esc(key) + '">Выложено</button>';
@@ -947,7 +1044,7 @@
       var bags = 0;
       Object.keys(by).forEach(function (k) { bags += Number(by[k]) || 0; });
       var summary = order.filter(function (k) { return by[k] > 0; }).map(function (k) { return by[k] + " " + k; }).join(", ") || "—";
-      var lines = basketLinesHtml(c.basket);
+      var lines = basketLinesHtml(viewBasket(c), { note: c.note, role: "asm" });
       lines = lines ? '<div class="b-note mix-list">' + lines + "</div>" : '<p class="b-note">Пустой состав</p>';
       var topLabels = c.cutItemLabels;
       if (typeof topLabels === "string") topLabels = topLabels.split("|").filter(Boolean);
@@ -1179,6 +1276,7 @@
       any = true;
       var roles = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
       if (roles.indexOf(role) < 0) continue;
+      if (String(m[3] || "").trim()) continue;
       var t = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
       if (t) bits.push(t);
     }
@@ -1347,6 +1445,7 @@
     if (!list.length) html += '<p class="b-note">Нет клиентов на день</p>';
     list.forEach(function (c, idx) {
       var addr = addrBits(c.address || "");
+      var noteCtx = { note: c.note || "", role: "cour" };
       var note = noteFor(c.note || "", "cour");
       var tel = phoneOf(c);
       var who = String(c.name || "").split(/\s*[·•]\s*/);
@@ -1368,7 +1467,7 @@
         pet = String((c.dogNames && (c.dogNames[1] || c.dogNames["1"])) || c.dogName || "").trim();
         if (pet === "Собака 1" || pet === "Собака 2" || pet === nick || pet === c.name) pet = "";
       }
-      var basket = c.twoDogs && c.dogSections && c.dogSections.length > 1 ? dogPackHtml(c) : basketLinesHtml(c.basket);
+      var basket = c.twoDogs && c.dogSections && c.dogSections.length > 1 ? dogPackHtml(c, noteCtx) : basketLinesHtml(viewBasket(c), noteCtx);
       var telHtml = tel
         ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>"
         : '<p class="b-note">нет телефона</p>';

@@ -255,7 +255,7 @@
     return "<div>" + esc(nm + tail) + "</div>";
   }
 
-  function linesHtml(basket, pretty) {
+  function linesHtml(basket, pretty, noteOf) {
     var order = ["Мясо", "Крошка", "Жевалки"];
     var buckets = { "Мясо": [], "Крошка": [], "Жевалки": [] };
     (basket || []).forEach(function (g) {
@@ -263,7 +263,13 @@
       buckets[groupOf(g)].push(g);
     });
     return order.map(function (title) {
-      var rows = buckets[title].map(function (g) { return lineHtml(g, pretty); }).filter(Boolean);
+      var rows = buckets[title].map(function (g) {
+        var extra = "";
+        if (typeof noteOf === "function") {
+          try { extra = noteOf(g) || ""; } catch (eNote) { extra = ""; }
+        }
+        return lineHtml(g, pretty) + extra;
+      }).filter(Boolean);
       if (!rows.length) return "";
       return '<section class="nx-pack-grp"><div class="nx-grp">' + esc(title) + "</div>" + rows.join("") + "</section>";
     }).filter(Boolean).join("");

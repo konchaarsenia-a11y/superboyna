@@ -680,6 +680,10 @@ button.nx-count {
   border-top: 0;
 }
 
+.nx-item-note {
+  margin: 0 0 8px 12px;
+}
+
 .nx-nickrow {
   display: flex;
   align-items: center;
