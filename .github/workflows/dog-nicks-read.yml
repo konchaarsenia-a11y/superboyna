@@ -1,0 +1,150 @@
+name: dog-nicks-read
+# Клички собак в заказах и снимках пятницы и 19.10. Без записи.
+
+on:
+  push:
+    paths:
+      - .github/workflows/dog-nicks-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read dog nicknames
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/dog-nicks"
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/dog-nicks"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def rows(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              out = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          ORDERS = (
+              "SELECT id, client, match_key, day_name, date_iso, status, "
+              "json_extract(meta_json, '$.dogNames') AS dog_names, "
+              "json_extract(meta_json, '$.dogCount') AS dog_count, "
+              "json_extract(meta_json, '$.dogName') AS dog_name, "
+              "CASE WHEN instr(ifnull(note,''), '[DOG:')>0 OR instr(ifnull(meta_json,''), '[DOG:')>0 THEN 1 ELSE 0 END AS has_dog_tag "
+              "FROM orders WHERE status = 'active' AND ("
+              "day_name IN ('Пятница','Будущая неделя') OR date_iso IN ('2026-10-16','2026-10-19')"
+              ") ORDER BY day_name, client LIMIT 200"
+          )
+          TAGS = (
+              "SELECT id, client, day_name, date_iso, note FROM orders WHERE status = 'active' AND ("
+              "day_name IN ('Пятница','Будущая неделя') OR date_iso IN ('2026-10-16','2026-10-19')"
+              ") AND (instr(ifnull(note,''), '[DOG:')>0 OR instr(ifnull(meta_json,''), 'dogNames')>0 "
+              "OR instr(lower(ifnull(basket_json,'')), '\"dog\":2')>0 OR instr(basket_json, '\"dog\": 2')>0) LIMIT 80"
+          )
+          SNAPS = (
+              "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN ("
+              "'assembly:Пятница','courier:Пятница','assembly:Будущая неделя','courier:Будущая неделя'"
+              ")"
+          )
+          run(ORDERS, "orders")
+          run(TAGS, "tags")
+          run(SNAPS, "snaps")
+          orders = rows(root + "/orders.json")
+          tags = rows(root + "/tags.json")
+          brief_orders = []
+          for row in orders:
+              brief_orders.append({
+                  "id": row.get("id"),
+                  "client": row.get("client"),
+                  "day": row.get("day_name"),
+                  "date": row.get("date_iso"),
+                  "dog_names": row.get("dog_names"),
+                  "dog_count": row.get("dog_count"),
+                  "dog_name": row.get("dog_name"),
+                  "has_dog_tag": row.get("has_dog_tag")
+              })
+          tag_brief = []
+          for row in tags:
+              note = str(row.get("note") or "")
+              found = re.findall(r"\[DOG:[^\]]+\]", note)
+              tag_brief.append({
+                  "id": row.get("id"),
+                  "client": row.get("client"),
+                  "day": row.get("day_name"),
+                  "date": row.get("date_iso"),
+                  "tags": found
+              })
+          snap_brief = []
+          for row in rows(root + "/snaps.json"):
+              try:
+                  payload = json.loads(row.get("payload") or "null")
+              except Exception:
+                  payload = None
+              cards = []
+              for c in (payload.get("clients") or []) if isinstance(payload, dict) else []:
+                  if not isinstance(c, dict):
+                      continue
+                  basket = c.get("basket") if isinstance(c.get("basket"), list) else []
+                  dogs = sorted({str(it.get("dog")) for it in basket if isinstance(it, dict) and it.get("dog") not in (None, "", 0)})
+                  names = c.get("dogNames")
+                  dog_name = c.get("dogName") or ""
+                  part = c.get("dogPart") or 0
+                  if not dogs and not names and not dog_name and not part and not c.get("twoDogs"):
+                      continue
+                  cards.append({
+                      "name": c.get("name"),
+                      "owner": c.get("ownerName") or "",
+                      "part": part,
+                      "dogName": dog_name,
+                      "dogNames": names,
+                      "display": c.get("displayName") or "",
+                      "dogs": dogs
+                  })
+              snap_brief.append({
+                  "key": row.get("cache_key"),
+                  "updated_at": row.get("updated_at"),
+                  "date": (payload or {}).get("date") if isinstance(payload, dict) else "",
+                  "source": (payload or {}).get("source") if isinstance(payload, dict) else "",
+                  "n": len((payload or {}).get("clients") or []) if isinstance(payload, dict) else 0,
+                  "cards": cards
+              })
+          brief = {"orders": brief_orders, "tags": tag_brief, "snaps": snap_brief}
+          open(root + "/brief.json", "w", encoding="utf-8").write(json.dumps(brief, ensure_ascii=False, indent=2))
+          named = [o for o in brief_orders if o.get("dog_names") or o.get("dog_name") or o.get("has_dog_tag")]
+          print("orders", len(brief_orders), "with_dog", len(named), "tags", len(tag_brief))
+          for o in named:
+              print("ORDER", o.get("client"), o.get("day"), o.get("date"), o.get("dog_names"), o.get("dog_name"), "tag", o.get("has_dog_tag"))
+          for s in snap_brief:
+              print("SNAP", s.get("key"), s.get("updated_at"), "n", s.get("n"), "dogcards", len(s.get("cards") or []))
+              for c in s.get("cards") or []:
+                  print(" ", c.get("name"), "part", c.get("part"), "dogName", c.get("dogName"), "dogNames", c.get("dogNames"), "dogs", c.get("dogs"))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dog-nicks-read
+          path: artifacts/dog-nicks/
+          include-hidden-files: true
