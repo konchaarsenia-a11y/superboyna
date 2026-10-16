@@ -1,0 +1,145 @@
+name: crumb-note-read
+# Крошка и примечание к позиции на пятнице. Только чтение.
+
+on:
+  push:
+    paths:
+      - .github/workflows/crumb-note-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read crumbs and item notes
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/crumb-note"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/crumb-note"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def rows(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              out = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          ORDERS = (
+              "SELECT client, day_name, date_iso, note, basket_json FROM orders "
+              "WHERE status = 'active' AND ("
+              "day_name = 'Пятница' OR date_iso = '2026-10-16'"
+              ") AND (instr(lower(ifnull(basket_json,'')), 'крош') > 0 "
+              "OR instr(lower(ifnull(basket_json,'')), '\"cat\":\"crumb\"') > 0 "
+              "OR instr(lower(ifnull(basket_json,'')), '\"cat\": \"crumb\"') > 0 "
+              "OR instr(ifnull(note,''), 'ITEM:') > 0) LIMIT 40"
+          )
+          SNAPS = (
+              "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN ("
+              "'assembly:Пятница','courier:Пятница','cutting:Пятница'"
+              ")"
+          )
+          run(ORDERS, "orders")
+          run(SNAPS, "snaps")
+
+          def crumb_of(basket):
+              found = []
+              for it in basket or []:
+                  if not isinstance(it, dict):
+                      continue
+                  name = str(it.get("name") or it.get("main") or "")
+                  cat = str(it.get("cat") or "").lower()
+                  if cat == "crumb" or it.get("crumbKind") or it.get("sources") or "крош" in name.lower():
+                      src = []
+                      for s in it.get("sources") or []:
+                          if isinstance(s, dict):
+                              src.append(s.get("name") or s.get("main") or "")
+                      found.append({
+                          "name": name,
+                          "sub": it.get("sub") or "",
+                          "val": it.get("val") if it.get("val") is not None else it.get("value"),
+                          "src": src
+                      })
+              return found
+
+          brief = {"orders": [], "snaps": []}
+          for row in rows(root + "/orders.json"):
+              try:
+                  basket = json.loads(row.get("basket_json") or "[]")
+              except Exception:
+                  basket = []
+              brief["orders"].append({
+                  "client": row.get("client"),
+                  "day": row.get("day_name"),
+                  "date": row.get("date_iso"),
+                  "note": row.get("note") or "",
+                  "crumbs": crumb_of(basket)
+              })
+          for row in rows(root + "/snaps.json"):
+              try:
+                  payload = json.loads(row.get("payload") or "null")
+              except Exception:
+                  payload = None
+              cards = []
+              if isinstance(payload, dict) and isinstance(payload.get("clients"), list):
+                  for c in payload["clients"]:
+                      if not isinstance(c, dict):
+                          continue
+                      note = str(c.get("note") or "")
+                      crumbs = crumb_of(c.get("basket"))
+                      if crumbs or "ITEM:" in note:
+                          cards.append({
+                              "name": c.get("name"),
+                              "note": note,
+                              "crumbs": crumbs
+                          })
+              items = []
+              if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+                  for it in payload["items"]:
+                      if not isinstance(it, dict):
+                          continue
+                      name = str(it.get("name") or "")
+                      if "ХРЯЩ" in name.upper() or it.get("noteInfo"):
+                          items.append({
+                              "name": name,
+                              "dry": it.get("dry"),
+                              "unit": it.get("unit"),
+                              "noteInfo": it.get("noteInfo")
+                          })
+              brief["snaps"].append({
+                  "key": row.get("cache_key"),
+                  "updated": row.get("updated_at"),
+                  "cards": cards,
+                  "items": items
+              })
+          open(root + "/brief.json", "w", encoding="utf-8").write(json.dumps(brief, ensure_ascii=False, indent=2))
+          print(json.dumps(brief, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crumb-note-read
+          path: artifacts/crumb-note

@@ -11580,6 +11580,154 @@ async function getCourier_(params, env) {
   return hit;
 }
 
+function crumbFingerprint_(it) {
+  if (!isCrumbBasketItemD1_(it)) return "";
+  const grams = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+  const src = (Array.isArray(it.sources) ? it.sources : []).map(function (s) {
+    return String((s && (s.name || s.main)) || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  }).filter(Boolean).sort().join("+");
+  const sub = String((it && it.sub) || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  return grams + "|" + (src || sub || String((it && (it.name || it.main)) || ""));
+}
+
+function crumbBelongsToCard_(it, card) {
+  const part = Number(card && card.dogPart) || 0;
+  const dog = Number(it && it.dog) || 0;
+  if (part === 2) return dog === 2;
+  if (part === 1) return dog !== 2;
+  return true;
+}
+
+function crumbsMissingFromCard_(card, liveBasket) {
+  const have = Object.create(null);
+  ((card && card.basket) || []).forEach(function (it) {
+    const fp = crumbFingerprint_(it);
+    if (fp) have[fp] = true;
+  });
+  const overlay = [];
+  (liveBasket || []).forEach(function (it) {
+    if (!isCrumbBasketItemD1_(it) || !crumbBelongsToCard_(it, card)) return;
+    const fp = crumbFingerprint_(it);
+    if (!fp || have[fp]) return;
+    have[fp] = true;
+    overlay.push(it);
+  });
+  return overlay;
+}
+
+/** Чтение сборки: крошка из живого заказа, если в снимке её нет. Заказы не пишем. marker crumb-note-h1 */
+async function overlayAssemblyCrumbs_(env, day, hit) {
+  if (!hit || !Array.isArray(hit.clients) || !hit.clients.length) return hit;
+  let live = null;
+  try {
+    live = await getClients_({ day: day }, env);
+  } catch (eLive) {
+    return hit;
+  }
+  const people = (live && live.clients) || [];
+  if (!people.length) return hit;
+  const by = indexByMatchAliases_(people);
+  const clients = hit.clients.map(function (card) {
+    if (!card) return card;
+    const liveC = lookupByMatchAliases_(by, card.matchKey || card.ownerName || card.name);
+    if (!liveC) return card;
+    const overlay = crumbsMissingFromCard_(card, liveC.basket || []);
+    if (!overlay.length) return card;
+    return Object.assign({}, card, { crumbOverlay: overlay });
+  });
+  return Object.assign({}, hit, { clients: clients });
+}
+
+function parseBoundItemNotes_(note) {
+  const out = [];
+  const re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([\s\S]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+  const raw = String(note || "");
+  let m;
+  while ((m = re.exec(raw))) {
+    const item = String(m[3] || "").trim();
+    const text = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s+/g, " ").trim();
+    if (!item || !text) continue;
+    const roles = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+    if (roles.indexOf("cut") < 0) continue;
+    out.push({ item: item, text: text });
+  }
+  return out;
+}
+
+function noteCutKey_(name) {
+  return String(cuttingAggKey_(name) || "")
+    .replace(/Ё/g, "Е")
+    .replace(/\s*ШТ\.?$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function noteLineMatch_(itemKey, name, sub) {
+  const key = String(itemKey || "").trim();
+  if (!key) return false;
+  const parts = key.split("/");
+  const want = noteCutKey_(parts[0]);
+  const got = noteCutKey_(name);
+  if (!want || !got) return false;
+  if (want !== got && want.indexOf(got) < 0 && got.indexOf(want) < 0) return false;
+  const wantSub = String(parts[1] || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (!wantSub) return true;
+  const frac = String(sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (!frac) return false;
+  return frac === wantSub || frac.indexOf(wantSub) >= 0 || wantSub.indexOf(frac) >= 0;
+}
+
+function applyCuttingItemNotes_(items, people) {
+  const byKey = Object.create(null);
+  (people || []).forEach(function (p) {
+    if (!p) return;
+    const nick = String(p.name || "").replace(/\s*[·•#]\s*\d+\s*$/i, "").trim();
+    parseBoundItemNotes_(p.note).forEach(function (n) {
+      let qty = 0;
+      let hitName = "";
+      (p.basket || []).forEach(function (it) {
+        if (!it) return;
+        const nm = it.name || it.main || "";
+        if (!noteLineMatch_(n.item, nm, it.sub || "")) return;
+        qty += Number(it.val != null ? it.val : it.value) || 0;
+        if (!hitName) hitName = nm;
+      });
+      const key = noteCutKey_(hitName || n.item);
+      if (!key) return;
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push({ text: n.text, qty: qty, client: nick });
+    });
+  });
+  return (items || []).map(function (it) {
+    if (!it) return it;
+    const list = byKey[noteCutKey_(it.name)];
+    if (!list || !list.length) return it;
+    const groupsMap = Object.create(null);
+    let noted = 0;
+    list.forEach(function (n) {
+      if (!groupsMap[n.text]) groupsMap[n.text] = { text: n.text, qty: 0, clients: [] };
+      groupsMap[n.text].qty += Number(n.qty) || 0;
+      noted += Number(n.qty) || 0;
+      if (n.client && groupsMap[n.text].clients.indexOf(n.client) < 0) groupsMap[n.text].clients.push(n.client);
+    });
+    const groups = Object.keys(groupsMap).map(function (k) { return groupsMap[k]; });
+    return Object.assign({}, it, { noteInfo: { noted: noted, groups: groups } });
+  });
+}
+
+async function attachCuttingItemNotes_(env, day, snap) {
+  if (!snap || !Array.isArray(snap.items) || !snap.items.length) return snap;
+  let people = [];
+  try {
+    const live = await getClients_({ day: day }, env);
+    people = (live && live.clients) || [];
+  } catch (ePeople) {
+    people = [];
+  }
+  if (!people.length) return snap;
+  return Object.assign({}, snap, { items: applyCuttingItemNotes_(snap.items, people) });
+}
+
 async function getAssembly_(params, env) {
   const day = String(params.day || "Понедельник");
   try {
@@ -11598,6 +11746,7 @@ async function getAssembly_(params, env) {
   } catch (eDry) {
     dryWeights = [];
   }
+  try { hit = await overlayAssemblyCrumbs_(env, day, hit); } catch (eCrumb) {}
   return Object.assign({}, hit, { dryWeights: dryWeights });
 }
 
@@ -11625,6 +11774,9 @@ async function getCutting_(params, env) {
         snap.items = normalizeCuttingItems_(snap.items);
       }
     }
+    try {
+      snap = await attachCuttingItemNotes_(env, day, snap);
+    } catch (eCutNote) {}
     return snap;
   }
   // Дубль хряща в snap — пересобрать из заказов, не отдавать клон.
@@ -11642,7 +11794,7 @@ async function getCutting_(params, env) {
     try {
       const rebuilt = await rebuildCuttingDay_(env, day);
       if (rebuilt && rebuilt.status === "success" && Array.isArray(rebuilt.items) && rebuilt.items.length) {
-        return rebuilt;
+        return finishHit_(rebuilt);
       }
     } catch (eRebS) {}
     if (hit) return finishHit_(hit);
@@ -11659,7 +11811,7 @@ async function getCutting_(params, env) {
   }
   try {
     const rebuilt = await rebuildCuttingDay_(env, day);
-    if (rebuilt && rebuilt.status === "success") return rebuilt;
+    if (rebuilt && rebuilt.status === "success") return finishHit_(rebuilt);
   } catch (eReb) {}
   return finishHit_(hit);
 }
