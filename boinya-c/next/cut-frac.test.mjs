@@ -37,6 +37,7 @@ function cuttingFixture() {
     "crumbParentFromBasketName_",
     "cuttingNameFromBasketItem_",
     "cuttingAggKey_",
+    "basketForCutting_",
     "cuttingItemsFromPeople_",
     "isChewProductNameD1_",
     "isChewCrumbSourceD1_",
@@ -113,7 +114,11 @@ test("live getClients rows have sub and no frac", () => {
   });
   items.forEach(function (it) {
     assert.equal(cut.catalogWord(it.name, it.sub), eng.humanFraction(it.name, it.sub));
-    if (it.cat === "other" || it.cat === "veg") assert.equal(cut.phrase(it), "");
+    if (it.cat === "veg") assert.equal(cut.phrase(it), "");
+    if (it.cat === "other") {
+      var otherWord = cut.catalogWord(it.name, it.sub);
+      assert.equal(cut.phrase(it), otherWord ? eng.humanFraction(it.name, it.sub) : "");
+    }
     if ((it.cat === "chew" || it.cat === "dressura") && !/^крошк/i.test(String(it.sub || ""))) {
       assert.equal(cut.phrase(it), eng.humanFraction(it.name, it.sub));
     }
@@ -148,6 +153,14 @@ test("assembly shows live sub for dressura and chew", () => {
   assert.doesNotMatch(line(knees), /средн|мелк|крупн/i);
   assert.match(line(meat), new RegExp("Печень " + meat.val + " гр"));
   assert.doesNotMatch(line(meat), /средн|мелк|крупн/);
+  const turkey = { cat: "other", name: "ИНДЕЙКА", sub: "Мелкое", val: 10, value: 10 };
+  assert.equal(cut.phrase(turkey), "мелкое");
+  assert.match(line(turkey), /Индейка 10 г мелкое/);
+  const strips = { cat: "other", name: "БАРАНЬЯ ПЕЧЕНЬ", sub: "Полоски", val: 20, unit: "гр", value: 20 };
+  assert.match(line(strips), /Баранья печень 20 г полоски/);
+  const apple = { cat: "veg", name: "ЯБЛОКИ", sub: "Мелкое", val: 5, unit: "гр", value: 5 };
+  assert.equal(cut.phrase(apple), "");
+  assert.doesNotMatch(line(apple), /мелк/);
   assert.doesNotMatch(html, /·/);
 
   const sheetHeart = { cat: "dressura", name: "СЕРДЦЕ", sub: "Среднее", val: 200, unit: "гр" };
@@ -217,6 +230,18 @@ test("cutting note uses live chew sub only", () => {
   assert.equal(lungRow.sizes, undefined);
   const liver = rows.find((it) => /ПЕЧЕН/.test(it.name));
   assert.equal(liver.sizes, undefined);
+  const turkeyRows = fx.cuttingItemsFromPeople_([{
+    basket: [
+      { cat: "other", name: "ИНДЕЙКА", main: "ИНДЕЙКА", sub: "Мелкое", value: 10, val: 10 },
+      { cat: "other", name: "ИНДЕЙКА", main: "ИНДЕЙКА", sub: "", value: 20, val: 20 },
+      { cat: "dressura", name: "СЕРДЦЕ", main: "СЕРДЦЕ", sub: "Мелкое", value: 15, val: 15 }
+    ]
+  }], []);
+  const turkeyRow = turkeyRows.find((it) => /ИНДЕЙ/.test(it.name));
+  assert.ok(turkeyRow);
+  assert.equal(turkeyRow.dry, 30);
+  assert.deepEqual(JSON.parse(JSON.stringify(turkeyRow.sizes)), [{ text: "мелкое", dry: 10 }]);
+  assert.equal(turkeyRows.find((it) => /СЕРДЦ/.test(it.name)).sizes, undefined);
 
   const legacy = fx.cuttingItemsFromPeople_([{
     basket: [
@@ -291,6 +316,33 @@ test("assembly dressura total splits live sub, chew has no such total", () => {
   assert.match(prod, /dressuraSummaryHtml/);
   assert.doesNotMatch(prod, /organs\[k\]\.total/);
   assert.doesNotMatch(prod, /Жевалки<\/p><div class="nx-counters"/);
+});
+
+test("other meat fraction is on the assembly line and the cutting note", () => {
+  const turkey = { cat: "other", name: "ИНДЕЙКА", sub: "Мелкое", val: 10, value: 10 };
+  const plain = { cat: "other", name: "ИНДЕЙКА", sub: "", val: 20, value: 20, unit: "гр" };
+  const liver = { cat: "other", name: "ПЕЧЕНЬ", sub: "", val: 30, value: 30, unit: "гр" };
+  const strips = { cat: "other", name: "БАРАНЬЯ ПЕЧЕНЬ", sub: "Полоски", val: 20, unit: "гр", value: 20 };
+  const lung = { cat: "dressura", name: "ЛЁГКОЕ", sub: "Среднее", val: 40, unit: "гр", value: 40 };
+  const apple = { cat: "veg", name: "ЯБЛОКИ", sub: "Мелкое", val: 5, unit: "гр", value: 5 };
+  const heart = { cat: "dressura", name: "СЕРДЦЕ", sub: "Мелкое", val: 15, unit: "гр", value: 15 };
+  assert.equal(cut.phrase(turkey), "мелкое");
+  assert.equal(cut.phrase(plain), "");
+  assert.equal(cut.phrase(liver), "");
+  assert.equal(cut.phrase(apple), "");
+  assert.equal(cut.phrase(lung), "среднее");
+  assert.match(line(turkey), /Индейка 10 г мелкое/);
+  assert.match(line(strips), /Баранья печень 20 г полоски/);
+  assert.doesNotMatch(line(plain), /мелк|ломт|полоск/);
+  assert.doesNotMatch(line(liver), /мелк|ломт|полоск/);
+  assert.doesNotMatch(line(apple), /мелк/);
+  assert.match(line(lung), /Лёгкое 40 г среднее/);
+  const fx = cuttingFixture();
+  const rows = fx.cuttingItemsFromPeople_([{ basket: [turkey, plain, heart] }], []);
+  const turkeyRow = rows.find((it) => /ИНДЕЙ/.test(it.name));
+  assert.equal(turkeyRow.dry, 30);
+  assert.deepEqual(JSON.parse(JSON.stringify(turkeyRow.sizes)), [{ text: "мелкое", dry: 10 }]);
+  assert.equal(rows.find((it) => /СЕРДЦ/.test(it.name)).sizes, undefined);
 });
 
 test("губы не в выборе жевалок, старый текст узнаётся", () => {

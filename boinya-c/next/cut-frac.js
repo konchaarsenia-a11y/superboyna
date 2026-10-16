@@ -61,13 +61,21 @@
     return String(it.cat || "").toLowerCase() === "dressura";
   }
 
+  function meatFraction(it) {
+    if (!it || isCrumb(it) || isChew(it) || isDressura(it)) return false;
+    var cat = String(it.cat || "").toLowerCase();
+    if (cat === "veg" || cat === "chew" || cat === "chews" || cat === "crumb" || cat === "dressura") return false;
+    var got = subOf(it);
+    return !!catalogWord(got.main, got.sub);
+  }
+
   function applies(it) {
-    return isChew(it) || isDressura(it);
+    return isChew(it) || isDressura(it) || meatFraction(it);
   }
 
   function defaultUnit(it) {
     if (isChew(it)) return "шт";
-    if (isDressura(it)) return "г";
+    if (isDressura(it) || meatFraction(it)) return "г";
     return "";
   }
 
