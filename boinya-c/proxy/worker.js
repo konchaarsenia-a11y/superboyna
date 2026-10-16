@@ -9385,7 +9385,8 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
     if (cat === "chew" || cat === "chews") chew = true;
     else if (cat === "dressura" || cat === "other" || cat === "veg" || cat === "crumb") chew = false;
     else chew = isChewProductNameD1_(it.main || it.name || "");
-    if (!chew) return "";
+    // Дрессуру не дробим. «Другое» с фракцией (индейка мелкое) — подпись на нарезке.
+    if (!chew && cat !== "other") return "";
     let sub = String(it.sub || "").trim();
     let main = String(it.main || it.name || "");
     if (!sub) {
