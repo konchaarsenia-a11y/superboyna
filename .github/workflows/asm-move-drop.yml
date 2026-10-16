@@ -1,0 +1,217 @@
+name: asm-move-drop
+# Снять _b.e.l.o.s.n.e.z.h.k.a_ со снимков пятницы 16.10. Заказ 21.10 и строки orders не менять.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/asm-move-drop.yml
+
+permissions:
+  contents: read
+
+jobs:
+  drop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Drop Friday assembly ghost
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/asm-move-drop"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/asm-move-drop"
+          NICK = "_b.e.l.o.s.n.e.z.h.k.a_"
+          MK = "BELOSNEZHKA"
+          DAYS = ("assembly:Пятница", "courier:Пятница", "cutting:Пятница")
+
+          def run(sql, name, file_sql=False):
+              path = root + "/" + name + ".json"
+              cmd = ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json"]
+              if file_sql:
+                  open(root + "/" + name + ".sql", "w", encoding="utf-8").write(sql)
+                  cmd += ["--file", root + "/" + name + ".sql"]
+              else:
+                  cmd += ["--command", sql]
+              subprocess.check_call(cmd, stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def blocks(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              return data if isinstance(data, list) else [data]
+
+          def rows(path):
+              out = []
+              for block in blocks(path):
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          def q(s):
+              return str(s).replace("'", "''")
+
+          COUNTS = (
+              "SELECT "
+              "(SELECT count(*) FROM orders WHERE lower(client) LIKE '%belosnez%' OR upper(match_key) LIKE '%BELOSNEZ%') AS orders_all, "
+              "(SELECT count(*) FROM orders WHERE status = 'active' AND (lower(client) LIKE '%belosnez%' OR upper(match_key) LIKE '%BELOSNEZ%')) AS orders_active, "
+              "(SELECT count(*) FROM subs WHERE lower(ifnull(nick,'')) LIKE '%belosnez%' OR upper(ifnull(match_key,'')) LIKE '%BELOSNEZ%') AS subs_n"
+          )
+          ORDERS = (
+              "SELECT id, status, day_name, date_iso, updated_at, length(ifnull(basket_json,'')) AS basket_len "
+              "FROM orders WHERE lower(client) LIKE '%belosnez%' OR upper(match_key) LIKE '%BELOSNEZ%' ORDER BY id"
+          )
+
+          def is_hit(name, mk=""):
+              n = str(name or "").strip().lower()
+              k = str(mk or "").strip().upper()
+              if k == MK:
+                  return True
+              if n == NICK.lower():
+                  return True
+              if n.replace(".", "") == "belosnezhka" or "belosnezhka" in n.replace(".", ""):
+                  return True
+              return False
+
+          def strip_groups(it):
+              info = it.get("noteInfo") if isinstance(it, dict) else None
+              if not isinstance(info, dict) or not isinstance(info.get("groups"), list):
+                  return False
+              changed = False
+              groups = []
+              for g in info["groups"]:
+                  if not isinstance(g, dict):
+                      continue
+                  prev = g.get("clients") if isinstance(g.get("clients"), list) else []
+                  clients = [n for n in prev if not is_hit(n)]
+                  if len(clients) != len(prev):
+                      changed = True
+                  if not clients:
+                      changed = True
+                      continue
+                  ng = dict(g)
+                  ng["clients"] = clients
+                  groups.append(ng)
+              if not changed:
+                  return False
+              if not groups:
+                  it["noteInfo"] = None
+              else:
+                  it["noteInfo"] = {"noted": sum(int(g.get("qty") or 0) for g in groups), "groups": groups}
+              return True
+
+          def present(payload, kind):
+              if not isinstance(payload, dict):
+                  return False
+              if kind == "cutting":
+                  raw = json.dumps(payload, ensure_ascii=False).lower()
+                  return NICK.lower() in raw or MK.lower() in raw
+              for c in payload.get("clients") or []:
+                  if isinstance(c, dict) and is_hit(c.get("name") or c.get("ownerName"), c.get("matchKey")):
+                      return True
+              return False
+
+          def load(tag):
+              sql = "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN (" + ",".join("'" + q(k) + "'" for k in DAYS) + ")"
+              run(sql, tag + "-snaps")
+              got = {}
+              for row in rows(root + "/" + tag + "-snaps.json"):
+                  try:
+                      payload = json.loads(row.get("payload") or "null")
+                  except Exception:
+                      payload = None
+                  got[row.get("cache_key")] = {"updated_at": row.get("updated_at"), "payload": payload}
+              return got
+
+          def write_snap(key, payload, name):
+              raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("'", "''")
+              sql = "UPDATE snap_cache SET payload = '" + raw + "', updated_at = datetime('now') WHERE cache_key = '" + q(key) + "'"
+              run(sql, name, file_sql=True)
+
+          run(COUNTS, "before-counts")
+          run(ORDERS, "before-orders")
+          before_counts = rows(root + "/before-counts.json")
+          before_orders = rows(root + "/before-orders.json")
+          before = load("before")
+          open(root + "/before-brief.json", "w", encoding="utf-8").write(json.dumps({
+              "counts": before_counts,
+              "orders": before_orders,
+              "snaps": {k: {"updated_at": v.get("updated_at"), "hit": present(v.get("payload"), "cutting" if k.startswith("cutting") else "people")} for k, v in before.items()}
+          }, ensure_ascii=False, indent=2))
+
+          changed = []
+          for key in DAYS:
+              rec = before.get(key) or {}
+              payload = rec.get("payload")
+              if not isinstance(payload, dict):
+                  continue
+              if key.startswith("cutting"):
+                  hit = False
+                  for it in payload.get("items") or []:
+                      if strip_groups(it):
+                          hit = True
+                  only = payload.get("transferOnly") if isinstance(payload.get("transferOnly"), dict) else None
+                  if only and isinstance(only.get("clients"), list):
+                      nxt = [n for n in only["clients"] if not is_hit(n)]
+                      if len(nxt) != len(only["clients"]):
+                          only["clients"] = nxt
+                          hit = True
+                  if hit:
+                      write_snap(key, payload, "write-cutting")
+                      changed.append(key)
+              else:
+                  clients = payload.get("clients")
+                  if not isinstance(clients, list):
+                      continue
+                  nxt = [c for c in clients if not (isinstance(c, dict) and is_hit(c.get("name") or c.get("ownerName"), c.get("matchKey")))]
+                  if len(nxt) != len(clients):
+                      payload["clients"] = nxt
+                      write_snap(key, payload, "write-" + key.split(":")[0])
+                      changed.append(key)
+
+          run(COUNTS, "after-counts")
+          run(ORDERS, "after-orders")
+          after_counts = rows(root + "/after-counts.json")
+          after_orders = rows(root + "/after-orders.json")
+          after = load("after")
+          brief = {
+              "changed": changed,
+              "before_counts": before_counts,
+              "after_counts": after_counts,
+              "before_orders": before_orders,
+              "after_orders": after_orders,
+              "after_hits": {k: present(v.get("payload"), "cutting" if k.startswith("cutting") else "people") for k, v in after.items()}
+          }
+          open(root + "/after-brief.json", "w", encoding="utf-8").write(json.dumps(brief, ensure_ascii=False, indent=2))
+          print(json.dumps(brief, ensure_ascii=False))
+          if before_counts != after_counts:
+              raise SystemExit("counts changed")
+          if before_orders != after_orders:
+              raise SystemExit("orders changed")
+          dest = [r for r in after_orders if r.get("id") == "CAL:BELOSNEZHKA:2026-10-21"]
+          if len(dest) != 1 or dest[0].get("status") != "active" or dest[0].get("date_iso") != "2026-10-21":
+              raise SystemExit("dest order missing")
+          if brief["after_hits"].get("assembly:Пятница"):
+              raise SystemExit("still in assembly")
+          if brief["after_hits"].get("courier:Пятница"):
+              raise SystemExit("still in courier")
+          if brief["after_hits"].get("cutting:Пятница"):
+              raise SystemExit("still in cutting")
+          print("ok", "changed", changed)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asm-move-drop
+          path: artifacts/asm-move-drop/
+          include-hidden-files: true

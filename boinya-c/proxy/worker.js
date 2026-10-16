@@ -5972,6 +5972,18 @@ async function dropClientFromOpsSnaps_(env, day, client, matchKey) {
       await putSnap_(env, "assembly:" + day, asm);
     }
   } catch (eA) {}
+  // Лёгкий перенос не зовёт invalidateDays_. Нарезку исходного дня пересобрать без этого клиента.
+  try {
+    await rebuildCuttingDay_(env, day);
+  } catch (eCut) {
+    try {
+      const cut = await getSnapRaw_(env, "cutting:" + day);
+      if (cut && stripCuttingClient_(cut, client, matchKey)) {
+        cut.flagsTouchedAt = Date.now();
+        await putSnap_(env, "cutting:" + day, cut);
+      }
+    } catch (eCutKeep) {}
+  }
 }
 
 function moveCutSpec_(params) {
@@ -6174,6 +6186,159 @@ async function touchArriveSnaps_(env, day, row, spec) {
       await putSnap_(env, "assembly:" + day, asm);
     }
   } catch (eA) {}
+}
+
+function opsPersonKey_(c) {
+  if (!c) return "";
+  var raw = c.matchKey || c.ownerName || c.name || "";
+  raw = String(raw).replace(/\s*[·•#]\s*2\s*$/i, "").trim();
+  return normalizeMatchKey_(raw);
+}
+
+function opsPeopleKeySet_(list) {
+  const set = Object.create(null);
+  (list || []).forEach(function (c) {
+    const k = opsPersonKey_(c);
+    if (k) set[k] = true;
+  });
+  return set;
+}
+
+function opsPeopleSetsDiffer_(a, b) {
+  const ka = Object.keys(a || {});
+  const kb = Object.keys(b || {});
+  if (ka.length !== kb.length) return true;
+  for (let i = 0; i < ka.length; i++) if (!b[ka[i]]) return true;
+  return false;
+}
+
+function cuttingNameIs_(name, aliases, client) {
+  const mine = matchKeyAliases_(name);
+  for (let i = 0; i < mine.length; i++) if (aliases.indexOf(mine[i]) >= 0) return true;
+  if (client && String(name || "").toLowerCase() === String(client).toLowerCase()) return true;
+  return false;
+}
+
+function stripCuttingGroups_(it, hitFn) {
+  const info = it && it.noteInfo;
+  if (!info || typeof info !== "object" || !Array.isArray(info.groups)) return false;
+  let changed = false;
+  const groups = [];
+  info.groups.forEach(function (g) {
+    if (!g) return;
+    const prev = Array.isArray(g.clients) ? g.clients : [];
+    const clients = prev.filter(function (n) { return !hitFn(n); });
+    if (clients.length !== prev.length) changed = true;
+    if (!clients.length) {
+      changed = true;
+      return;
+    }
+    groups.push(Object.assign({}, g, { clients: clients }));
+  });
+  if (!changed) return false;
+  if (!groups.length) it.noteInfo = null;
+  else {
+    let noted = 0;
+    groups.forEach(function (g) { noted += Number(g.qty) || 0; });
+    it.noteInfo = { noted: noted, groups: groups };
+  }
+  return true;
+}
+
+function stripCuttingClient_(snap, client, matchKey) {
+  if (!snap) return false;
+  const aliases = matchKeyAliases_(matchKey || client).concat(matchKeyAliases_(client));
+  function hit(name) {
+    return cuttingNameIs_(name, aliases, client);
+  }
+  let changed = false;
+  const only = snap.transferOnly;
+  if (only && Array.isArray(only.clients)) {
+    const next = only.clients.filter(function (n) { return !hit(n); });
+    if (next.length !== only.clients.length) {
+      only.clients = next;
+      changed = true;
+    }
+  }
+  (snap.items || []).forEach(function (it) {
+    if (stripCuttingGroups_(it, hit)) changed = true;
+  });
+  return changed;
+}
+
+function stripCuttingNotesAbsent_(snap, people) {
+  if (!snap) return false;
+  const known = Object.create(null);
+  (people || []).forEach(function (p) {
+    matchKeyAliases_((p && (p.matchKey || p.name)) || "").concat(matchKeyAliases_((p && p.name) || "")).forEach(function (k) {
+      if (k) known[k] = true;
+    });
+  });
+  function absent(name) {
+    const mine = matchKeyAliases_(name);
+    for (let i = 0; i < mine.length; i++) if (known[mine[i]]) return false;
+    return true;
+  }
+  let changed = false;
+  (snap.items || []).forEach(function (it) {
+    if (stripCuttingGroups_(it, absent)) changed = true;
+  });
+  const only = snap.transferOnly;
+  if (only && Array.isArray(only.clients)) {
+    const next = only.clients.filter(function (n) { return !absent(n); });
+    if (next.length !== only.clients.length) {
+      only.clients = next;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+async function ensureAssemblyDay_(env, day) {
+  if (!env || !day) return { rebuilt: false };
+  let hit = null;
+  try {
+    hit = await getSnapRaw_(env, "assembly:" + day);
+  } catch (eHit) {
+    hit = null;
+  }
+  const live = await getClients_({ day: day }, env);
+  const clients = (live && live.clients) || [];
+  let info = null;
+  try {
+    info = await dayDateInfo_(env, day);
+  } catch (eInfo) {
+    info = null;
+  }
+  const want = String((info && (info.date || info.iso)) || "");
+  const snapDate = String((hit && hit.date) || "");
+  const dateBad = !!(want && snapDate && !sameCutDate_(snapDate, want));
+  const differ =
+    !hit ||
+    dateBad ||
+    opsPeopleSetsDiffer_(opsPeopleKeySet_(clients), opsPeopleKeySet_((hit && hit.clients) || []));
+  if (!differ) return { rebuilt: false, day: day, n: clients.length };
+  await rebuildAssemblyDay_(env, day);
+  return { rebuilt: true, day: day, n: clients.length };
+}
+
+async function keepAssemblyClientsLive_(env, day, payload) {
+  if (!payload || !Array.isArray(payload.clients) || !payload.clients.length) return payload;
+  let live = null;
+  try {
+    live = await getClients_({ day: day }, env);
+  } catch (eLive) {
+    return payload;
+  }
+  const clients = (live && live.clients) || [];
+  if (!clients.length) return payload;
+  const keys = opsPeopleKeySet_(clients);
+  const next = payload.clients.filter(function (c) {
+    const k = opsPersonKey_(c);
+    return !!(k && keys[k]);
+  });
+  if (next.length !== payload.clients.length) payload.clients = next;
+  return payload;
 }
 
 async function ensureCourierDay_(env, day) {
@@ -11032,6 +11197,9 @@ async function rebuildCuttingDay_(env, day) {
     fromGas: !!(sameDate && prev && prev.fromGas),
     flagsTouchedAt: sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0
   };
+  try {
+    stripCuttingNotesAbsent_(payload, (live && live.clients) || []);
+  } catch (eStripCut) {}
   await putSnap_(env, "cutting:" + day, payload);
   try {
     await rememberCuttingRows_(env, items);
@@ -11273,6 +11441,9 @@ async function getCourier_(params, env) {
 
 async function getAssembly_(params, env) {
   const day = String(params.day || "Понедельник");
+  try {
+    await ensureAssemblyDay_(env, day);
+  } catch (eEns) {}
   let hit = await getSnapRaw_(env, "assembly:" + day);
   if (!hit) {
     await rebuildAssemblyDay_(env, day);
@@ -21012,6 +21183,9 @@ async function cutoverStoreRead_(a, params, env, payload) {
       if (prevA.typeTotals && !payload.typeTotals) payload.typeTotals = prevA.typeTotals;
       if (prevA.counterTotals && !payload.counterTotals) payload.counterTotals = prevA.counterTotals;
     }
+    try {
+      payload = await keepAssemblyClientsLive_(env, params.day, payload);
+    } catch (eLiveAsm) {}
     await putSnap_(env, "assembly:" + params.day, payload);
     return;
   }
