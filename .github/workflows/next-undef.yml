@@ -37,6 +37,8 @@ jobs:
         run: node scripts/check-worker-build.mjs
       - name: apiGet ping smoke
         run: node boinya-c/next/boot-reload.test.mjs
+      - name: courier day pay
+        run: node boinya-c/next/courier-pay.test.mjs
       - name: notes roundtrip
         run: node boinya-c/next/notes-save.test.mjs
       - name: subs gate gone

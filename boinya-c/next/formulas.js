@@ -8,6 +8,9 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
+  /* Выплата курьеру = строка «Дорога»: 4 BYN на каждую отвезено доставку. */
+  var COURIER_PAY_PER_ = 4;
+
   function kopeck_(n) {
     var x = Number(n);
     if (!isFinite(x)) return 0;
@@ -31,7 +34,7 @@
     var cut = kopeck_(2.5 * g + 0.5 * P);
     var assembly = kopeck_(3 * N);
     var light = kopeck_(0.8 * g + 0.3 * P);
-    var road = kopeck_(4 * N);
+    var road = kopeck_(COURIER_PAY_PER_ * N);
     var cleanSlice = kopeck_(0.6 * N);
     var pack = kopeck_(packs);
     var recover = kopeck_(cut + light);
@@ -66,7 +69,7 @@
     var margin = kopeck_(price - cost);
     return {
       S: raw, G: G, P: P, N: N,
-      raw: raw, cut: cut, assembly: kopeck_(3 * N), light: light, pack: packIn, road: kopeck_(4 * N),
+      raw: raw, cut: cut, assembly: kopeck_(3 * N), light: light, pack: packIn, road: kopeck_(COURIER_PAY_PER_ * N),
       cost: cost, wage: kopeck_(cut + 3 * N), recover: recover,
       R: kopeck_(R), delivery: delivery, price: price, margin: margin
     };
@@ -106,6 +109,21 @@
       goods: goodsRaw, goodsRaw: goodsRaw, cap: cap, ceiling: ceiling,
       price: price, stated: stated, margin: margin, marginCheck: marginCheck
     };
+  }
+
+  /* Курьеров 1 и 2 сумму не множат: ставка на доставку, не на человека. */
+  function courierDayPay_(deliveredN) {
+    var n = Math.floor(Number(deliveredN));
+    if (!isFinite(n) || n < 0) n = 0;
+    return kopeck_(COURIER_PAY_PER_ * n);
+  }
+
+  function courierDayPayOf_(list) {
+    var n = 0;
+    (list || []).forEach(function (c) {
+      if (c && c.delivered) n++;
+    });
+    return courierDayPay_(n);
   }
 
   function bill_(v) {
@@ -989,6 +1007,9 @@
     amortMonth_: amortMonth_,
     expenseBucket_: expenseBucket_,
     formulaClose_: formulaClose_,
+    courierPayPer_: COURIER_PAY_PER_,
+    courierDayPay_: courierDayPay_,
+    courierDayPayOf_: courierDayPayOf_,
     formulaRollup_: formulaRollup_,
     formulaPpClientMonths_: formulaPpClientMonths_,
     monthBoundsIso_: monthBoundsIso_

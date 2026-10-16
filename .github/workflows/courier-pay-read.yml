@@ -1,0 +1,148 @@
+name: courier-pay-read
+# Выплата курьера на пятницу 16.10 и число отвезено за октябрь. Только чтение.
+
+on:
+  push:
+    paths:
+      - .github/workflows/courier-pay-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read Friday courier pay
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/courier-pay"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/courier-pay"
+          raw = root + "/raw"
+
+          def run(sql, name):
+              os.makedirs(raw, exist_ok=True)
+              path = raw + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def rows(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              out = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          run(
+              "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key = 'courier:Пятница'",
+              "snap"
+          )
+          run(
+              "SELECT date_iso, match_key, delivered FROM deliveries WHERE delivered = 1 AND (date_iso >= '2026-10-01' AND date_iso <= '2026-10-31' OR date_iso LIKE '%.10.2026')",
+              "flags"
+          )
+          run(
+              "SELECT client, match_key, date_iso, day_name, segment, source, status FROM orders WHERE lower(coalesce(status,'')) = 'active' AND (day_name = 'Пятница' OR date_iso = '2026-10-16' OR date_iso = '16.10.2026')",
+              "orders"
+          )
+          print("rows", len(rows(raw + "/snap.json")), len(rows(raw + "/flags.json")), len(rows(raw + "/orders.json")))
+          PY
+          node <<'JS'
+          const fs = require("fs");
+          const path = require("path");
+          const root = path.join(process.env.GITHUB_WORKSPACE, "artifacts/courier-pay");
+          const raw = path.join(root, "raw");
+          const packs = require(path.join(process.env.GITHUB_WORKSPACE, "boinya-c/next/asm-packs.js"));
+          const formulas = require(path.join(process.env.GITHUB_WORKSPACE, "boinya-c/next/formulas.js"));
+          function rows(name) {
+            const data = JSON.parse(fs.readFileSync(path.join(raw, name), "utf8"));
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((block) => {
+              if (block && Array.isArray(block.results)) out.push(...block.results);
+            });
+            return out;
+          }
+          const snapRows = rows("snap.json");
+          const snap = snapRows[0] ? JSON.parse(snapRows[0].payload || "null") : null;
+          const clients = (snap && snap.clients) || [];
+          const keys = clients[0] ? Object.keys(clients[0]).sort() : [];
+          const stops = packs.courierStops(clients);
+          const cards = stops.map((c) => ({
+            name: c.name || "",
+            delivered: !!c.delivered,
+            segment: c.segment || "",
+            twoDogs: !!c.twoDogs,
+            members: (c._members || [c]).length
+          }));
+          const delivered = cards.filter((c) => c.delivered);
+          const flags = rows("flags.json");
+          const byDay = {};
+          flags.forEach((r) => {
+            const d = String(r.date_iso || "");
+            byDay[d] = (byDay[d] || 0) + 1;
+          });
+          const fridayFlags = flags.filter((r) => {
+            const d = String(r.date_iso || "");
+            return d === "2026-10-16" || d === "16.10.2026";
+          });
+          const brief = {
+            snapUpdated: snapRows[0] ? snapRows[0].updated_at : "",
+            snapDate: snap && snap.date,
+            snapDay: snap && snap.day,
+            clientKeys: keys,
+            hasPayField: keys.some((k) => /pay|rate|wage|salary|fuel/i.test(k)),
+            rawClients: clients.length,
+            cards: cards.length,
+            deliveredCards: delivered.length,
+            leftCards: cards.length - delivered.length,
+            payByn: formulas.courierDayPayOf_(stops),
+            per: formulas.courierPayPer_,
+            names: cards.map((c) => c.name + (c.delivered ? " отвёз" : " нет") + (c.twoDogs ? " 2собаки" : "")),
+            octoberFlagRows: flags.length,
+            octoberByDay: byDay,
+            fridayFlagRows: fridayFlags.length,
+            fridayFlagKeys: fridayFlags.map((r) => r.match_key),
+            orders: rows("orders.json").map((r) => ({
+              client: r.client,
+              key: r.match_key,
+              date: r.date_iso,
+              day: r.day_name,
+              segment: r.segment,
+              source: r.source
+            }))
+          };
+          fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
+          fs.rmSync(raw, { recursive: true, force: true });
+          console.log(JSON.stringify({
+            payByn: brief.payByn,
+            deliveredCards: brief.deliveredCards,
+            leftCards: brief.leftCards,
+            cards: brief.cards,
+            hasPayField: brief.hasPayField,
+            fridayFlagRows: brief.fridayFlagRows,
+            octoberFlagRows: brief.octoberFlagRows
+          }));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: courier-pay-brief
+          path: artifacts/courier-pay/brief.json

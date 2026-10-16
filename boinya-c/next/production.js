@@ -1405,6 +1405,26 @@
     return Math.round(sum * 100) / 100;
   }
 
+  /* Выплата дня: 4 BYN × карточки с «доставлено». «Курьеров 2» не удваивает. */
+  function dayPay(list) {
+    var lib = root.BoinyaFormulas;
+    if (lib && lib.courierDayPayOf_) return lib.courierDayPayOf_(list);
+    var n = 0;
+    (list || []).forEach(function (c) { if (c && c.delivered) n++; });
+    return Math.round(4 * n * 100) / 100;
+  }
+
+  function routePayHtml(list) {
+    var rows = list || [];
+    var doneCount = 0;
+    rows.forEach(function (c) { if (c && c.delivered) doneCount++; });
+    return counterRow([
+      { value: moneyText(dayPay(rows)), label: "Выплата" },
+      { value: String(doneCount), label: "Доставлено" },
+      { value: String(rows.length - doneCount), label: "Осталось" }
+    ]);
+  }
+
   function counterRow(pairs) {
     return '<div class="nx-counters">' + pairs.map(function (p) {
       return '<div class="nx-count"><b>' + esc(p.value) + "</b><span>" + esc(p.label) + "</span></div>";
@@ -1426,13 +1446,7 @@
     html += '<p class="nx-collect" id="nxCollect">' + esc("К сбору сегодня " + moneyText(collectSum(cour))) + "</p>";
     html += '<div id="nxPlan">' + (planHtml || "") + "</div>";
     var list = cour || [];
-    var doneCount = list.filter(function (c) { return c.delivered; }).length;
-    var leftCount = list.length - doneCount;
-    html += counterRow([
-      { value: "—", label: "Выплата" },
-      { value: String(doneCount), label: "Доставлено" },
-      { value: String(leftCount), label: "Осталось" }
-    ]);
+    html += routePayHtml(list);
     var allDone = list.length && list.every(function (c) { return c.delivered; });
     if (courDetail) html += '<button type="button" class="nx-link" data-act="pr-cour-back">← Итог</button>';
     if (allDone && !courDetail) {
@@ -2240,6 +2254,9 @@
     clientTypeLabel: clientTypeLabel,
     depotHasCoords: depotHasCoords,
     windowLabel: windowLabel,
+    previewRoutePay_: function (list) {
+      return routePayHtml(list || []);
+    },
     pauseBackground: pauseBackground,
     resumeBackground: resumeBackground,
     refreshQuiet: function () {
