@@ -141,12 +141,52 @@ test("courier: two different baskets, one nick, one price", () => {
   b.basket[0].name = "СЕРДЦЕ";
   const stops = packs.courierStops([a, b]);
   assert.equal(stops.length, 1);
-  assert.equal(stops[0].twoDogs, true);
+  assert.equal(stops[0].twoDogs, false);
+  assert.equal(stops[0].dogSections, null);
   assert.equal(stops[0].orderPrice, 40);
   assert.notEqual(Number(stops[0].orderPrice), 90);
-  assert.equal(stops[0].dogSections[0].title, "Собака 1");
-  assert.equal(stops[0].dogSections[1].title, "Собака 2");
-  assert.equal(packs.courierDogLine(stops[0]), "2 собаки, 2 пакета");
+  assert.equal(packs.courierDogLine(stops[0]), "");
+});
+
+test("courier: sku twin with шт is one dog, one basket", () => {
+  const a = client({ name: "patrick_beagleminsk", matchKey: "PATRICKBEAGLEMINSK", address: "ул 1", grams: 1 });
+  a.orderPrice = 0;
+  a.dogName = "Петрушка";
+  a.basket[0].name = "УТИНЫЕ ШЕИ ШТ.";
+  const b = client({ name: "patrick_beagleminsk", matchKey: "PATRICKBEAGLEMINSK", address: "ул 1", grams: 1 });
+  b.import = "stage-b";
+  b.dogName = "Петрушка";
+  b.basket[0].name = "УТИНЫЕ ШЕИ";
+  const stops = packs.courierStops([a, b]);
+  assert.equal(stops.length, 1);
+  assert.equal(stops[0].twoDogs, false);
+  assert.equal(stops[0].dogName, "Петрушка");
+  assert.equal(stops[0].basket.length, 1);
+  assert.equal(stops[0].basket[0].name, "УТИНЫЕ ШЕИ ШТ.");
+  assert.equal(packs.courierDogLine(stops[0]), "");
+});
+
+test("courier: two different nicknames are two dogs", () => {
+  const a = client({ name: "Анна", matchKey: "ANNA", owner: "Анна", address: "ул 1", grams: 20 });
+  a.dogName = "Барни";
+  a.orderPrice = 40;
+  const b = client({ name: "Анна", matchKey: "ANNA", owner: "Анна", address: "ул 1", grams: 30 });
+  b.dogName = "Патрик";
+  b.orderPrice = 40;
+  const stops = packs.courierStops([a, b]);
+  assert.equal(stops.length, 1);
+  assert.equal(stops[0].twoDogs, true);
+  assert.equal(stops[0].orderPrice, 40);
+  assert.equal(packs.courierDogLine(stops[0]), "2 собаки: Барни, Патрик, 2 пакета");
+});
+
+test("courier: dog part suffix without a second dog is one card", () => {
+  const a = client({ name: "Анна", matchKey: "ANNA", owner: "Анна", dog: 1, address: "ул 1", grams: 20 });
+  const b = client({ name: "Анна · 2", matchKey: "ANNA", owner: "Анна", dog: 2, address: "ул 1", grams: 20 });
+  const stops = packs.courierStops([a, b]);
+  assert.equal(stops.length, 1);
+  assert.equal(stops[0].twoDogs, false);
+  assert.equal(packs.courierDogLine(stops[0]), "");
 });
 
 test("duplicate row does not double craft", () => {

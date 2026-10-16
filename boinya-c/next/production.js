@@ -763,14 +763,27 @@
     return fn(basketForPacks(basket, printed), packOn) || [];
   }
 
+  function asmNick(c, part) {
+    var names = c && c.dogNames;
+    var n = "";
+    if (names && typeof names === "object") n = String(names[part] || names[String(part)] || "").trim();
+    if (!n && Number(c && c.dogPart) === Number(part)) n = String(c.dogName || "").trim();
+    if (!n && !part) n = String((c && c.dogName) || "").trim();
+    if (n === "Собака 1" || n === "Собака 2" || n === "Собака " + part) n = "";
+    return n;
+  }
+
   function asmTitle(c) {
-    if (c.dogPart && c.dogName) {
-      var owner = c.ownerName || String(c.name || "").replace(/\s*[·•#]\s*2\s*$/i, "").trim();
-      return owner + ", " + c.dogName;
+    var owner = (c && (c.ownerName || c.name)) || "";
+    owner = String(owner).replace(/\s*[·•#]\s*2\s*$/i, "").trim();
+    var part = Number(c && c.dogPart) || 0;
+    var nick = asmNick(c, part || 1);
+    if (part === 1 || part === 2) {
+      var head = "Собака " + part + (nick ? " (" + nick + ")" : "");
+      return owner + ", " + head;
     }
-    if (Number(c.dogPart) === 1) return (c.ownerName || c.name) + ", Собака 1";
-    if (Number(c.dogPart) === 2) return (c.ownerName || c.name) + ", Собака 2";
-    return c.displayName || c.name || "";
+    if (nick && nick !== owner) return owner + ", " + nick;
+    return (c && (c.displayName || c.name)) || "";
   }
 
   function dryRawKg_(grams, coef) {
@@ -1350,6 +1363,11 @@
       var accent = accentBits.join(", ");
       var packsApi = root.BoinyaAsmPacks;
       var dogLine = c.twoDogs && packsApi && packsApi.courierDogLine ? packsApi.courierDogLine(c) : (c.twoDogs ? "2 собаки, 2 пакета" : "");
+      var pet = "";
+      if (!c.twoDogs) {
+        pet = String((c.dogNames && (c.dogNames[1] || c.dogNames["1"])) || c.dogName || "").trim();
+        if (pet === "Собака 1" || pet === "Собака 2" || pet === nick || pet === c.name) pet = "";
+      }
       var basket = c.twoDogs && c.dogSections && c.dogSections.length > 1 ? dogPackHtml(c) : basketLinesHtml(c.basket);
       var telHtml = tel
         ? '<p class="b-note"><a class="nx-tel" href="' + esc(telHref(tel)) + '" data-act="pr-tel" data-phone="' + esc(tel) + '">' + esc(tel) + "</a></p>"
@@ -1364,6 +1382,7 @@
         '<div class="nx-nickrow"><div class="nx-nickbox">' + esc(nick) + "</div>" +
         (kind ? '<span class="nx-type">' + esc(kind) + "</span>" : "") + "</div>" +
         (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
+        (pet ? '<p class="b-note" style="margin:6px 0 0">' + esc(pet) + "</p>" : "") +
         (dogLine ? '<p class="nx-accent">' + esc(dogLine) + "</p>" : "") +
         '<p class="nx-addr">' + esc(addr.street || "Адрес не указан") + "</p>" +
         details +

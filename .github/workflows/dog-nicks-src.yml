@@ -1,0 +1,251 @@
+name: dog-nicks-src
+# Клички из карточек и пометка «2 собаки» на снимках недели. Без записи.
+
+on:
+  push:
+    paths:
+      - .github/workflows/dog-nicks-src.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read dog sources
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/dog-nicks-src"
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/dog-nicks-src"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def rows(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              out = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          KEYS = (
+              "'assembly:Понедельник','assembly:Вторник','assembly:Среда','assembly:Четверг',"
+              "'assembly:Пятница','assembly:Суббота','assembly:Воскресенье','assembly:Будущая неделя',"
+              "'courier:Понедельник','courier:Вторник','courier:Среда','courier:Четверг',"
+              "'courier:Пятница','courier:Суббота','courier:Воскресенье','courier:Будущая неделя',"
+              "'listSubscriptions'"
+          )
+          run("SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN (" + KEYS + ")", "snaps")
+          run(
+              "SELECT match_key, nick, dogs_json, "
+              "CASE WHEN instr(ifnull(note,''), '[DOG:')>0 THEN 1 ELSE 0 END AS has_tag "
+              "FROM clients WHERE dogs_json NOT IN ('', '[]') OR instr(ifnull(note,''), '[DOG:')>0 LIMIT 400",
+              "clients"
+          )
+
+          def clean(n):
+              n = str(n or "").strip()
+              if not n or re.match(r"(?i)^собака\s*[12]$", n):
+                  return ""
+              return n
+
+          def tag_name(text):
+              m = re.search(r"\[DOG:([^\]|]*)", str(text or ""), re.I)
+              return clean(m.group(1) if m else "")
+
+          def names_of(obj):
+              out = {"1": "", "2": ""}
+              if not isinstance(obj, dict):
+                  return out
+              dn = obj.get("dogNames") or obj.get("dog_names")
+              if isinstance(dn, dict):
+                  out["1"] = clean(dn.get(1) or dn.get("1"))
+                  out["2"] = clean(dn.get(2) or dn.get("2"))
+              elif isinstance(dn, str) and dn.strip().startswith("{"):
+                  try:
+                      parsed = json.loads(dn)
+                  except Exception:
+                      parsed = None
+                  if isinstance(parsed, dict):
+                      out["1"] = clean(parsed.get("1") or parsed.get(1))
+                      out["2"] = clean(parsed.get("2") or parsed.get(2))
+              one = clean(obj.get("dogName") or obj.get("dog_name") or tag_name(obj.get("wishes")) or tag_name(obj.get("note")))
+              if one and not out["1"]:
+                  out["1"] = one
+              return out
+
+          def sig(basket):
+              parts = []
+              for it in basket or []:
+                  if not isinstance(it, dict):
+                      continue
+                  name = re.sub(r"\s+", " ", str(it.get("name") or it.get("main") or "")).strip().upper()
+                  name = re.sub(r"\s*ШТ\.?\s*$", "", name).strip()
+                  val = it.get("val") if it.get("val") is not None else it.get("value")
+                  parts.append(name + "~" + str(val))
+              return "|".join(sorted(parts))
+
+          def slot2(c):
+              if int(c.get("dogPart") or 0) == 2:
+                  return True
+              for it in c.get("basket") or []:
+                  if isinstance(it, dict) and int(it.get("dog") or 0) == 2:
+                      return True
+              return False
+
+          def old_two(rows):
+              if any(slot2(c) for c in rows):
+                  return True
+              if any(int(c.get("dogCount") or 0) == 2 or c.get("twoDogs") is True for c in rows):
+                  return True
+              parts = {int(c.get("dogPart") or 0) for c in rows}
+              if 1 in parts and 2 in parts:
+                  return True
+              if len(rows) >= 2 and len({sig(c.get("basket")) for c in rows}) >= 2:
+                  return True
+              return False
+
+          subs_named = []
+          snap_rows = rows(root + "/snaps.json")
+          days = []
+          for row in snap_rows:
+              key = row.get("cache_key") or ""
+              try:
+                  payload = json.loads(row.get("payload") or "null")
+              except Exception:
+                  payload = None
+              if key == "listSubscriptions" and isinstance(payload, dict):
+                  arr = payload.get("subscriptions") or payload.get("items") or []
+                  for s in arr:
+                      if not isinstance(s, dict):
+                          continue
+                      nm = names_of(s)
+                      if not nm["1"] and not nm["2"]:
+                          continue
+                      subs_named.append({
+                          "nick": s.get("nick") or s.get("name") or s.get("client") or "",
+                          "label": s.get("label") or "",
+                          "sheet": s.get("sheet") or s.get("segment") or "",
+                          "dog1": nm["1"],
+                          "dog2": nm["2"]
+                      })
+                  continue
+              clients = (payload.get("clients") or []) if isinstance(payload, dict) else []
+              groups = {}
+              order = []
+              for c in clients:
+                  if not isinstance(c, dict):
+                      continue
+                  mk = str(c.get("matchKey") or c.get("name") or "").strip().upper()
+                  mk = re.sub(r"\s*[·•#]\s*\d+\s*$", "", mk).strip()
+                  if mk not in groups:
+                      groups[mk] = []
+                      order.append(mk)
+                  groups[mk].append(c)
+              marked = []
+              for mk in order:
+                  rs = groups[mk]
+                  if not old_two(rs):
+                      continue
+                  marked.append({
+                      "name": rs[0].get("name"),
+                      "n": len(rs),
+                      "slot2": any(slot2(c) for c in rs),
+                      "dogCount": any(int(c.get("dogCount") or 0) == 2 or c.get("twoDogs") is True for c in rs),
+                      "parts": sorted({int(c.get("dogPart") or 0) for c in rs}),
+                      "sigs": len({sig(c.get("basket")) for c in rs}),
+                      "dog1": names_of(rs[0])["1"],
+                      "dog2": names_of(rs[0])["2"]
+                  })
+              route = []
+              if key == "courier:Пятница":
+                  for c in clients:
+                      if not isinstance(c, dict):
+                          continue
+                      route.append({
+                          "name": c.get("name") or "",
+                          "address": c.get("address") or "",
+                          "import": c.get("import") or "",
+                          "date": c.get("dateIso") or ""
+                      })
+              days.append({
+                  "key": key,
+                  "updated_at": row.get("updated_at"),
+                  "date": (payload or {}).get("date") if isinstance(payload, dict) else "",
+                  "n": len(clients),
+                  "marked": marked,
+                  "route": route
+              })
+
+          client_named = []
+          for r in rows(root + "/clients.json"):
+              nm = {"1": "", "2": ""}
+              if r.get("has_tag"):
+                  nm["1"] = "[DOG]"
+              try:
+                  dogs = json.loads(r.get("dogs_json") or "[]")
+              except Exception:
+                  dogs = []
+              if isinstance(dogs, list):
+                  for i, d in enumerate(dogs):
+                      if not isinstance(d, dict):
+                          continue
+                      name = clean(d.get("name") or d.get("dogName"))
+                      slot = str(d.get("dog") or d.get("slot") or (i + 1))
+                      if name and slot in ("1", "2") and not nm.get(slot):
+                          nm[slot] = name
+              if not nm["1"] and not nm["2"] and not r.get("has_tag"):
+                  continue
+              client_named.append({
+                  "match_key": r.get("match_key"),
+                  "nick": r.get("nick"),
+                  "dog1": nm["1"],
+                  "dog2": nm["2"],
+                  "has_tag": r.get("has_tag")
+              })
+
+          brief = {"subs": subs_named, "clients": client_named, "days": days}
+          open(root + "/brief.json", "w", encoding="utf-8").write(json.dumps(brief, ensure_ascii=False, indent=2))
+          print("subs_named", len(subs_named), "clients_named", len(client_named))
+          want = ("PATRICK", "BARNEY", "STRAW", "SASHIN", "OLLIE", "PETR", "ПЕТР")
+          for s in subs_named:
+              blob = (str(s.get("nick")) + " " + str(s.get("label")) + " " + str(s.get("dog1")) + " " + str(s.get("dog2"))).upper()
+              if any(w in blob for w in want):
+                  print("SUB", s.get("nick"), s.get("sheet"), s.get("dog1"), s.get("dog2"))
+          for c in client_named:
+              blob = (str(c.get("match_key")) + " " + str(c.get("nick")) + " " + str(c.get("dog1"))).upper()
+              if any(w in blob for w in want):
+                  print("CLIENT", c.get("match_key"), c.get("dog1"), c.get("dog2"), "tag", c.get("has_tag"))
+          for d in days:
+              print("DAY", d.get("key"), d.get("date"), "n", d.get("n"), "marked", len(d.get("marked") or []))
+              for m in d.get("marked") or []:
+                  print(" ", m.get("name"), "rows", m.get("n"), "slot2", m.get("slot2"), "dogCount", m.get("dogCount"), "parts", m.get("parts"), "sigs", m.get("sigs"), "dogs", m.get("dog1"), m.get("dog2"))
+              for r in d.get("route") or []:
+                  print("ROUTE", r.get("name"), "|", r.get("address"), "|", r.get("date"), "|", r.get("import") or "-")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dog-nicks-src
+          path: artifacts/dog-nicks-src/
+          include-hidden-files: true
