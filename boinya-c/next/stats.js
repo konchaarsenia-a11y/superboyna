@@ -255,7 +255,8 @@
     html += '<p class="b-note">ЗП уже внутри себестоимости. В прибыль второй раз не входит.</p>';
     html += '<p class="b-note">' + esc((roll && roll.wageNote) || "В памяти доставок нет, кто нарезал каждую строку. Вся сумма за период у выбранного нарезчика-сборщика.") + "</p>";
     html += line("Курьер", courierName);
-    html += '<p class="b-note">Отдельной ЗП курьера в формуле нет. Дорога 4 BYN на доставку уже в себестоимости.</p>';
+    html += line("Выплата", now ? moneyText(now.road) : "нет данных");
+    html += '<p class="b-note">4 BYN на каждую отвезено доставку. Это та же «Дорога» в себестоимости, в прибыль второй раз не входит.</p>';
     html += "</article>";
 
     var econ = economyOf(meta.bpSource) || economyOf(periodRes);
