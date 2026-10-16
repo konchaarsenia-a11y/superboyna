@@ -11028,12 +11028,151 @@ function dogNickFromMeta_(meta, part, fallback) {
   meta = meta || {};
   var names = meta.dogNames || meta.dog_names || {};
   var n = String((names && (names[part] || names[String(part)])) || "").trim();
-  if (n) return n;
-  return fallback || ("Собака " + part);
+  if (n && n !== "Собака " + part) return n;
+  var fb = String(fallback || "").trim();
+  if (fb && fb !== "Собака " + part) return fb;
+  return "";
+}
+
+function cleanDogNick_(n) {
+  n = String(n || "").trim();
+  if (!n || /^собака\s*[12]$/i.test(n)) return "";
+  return n;
+}
+
+function dogTagName_(text) {
+  var m = String(text || "").match(/\[DOG:([^\]|]*)/i);
+  return m ? cleanDogNick_(m[1]) : "";
+}
+
+function namesFromDogSource_(obj) {
+  var out = { 1: "", 2: "" };
+  if (!obj || typeof obj !== "object") return out;
+  var dn = obj.dogNames || obj.dog_names;
+  if (typeof dn === "string" && dn.trim().charAt(0) === "{") {
+    try { dn = JSON.parse(dn); } catch (eDn) { dn = null; }
+  }
+  if (dn && typeof dn === "object") {
+    out[1] = cleanDogNick_(dn[1] || dn["1"]);
+    out[2] = cleanDogNick_(dn[2] || dn["2"]);
+  }
+  var one = cleanDogNick_(obj.dogName || obj.dog_name || dogTagName_(obj.wishes) || dogTagName_(obj.note));
+  if (one && !out[1]) out[1] = one;
+  return out;
+}
+
+function orderHasDogSlot2_(c) {
+  if (!c) return false;
+  if (Number(c.dogPart) === 2) return true;
+  var basket = c.basket || [];
+  for (var i = 0; i < basket.length; i++) {
+    if (Number(basket[i] && basket[i].dog) === 2) return true;
+  }
+  return false;
+}
+
+async function loadDogNickDirectory_(env) {
+  var map = Object.create(null);
+  function put(key, names) {
+    var k = normalizeMatchKey_(String(key || "").replace(/\s*[·•#]\s*\d+\s*$/i, ""));
+    if (!k || !names || (!names[1] && !names[2])) return;
+    var prev = map[k] || { 1: "", 2: "" };
+    if (!prev[1] && names[1]) prev[1] = names[1];
+    if (!prev[2] && names[2]) prev[2] = names[2];
+    map[k] = prev;
+  }
+  try {
+    var list = await getSnapRaw_(env, "listSubscriptions");
+    var arr = (list && (list.subscriptions || list.items)) || [];
+    arr.forEach(function (s) {
+      if (!s) return;
+      var names = namesFromDogSource_(s);
+      put(s.matchKey || s.match_key, names);
+      put(s.nick, names);
+      put(s.name, names);
+      put(s.client, names);
+      put(s.label, names);
+    });
+  } catch (eList) {}
+  if (env && env.DB) {
+    try {
+      var q = await env.DB.prepare(
+        "SELECT match_key, nick, label, dogs_json, note FROM clients " +
+          "WHERE dogs_json NOT IN ('', '[]') OR instr(ifnull(note,''), '[DOG:') > 0 LIMIT 500"
+      ).all();
+      (q.results || []).forEach(function (r) {
+        var names = namesFromDogSource_(r);
+        try {
+          var dogs = JSON.parse(r.dogs_json || "[]");
+          if (Array.isArray(dogs)) {
+            dogs.forEach(function (d, i) {
+              if (!d) return;
+              var nm = cleanDogNick_(d.name || d.dogName || d.nick);
+              var slot = Number(d.dog || d.slot || d.part) || (i + 1);
+              if (nm && (slot === 1 || slot === 2) && !names[slot]) names[slot] = nm;
+            });
+          }
+        } catch (eJ) {}
+        put(r.match_key, names);
+        put(r.nick, names);
+        put(r.label, names);
+      });
+    } catch (eCli) {}
+  }
+  return map;
+}
+
+function lookupDogNames_(dir, c) {
+  if (!dir || !c) return { 1: "", 2: "" };
+  var raw = [c.matchKey, c.ownerName, c.name, c.nick, c.label];
+  for (var i = 0; i < raw.length; i++) {
+    var k = normalizeMatchKey_(String(raw[i] || "").replace(/\s*[·•#]\s*\d+\s*$/i, ""));
+    if (k && dir[k] && (dir[k][1] || dir[k][2])) return dir[k];
+  }
+  return { 1: "", 2: "" };
+}
+
+function stampDisplayDog_(c, dir) {
+  if (!c) return c;
+  var found = lookupDogNames_(dir, c);
+  var slot2 = orderHasDogSlot2_(c);
+  var part = Number(c.dogPart) || 0;
+  var own = namesFromDogSource_(c);
+  var n1 = own[1] || found[1] || "";
+  var n2 = slot2 ? (own[2] || found[2] || "") : "";
+  if (part === 2) {
+    if (!cleanDogNick_(c.dogName) && n2) c.dogName = n2;
+  } else if (!cleanDogNick_(c.dogName) && n1) {
+    c.dogName = n1;
+  }
+  if (slot2) {
+    if (n1 || n2) c.dogNames = { 1: n1, 2: n2 };
+  } else if (n1) {
+    c.dogNames = { 1: n1, 2: "" };
+  }
+  var show = part === 2 ? (n2 || "") : (n1 || cleanDogNick_(c.dogName));
+  var owner = String(c.ownerName || c.name || "").replace(/\s*[·•#]\s*\d+\s*$/i, "").trim();
+  var disp = String(c.displayName || "").trim();
+  if (show && (!disp || disp === owner || disp === String(c.name || "").trim())) {
+    c.displayName = owner ? (owner + ", " + show) : show;
+  }
+  return c;
+}
+
+async function stampAssemblyDogs_(env, hit) {
+  if (!hit || !Array.isArray(hit.clients) || !hit.clients.length) return hit;
+  var dir = null;
+  try { dir = await loadDogNickDirectory_(env); } catch (eDir) { dir = null; }
+  var clients = hit.clients.map(function (c) {
+    return stampDisplayDog_(Object.assign({}, c), dir);
+  });
+  return Object.assign({}, hit, { clients: clients });
 }
 
 async function rebuildAssemblyDay_(env, day) {
   if (!day) return;
+  let dogDir = null;
+  try { dogDir = await loadDogNickDirectory_(env); } catch (eDogDir) { dogDir = null; }
   const live = await getClients_({ day: day }, env);
   const info = await dayDateInfo_(env, day);
   const prev = await getSnapRaw_(env, "assembly:" + day);
@@ -11058,14 +11197,14 @@ async function rebuildAssemblyDay_(env, day) {
         displayName: dogNickFromMeta_(meta, 1, baseName),
         basket: parts.dog1 || [],
         dogPart: 1,
-        dogName: dogNickFromMeta_(meta, 1, "Собака 1")
+        dogName: dogNickFromMeta_(meta, 1, "")
       });
       entries.push({
         name: baseName + " · 2",
         displayName: dogNickFromMeta_(meta, 2, baseName + " · 2"),
         basket: parts.dog2,
         dogPart: 2,
-        dogName: dogNickFromMeta_(meta, 2, "Собака 2")
+        dogName: dogNickFromMeta_(meta, 2, "")
       });
     } else {
       entries.push({
@@ -11101,10 +11240,10 @@ async function rebuildAssemblyDay_(env, day) {
           }
         }
       }
-      clients.push({
+      const card = {
         name: ent.name,
         displayName: ent.displayName,
-        dogName: ent.dogName || "",
+        dogName: ent.dogName || cleanDogNick_(old.dogName) || "",
         address: c.address,
         note: c.note,
         basket: ent.basket,
@@ -11121,7 +11260,8 @@ async function rebuildAssemblyDay_(env, day) {
         dogPart: ent.dogPart || 0,
         ownerName: baseName,
         matchKey: c.matchKey
-      });
+      };
+      clients.push(stampDisplayDog_(card, dogDir));
     });
   });
   await putSnap_(env, "assembly:" + day, {
@@ -11436,6 +11576,7 @@ async function getCourier_(params, env) {
   }
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
   try { await refreshCourierAskPaid_(env, hit); } catch (eAsk) {}
+  try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
   return hit;
 }
 
@@ -11450,6 +11591,7 @@ async function getAssembly_(params, env) {
     hit = await getSnapRaw_(env, "assembly:" + day);
   }
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
+  try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
   let dryWeights = [];
   try {
     dryWeights = await assemblyDryWeightsForDay_(env, day, hit.clients || []);
