@@ -1,0 +1,260 @@
+name: asm-move-read
+# Чтение переноса belosnezka и остатков сборки/нарезки 14–16.10. Без записи и без Telegram.
+
+on:
+  push:
+    paths:
+      - .github/workflows/asm-move-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read move leftovers
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/asm-move"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/asm-move"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def rows(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              out = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          def pub(row):
+              keys = ("id", "client", "match_key", "day_name", "date_iso", "status", "source", "segment", "updated_at", "basket_len", "note_len")
+              return {k: row.get(k) for k in keys if k in row or True}
+
+          BELO = (
+              "SELECT id, client, match_key, day_name, date_iso, status, source, segment, updated_at, "
+              "length(ifnull(basket_json,'')) AS basket_len, length(ifnull(note,'')) AS note_len, "
+              "address, phone, note, basket_json, meta_json "
+              "FROM orders WHERE lower(client) LIKE '%belosnez%' "
+              "OR upper(match_key) LIKE '%BELOSNEZ%' "
+              "OR lower(client) LIKE '%белоснеж%' "
+              "ORDER BY updated_at"
+          )
+          COUNTS = (
+              "SELECT "
+              "(SELECT count(*) FROM orders WHERE lower(client) LIKE '%belosnez%' OR upper(match_key) LIKE '%BELOSNEZ%') AS orders_all, "
+              "(SELECT count(*) FROM orders WHERE status = 'active' AND (lower(client) LIKE '%belosnez%' OR upper(match_key) LIKE '%BELOSNEZ%')) AS orders_active, "
+              "(SELECT count(*) FROM subs WHERE lower(ifnull(nick,'')) LIKE '%belosnez%' OR upper(ifnull(match_key,'')) LIKE '%BELOSNEZ%') AS subs_n"
+          )
+          SUBS = (
+              "SELECT id, nick, match_key, sheet, status, updated_at FROM subs "
+              "WHERE lower(ifnull(nick,'')) LIKE '%belosnez%' OR upper(ifnull(match_key,'')) LIKE '%BELOSNEZ%'"
+          )
+          MOVED = (
+              "SELECT d.id AS del_id, d.client, d.match_key, d.day_name AS src_day, d.date_iso AS src_date, d.updated_at AS del_at, "
+              "a.id AS dst_id, a.day_name AS dst_day, a.date_iso AS dst_date, a.status AS dst_status, a.updated_at AS dst_at "
+              "FROM orders d JOIN orders a ON a.match_key = d.match_key AND a.status = 'active' AND a.id != d.id "
+              "WHERE d.status = 'deleted' AND d.updated_at >= '2026-10-14' "
+              "AND (d.date_iso IN ('2026-10-14','2026-10-15','2026-10-16') "
+              "OR d.day_name IN ('Среда','Четверг','Пятница')) "
+              "AND (ifnull(a.date_iso,'') != ifnull(d.date_iso,'') OR ifnull(a.day_name,'') != ifnull(d.day_name,'')) "
+              "LIMIT 400"
+          )
+          DAYS = ["Среда", "Четверг", "Пятница", "Будущая неделя"]
+          keys = []
+          for day in DAYS:
+              for kind in ("assembly", "courier", "cutting"):
+                  keys.append(kind + ":" + day)
+          keys += ["weekDayCounts", "weekDayCountsSheet"]
+          snap_sql = "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN (" + ",".join("'" + k.replace("'", "''") + "'" for k in keys) + ")"
+
+          run(BELO, "belo-orders")
+          run(COUNTS, "belo-counts")
+          run(SUBS, "belo-subs")
+          run(MOVED, "moved")
+          run(snap_sql, "snaps")
+
+          belo = rows(root + "/belo-orders.json")
+          counts = rows(root + "/belo-counts.json")
+          subs = rows(root + "/belo-subs.json")
+          moved = rows(root + "/moved.json")
+          snap_rows = rows(root + "/snaps.json")
+
+          snaps = {}
+          for row in snap_rows:
+              key = row.get("cache_key") or ""
+              try:
+                  payload = json.loads(row.get("payload") or "null")
+              except Exception:
+                  payload = None
+              snaps[key] = {"updated_at": row.get("updated_at") or "", "payload": payload}
+
+          def client_hit(c, client, mk):
+              if not isinstance(c, dict):
+                  return False
+              name = str(c.get("name") or c.get("ownerName") or "").strip().lower()
+              key = str(c.get("matchKey") or "").strip().upper()
+              want_n = str(client or "").strip().lower()
+              want_m = str(mk or "").strip().upper()
+              if want_n and name == want_n:
+                  return True
+              if want_m and key == want_m:
+                  return True
+              if want_n and want_n in name:
+                  return True
+              return False
+
+          def asm_hits(day, client, mk):
+              payload = (snaps.get("assembly:" + day) or {}).get("payload") or {}
+              hits = []
+              for c in (payload.get("clients") or []) if isinstance(payload, dict) else []:
+                  if client_hit(c, client, mk):
+                      hits.append(str(c.get("name") or ""))
+              return hits
+
+          def cour_hits(day, client, mk):
+              payload = (snaps.get("courier:" + day) or {}).get("payload") or {}
+              hits = []
+              for c in (payload.get("clients") or []) if isinstance(payload, dict) else []:
+                  if client_hit(c, client, mk):
+                      hits.append(str(c.get("name") or ""))
+              return hits
+
+          def cut_hits(day, client, mk):
+              payload = (snaps.get("cutting:" + day) or {}).get("payload") or {}
+              if not isinstance(payload, dict):
+                  return {"transfer": [], "raw": False, "n": 0}
+              transfer = []
+              only = payload.get("transferOnly") or {}
+              for name in (only.get("clients") or []) if isinstance(only, dict) else []:
+                  if client_hit({"name": name}, client, mk):
+                      transfer.append(str(name))
+              raw = json.dumps(payload, ensure_ascii=False).lower()
+              needle = str(client or mk or "").strip().lower()
+              return {
+                  "transfer": transfer,
+                  "raw": bool(needle and needle in raw),
+                  "n": len(payload.get("items") or []),
+                  "date": payload.get("date") or payload.get("dateIso") or ""
+              }
+
+          focus = []
+          for row in belo:
+              item = pub(row)
+              item["assembly"] = {}
+              item["courier"] = {}
+              item["cutting"] = {}
+              for day in DAYS:
+                  ah = asm_hits(day, row.get("client"), row.get("match_key"))
+                  ch = cour_hits(day, row.get("client"), row.get("match_key"))
+                  kh = cut_hits(day, row.get("client"), row.get("match_key"))
+                  if ah:
+                      item["assembly"][day] = ah
+                  if ch:
+                      item["courier"][day] = ch
+                  if kh["transfer"] or kh["raw"]:
+                      item["cutting"][day] = kh
+              focus.append(item)
+
+          leftovers = []
+          seen = set()
+          for row in moved:
+              sig = (row.get("match_key"), row.get("src_day"), row.get("src_date"), row.get("dst_id"))
+              if sig in seen:
+                  continue
+              seen.add(sig)
+              src_day = str(row.get("src_day") or "")
+              days = [src_day] if src_day else []
+              src_date = str(row.get("src_date") or "")
+              if src_date == "2026-10-14" and "Среда" not in days:
+                  days.append("Среда")
+              if src_date == "2026-10-15" and "Четверг" not in days:
+                  days.append("Четверг")
+              if src_date == "2026-10-16" and "Пятница" not in days:
+                  days.append("Пятница")
+              asm = {}
+              cour = {}
+              cut = {}
+              for day in days:
+                  if not day:
+                      continue
+                  ah = asm_hits(day, row.get("client"), row.get("match_key"))
+                  ch = cour_hits(day, row.get("client"), row.get("match_key"))
+                  kh = cut_hits(day, row.get("client"), row.get("match_key"))
+                  if ah:
+                      asm[day] = ah
+                  if ch:
+                      cour[day] = ch
+                  if kh["transfer"] or kh["raw"]:
+                      cut[day] = {"transfer": kh["transfer"], "raw": kh["raw"]}
+              if not asm and not cut:
+                  continue
+              leftovers.append({
+                  "client": row.get("client"),
+                  "match_key": row.get("match_key"),
+                  "src_day": src_day,
+                  "src_date": src_date,
+                  "del_id": row.get("del_id"),
+                  "dst_id": row.get("dst_id"),
+                  "dst_day": row.get("dst_day"),
+                  "dst_date": row.get("dst_date"),
+                  "assembly": asm,
+                  "courier": cour,
+                  "cutting": cut
+              })
+
+          snap_brief = {}
+          for key, rec in snaps.items():
+              payload = rec.get("payload") or {}
+              if not isinstance(payload, dict):
+                  snap_brief[key] = {"updated_at": rec.get("updated_at"), "type": type(payload).__name__}
+                  continue
+              snap_brief[key] = {
+                  "updated_at": rec.get("updated_at"),
+                  "date": payload.get("date") or payload.get("dateIso") or "",
+                  "clients": len(payload.get("clients") or []) if isinstance(payload.get("clients"), list) else None,
+                  "items": len(payload.get("items") or []) if isinstance(payload.get("items"), list) else None
+              }
+
+          brief = {
+              "counts": counts,
+              "subs": subs,
+              "belo": focus,
+              "leftovers": leftovers,
+              "snaps": snap_brief
+          }
+          open(root + "/brief.json", "w", encoding="utf-8").write(json.dumps(brief, ensure_ascii=False, indent=2))
+          print("counts", json.dumps(counts, ensure_ascii=False))
+          print("belo", len(focus), "leftovers", len(leftovers))
+          for item in focus:
+              print("BELO", item.get("id"), item.get("status"), item.get("day_name"), item.get("date_iso"), "asm", item.get("assembly"), "cour", item.get("courier"), "cut", item.get("cutting"))
+          for item in leftovers:
+              print("LEFT", item.get("client"), item.get("src_date"), item.get("src_day"), "->", item.get("dst_date"), item.get("dst_day"), "asm", list(item.get("assembly") or {}), "cut", list(item.get("cutting") or {}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asm-move-read
+          path: artifacts/asm-move/
+          include-hidden-files: true
