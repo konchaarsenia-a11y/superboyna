@@ -1,3 +1,5 @@
+import { planWeekCloseD1_ } from "./week-close-d1.js";
+
 /**
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
@@ -1335,6 +1337,13 @@ function weekCloseCanonLabel_(env) {
   return isWeekCloseD1SyncCanon_(env) ? "d1-sync" : "gas-async";
 }
 
+/** Закрытие недели пишет только D1. Откат: WEEK_CLOSE_CANON=sheets|gas|gas-async|async. */
+function isWeekCloseD1Native_(env) {
+  const v = env && env.WEEK_CLOSE_CANON ? String(env.WEEK_CLOSE_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "gas" || v === "gas-async" || v === "async") return false;
+  return true;
+}
+
 /** Списание склада при закрытии недели: D1 compute. Откат: WAREHOUSE_CLOSE_CANON=sheets */
 function isWarehouseCloseD1Canon_(env) {
   const v = env && env.WAREHOUSE_CLOSE_CANON ? String(env.WAREHOUSE_CLOSE_CANON).trim().toLowerCase() : "";
@@ -1908,7 +1917,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       hasTelegramToken: hasTelegramToken_(env),
       partnerCanon: partnerCanonLabel_(env),
       gbCanon: gbCanonLabel_(env),
-      weekCloseCanon: weekCloseCanonLabel_(env),
+      weekCloseCanon: isWeekCloseD1Native_(env) ? "d1-only" : "sheets",
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
       edgeSheets: edgeSheetsLabel_(env),
@@ -9180,7 +9189,8 @@ async function rebuildWeekCounts_(env) {
     total += c;
     // Сначала дата слота с листа. Большинство date_iso в D1 — только если листа нет
     // (иначе хвост прошлой недели откатывает Вт/Ср/Пт на −7).
-    let date = sheetDates[d] || "";
+    // D1-канон закрытия: дата слота из заказов и прошлого снимка, не из листа.
+    let date = isWeekCloseD1Native_(env) ? "" : sheetDates[d] || "";
     if (!date) {
       const dr = await env.DB.prepare(
         "SELECT date_iso, COUNT(*) AS n FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' GROUP BY date_iso ORDER BY n DESC LIMIT 1"
@@ -17581,6 +17591,10 @@ async function handleCutover_(a, params, env, ctx) {
       cutover: true,
       action: a
     };
+  }
+
+  if (a === "finishFullWeek" && isWeekCloseD1Native_(env)) {
+    return closeWeekInD1_(params, env);
   }
 
   if (a === "finishFullWeek") {
@@ -35721,6 +35735,194 @@ function json(obj, status) {
     status: status || 200,
     headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" }
   });
+}
+
+async function closeWeekInD1_(params, env) {
+  const canon = { sheets: false, fromD1: true, weekCloseCanon: "d1-only", cutover: true, action: "finishFullWeek" };
+  if (!env || !env.DB) return Object.assign({ status: "error", message: "no_d1" }, canon);
+  let ownerOk = false;
+  try {
+    ownerOk = await actorIsOwnerRetail_(params, env);
+  } catch (eOwn) {
+    ownerOk = false;
+  }
+  if (!ownerOk) {
+    const tid = String((params && (params._actorTid || params.telegramId)) || "").trim();
+    if (tid) {
+      try {
+        const liveAcc = await gasProxy_("getMyAccess", { telegramId: tid }, env, { write: false });
+        if (liveAcc && liveAcc.status === "success" && /^(owner|all)$/i.test(String(liveAcc.role || ""))) {
+          ownerOk = true;
+        }
+      } catch (eAcc) {}
+    }
+  }
+  if (!ownerOk) return Object.assign({ status: "error", message: "owner_only" }, canon);
+
+  const orderQ = await env.DB.prepare(
+    "SELECT id, client, match_key, date_iso, day_name, status FROM orders"
+  ).all();
+  const subQ = await env.DB.prepare("SELECT match_key, nick, status, sheet, n FROM subs").all();
+  const counts = await getSnapRaw_(env, "weekDayCounts");
+  const metaQ = await env.DB.prepare(
+    "SELECT key, value FROM meta WHERE key = 'stage_c_formula_ok' OR key LIKE 'week_finished:%' OR key LIKE 'WEEK_FINISHED_%'"
+  ).all();
+  const finished = Object.create(null);
+  let stageCOk = false;
+  ((metaQ && metaQ.results) || []).forEach(function (r) {
+    if (!r || !r.key) return;
+    if (r.key === "stage_c_formula_ok") stageCOk = String(r.value) === "1";
+    else finished[r.key] = String(r.value || "");
+  });
+  const plan = planWeekCloseD1_({
+    calendarMonday: currentMondayIso_(),
+    todayIso: minkTodayIso_(),
+    orders: (orderQ && orderQ.results) || [],
+    counts: counts,
+    finished: finished,
+    stageCOk: stageCOk,
+    warehouseCanon: isWarehouseCloseD1Canon_(env)
+  });
+  if (!plan.ok) return Object.assign({}, canon, plan);
+
+  const now = new Date().toISOString();
+  const backupKey = "weekCloseBackup:" + plan.oldMonday + ":" + now.replace(/[:.]/g, "-");
+  await putSnap_(env, backupKey, {
+    at: now,
+    oldMonday: plan.oldMonday,
+    newMonday: plan.newMonday,
+    orders: (orderQ && orderQ.results) || [],
+    subs: (subQ && subQ.results) || [],
+    slots: (counts && counts.items) || []
+  });
+
+  const updates = plan.updates || [];
+  for (let i = 0; i < updates.length; i += 40) {
+    const chunk = updates.slice(i, i + 40);
+    const stmts = chunk.map(function (u) {
+      return env.DB.prepare(
+        "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND day_name = ? AND status = ?"
+      ).bind(u.day, now, u.id, u.fromDay, u.status);
+    });
+    const res = await env.DB.batch(stmts);
+    for (let j = 0; j < chunk.length; j++) {
+      const meta = res && res[j] && res[j].meta;
+      if (meta && meta.changes === 0) {
+        return Object.assign(
+          {
+            status: "error",
+            message: "close_conflict",
+            tip: "Строка уже изменилась. Указатель недели не сдвинут. Можно повторить.",
+            id: chunk[j].id,
+            backup: backupKey
+          },
+          canon
+        );
+      }
+    }
+  }
+
+  const flagStmts = [];
+  (plan.counts || []).forEach(function (it) {
+    if (!it || it.day === "Будущая неделя" || !it.dateIso) return;
+    flagStmts.push(
+      env.DB.prepare("UPDATE deliveries SET delivered = 0, updated_at = ? WHERE date_iso = ?").bind(now, it.dateIso)
+    );
+    flagStmts.push(env.DB.prepare("DELETE FROM cutting_flags WHERE date_iso = ?").bind(it.dateIso));
+  });
+  if (flagStmts.length) await env.DB.batch(flagStmts);
+
+  const snapDays = (plan.counts || []).map(function (it) {
+    return it && it.day;
+  });
+  for (let s = 0; s < snapDays.length; s++) {
+    const day = snapDays[s];
+    if (!day) continue;
+    try {
+      await delSnap_(env, "assembly:" + day);
+    } catch (eAsm) {}
+    try {
+      await delSnap_(env, "courier:" + day);
+    } catch (eCou) {}
+    try {
+      await delSnap_(env, "cutting:" + day);
+    } catch (eCut) {}
+  }
+
+  const countBody = {
+    status: "success",
+    items: plan.counts,
+    total: (plan.counts || []).reduce(function (sum, it) {
+      return sum + (Number(it && it.count) || 0);
+    }, 0),
+    fromD1: true,
+    source: "d1-close",
+    sandbox: false,
+    datesFromSheet: false,
+    closedFrom: plan.oldMonday
+  };
+  await putSnap_(env, "weekDayCounts", countBody);
+  const map = Object.create(null);
+  (plan.counts || []).forEach(function (it) {
+    if (it && it.dateIso && it.day) map[it.dateIso] = it.day;
+  });
+  await putSnap_(env, "dateToDay", { map: map, source: "d1-close" });
+  await env.DB.prepare(
+    "INSERT INTO meta (key, value, updated_at) VALUES (?, '1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+  )
+    .bind("week_finished:" + plan.oldMonday, now)
+    .run();
+  await putSnap_(env, "weekBanner", {
+    status: "success",
+    finished: true,
+    pulled: true,
+    refused: false,
+    weekKey: plan.oldMonday,
+    action: "finishFullWeek",
+    syncedAt: now,
+    cutover: true,
+    fromD1: true,
+    sheets: false,
+    weekCloseCanon: "d1-only"
+  });
+
+  let warehouse = { applied: false, reason: plan.warehouseReason };
+  if (plan.warehouseApply) {
+    try {
+      const pack = await computeWarehouseCloseD1_(env);
+      if (pack && pack.ok) {
+        await applyWarehouseCloseD1_(env, pack);
+        warehouse = {
+          applied: true,
+          reason: "d1-compute",
+          rows: ((pack.updates || []).length || 0) + ((pack.pieceUpdates || []).length || 0)
+        };
+      } else {
+        warehouse = { applied: false, reason: (pack && pack.message) || "compute_failed" };
+      }
+    } catch (eWh) {
+      warehouse = { applied: false, reason: String((eWh && eWh.message) || eWh) };
+    }
+  }
+
+  return Object.assign(
+    {
+      status: "success",
+      message: "week_closed",
+      mondayDate: plan.mondayDate,
+      prevMondayDate: plan.prevMondayDate,
+      prevMondayIso: plan.prevMondayIso,
+      courierDate: plan.courierDate,
+      materializeAdded: plan.materializeAdded,
+      futureMoved: plan.futureMoved,
+      archived: plan.archived,
+      backup: backupKey,
+      warehouseClose: warehouse,
+      d1Verified: true,
+      sandbox: false
+    },
+    canon
+  );
 }
 
 // deploy bump 20260826161747

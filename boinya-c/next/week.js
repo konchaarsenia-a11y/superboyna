@@ -1183,22 +1183,13 @@
     } catch (eLs) {}
     var ok = await sh().confirm({
       title: "Закрыть неделю",
-      text: "Склад: остаток, даты +7, очистка заказов Пн–Пт, «Будущая неделя» станет понедельником. Отменить будет нельзя.",
+      text: "Даты +7. Слоты прошедшей недели уйдут в архив, заказы и подписки останутся. «Будущая неделя» станет понедельником. Отменить будет нельзя.",
       ok: "Продолжить",
       cancel: "Отмена"
     });
     if (!ok) { finish.end(); return; }
     var ok2 = await sh().confirm({ title: "Точно закрыть", text: "Точно закрыть неделю сейчас?", ok: "Закрыть", cancel: "Отмена" });
     if (!ok2) { finish.end(); return; }
-    if (root.__BOINYA_C_CUTOVER__) {
-      var ok3 = await sh().confirm({
-        title: "Бойня C · LIVE",
-        text: "Закрытие уйдёт в боевые Google Sheets. Это не песочница. Продолжить?",
-        ok: "Продолжить",
-        cancel: "Отмена"
-      });
-      if (!ok3) { finish.end(); return; }
-    }
     var id = tid();
     if (!id) { sh().toast("Нет Telegram ID"); finish.end(); return; }
     sh().toast("Идёт перенос недели… не закрывайте");
@@ -1262,20 +1253,23 @@
     } catch (e2) {}
     var addedN = Number(res.materializeAdded != null ? res.materializeAdded : (res.materialize && res.materialize.totalAdded)) || 0;
     sh().toast("Неделя закрыта. Пн: " + (res.mondayDate || "ок") + (addedN ? (" · из месяца +" + addedN) : ""));
-    try {
-      await api().apiGet({ action: "setWeekBannerState", weekKey: wk, finished: "1", pulled: "1", telegramId: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
-    } catch (e3) {}
-    try {
-      await api().apiGet({
-        action: "forceWeekD1Resync",
-        telegramId: id,
-        confirm: "1",
-        allowDanger: "1",
-        restoreFromMonday: String(res.prevMondayIso || res.prevMondayDate || ""),
-        restoreShifted: "1",
-        _: String(Date.now())
-      }, { timeoutMs: 180000, cacheTtlMs: 0 });
-    } catch (eSync) {}
+    var d1Only = !!(res.weekCloseCanon === "d1-only" || (res.fromD1 && res.sheets === false));
+    if (!d1Only) {
+      try {
+        await api().apiGet({ action: "setWeekBannerState", weekKey: wk, finished: "1", pulled: "1", telegramId: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      } catch (e3) {}
+      try {
+        await api().apiGet({
+          action: "forceWeekD1Resync",
+          telegramId: id,
+          confirm: "1",
+          allowDanger: "1",
+          restoreFromMonday: String(res.prevMondayIso || res.prevMondayDate || ""),
+          restoreShifted: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 180000, cacheTtlMs: 0 });
+      } catch (eSync) {}
+    }
     finish.end();
     await sh().alert({
       text: "Неделя закрыта.\n\nНовый понедельник: " + (res.mondayDate || "—") +
