@@ -93,6 +93,31 @@ test("оплата на ПП2: в сумму входит только эта д
   assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-17" }), 80);
 });
 
+test("вторая ПП1 в том же месяце — свой цикл и своя сумма", function () {
+  var rows = [
+    { name: "Алина", matchKey: "ALINAGIDAYATHANOVA", segment: "ПП", ppSlot: "1/2", deliveriesN: 2, orderPrice: 140, paid: "", dateIso: "2026-10-02" },
+    { name: "Алина", matchKey: "ALINAGIDAYATHANOVA", segment: "ПП", ppSlot: "2/2", deliveriesN: 2, orderPrice: 145, paid: "", dateIso: "2026-10-17" },
+    { name: "Алина", matchKey: "ALINAGIDAYATHANOVA", segment: "ПП", ppSlot: "1/2", deliveriesN: 2, orderPrice: 145, paid: "", dateIso: "2026-10-30" }
+  ];
+  assert.equal(L.revenueSum(rows), 285);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-02" }), 140);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-17" }), null);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-30" }), 145);
+  var attr = L.attributePpRevenue(rows);
+  assert.equal(attr.doubled.length, 1);
+  assert.deepEqual(attr.doubled[0].slots, [1, 2]);
+  L.stampPpPay(rows);
+  assert.equal(rows[0]._pay, 140);
+  assert.equal(rows[1]._pay, 0);
+  assert.equal(rows[2]._pay, 145);
+});
+
+test("цена ПП в форме сразу попадает в сумму заказа", function () {
+  var src = fs.readFileSync(new URL("./orders.js", import.meta.url), "utf8");
+  var fn = src.slice(src.indexOf("async function refreshPp"), src.indexOf("function orderVisible"));
+  assert.match(fn, /patchMoney\(\)/);
+});
+
 test("без отметки оплаты цена подписки один раз, на меньшем слоте", function () {
   var rows = [
     { name: "Нора", segment: "ПП", ppSlot: "1/2", orderPrice: 50, dateIso: "2026-10-04" },
