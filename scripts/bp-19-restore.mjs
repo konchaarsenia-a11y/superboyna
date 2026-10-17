@@ -135,7 +135,10 @@ function runSql(sql, name, dir) {
     fs.writeFileSync(path.join(dir, name + ".err"), (res.stderr || "") + "\n" + (res.stdout || ""), "utf8");
     throw new Error(name + " failed");
   }
-  return JSON.parse(res.stdout || "[]");
+  const text = String(res.stdout || "");
+  const start = text.search(/[\[{]/);
+  if (start < 0) throw new Error(name + " no json");
+  return JSON.parse(text.slice(start));
 }
 
 function main() {
