@@ -40,6 +40,18 @@ function weekCloseWeekday_(iso) {
   return WEEK_CLOSE_DAYS_[wd === 0 ? 6 : wd - 1];
 }
 
+/** Слот и date_iso. Позднюю дату нельзя притянуть на более ранний слот. */
+export function weekCloseSlotAction_(haveIso, wantIso, weekMap) {
+  const have = weekCloseCoerceIso_(haveIso);
+  const want = weekCloseCoerceIso_(wantIso);
+  if (!want) return "skip";
+  if (!have) return "stamp_empty";
+  if (have === want) return "keep";
+  if (have > want) return "keep";
+  if (weekMap && weekMap[have] && weekMap[want]) return "stamp_slot";
+  return "detach";
+}
+
 function weekCloseDmy_(iso) {
   const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return "";
@@ -339,6 +351,7 @@ export function planWeekCloseD1_(input) {
     board: board,
     counts: counts,
     materializeAdded: materializeAdded,
+    newEnd: newEnd,
     futureMoved: futureMoved,
     archived: archived,
     ordersBefore: weekCloseClientCounts_(orders),

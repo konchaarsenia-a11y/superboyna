@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const L = require("./week-logic.js");
 
-test("к сбору: ПП1 и розница входят, ПП2 без оплаты на этом слоте нет", () => {
+test("к сбору: ПП1 и розница входят, ПП2 не входит даже с оплатой", () => {
   const list = [
     { name: "Рекс · Ник", segment: "ПП", ppSlot: "1/2", deliverySlot: 1, orderPrice: 70, paid: "" },
     { name: "Нора · Ник", segment: "ПП", ppSlot: "2/2", deliverySlot: 2, orderPrice: 80, paid: "" },
@@ -16,10 +16,12 @@ test("к сбору: ПП1 и розница входят, ПП2 без опла
   ];
   assert.equal(L.courierStopMoney(list[0]), 70);
   assert.equal(L.courierStopMoney(list[1]), null);
-  assert.equal(L.courierStopMoney(list[2]), 55);
+  assert.equal(L.courierStopMoney(list[2]), null);
   assert.equal(L.courierStopMoney(list[3]), 9);
   assert.equal(L.courierStopMoney(list[4]), null);
-  assert.equal(L.courierCollectSum(list), 134);
+  assert.equal(L.courierCollectSum(list), 79);
+  assert.equal(L.courierShouldAskPaid(list[1]), false);
+  assert.equal(L.courierShouldAskPaid(list[2]), false);
 });
 
 test("залипшая 1 с подписью ПП 2 не входит в сбор", () => {

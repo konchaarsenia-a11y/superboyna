@@ -1,0 +1,88 @@
+name: pp2-week-read
+
+# ПП2 этой недели и указатель. Только чтение. Заказы не меняет.
+
+on:
+  push:
+    paths:
+      - .github/workflows/pp2-week-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read PP2 and week pointer
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/pp2-week"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCounts'" > "$GITHUB_WORKSPACE/artifacts/pp2-week/pointer.json"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT id, client, match_key, date_iso, day_name, status, segment, source, length(ifnull(basket_json,'')) AS basket_n, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.ppHint') AS pp_hint, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.paid') AS paid, json_extract(meta_json, '\$.orderPrice') AS price FROM orders WHERE status = 'active' AND date_iso BETWEEN '2026-10-12' AND '2026-10-26' AND (segment IN ('ПП','АФК') OR lower(ifnull(source,'')) IN ('pp','subscription'))" > "$GITHUB_WORKSPACE/artifacts/pp2-week/pp.json"
+          node <<'JS'
+          const fs = require("fs");
+          const path = require("path");
+          const root = path.join(process.env.GITHUB_WORKSPACE, "artifacts/pp2-week");
+          function rows(name) {
+            const data = JSON.parse(fs.readFileSync(path.join(root, name), "utf8"));
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          function slot(r) {
+            const raw = String(r.pp_slot == null ? "" : r.pp_slot).trim();
+            const hint = String(r.pp_hint == null ? "" : r.pp_hint);
+            const delivery = Number(r.delivery_slot) || 0;
+            const frac = raw.match(/^(\d+)\s*\/\s*(\d+)$/);
+            if (frac) return Number(frac[1]);
+            const h = hint.match(/пп\s*([12])/i);
+            if (h && Number(h[1]) === 2 && (raw === "1" || delivery === 1)) return 2;
+            if (delivery) return delivery;
+            if (raw === "1" || raw === "2") return Number(raw);
+            if (h) return Number(h[1]);
+            return 0;
+          }
+          let monday = "";
+          try {
+            const payload = JSON.parse(rows("pointer.json")[0].payload);
+            const hit = (payload.items || []).find((it) => it && it.day === "Понедельник");
+            monday = hit ? hit.date : "";
+          } catch (e) { monday = ""; }
+          const pp = rows("pp.json").map((r) => ({
+            client: r.client,
+            date: r.date_iso,
+            day: r.day_name,
+            segment: r.segment,
+            slot: slot(r),
+            ppSlot: r.pp_slot,
+            hint: r.pp_hint,
+            paid: r.paid,
+            price: r.price,
+            basket: r.basket_n
+          }));
+          const pp2 = pp.filter((r) => r.slot >= 2);
+          const brief = { monday, pp: pp.length, pp2 };
+          fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
+          fs.rmSync(path.join(root, "pointer.json"), { force: true });
+          fs.rmSync(path.join(root, "pp.json"), { force: true });
+          console.log(JSON.stringify(brief, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pp2-week
+          path: artifacts/pp2-week
+          if-no-files-found: error

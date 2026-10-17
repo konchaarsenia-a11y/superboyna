@@ -1,0 +1,133 @@
+name: bp-19-read
+# Снимок закрытия и текущие заказы 12–26.10. Только чтение. Неделю не двигает.
+
+on:
+  push:
+    paths:
+      - .github/workflows/bp-19-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read backup and current week
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/bp-19/raw"
+          python3 - <<'PY'
+          import os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/bp-19/raw"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+
+          run("SELECT cache_key, updated_at, length(payload) AS n FROM snap_cache WHERE cache_key LIKE 'weekCloseBackup:2026-10-12%' OR cache_key IN ('weekDayCounts','weekDayCountsSheet','dateToDay')", "keys")
+          run("SELECT cache_key, payload FROM snap_cache WHERE cache_key LIKE 'weekCloseBackup:2026-10-12%'", "backup")
+          run(
+              "SELECT id, client, match_key, date_iso, day_name, status, segment, source, length(basket_json) AS basket_n FROM orders",
+              "orders"
+          )
+          run("SELECT match_key, nick, status, sheet, n FROM subs", "subs")
+          run("SELECT key, value FROM meta WHERE key = 'stage_c_formula_ok' OR key LIKE 'week_finished%' OR key LIKE 'WEEK_FINISHED%'", "meta")
+          print("ok")
+          PY
+          node <<'JS'
+          const fs = require("fs");
+          const path = require("path");
+          const root = path.join(process.env.GITHUB_WORKSPACE, "artifacts/bp-19");
+          const raw = path.join(root, "raw");
+          function rows(name) {
+            const data = JSON.parse(fs.readFileSync(path.join(raw, name), "utf8"));
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          const keys = rows("keys.json").map((r) => ({ key: r.cache_key, updated: r.updated_at, n: r.n }));
+          let backup = null;
+          let backupKey = "";
+          rows("backup.json").forEach((r) => {
+            let payload = null;
+            try { payload = JSON.parse(r.payload || "null"); } catch (e) { payload = null; }
+            if (!backup || String(r.cache_key) > backupKey) {
+              backup = payload;
+              backupKey = r.cache_key;
+            }
+          });
+          const orders = rows("orders.json").map((r) => ({
+            id: r.id, client: r.client, key: r.match_key, date: r.date_iso, day: r.day_name,
+            status: r.status, segment: r.segment, source: r.source, basket: Number(r.basket_n) || 0
+          }));
+          const before = ((backup && backup.orders) || []).map((r) => ({
+            id: r.id, client: r.client, key: r.match_key, date: r.date_iso, day: r.day_name, status: r.status
+          }));
+          const nowById = {};
+          orders.forEach((o) => { nowById[o.id] = o; });
+          const lost = [];
+          const changed = [];
+          before.forEach((o) => {
+            const cur = nowById[o.id];
+            if (!cur) {
+              lost.push(o);
+              return;
+            }
+            if (cur.status !== o.status || cur.date !== o.date || cur.day !== o.day) {
+              changed.push({ id: o.id, client: o.client, key: o.key, before: o, after: { status: cur.status, date: cur.date, day: cur.day, basket: cur.basket, segment: cur.segment } });
+            }
+          });
+          function activeOn(list, from, to) {
+            const m = {};
+            list.filter((o) => String(o.status) === "active" && String(o.date) >= from && String(o.date) <= to).forEach((o) => {
+              if (!m[o.date]) m[o.date] = [];
+              m[o.date].push(o.client + " [" + (o.day || "") + "]");
+            });
+            Object.keys(m).forEach((d) => m[d].sort());
+            return m;
+          }
+          const brief = {
+            backupKey,
+            backupAt: backup && backup.at,
+            backupOrders: before.length,
+            backupSubs: backup && backup.subs ? backup.subs.length : 0,
+            backupSlots: backup && backup.slots,
+            keys,
+            meta: rows("meta.json"),
+            orderRows: orders.length,
+            lost,
+            changed,
+            calendarBefore: activeOn(before, "2026-10-19", "2026-10-25"),
+            calendarNow: activeOn(orders, "2026-10-19", "2026-10-25"),
+            sashin: orders.filter((o) => /sashin|pushok/i.test(String(o.client || "") + String(o.key || "") + String(o.id || "")))
+          };
+          fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
+          fs.rmSync(raw, { recursive: true, force: true });
+          console.log(JSON.stringify({
+            backupKey,
+            lost: lost.length,
+            changed: changed.length,
+            calendarNow: brief.calendarNow,
+            sashin: brief.sashin
+          }));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bp-19-brief
+          path: artifacts/bp-19/brief.json

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 import {
   applyWeekClosePlan_,
   planWeekCloseD1_,
@@ -9,7 +10,8 @@ import {
   weekCloseCanonNative_,
   weekCloseClientCounts_,
   weekCloseCountsEqual_,
-  weekCloseNickDiff_
+  weekCloseNickDiff_,
+  weekCloseSlotAction_
 } from "../proxy/week-close-d1.js";
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"];
@@ -119,6 +121,84 @@ test("повтор не создаёт вторую строку того же �
   const wed = after.filter(function (o) { return o.day === "Среда"; });
   assert.equal(wed.length, 1);
   assert.equal(after.length, 2);
+});
+
+test("позднюю дату слота не тянет назад", function () {
+  const both = { "2026-10-12": "Понедельник", "2026-10-19": "Будущая неделя" };
+  assert.equal(weekCloseSlotAction_("2026-10-19", "2026-10-12", both), "keep");
+  assert.equal(weekCloseSlotAction_("19.10.2026", "12.10.2026", both), "keep");
+  assert.equal(weekCloseSlotAction_("2026-10-14", "2026-10-15", { "2026-10-14": "Среда", "2026-10-15": "Четверг" }), "stamp_slot");
+  assert.equal(weekCloseSlotAction_("2026-10-12", "2026-10-19", { "2026-10-19": "Понедельник" }), "detach");
+  assert.equal(weekCloseSlotAction_("2026-10-19", "2026-10-19", both), "keep");
+  assert.equal(weekCloseSlotAction_("", "2026-10-19", both), "stamp_empty");
+});
+
+test("закрытие пишет указатель до смены дней и откатывает состав", function () {
+  const src = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
+  const start = src.indexOf("async function closeWeekInD1_(");
+  const end = src.indexOf("// deploy bump", start);
+  const body = src.slice(start, end);
+  const pointer = body.indexOf("publishWeekClosePointer_");
+  const update = body.indexOf("UPDATE orders SET day_name");
+  const check = body.indexOf("weekCloseNickDiff_");
+  const lock = body.lastIndexOf('week_finished:"');
+  assert.ok(pointer > 0 && pointer < update);
+  assert.ok(update < check);
+  assert.ok(check < lock);
+  assert.ok(body.includes("rollbackWeekClose_"));
+  assert.ok(body.includes("close_rolled_back"));
+});
+
+test("на месяце нет кнопки Новый заказ", async function () {
+  const docks = [];
+  const sandbox = {
+    console,
+    setTimeout,
+    clearTimeout,
+    Promise,
+    Date,
+    Object,
+    Array,
+    String,
+    Number,
+    Math,
+    JSON,
+    isFinite
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  sandbox.BoinyaWeekLogic = {
+    monthPeopleReady() { return false; },
+    dayLoadMark() { return ""; },
+    FULL_FROM: 8,
+    countPpSlots() { return { pp1: 0, pp2: 0 }; },
+    revenueSum() { return 0; },
+    peopleForDate() { return []; },
+    countFromMonth() { return 0; },
+    stampPpPay() {},
+    currentWeekKey() { return "2026-10-19"; },
+    finishBannerState() { return {}; }
+  };
+  sandbox.BoinyaShell = {
+    esc(s) { return String(s == null ? "" : s); },
+    dock(html) { docks.push(String(html || "")); },
+    main() {},
+    skeleton() { return ""; },
+    errorBox() { return ""; },
+    empty() { return ""; }
+  };
+  sandbox.BoinyaApi = {
+    apiGet() { return Promise.resolve({ status: "success", items: [], days: [] }); }
+  };
+  sandbox.BoinyaOrders = {};
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(new URL("./week.js", import.meta.url), "utf8"), sandbox, { filename: "week.js" });
+  sandbox.BoinyaWeek.show("month", "");
+  assert.ok(docks.length > 0);
+  assert.equal(docks[docks.length - 1].includes("Новый заказ"), false);
+  sandbox.BoinyaWeek.setDay("Понедельник");
+  sandbox.BoinyaWeek.paint();
+  assert.match(docks[docks.length - 1], /Новый заказ/);
 });
 
 test("кнопка не зовёт таблицу и не пересинхронизирует лист", function () {
