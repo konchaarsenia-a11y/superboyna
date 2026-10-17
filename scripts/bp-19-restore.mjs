@@ -255,13 +255,8 @@ function main() {
     if (sql.length) runSql(sql.join(";\n") + ";\n", "revert-pointer", root);
   }
 
-  const rough = DAYS.map(function (d) {
-    return { day: d[0], short: d[1], date: d[2].slice(8) + "." + d[2].slice(5, 7) + "." + d[2].slice(0, 4), count: 0, dateIso: d[2] };
-  });
   let moved = false;
   try {
-  runSql(pointerSql(rough), "pointer-first", root);
-  moved = true;
 
   const dayCase = Object.keys(WEEKDAY).map(function (iso) {
     return "WHEN '" + iso + "' THEN '" + WEEKDAY[iso] + "'";
@@ -274,14 +269,11 @@ function main() {
       "WHERE status = 'active' AND match_key = 'SASHINPUSHOK' AND date_iso IN ('2026-10-12','2026-10-19') " +
       "AND id IN ('Будущая неделя:SASHINPUSHOK','Понедельник:SASHINPUSHOK','CAL:SASHINPUSHOK:2026-10-12');\n" +
       "UPDATE orders SET day_name = CASE date_iso " + dayCase + " ELSE day_name END, updated_at = '" + q(stamp) + "' " +
-      "WHERE status = 'active' AND date_iso BETWEEN '2026-10-19' AND '2026-10-25' AND ifnull(day_name,'') IN ('','Будущая неделя') " +
-      "AND NOT (upper(ifnull(segment,'')) IN ('ПП','АФК','PP') AND (" +
-      "json_extract(meta_json, '$.deliverySlot') = 2 OR json_extract(meta_json, '$.deliverySlot') = '2' " +
-      "OR json_extract(meta_json, '$.ppSlot') = '2' OR json_extract(meta_json, '$.ppSlot') LIKE '2/%' " +
-      "OR json_extract(meta_json, '$.ppHint') LIKE '%ПП 2%' OR json_extract(meta_json, '$.ppHint') LIKE '%ПП2%'));\n",
+      "WHERE status = 'active' AND date_iso BETWEEN '2026-10-19' AND '2026-10-25' AND ifnull(day_name,'') IN ('','Будущая неделя');\n",
     "restore-orders",
     root
   );
+  moved = true;
 
   const afterOrders = rowsOf(runSql(ordersSql, "after-orders", root));
   const counts = Object.create(null);
@@ -344,9 +336,11 @@ function main() {
   pp2After.forEach(function (r) { ppById[r.id] = r; });
   pp2Before.forEach(function (r) {
     const now = ppById[r.id];
-    if (!now || String(now.updated_at) !== String(r.updated) || String(now.paid) !== String(r.paid) || String(now.basket_n) !== String(r.basket) || String(now.date_iso) !== String(r.date) || String(now.day_name) !== String(r.day)) {
-      ppTouched.push(r.id);
-    }
+    const iso = coerceIso(r.date);
+    const moneyOk = now && String(now.paid) === String(r.paid) && String(now.price) === String(r.price) && String(now.basket_n) === String(r.basket) && String(now.pp_slot) === String(r.slot) && String(now.date_iso) === String(r.date);
+    let dayOk = now && String(now.day_name || "") === String(r.day || "");
+    if (!dayOk && now && WEEKDAY[iso] && String(r.day || "") === "" && String(now.day_name || "") === WEEKDAY[iso]) dayOk = true;
+    if (!moneyOk || !dayOk) ppTouched.push(r.id);
   });
   const deletedOk = watch.filter(function (r) {
     return r.id === "CAL:SASHINPUSHOK:2026-10-15" || r.id === "imp:15.10.2026:SASHINPUSHOK";

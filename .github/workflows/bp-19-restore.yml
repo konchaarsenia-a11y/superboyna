@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   restore:
@@ -23,6 +24,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Wait until this SHA is the live worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/week-close-dupes-wait-deploy.py
       - name: Restore 19.10 and keep the pointer
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
