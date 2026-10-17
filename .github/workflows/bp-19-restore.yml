@@ -24,10 +24,43 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Wait until this SHA is the live worker
+      - name: Wait if this SHA is still deploying the worker
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/week-close-dupes-wait-deploy.py
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          url = "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha)
+          names = {"boinya-c-worker", "boinya-c-worker-deploy"}
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          deadline = time.time() + 90
+          while True:
+              req = urllib.request.Request(url, headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "bp-19-restore",
+              })
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  runs = json.load(resp).get("workflow_runs") or []
+              hit = [r for r in runs if (r.get("name") or "") in names]
+              if not hit:
+                  print("на этом SHA деплоя нет, воркер уже с прошлой выкладки")
+                  break
+              if any((r.get("status") in active) for r in hit):
+                  if time.time() > deadline:
+                      raise SystemExit("деплой воркера не успел")
+                  print("жду деплой")
+                  time.sleep(15)
+                  continue
+              bad = [r for r in hit if (r.get("conclusion") or "") != "success"]
+              if bad:
+                  raise SystemExit("деплой воркера не успешный")
+              print("воркер этого SHA задеплоен")
+              break
+          PY
       - name: Restore 19.10 and keep the pointer
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
