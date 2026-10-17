@@ -109,6 +109,9 @@ function rowsOf(data) {
   blocks.forEach(function (b) {
     if (b && Array.isArray(b.results)) out.push.apply(out, b.results);
   });
+  if (out.length && out[0] && Object.prototype.hasOwnProperty.call(out[0], "Total queries executed")) {
+    throw new Error("wrangler вернул статистику, не строки");
+  }
   return out;
 }
 
@@ -121,14 +124,20 @@ function changesOf(data) {
   return n;
 }
 
-function runSql(sql, name, dir) {
+function runSql(sql, name, dir, asFile) {
   const file = path.join(dir, name + ".sql");
-  fs.writeFileSync(file, sql, "utf8");
+  const cmd = ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json"];
+  if (asFile) {
+    fs.writeFileSync(file, sql, "utf8");
+    cmd.push("--file", file);
+  } else {
+    cmd.push("--command", sql);
+  }
   const out = path.join(dir, name + ".json");
   const res = spawnSync(
     "npx",
-    ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--file", file],
-    { cwd: path.join(process.cwd(), "boinya-c/proxy"), encoding: "utf8", env: process.env }
+    cmd,
+    { cwd: path.join(process.cwd(), "boinya-c/proxy"), encoding: "utf8", env: process.env, maxBuffer: 64 * 1024 * 1024 }
   );
   fs.writeFileSync(out, res.stdout || "", "utf8");
   if (res.status !== 0) {
@@ -165,17 +174,23 @@ function main() {
   const beforePp = rowsOf(runSql(ppSql, "before-pp", root));
   const beforeSubs = rowsOf(runSql("SELECT match_key, nick, status, sheet, n FROM subs", "before-subs", root));
   const slotRows = rowsOf(runSql(
-    "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN ('weekDayCounts','dateToDay') OR cache_key = '" + q(BACKUP_KEY) + "'",
+    "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN ('weekDayCounts','dateToDay') OR cache_key LIKE 'weekCloseBackup:2026-10-12%'",
     "before-snaps",
     root
   ));
   let backup = null;
+  let backupKeySeen = "";
   let prevCounts = null;
   let prevMap = null;
   slotRows.forEach(function (r) {
     let payload = null;
     try { payload = JSON.parse(r.payload || "null"); } catch (e) { payload = null; }
-    if (r.cache_key === BACKUP_KEY) backup = payload;
+    if (String(r.cache_key || "").indexOf("weekCloseBackup:2026-10-12") === 0) {
+      if (!backup || String(r.cache_key) > String(backupKeySeen)) {
+        backup = payload;
+        backupKeySeen = r.cache_key;
+      }
+    }
     if (r.cache_key === "weekDayCounts") prevCounts = payload;
     if (r.cache_key === "dateToDay") prevMap = payload;
   });
@@ -208,7 +223,8 @@ function main() {
       "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES ('" + q(key) + "', '" + q(JSON.stringify(part)) + "', '" + q(stamp) + "') " +
         "ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
       "pre-snap-" + String(i / chunkSize),
-      root
+      root,
+      true
     );
   }
 
@@ -255,7 +271,7 @@ function main() {
     if (prevMap) {
       sql.push("UPDATE snap_cache SET payload = '" + q(JSON.stringify(prevMap)) + "', updated_at = '" + q(stamp) + "' WHERE cache_key = 'dateToDay'");
     }
-    if (sql.length) runSql(sql.join(";\n") + ";\n", "revert-pointer", root);
+    if (sql.length) runSql(sql.join(";\n") + ";\n", "revert-pointer", root, true);
   }
 
   let moved = false;
@@ -274,7 +290,8 @@ function main() {
       "UPDATE orders SET day_name = CASE date_iso " + dayCase + " ELSE day_name END, updated_at = '" + q(stamp) + "' " +
       "WHERE status = 'active' AND date_iso BETWEEN '2026-10-19' AND '2026-10-25' AND ifnull(day_name,'') IN ('','Будущая неделя');\n",
     "restore-orders",
-    root
+    root,
+    true
   );
   moved = true;
 
@@ -295,7 +312,7 @@ function main() {
       dateIso: iso
     };
   });
-  runSql(pointerSql(items), "pointer-counts", root);
+  runSql(pointerSql(items), "pointer-counts", root, true);
 
   const afterPp = rowsOf(runSql(ppSql, "after-pp", root));
   const afterSubs = rowsOf(runSql("SELECT match_key, nick, status, sheet, n FROM subs", "after-subs", root));
@@ -409,7 +426,7 @@ function main() {
         "UPDATE snap_cache SET payload = '" + q(JSON.stringify(prevMap)) + "', updated_at = '" + q(stamp) + "' WHERE cache_key = 'dateToDay'"
       );
     }
-    if (revert.length) runSql(revert.join(";\n") + ";\n", "revert", root);
+    if (revert.length) runSql(revert.join(";\n") + ";\n", "revert", root, true);
     console.error(JSON.stringify(report, null, 2));
     process.exit(1);
   }
@@ -432,7 +449,7 @@ function main() {
             "UPDATE orders SET date_iso = '" + q(b.date_iso) + "', day_name = '" + q(b.day_name) + "', status = '" + q(b.status) + "', updated_at = '" + q(b.updated_at) + "' WHERE id = '" + q(b.id) + "'"
           );
         });
-        if (sql.length) runSql(sql.join(";\n") + ";\n", "catch-revert", root);
+        if (sql.length) runSql(sql.join(";\n") + ";\n", "catch-revert", root, true);
         revertPointer();
       } catch (eBack) {}
     }
