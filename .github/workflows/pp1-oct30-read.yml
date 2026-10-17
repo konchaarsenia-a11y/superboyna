@@ -1,0 +1,110 @@
+name: pp1-oct30-read
+
+# Запись на 30.10 и её цена. Только чтение. Заказы не меняет.
+
+on:
+  push:
+    paths:
+      - .github/workflows/pp1-oct30-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read Oct 30 order price
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/pp1-oct30"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCounts'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/pointer.json"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT id, client, match_key, date_iso, day_name, status, segment, source, updated_at, length(ifnull(basket_json,'')) AS basket_n, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.statedCost') AS stated, json_extract(meta_json, '\$.factCost') AS fact, json_extract(meta_json, '\$.clientPrice') AS client_price, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.ppHint') AS pp_hint, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.orderType') AS order_type, json_extract(meta_json, '\$.paid') AS paid FROM orders WHERE date_iso = '2026-10-30' OR (updated_at >= '2026-10-17T15:45:00' AND updated_at < '2026-10-17T16:40:00' AND date_iso >= '2026-10-26')" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/orders.json"
+          node <<'JS'
+          const fs = require("fs");
+          const path = require("path");
+          const { execFileSync } = require("child_process");
+          const root = path.join(process.env.GITHUB_WORKSPACE, "artifacts/pp1-oct30");
+          function rowsOf(raw) {
+            const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          function rows(name) {
+            return rowsOf(fs.readFileSync(path.join(root, name), "utf8"));
+          }
+          let monday = "";
+          try {
+            const payload = JSON.parse(rows("pointer.json")[0].payload);
+            const hit = (payload.items || []).find((it) => it && it.day === "Понедельник");
+            monday = hit ? hit.date : "";
+          } catch (e) { monday = ""; }
+          const orders = rows("orders.json").map((r) => ({
+            id: r.id,
+            client: r.client,
+            match_key: r.match_key,
+            date: r.date_iso,
+            day: r.day_name,
+            status: r.status,
+            segment: r.segment,
+            source: r.source,
+            updated_at: r.updated_at,
+            basket_n: r.basket_n,
+            price: r.price,
+            stated: r.stated,
+            fact: r.fact,
+            client_price: r.client_price,
+            pp_slot: r.pp_slot,
+            pp_hint: r.pp_hint,
+            delivery_slot: r.delivery_slot,
+            deliveries_n: r.deliveries_n,
+            order_type: r.order_type,
+            paid: r.paid
+          }));
+          const keys = [...new Set(orders.map((r) => r.match_key).filter(Boolean))];
+          let subs = [];
+          if (keys.length) {
+            const list = keys.map((k) => "'" + String(k).replace(/'/g, "''") + "'").join(",");
+            const sql = "SELECT id, match_key, nick, sheet, status, price, n, length(ifnull(basket_json,'')) AS basket_n, updated_at FROM subs WHERE match_key IN (" + list + ")";
+            const raw = execFileSync("npx", ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql], {
+              cwd: process.cwd(),
+              encoding: "utf8",
+              maxBuffer: 32 * 1024 * 1024
+            });
+            subs = rowsOf(raw).map((s) => ({
+              id: s.id,
+              match_key: s.match_key,
+              nick: s.nick,
+              sheet: s.sheet,
+              status: s.status,
+              price: s.price,
+              n: s.n,
+              basket_n: s.basket_n,
+              updated_at: s.updated_at
+            }));
+          }
+          const brief = { monday, orders, subs };
+          fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
+          fs.rmSync(path.join(root, "pointer.json"), { force: true });
+          fs.rmSync(path.join(root, "orders.json"), { force: true });
+          console.log(JSON.stringify(brief, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pp1-oct30
+          path: artifacts/pp1-oct30
+          if-no-files-found: error
