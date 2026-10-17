@@ -31,7 +31,9 @@ jobs:
           fi
           mkdir -p "$GITHUB_WORKSPACE/artifacts/pp1-oct30"
           npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCounts'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/pointer.json"
-          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT id, client, match_key, date_iso, day_name, status, segment, source, updated_at, length(ifnull(basket_json,'')) AS basket_n, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.statedCost') AS stated, json_extract(meta_json, '\$.factCost') AS fact, json_extract(meta_json, '\$.clientPrice') AS client_price, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.ppHint') AS pp_hint, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.orderType') AS order_type, json_extract(meta_json, '\$.paid') AS paid FROM orders WHERE date_iso = '2026-10-30' OR (updated_at >= '2026-10-17T15:45:00' AND updated_at < '2026-10-17T16:40:00' AND date_iso >= '2026-10-26')" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/orders.json"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT id, client, match_key, date_iso, day_name, status, segment, source, updated_at, length(ifnull(basket_json,'')) AS basket_n, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.statedCost') AS stated, json_extract(meta_json, '\$.factCost') AS fact, json_extract(meta_json, '\$.clientPrice') AS client_price, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.ppHint') AS pp_hint, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.orderType') AS order_type, json_extract(meta_json, '\$.paid') AS paid FROM orders WHERE match_key = 'ALINAGIDAYATHANOVA' OR date_iso = '2026-10-30'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/orders.json"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT json_extract(j.value, '\$.factCost') AS fact, json_extract(j.value, '\$.statedCost') AS stated, json_extract(j.value, '\$.deliveries') AS deliveries, json_extract(j.value, '\$.clientPrice') AS client_price, json_extract(j.value, '\$.price') AS price, json_extract(j.value, '\$.scheme') AS scheme, json_extract(j.value, '\$.sheet') AS sheet, json_extract(j.value, '\$.status') AS status FROM snap_cache, json_each(json_extract(payload, '\$.subscriptions')) AS j WHERE cache_key = 'listSubscriptions' AND upper(replace(replace(ifnull(json_extract(j.value, '\$.nick'),''), '.', ''), '_', '')) LIKE '%ALINAGIDAYATHANOVA%'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/sub.json"
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT json_extract(j.value, '\$.name') AS name, json_extract(j.value, '\$.main') AS main, json_extract(j.value, '\$.sub') AS sub, json_extract(j.value, '\$.cat') AS cat, json_extract(j.value, '\$.val') AS val, json_extract(j.value, '\$.value') AS value, json_extract(j.value, '\$.dog') AS dog FROM orders, json_each(basket_json) AS j WHERE id = 'CAL:ALINAGIDAYATHANOVA:2026-10-30'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/basket.json"
           node <<'JS'
           const fs = require("fs");
           const path = require("path");
@@ -97,10 +99,19 @@ jobs:
               updated_at: s.updated_at
             }));
           }
-          const brief = { monday, orders, subs };
+          const card = rows("sub.json");
+          const basket = rows("basket.json").map((b) => ({
+            name: b.name || b.main || "",
+            sub: b.sub || "",
+            cat: b.cat || "",
+            val: b.val != null ? b.val : b.value,
+            dog: b.dog || 0
+          }));
+          const brief = { monday, orders, subs, card, basket };
           fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
-          fs.rmSync(path.join(root, "pointer.json"), { force: true });
-          fs.rmSync(path.join(root, "orders.json"), { force: true });
+          ["pointer.json", "orders.json", "sub.json", "basket.json"].forEach((n) => {
+            fs.rmSync(path.join(root, n), { force: true });
+          });
           console.log(JSON.stringify(brief, null, 2));
           JS
       - uses: actions/upload-artifact@v4
