@@ -25,15 +25,32 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             unset CLOUDFLARE_ACCOUNT_ID
           fi
           mkdir -p "$GITHUB_WORKSPACE/artifacts/pp1-oct30"
-          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCounts'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/pointer.json"
-          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT id, client, match_key, date_iso, day_name, status, segment, source, updated_at, length(ifnull(basket_json,'')) AS basket_n, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.statedCost') AS stated, json_extract(meta_json, '\$.factCost') AS fact, json_extract(meta_json, '\$.clientPrice') AS client_price, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.ppHint') AS pp_hint, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.orderType') AS order_type, json_extract(meta_json, '\$.paid') AS paid FROM orders WHERE match_key = 'ALINAGIDAYATHANOVA' OR date_iso = '2026-10-30'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/orders.json"
-          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT json_extract(j.value, '\$.factCost') AS fact, json_extract(j.value, '\$.statedCost') AS stated, json_extract(j.value, '\$.deliveries') AS deliveries, json_extract(j.value, '\$.clientPrice') AS client_price, json_extract(j.value, '\$.price') AS price, json_extract(j.value, '\$.scheme') AS scheme, json_extract(j.value, '\$.sheet') AS sheet, json_extract(j.value, '\$.status') AS status FROM snap_cache, json_each(json_extract(payload, '\$.subscriptions')) AS j WHERE cache_key = 'listSubscriptions' AND upper(replace(replace(ifnull(json_extract(j.value, '\$.nick'),''), '.', ''), '_', '')) LIKE '%ALINAGIDAYATHANOVA%'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/sub.json"
-          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT json_extract(j.value, '\$.name') AS name, json_extract(j.value, '\$.main') AS main, json_extract(j.value, '\$.sub') AS sub, json_extract(j.value, '\$.cat') AS cat, json_extract(j.value, '\$.val') AS val, json_extract(j.value, '\$.value') AS value, json_extract(j.value, '\$.dog') AS dog FROM orders, json_each(basket_json) AS j WHERE id = 'CAL:ALINAGIDAYATHANOVA:2026-10-30'" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/basket.json"
+          q() {
+            local name="$1"
+            local sql="$2"
+            echo "---- $name"
+            set +e
+            npx wrangler@4 d1 execute boinya-c --remote --json --command "$sql" > "$GITHUB_WORKSPACE/artifacts/pp1-oct30/$name.json" 2> "$GITHUB_WORKSPACE/artifacts/pp1-oct30/$name.err"
+            local code=$?
+            set -e
+            echo "exit=$code bytes=$(wc -c < "$GITHUB_WORKSPACE/artifacts/pp1-oct30/$name.json" | tr -d ' ')"
+            if [ "$code" -ne 0 ]; then
+              echo "STDERR:"
+              cat "$GITHUB_WORKSPACE/artifacts/pp1-oct30/$name.err" || true
+              echo "STDOUT:"
+              head -c 1500 "$GITHUB_WORKSPACE/artifacts/pp1-oct30/$name.json" || true
+              echo
+            fi
+            return 0
+          }
+          q pointer "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCounts'"
+          q orders "SELECT id, client, match_key, date_iso, day_name, status, segment, source, updated_at, length(ifnull(basket_json,'')) AS basket_n, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.statedCost') AS stated, json_extract(meta_json, '\$.factCost') AS fact, json_extract(meta_json, '\$.clientPrice') AS client_price, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.ppHint') AS pp_hint, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.orderType') AS order_type, json_extract(meta_json, '\$.paid') AS paid FROM orders WHERE match_key = 'ALINAGIDAYATHANOVA'"
+          q basket "SELECT json_extract(j.value, '\$.name') AS name, json_extract(j.value, '\$.main') AS main, json_extract(j.value, '\$.sub') AS sub, json_extract(j.value, '\$.cat') AS cat, json_extract(j.value, '\$.val') AS val, json_extract(j.value, '\$.value') AS value, json_extract(j.value, '\$.dog') AS dog FROM orders, json_each(basket_json) AS j WHERE id = 'CAL:ALINAGIDAYATHANOVA:2026-10-30'"
           node <<'JS'
           const fs = require("fs");
           const path = require("path");
@@ -99,18 +116,21 @@ jobs:
               updated_at: s.updated_at
             }));
           }
-          const card = rows("sub.json");
-          const basket = rows("basket.json").map((b) => ({
+          let card = [];
+          try { card = rows("sub.json"); } catch (eCard) { card = [{ error: String(eCard.message || eCard) }]; }
+          let basket = [];
+          try { basket = rows("basket.json").map((b) => ({
             name: b.name || b.main || "",
             sub: b.sub || "",
             cat: b.cat || "",
             val: b.val != null ? b.val : b.value,
             dog: b.dog || 0
           }));
+          } catch (eBasket) { basket = [{ error: String(eBasket.message || eBasket) }]; }
           const brief = { monday, orders, subs, card, basket };
           fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
-          ["pointer.json", "orders.json", "sub.json", "basket.json"].forEach((n) => {
-            fs.rmSync(path.join(root, n), { force: true });
+          fs.readdirSync(root).forEach((n) => {
+            if (n !== "brief.json") fs.rmSync(path.join(root, n), { force: true });
           });
           console.log(JSON.stringify(brief, null, 2));
           JS
