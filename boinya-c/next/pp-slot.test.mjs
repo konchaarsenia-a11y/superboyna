@@ -134,16 +134,22 @@ test("ПП1 оплачено — на ПП2 оплату не спрашивае
   }), true);
 });
 
-test("ПП1 не оплачено или без отметки — на ПП2 спрашиваем", function () {
+test("ПП2 не спрашивает оплату: она входит в первую доставку", function () {
   assert.equal(L.courierShouldAskPaid({
     segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "no"
-  }), true);
+  }), false);
   assert.equal(L.courierShouldAskPaid({
     segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: ""
-  }), true);
+  }), false);
   assert.equal(L.courierShouldAskPaid({
     segment: "ПП", deliveriesN: 2, deliverySlot: 2, paid: ""
-  }), true);
+  }), false);
+  assert.equal(L.courierStopMoney({
+    segment: "ПП", deliveriesN: 2, ppSlot: "2/2", orderPrice: 80, paid: "yes"
+  }), null);
+  assert.equal(L.courierStopMoney({
+    segment: "ПП", deliveriesN: 2, ppSlot: "2/2", orderPrice: 80, paid: ""
+  }), null);
 });
 
 test("одна доставка ПП и розница спрашивают, БП нет, своя оплата закрывает вопрос", function () {

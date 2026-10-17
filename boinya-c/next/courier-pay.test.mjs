@@ -80,6 +80,27 @@ test("экран курьера считает выплату и не стави
   assert.equal(sandbox.BoinyaProduction.previewRoutePay_(cards), html);
 });
 
+test("ПП2 не входит в сбор и не спрашивает оплату, выплата за карточку остаётся", () => {
+  const L = require("./week-logic.js");
+  const pp1 = { segment: "ПП", deliveriesN: 2, ppSlot: "1/2", orderPrice: 70, paid: "", delivered: true };
+  const pp2 = {
+    segment: "ПП",
+    deliveriesN: 2,
+    ppSlot: "2/2",
+    deliverySlot: 2,
+    orderPrice: 80,
+    paid: "yes",
+    siblingPaid: "no",
+    delivered: true
+  };
+  const retail = { segment: "Р", orderPrice: 9, delivered: false };
+  assert.equal(L.courierShouldAskPaid(pp2), false);
+  assert.equal(L.courierShouldAskPaid(pp1), true);
+  assert.equal(L.courierStopMoney(pp2), null);
+  assert.equal(L.courierCollectSum([pp1, pp2, retail]), 79);
+  assert.equal(F.courierDayPayOf_([pp1, pp2, retail]), 8);
+});
+
 test("статистика показывает ту же дорогу как выплату", () => {
   assert.match(statsSrc, /line\("Выплата", now \? moneyText\(now\.road\)/);
   assert.match(statsSrc, /4 BYN на каждую отвезено доставку/);

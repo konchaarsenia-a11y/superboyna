@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Курьер: ПП2 смотрит оплату ПП1; почта — трек без вопроса об оплате.
+ * Курьер: ПП2 не спрашивает оплату; почта — трек без вопроса об оплате.
  */
 "use strict";
 
@@ -59,9 +59,9 @@ const pick = sandbox.pickSiblingPpPaid_;
 const text = sandbox.mailTrackClientTextD1_;
 const remind = sandbox.mailPayRemindAtMs_;
 
-ok(ask({ segment: "ПП", deliveriesN: 2, deliverySlot: 2, siblingPaid: "yes", paid: "" }) === false, "ПП1 yes → ПП2 без вопроса");
-ok(ask({ segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "no" }) === true, "ПП1 no → ПП2 спрашивает");
-ok(ask({ segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "" }) === true, "ПП1 пусто → ПП2 спрашивает");
+ok(ask({ segment: "ПП", deliveriesN: 2, deliverySlot: 2, siblingPaid: "yes", paid: "" }) === false, "ПП2 без вопроса, даже если ПП1 оплачен");
+ok(ask({ segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "no" }) === false, "ПП1 no → ПП2 всё равно без вопроса");
+ok(ask({ segment: "ПП", deliveriesN: 2, ppSlot: "2/2", siblingPaid: "" }) === false, "ПП1 пусто → ПП2 всё равно без вопроса");
 ok(ask({ segment: "ПП", deliveriesN: 1, ppSlot: "1" }) === true, "одна доставка спрашивает");
 ok(ask({ segment: "Р", source: "retail" }) === true, "розница спрашивает");
 ok(ask({ segment: "БП", source: "bp" }) === false, "БП не спрашивает");

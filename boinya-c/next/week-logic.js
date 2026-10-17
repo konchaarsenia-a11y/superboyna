@@ -491,23 +491,22 @@
     return 0;
   }
 
-  /* Курьер сегодня: та же оплата, что в статистике (цена один раз, на слоте оплаты).
-     Слот 2+ входит только если оплата отмечена на этой доставке.
-     Пустой слот 2 — оплата на другом слоте, сумму не показываем.
-     paid=no в сумму не входит. БП и партнёр курьеру не платят. Розница платит здесь. */
+  /* Курьер сегодня: цена на первой доставке. Слот 2+ в сбор не входит —
+     оплата второй доставки уже внутри первой. paid=no не входит.
+     БП и партнёр курьеру не платят. Розница платит здесь. */
   function courierStopMoney(c) {
     if (!c) return null;
     var ot = "";
     try { ot = resolveOrderType(c); } catch (eOt) { ot = ""; }
     if (!ot && isPpRow_(c)) ot = "pp";
     if (ot === "bp" || ot === "partner") return null;
+    var slot = courierPaySlot_(c);
+    if (ot === "pp" && slot >= 2) return null;
     var money = orderMoney_(c);
     if (money == null || !(money > 0)) return null;
     if (ot !== "pp") return money;
     var paid = paidFlag_(c);
     if (paid === "no") return null;
-    var slot = courierPaySlot_(c);
-    if (slot >= 2) return paid === "yes" ? money : null;
     return money;
   }
 
@@ -542,8 +541,7 @@
 
   /* «Оплачено?» при «доставлено».
      Почта — нет. Одна доставка и ПП1 — да, пока на этой доставке не paid=yes.
-     ПП2 — нет, только если на ПП1 уже paid=yes (siblingPaid).
-     ПП1 «не оплачено» или отметки ещё нет — спрашивать.
+     ПП2 не спрашивает: оплата второй доставки входит в первую.
      Розница спрашивает. БП и партнёр — нет. */
   function courierShouldAskPaid(c) {
     if (!c) return false;
@@ -557,13 +555,8 @@
     var isPp = ot === "pp" || seg === "ПП" || seg === "АФК";
     if (isRetail && !isPp) return true;
     if (!isPp) return false;
-    var n = Number(c.deliveriesN) || 0;
     var slot = courierPaySlot_(c);
-    if (n >= 2 && slot >= 2) {
-      var sib = c.siblingPaid == null ? "" : ownPaidFlag_({ paid: c.siblingPaid });
-      if (sib === "yes") return false;
-      return true;
-    }
+    if (slot >= 2) return false;
     if (c.ppPaid === true) return false;
     return true;
   }
@@ -599,6 +592,7 @@
       unknown_action: "Нужен деплой Code.gs с закрытием недели.",
       week_already_finished: "Неделя уже закрыта — повторно нельзя.",
       close_conflict: "Строка изменилась во время закрытия. Неделя не сдвинута. Можно повторить.",
+      close_rolled_back: "Состав новой недели не совпал. Закрытие отменено, неделя не сдвинута. Можно повторить.",
       week_finish_busy: "Перенос уже идёт. Второй раз неделю не сдвинет.",
       week_finish_stale: "Прошлый перенос не подтвердился. Неделя не закрыта.",
       week_finish_schedule_failed: "Не удалось запустить перенос. Неделя не закрыта.",

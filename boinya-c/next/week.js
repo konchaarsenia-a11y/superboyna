@@ -415,6 +415,10 @@
   }
 
   function dock() {
+    if (view.seg === "month") {
+      sh().dock("");
+      return;
+    }
     if (view.seg === "week" && view.drafts.length) {
       sh().dock('<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">Черновик переносов</span><span class="b-sum__v">' + view.drafts.length + "</span></div>" +
         '<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="wdraft-clear">Отмена</button>' +

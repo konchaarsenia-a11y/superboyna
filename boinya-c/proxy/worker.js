@@ -1,4 +1,9 @@
-import { planWeekCloseD1_ } from "./week-close-d1.js";
+import {
+  planWeekCloseD1_,
+  weekCloseCalendarNicks_,
+  weekCloseNickDiff_,
+  weekCloseSlotAction_
+} from "./week-close-d1.js";
 
 /**
  * Бойня C — Worker + D1.
@@ -7008,13 +7013,7 @@ function weekCloseScrubAction_(haveIso, wantIso) {
  * Never remap +7.
  */
 function weekSlotDateAction_(haveIso, wantIso, weekMap) {
-  const have = coerceDateIso_(haveIso);
-  const want = coerceDateIso_(wantIso);
-  if (!want) return "skip";
-  if (!have) return "stamp_empty";
-  if (have === want) return "keep";
-  if (weekMap && weekMap[have] && weekMap[want]) return "stamp_slot";
-  return "detach";
+  return weekCloseSlotAction_(haveIso, wantIso, weekMap);
 }
 
 /** Calendar-only D1 id. Slot id is `Day:mk`; after close-week we must leave Day:mk free. */
@@ -10832,7 +10831,7 @@ function courierSlotNumD1_(c) {
   return 0;
 }
 
-/* ПП2 спрашивает оплату, пока на ПП1 нет paid=yes. Почта не спрашивает. */
+/* ПП2 не спрашивает: оплата второй доставки входит в первую. Почта не спрашивает. */
 function courierAskPaidDecision_(c) {
   if (!c) return false;
   if (courierMailMethodD1_(c)) return false;
@@ -10843,9 +10842,8 @@ function courierAskPaidDecision_(c) {
   const isRetail = seg === "Р" || seg === "РОЗНИЦА" || src === "retail";
   if (isRetail && !isPp) return true;
   if (!isPp) return false;
-  const deliveriesN = Number(c.deliveriesN) || 0;
   const slot = courierSlotNumD1_(c);
-  if (deliveriesN >= 2 && slot >= 2) return normPaidFlagD1_(c.siblingPaid) !== "yes";
+  if (slot >= 2) return false;
   if (c.ppPaid === true) return false;
   return true;
 }
@@ -10918,7 +10916,7 @@ async function enrichCourierClientPp_(c, env, dateIso) {
   }
   if (deliveriesN >= 1) c.deliveriesN = deliveriesN;
   if (deliverySlot >= 1) c.deliverySlot = deliverySlot;
-  // ПП2 спрашивает, пока на ПП1 нет paid=yes. Точный siblingPaid дописывает refreshCourierAskPaid_.
+  // ПП2 не спрашивает и не собирает: оплата входит в первую доставку.
   const mail = courierMailMethodD1_(c);
   if (mail) c.mailMethod = mail;
   c.askPaid = courierAskPaidDecision_(c);
@@ -11511,7 +11509,7 @@ async function siblingPaidFromCourierSnaps_(env, month) {
   return out;
 }
 
-/** На чтении курьера: ПП2 видит paid с заказа ПП1 того же месяца. */
+/** На чтении курьера: ПП2 не спрашивает оплату и не несёт сумму к сбору. */
 async function refreshCourierAskPaid_(env, snap) {
   const clients = (snap && snap.clients) || [];
   if (!clients.length) return snap;
@@ -11569,7 +11567,7 @@ async function refreshCourierAskPaid_(env, snap) {
     }
     c.ppAskReady = true;
     c.askPaid = courierAskPaidDecision_(c);
-    if (n >= 2 && slot >= 2 && normPaidFlagD1_(c.siblingPaid) === "yes") c.orderPrice = "";
+    if (n >= 2 && slot >= 2) c.orderPrice = "";
   }
   return snap;
 }
@@ -35737,6 +35735,93 @@ function json(obj, status) {
   });
 }
 
+async function publishWeekClosePointer_(env, countItems, source, oldMonday) {
+  const items = countItems || [];
+  const countBody = {
+    status: "success",
+    items: items,
+    total: items.reduce(function (sum, it) {
+      return sum + (Number(it && it.count) || 0);
+    }, 0),
+    fromD1: true,
+    source: source || "d1-close",
+    sandbox: false,
+    datesFromSheet: false,
+    closedFrom: oldMonday || ""
+  };
+  await putSnap_(env, "weekDayCounts", countBody);
+  const map = Object.create(null);
+  items.forEach(function (it) {
+    const iso = slotIsoFromCountsItem_(it);
+    if (iso && it && it.day) map[iso] = it.day;
+  });
+  await putSnap_(env, "dateToDay", { map: map, source: source || "d1-close" });
+}
+
+async function rollbackWeekClose_(env, beforeOrders, prevCounts, oldMonday, now) {
+  const curQ = await env.DB.prepare("SELECT id, date_iso, day_name, status FROM orders").all();
+  const beforeBy = Object.create(null);
+  (beforeOrders || []).forEach(function (o) {
+    if (o && o.id) beforeBy[o.id] = o;
+  });
+  const stmts = [];
+  ((curQ && curQ.results) || []).forEach(function (row) {
+    const b = beforeBy[row.id];
+    if (!b) return;
+    if (
+      String(b.date_iso || "") === String(row.date_iso || "") &&
+      String(b.day_name || "") === String(row.day_name || "") &&
+      String(b.status || "") === String(row.status || "")
+    ) {
+      return;
+    }
+    stmts.push(
+      env.DB.prepare(
+        "UPDATE orders SET date_iso = ?, day_name = ?, status = ?, updated_at = ? WHERE id = ?"
+      ).bind(String(b.date_iso || ""), String(b.day_name || ""), String(b.status || ""), now, row.id)
+    );
+  });
+  for (let i = 0; i < stmts.length; i += 40) {
+    await env.DB.batch(stmts.slice(i, i + 40));
+  }
+  if (prevCounts && Array.isArray(prevCounts.items)) {
+    await putSnap_(env, "weekDayCounts", prevCounts);
+    const map = Object.create(null);
+    prevCounts.items.forEach(function (it) {
+      const iso = slotIsoFromCountsItem_(it);
+      if (iso && it && it.day) map[iso] = it.day;
+    });
+    await putSnap_(env, "dateToDay", { map: map, source: "d1-close-rollback" });
+  }
+  try {
+    await env.DB.prepare("DELETE FROM meta WHERE key = ?").bind("week_finished:" + oldMonday).run();
+  } catch (eDel) {}
+}
+
+async function closeUpdateLanded_(env, update, before) {
+  const q = await env.DB.prepare(
+    "SELECT id, date_iso, day_name, status FROM orders WHERE id = ?"
+  )
+    .bind(update.id)
+    .all();
+  const row = q && q.results && q.results[0];
+  const wantDay = String(update.day || "");
+  const wantStatus = String(update.status || "");
+  if (row) {
+    const dateOk = String((before && before.date_iso) || "") === String(row.date_iso || "");
+    const statusOk = String(row.status || "") === wantStatus;
+    const dayOk = String(row.day_name || "") === wantDay;
+    return dateOk && statusOk && dayOk;
+  }
+  if (wantDay !== "" || !before) return false;
+  const alt = await env.DB.prepare(
+    "SELECT id FROM orders WHERE match_key = ? AND date_iso = ? AND status = ? AND ifnull(day_name, '') = '' LIMIT 1"
+  )
+    .bind(String(before.match_key || ""), String(before.date_iso || ""), wantStatus)
+    .all();
+  return !!((alt && alt.results) || []).length;
+}
+
 async function closeWeekInD1_(params, env) {
   const canon = { sheets: false, fromD1: true, weekCloseCanon: "d1-only", cutover: true, action: "finishFullWeek" };
   if (!env || !env.DB) return Object.assign({ status: "error", message: "no_d1" }, canon);
@@ -35787,16 +35872,24 @@ async function closeWeekInD1_(params, env) {
 
   const now = new Date().toISOString();
   const backupKey = "weekCloseBackup:" + plan.oldMonday + ":" + now.replace(/[:.]/g, "-");
+  const beforeOrders = (orderQ && orderQ.results) || [];
   await putSnap_(env, backupKey, {
     at: now,
     oldMonday: plan.oldMonday,
     newMonday: plan.newMonday,
-    orders: (orderQ && orderQ.results) || [],
+    orders: beforeOrders,
     subs: (subQ && subQ.results) || [],
     slots: (counts && counts.items) || []
   });
+  const expected = weekCloseCalendarNicks_(beforeOrders, plan.newMonday, plan.newEnd);
+  await publishWeekClosePointer_(env, plan.counts, "d1-close", plan.oldMonday);
 
+  const beforeById = Object.create(null);
+  beforeOrders.forEach(function (o) {
+    if (o && o.id) beforeById[o.id] = o;
+  });
   const updates = plan.updates || [];
+  let conflictId = "";
   for (let i = 0; i < updates.length; i += 40) {
     const chunk = updates.slice(i, i + 40);
     const stmts = chunk.map(function (u) {
@@ -35808,18 +35901,48 @@ async function closeWeekInD1_(params, env) {
     for (let j = 0; j < chunk.length; j++) {
       const meta = res && res[j] && res[j].meta;
       if (meta && meta.changes === 0) {
-        return Object.assign(
-          {
-            status: "error",
-            message: "close_conflict",
-            tip: "Строка уже изменилась. Указатель недели не сдвинут. Можно повторить.",
-            id: chunk[j].id,
-            backup: backupKey
-          },
-          canon
-        );
+        const landed = await closeUpdateLanded_(env, chunk[j], beforeById[chunk[j].id]);
+        if (!landed) {
+          conflictId = chunk[j].id;
+          break;
+        }
       }
     }
+    if (conflictId) break;
+  }
+  if (conflictId) {
+    await rollbackWeekClose_(env, beforeOrders, counts, plan.oldMonday, now);
+    return Object.assign(
+      {
+        status: "error",
+        message: "close_conflict",
+        tip: "Строка уже изменилась. Указатель недели возвращён. Можно повторить.",
+        id: conflictId,
+        backup: backupKey
+      },
+      canon
+    );
+  }
+
+  const afterQ = await env.DB.prepare(
+    "SELECT id, client, match_key, date_iso, day_name, status FROM orders"
+  ).all();
+  const actual = weekCloseCalendarNicks_((afterQ && afterQ.results) || [], plan.newMonday, plan.newEnd);
+  const nickDiff = weekCloseNickDiff_(expected, actual);
+  if (nickDiff.length) {
+    await rollbackWeekClose_(env, beforeOrders, counts, plan.oldMonday, now);
+    return Object.assign(
+      {
+        status: "error",
+        message: "close_rolled_back",
+        tip: "Состав новой недели не совпал. Закрытие отменено, указатель возвращён.",
+        backup: backupKey,
+        dates: nickDiff.map(function (d) {
+          return { date: d.date, before: (d.calendar || []).length, after: (d.board || []).length };
+        })
+      },
+      canon
+    );
   }
 
   const flagStmts = [];
@@ -35849,24 +35972,6 @@ async function closeWeekInD1_(params, env) {
     } catch (eCut) {}
   }
 
-  const countBody = {
-    status: "success",
-    items: plan.counts,
-    total: (plan.counts || []).reduce(function (sum, it) {
-      return sum + (Number(it && it.count) || 0);
-    }, 0),
-    fromD1: true,
-    source: "d1-close",
-    sandbox: false,
-    datesFromSheet: false,
-    closedFrom: plan.oldMonday
-  };
-  await putSnap_(env, "weekDayCounts", countBody);
-  const map = Object.create(null);
-  (plan.counts || []).forEach(function (it) {
-    if (it && it.dateIso && it.day) map[it.dateIso] = it.day;
-  });
-  await putSnap_(env, "dateToDay", { map: map, source: "d1-close" });
   await env.DB.prepare(
     "INSERT INTO meta (key, value, updated_at) VALUES (?, '1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
   )
