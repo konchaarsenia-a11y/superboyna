@@ -792,6 +792,7 @@
     }
     var box = document.getElementById("nxExtras");
     if (box && !sh().sheetOpen()) box.innerHTML = typeExtras();
+    patchMoney();
   }
 
   function orderVisible() {

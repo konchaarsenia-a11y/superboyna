@@ -377,9 +377,56 @@
     return ppSlotNumber(c && (c.deliverySlot || c.ppSlot)) || 0;
   }
 
-  /* Цена подписки один раз: только на слоте с paid=yes (ПП1 или ПП2).
+  function rowIso_(c) {
+    return String((c && (c._sumDate || c.dateIso || c.date)) || "").slice(0, 10);
+  }
+
+  function ppGapDays_(a, b) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return 0;
+    var ua = Date.parse(a + "T00:00:00Z");
+    var ub = Date.parse(b + "T00:00:00Z");
+    if (!isFinite(ua) || !isFinite(ub)) return 0;
+    return Math.round((ub - ua) / 86400000);
+  }
+
+  /* Новый цикл: следующая ПП1, слот меньше предыдущего, или пауза от 18 дней.
+     Та же развилка, что statsPpStartsCycleD1_ в воркере. */
+  function ppStartsCycle_(prev, cur) {
+    var slot = paySlotOf_(cur);
+    var prevSlot = paySlotOf_(prev);
+    if (slot === 1) return true;
+    if (slot >= 1 && prevSlot >= 1 && slot < prevSlot) return true;
+    if (ppGapDays_(rowIso_(prev), rowIso_(cur)) >= 18) return true;
+    return false;
+  }
+
+  function splitPpCycles_(idxs, list) {
+    var ordered = idxs.slice().sort(function (a, b) {
+      var ai = rowIso_(list[a]);
+      var bi = rowIso_(list[b]);
+      if (ai !== bi) return ai < bi ? -1 : ai > bi ? 1 : 0;
+      return (paySlotOf_(list[a]) || 9) - (paySlotOf_(list[b]) || 9);
+    });
+    var cycles = [];
+    var cur = [];
+    var prev = null;
+    ordered.forEach(function (i) {
+      var row = list[i];
+      if (prev && ppStartsCycle_(prev, row)) {
+        cycles.push(cur);
+        cur = [];
+      }
+      cur.push(i);
+      prev = row;
+    });
+    if (cur.length) cycles.push(cur);
+    return cycles;
+  }
+
+  /* Цена подписки один раз на цикл: на слоте с paid=yes (ПП1 или ПП2).
      Если отметки ещё нет — на слоте 1 / без номера, где оплату ждут.
      ПП2 без paid=yes в сумму не входит, даже если это единственная доставка месяца.
+     Следующая ПП1 в том же месяце — новый цикл и своя сумма.
      Явный paid=no в сумму не входит. Доставка при этом остаётся. */
   function attributePpRevenue(list) {
     var amount = {};
@@ -396,35 +443,36 @@
       groups[k].push(i);
     });
     Object.keys(groups).forEach(function (k) {
-      var idxs = groups[k];
-      var priced = idxs.filter(function (i) {
-        var m = orderMoney_(list[i]);
-        return m != null && m > 0;
-      });
-      if (priced.length >= 2) {
-        doubled.push({
-          key: k,
-          name: (list[idxs[0]] && list[idxs[0]].name) || "",
-          slots: priced.map(function (i) { return ppSlotNumber(list[i].deliverySlot || list[i].ppSlot); }),
-          prices: priced.map(function (i) { return orderMoney_(list[i]); })
+      splitPpCycles_(groups[k], list).forEach(function (idxs) {
+        var priced = idxs.filter(function (i) {
+          var m = orderMoney_(list[i]);
+          return m != null && m > 0;
         });
-      }
-      var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
-      var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
-      function bySlot(a, b) {
-        var as = paySlotOf_(list[a]) || 9;
-        var bs = paySlotOf_(list[b]) || 9;
-        if (as !== bs) return as - bs;
-        var ai = String(list[a]._sumDate || list[a].dateIso || list[a].date || "");
-        var bi = String(list[b]._sumDate || list[b].dateIso || list[b].date || "");
-        return ai < bi ? -1 : ai > bi ? 1 : 0;
-      }
-      var poolSrc = yes.length ? yes : open.filter(function (i) { return paySlotOf_(list[i]) < 2; });
-      var pool = poolSrc.slice().sort(bySlot);
-      var chosen = pool.length ? pool[0] : -1;
-      if (chosen < 0) return;
-      var money = orderMoney_(list[chosen]);
-      if (money != null && money > 0) amount[chosen] = money;
+        if (priced.length >= 2) {
+          doubled.push({
+            key: k,
+            name: (list[idxs[0]] && list[idxs[0]].name) || "",
+            slots: priced.map(function (i) { return ppSlotNumber(list[i].deliverySlot || list[i].ppSlot); }),
+            prices: priced.map(function (i) { return orderMoney_(list[i]); })
+          });
+        }
+        var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
+        var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
+        function bySlot(a, b) {
+          var as = paySlotOf_(list[a]) || 9;
+          var bs = paySlotOf_(list[b]) || 9;
+          if (as !== bs) return as - bs;
+          var ai = rowIso_(list[a]);
+          var bi = rowIso_(list[b]);
+          return ai < bi ? -1 : ai > bi ? 1 : 0;
+        }
+        var poolSrc = yes.length ? yes : open.filter(function (i) { return paySlotOf_(list[i]) < 2; });
+        var pool = poolSrc.slice().sort(bySlot);
+        var chosen = pool.length ? pool[0] : -1;
+        if (chosen < 0) return;
+        var money = orderMoney_(list[chosen]);
+        if (money != null && money > 0) amount[chosen] = money;
+      });
     });
     return { amount: amount, doubled: doubled };
   }
