@@ -1,0 +1,134 @@
+name: week-close-read
+# Слоты, календарь 12–25.10 и счётчики. Только чтение. Неделю не закрывает.
+
+on:
+  push:
+    paths:
+      - .github/workflows/week-close-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read week slots and calendar
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/week-close/raw"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/week-close/raw"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+
+          run("SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN ('weekDayCounts','weekDayCountsSheet','dateToDay')", "snaps")
+          run("SELECT key, value FROM meta WHERE key IN ('stage_c_formula_ok','week_finished') OR key LIKE 'week_finished%' OR key LIKE 'WEEK_FINISHED%'", "meta")
+          run(
+              "SELECT id, client, match_key, date_iso, day_name, status, segment, source FROM orders "
+              "WHERE date_iso >= '2026-10-05' AND date_iso <= '2026-11-08' "
+              "OR day_name IN ('Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье','Будущая неделя')",
+              "orders"
+          )
+          run("SELECT match_key, nick, status, sheet, n FROM subs", "subs")
+          run("SELECT date_iso, delivered, COUNT(*) AS n FROM deliveries WHERE date_iso >= '2026-10-01' AND date_iso <= '2026-11-08' GROUP BY date_iso, delivered", "flags")
+          run("SELECT date_iso, COUNT(*) AS n FROM cutting_flags WHERE date_iso >= '2026-10-01' GROUP BY date_iso", "cut")
+          print("ok")
+          PY
+          node <<'JS'
+          const fs = require("fs");
+          const path = require("path");
+          const root = path.join(process.env.GITHUB_WORKSPACE, "artifacts/week-close");
+          const raw = path.join(root, "raw");
+          function rows(name) {
+            const data = JSON.parse(fs.readFileSync(path.join(raw, name), "utf8"));
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          const snaps = {};
+          rows("snaps.json").forEach((r) => {
+            let payload = null;
+            try { payload = JSON.parse(r.payload || "null"); } catch (e) { payload = null; }
+            const items = payload && payload.items ? payload.items.map((it) => ({
+              day: it.day, date: it.date, count: it.count, dateIso: it.dateIso || it.iso || ""
+            })) : null;
+            snaps[r.cache_key] = { updated: r.updated_at, items: items, keys: payload && typeof payload === "object" ? Object.keys(payload) : [] };
+          });
+          const orders = rows("orders.json").map((r) => ({
+            id: r.id, client: r.client, key: r.match_key, date: r.date_iso, day: r.day_name, status: r.status, segment: r.segment, source: r.source
+          }));
+          const subs = rows("subs.json");
+          const byClientOrders = {};
+          orders.forEach((o) => {
+            const k = String(o.key || o.client || "");
+            if (!byClientOrders[k]) byClientOrders[k] = { active: 0, other: 0 };
+            if (String(o.status) === "active") byClientOrders[k].active++;
+            else byClientOrders[k].other++;
+          });
+          const byClientSubs = {};
+          subs.forEach((s) => {
+            const k = String(s.match_key || s.nick || "");
+            if (!byClientSubs[k]) byClientSubs[k] = 0;
+            byClientSubs[k]++;
+          });
+          function nicks(pred) {
+            const seen = {};
+            orders.filter((o) => String(o.status) === "active" && pred(o)).forEach((o) => {
+              const day = o.date || o.day || "?";
+              if (!seen[day]) seen[day] = [];
+              seen[day].push(o.client);
+            });
+            return seen;
+          }
+          const brief = {
+            snaps: snaps,
+            meta: rows("meta.json"),
+            orderRows: orders.length,
+            subRows: subs.length,
+            ordersByClient: byClientOrders,
+            subsByClient: byClientSubs,
+            byDayName: {},
+            calendar: nicks((o) => String(o.date) >= "2026-10-12" && String(o.date) <= "2026-10-25"),
+            flags: rows("flags.json"),
+            cut: rows("cut.json"),
+            orders: orders
+          };
+          orders.forEach((o) => {
+            const d = o.day || "(empty)";
+            if (!brief.byDayName[d]) brief.byDayName[d] = { active: 0, other: 0 };
+            if (String(o.status) === "active") brief.byDayName[d].active++;
+            else brief.byDayName[d].other++;
+          });
+          fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
+          fs.rmSync(raw, { recursive: true, force: true });
+          console.log(JSON.stringify({
+            orderRows: brief.orderRows,
+            subRows: brief.subRows,
+            days: brief.byDayName,
+            snapKeys: Object.keys(snaps),
+            meta: brief.meta
+          }));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: week-close-brief
+          path: artifacts/week-close/brief.json
