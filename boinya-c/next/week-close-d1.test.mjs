@@ -11,7 +11,9 @@ import {
   weekCloseClientCounts_,
   weekCloseCountsEqual_,
   weekCloseNickDiff_,
-  weekCloseSlotAction_
+  weekCloseSlotAction_,
+  weekCloseFinishAllowed_,
+  weekSlotCountsFromOrders_
 } from "../proxy/week-close-d1.js";
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"];
@@ -66,7 +68,13 @@ test("архив, будущая неделя и календарь без но�
   assert.equal(byId["Будущая:B"].day, "Понедельник");
   assert.equal(byId["Будущая:B"].date, "2026-10-19");
   assert.equal(byId["CAL:C:2026-10-21"].day, "Среда");
-  assert.equal(byId["CAL:D:2026-10-26"].day, "");
+  assert.equal(byId["CAL:D:2026-10-26"].day, "Будущая неделя");
+  const fut = plan.counts.find(function (it) { return it.day === "Будущая неделя"; });
+  const mon = plan.counts.find(function (it) { return it.day === "Понедельник"; });
+  assert.equal(fut.count, 1);
+  assert.equal(fut.dateIso, "2026-10-26");
+  assert.equal(mon.count, 1);
+  assert.equal(mon.dateIso, "2026-10-19");
   assert.equal(byId["Будущая:Z"].day, "");
   assert.equal(byId["Будущая:Z"].status, "deleted");
   assert.deepEqual(weekCloseBoardNicks_(after, "2026-10-19")["2026-10-19"], ["pushok"]);
@@ -101,6 +109,40 @@ test("архив, будущая неделя и календарь без но�
   });
   assert.equal(monday.message, "week_already_finished");
   assert.equal(monday.reason, "monday_lock");
+});
+
+test("замок на той же неделе не останавливает повтор, указатель ещё 12.10", function () {
+  const orders = [
+    { id: "Понедельник:SASHINPUSHOK", client: "sashin.pushok", key: "SASHINPUSHOK", date: "2026-10-19", day: "Понедельник", status: "active" },
+    { id: "old-mon", client: "old", key: "OLD", date: "2026-10-12", day: "Понедельник", status: "active" },
+    { id: "CAL:LATER:2026-10-30", client: "later", key: "LATER", date: "2026-10-30", day: "", status: "active" }
+  ];
+  const plan = planWeekCloseD1_({
+    calendarMonday: "2026-10-12",
+    todayIso: "2026-10-18",
+    orders: orders,
+    counts: counts(["12.10.2026", "13.10.2026", "14.10.2026", "15.10.2026", "16.10.2026", "17.10.2026", "18.10.2026", "19.10.2026"]),
+    finished: { "week_finished:2026-10-12": "1" },
+    stageCOk: false,
+    warehouseCanon: false
+  });
+  assert.equal(plan.ok, true, plan.message);
+  assert.equal(plan.retriedStuckLock, true);
+  assert.equal(plan.newMonday, "2026-10-19");
+  assert.equal(plan.warehouseApply, false);
+  assert.equal(weekCloseFinishAllowed_(plan).ok, true);
+  const after = applyWeekClosePlan_(orders, plan);
+  const byId = Object.fromEntries(after.map(function (o) { return [o.id, o]; }));
+  assert.equal(byId["Понедельник:SASHINPUSHOK"].day, "Понедельник");
+  assert.equal(byId["Понедельник:SASHINPUSHOK"].date, "2026-10-19");
+  assert.equal(byId["old-mon"].day, "");
+  assert.equal(byId["old-mon"].date, "2026-10-12");
+  assert.equal(byId["CAL:LATER:2026-10-30"].day, "Будущая неделя");
+  assert.equal(byId["CAL:LATER:2026-10-30"].date, "2026-10-30");
+  const slot = weekSlotCountsFromOrders_(after, "2026-10-19");
+  assert.equal(slot.find(function (it) { return it.day === "Понедельник"; }).count, 1);
+  assert.equal(slot.find(function (it) { return it.day === "Будущая неделя"; }).count, 1);
+  assert.deepEqual(weekCloseCountsEqual_(weekCloseClientCounts_(orders), weekCloseClientCounts_(after)), []);
 });
 
 test("повтор не создаёт вторую строку того же человека и даты", function () {

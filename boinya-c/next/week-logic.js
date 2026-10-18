@@ -436,6 +436,7 @@
       if (!c || !isPpRow_(c)) {
         var plain = orderMoney_(c);
         if (plain != null && plain > 0) amount[i] = plain;
+        else if (plain === 0) amount[i] = 0;
         return;
       }
       var k = subKey_(c);

@@ -1,0 +1,115 @@
+name: week-stuck-read
+
+# Указатель недели, замок закрытия и счётчики. Только чтение.
+
+on:
+  push:
+    paths:
+      - .github/workflows/week-stuck-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read week pointer and close locks
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/week-stuck"
+          q() {
+            local name="$1"
+            local sql="$2"
+            echo "---- $name"
+            set +e
+            npx wrangler@4 d1 execute boinya-c --remote --json --command "$sql" > "$GITHUB_WORKSPACE/artifacts/week-stuck/$name.json" 2> "$GITHUB_WORKSPACE/artifacts/week-stuck/$name.err"
+            local code=$?
+            set -e
+            echo "exit=$code"
+            if [ "$code" -ne 0 ]; then
+              cat "$GITHUB_WORKSPACE/artifacts/week-stuck/$name.err" || true
+              head -c 800 "$GITHUB_WORKSPACE/artifacts/week-stuck/$name.json" || true
+              echo
+            fi
+            return 0
+          }
+          q counts "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCounts'"
+          q sheet "SELECT payload FROM snap_cache WHERE cache_key = 'weekDayCountsSheet'"
+          q banner "SELECT payload FROM snap_cache WHERE cache_key = 'weekBanner'"
+          q meta "SELECT key, value, updated_at FROM meta WHERE key = 'stage_c_formula_ok' OR key LIKE 'week_finished:%' OR key LIKE 'WEEK_FINISHED_%' ORDER BY key"
+          q snaps "SELECT cache_key, updated_at, length(payload) AS n, json_extract(payload, '\$.oldMonday') AS old_monday, json_extract(payload, '\$.newMonday') AS new_monday, json_extract(payload, '\$.at') AS at FROM snap_cache WHERE cache_key LIKE 'weekClose%' OR cache_key LIKE 'weekClosePreRestore%' ORDER BY updated_at DESC LIMIT 20"
+          q days "SELECT ifnull(day_name,'') AS day, COUNT(*) AS c FROM orders WHERE status = 'active' GROUP BY day_name"
+          q dates "SELECT date_iso, COUNT(*) AS c FROM orders WHERE status = 'active' AND date_iso >= '2026-10-12' AND date_iso <= '2026-10-31' GROUP BY date_iso ORDER BY date_iso"
+          q d19 "SELECT client, segment, day_name, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.orderType') AS ot FROM orders WHERE status = 'active' AND date_iso = '2026-10-19'"
+          node <<'JS'
+          const fs = require("fs");
+          const path = require("path");
+          const root = path.join(process.env.GITHUB_WORKSPACE, "artifacts/week-stuck");
+          function rowsOf(raw) {
+            const text = String(raw || "").replace(/^\uFEFF/, "");
+            const start = text.search(/[\[{]/);
+            const data = JSON.parse(start > 0 ? text.slice(start) : text);
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          function rows(name) {
+            const p = path.join(root, name + ".json");
+            if (!fs.existsSync(p)) return [{ missing: name }];
+            try { return rowsOf(fs.readFileSync(p, "utf8")); }
+            catch (e) { return [{ error: name, message: String(e.message || e) }]; }
+          }
+          function itemsOf(name) {
+            const row = rows(name)[0] || {};
+            if (!row.payload) return row;
+            try {
+              const body = JSON.parse(row.payload);
+              return {
+                source: body.source || "",
+                closedFrom: body.closedFrom || "",
+                items: (body.items || []).map((it) => ({
+                  day: it.day, date: it.date, count: it.count, dateIso: it.dateIso || ""
+                })),
+                finished: body.finished,
+                weekKey: body.weekKey || "",
+                message: body.message || ""
+              };
+            } catch (e) {
+              return { error: String(e.message || e) };
+            }
+          }
+          const brief = {
+            counts: itemsOf("counts"),
+            sheet: itemsOf("sheet"),
+            banner: itemsOf("banner"),
+            meta: rows("meta"),
+            snaps: rows("snaps"),
+            days: rows("days"),
+            dates: rows("dates"),
+            d19: rows("d19")
+          };
+          fs.writeFileSync(path.join(root, "brief.json"), JSON.stringify(brief, null, 2));
+          fs.readdirSync(root).forEach((n) => {
+            if (n !== "brief.json") fs.rmSync(path.join(root, n), { force: true });
+          });
+          console.log(JSON.stringify(brief, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: week-stuck
+          path: artifacts/week-stuck
+          if-no-files-found: error

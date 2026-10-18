@@ -1,0 +1,62 @@
+name: week-close-finish
+
+# Доводит закрытие недели 12–18.10 в D1 после выкладки воркера.
+# Склад не пишется. Только main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/week-close-finish.yml
+      - scripts/week-close-finish.mjs
+      - boinya-c/proxy/week-close-d1.js
+      - boinya-c/proxy/worker.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: week-close-finish
+  cancel-in-progress: false
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Wait until week counts come from dates
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+            body="$(curl -fsS "https://boinya-c.konchaarsenia.workers.dev/?action=ping" || true)"
+            echo "$body" | head -c 400
+            echo
+            if printf '%s' "$body" | grep -q '"weekCounts":"date-iso"'; then
+              ok=1
+              break
+            fi
+            sleep 15
+          done
+          test "$ok" = "1"
+      - name: Finish week 12-18 Oct in D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WEEK_CLOSE_FINISH: apply
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/week-close-finish.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: week-close-finish
+          path: artifacts/week-close-finish/result.json

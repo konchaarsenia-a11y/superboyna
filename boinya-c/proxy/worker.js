@@ -2,7 +2,8 @@ import {
   planWeekCloseD1_,
   weekCloseCalendarNicks_,
   weekCloseNickDiff_,
-  weekCloseSlotAction_
+  weekCloseSlotAction_,
+  weekSlotCountsFromOrders_
 } from "./week-close-d1.js";
 
 /**
@@ -1923,6 +1924,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       partnerCanon: partnerCanonLabel_(env),
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: isWeekCloseD1Native_(env) ? "d1-only" : "sheets",
+      weekCounts: isWeekCloseD1Native_(env) ? "date-iso" : "sheet",
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
       edgeSheets: edgeSheetsLabel_(env),
@@ -7147,6 +7149,7 @@ async function scrubMismatchedDayOrders_(env, day, wantIso) {
 
 /** После смены дат недели (GAS weekDayCounts) — выкинуть D1-сирот с чужим date_iso. */
 async function scrubAllDayDateMismatches_(env, countsPayload) {
+  if (isWeekCloseD1Native_(env)) return { scrubbed: 0, skipped: "d1-only" };
   if (!env || !env.DB || !countsPayload) return { scrubbed: 0 };
   const items = countsPayload.items || [];
   let scrubbed = 0;
@@ -9165,9 +9168,46 @@ async function weekSlotDatesFromSheetSnap_(env) {
   return out;
 }
 
+async function rebuildWeekCountsFromDates_(env, prev) {
+  let monday = "";
+  ((prev && prev.items) || []).forEach(function (it) {
+    if (it && String(it.day) === "Понедельник") {
+      monday = dmyToIso_(it.date) || dmyToIso_(it.dateIso) || monday;
+    }
+  });
+  if (!monday) monday = currentMondayIso_();
+  const q = await env.DB.prepare(
+    "SELECT date_iso AS date, status FROM orders WHERE status = 'active' AND date_iso != ''"
+  ).all();
+  const items = weekSlotCountsFromOrders_((q && q.results) || [], monday).map(function (it) {
+    return Object.assign({}, it, { short: DAY_SHORT[it.day] || it.short || it.day });
+  });
+  let total = 0;
+  const dateToDay = Object.create(null);
+  items.forEach(function (it) {
+    total += Number(it.count) || 0;
+    if (it.dateIso && it.day) dateToDay[it.dateIso] = it.day;
+  });
+  const body = {
+    status: "success",
+    items: items,
+    total: total,
+    sandbox: false,
+    source: "d1",
+    fromD1: true,
+    datesFromSheet: false,
+    weekCounts: "date-iso",
+    closedFrom: (prev && prev.closedFrom) || ""
+  };
+  await putSnap_(env, "weekDayCounts", body);
+  await putSnap_(env, "dateToDay", { map: dateToDay, source: "d1-dates" });
+  return body;
+}
+
 async function rebuildWeekCounts_(env) {
   if (!env || !env.DB) return { status: "success", items: [], total: 0, sandbox: true };
   const prev = await getSnapRaw_(env, "weekDayCounts");
+  if (isWeekCloseD1Native_(env)) return rebuildWeekCountsFromDates_(env, prev);
   const prevDates = {};
   ((prev && prev.items) || []).forEach(function (it) {
     if (it && it.day) prevDates[it.day] = it.date || "";
@@ -20050,6 +20090,17 @@ async function handleCutover_(a, params, env, ctx) {
     });
   }
   if (a === "getWeekDayCounts") {
+    if (isWeekCloseD1Native_(env)) {
+      const nativeCounts = await rebuildWeekCounts_(env);
+      if (nativeCounts && typeof nativeCounts === "object") {
+        nativeCounts.sandbox = false;
+        nativeCounts.cutover = true;
+        nativeCounts.fromGas = false;
+        nativeCounts.datesFromSheet = false;
+        nativeCounts.weekCounts = "date-iso";
+      }
+      return nativeCounts;
+    }
     const force =
       String((params && params.force) || "") === "1" ||
       (params && (params.force === true || params.force === 1));
@@ -21324,6 +21375,12 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "getWeekDayCounts") {
+    if (isWeekCloseD1Native_(env)) {
+      try {
+        await rebuildWeekCounts_(env);
+      } catch (eNatCnt) {}
+      return;
+    }
     // Sheet — только даты слотов; count всегда из D1 (иначе stale Sheet → false sparse heal)
     try {
       await putSnap_(env, "weekDayCountsSheet", payload);
@@ -22645,7 +22702,9 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
   // даты уже из GAS weekDayCounts — не перетирать rebuild из старых order.date_iso
   try {
     const sheetCounts = await getSnapRaw_(env, "weekDayCountsSheet");
-    if (sheetCounts && Array.isArray(sheetCounts.items) && sheetCounts.items.length) {
+    if (isWeekCloseD1Native_(env)) {
+      await rebuildWeekCounts_(env);
+    } else if (sheetCounts && Array.isArray(sheetCounts.items) && sheetCounts.items.length) {
       await putSnap_(env, "weekDayCounts", sheetCounts);
       const dateToDay = Object.create(null);
       sheetCounts.items.forEach(function (it) {

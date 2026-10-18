@@ -165,6 +165,29 @@ export function weekCloseBoardNicks_(orders, mondayIso) {
   return board;
 }
 
+/** Счётчики слотов как у месяца: число активных заказов по date_iso, не по листу. */
+export function weekSlotCountsFromOrders_(orders, mondayIso) {
+  const monday = weekCloseCoerceIso_(mondayIso);
+  const futureMonday = weekCloseAddDays_(monday, 7);
+  const futureEnd = weekCloseAddDays_(monday, 13);
+  return WEEK_CLOSE_DAYS_.concat(["Будущая неделя"]).map(function (day, idx) {
+    const iso = idx < 7 ? weekCloseAddDays_(monday, idx) : futureMonday;
+    let count = 0;
+    (orders || []).forEach(function (o) {
+      const st = o && o.status != null && String(o.status) !== "" ? String(o.status) : "active";
+      if (st !== "active") return;
+      const rowIso = weekCloseCoerceIso_(o.date || o.date_iso);
+      if (!rowIso) return;
+      if (idx < 7) {
+        if (rowIso === iso) count += 1;
+      } else if (futureMonday && futureEnd && rowIso >= futureMonday && rowIso <= futureEnd) {
+        count += 1;
+      }
+    });
+    return { day: day, short: day, date: weekCloseDmy_(iso), count: count, dateIso: iso };
+  });
+}
+
 export function weekCloseNickDiff_(left, right) {
   const diff = [];
   const keys = Object.create(null);
@@ -182,6 +205,21 @@ export function weekCloseNickDiff_(left, right) {
       if (a.join("\n") !== b.join("\n")) diff.push({ date: iso, calendar: a, board: b });
     });
   return diff;
+}
+
+export function weekCloseFinishAllowed_(plan) {
+  if (!plan || !plan.ok) {
+    return { ok: false, reason: (plan && (plan.reason || plan.message)) || "plan" };
+  }
+  if (plan.warehouseApply) return { ok: false, reason: "warehouse" };
+  if (plan.newMonday !== weekCloseAddDays_(plan.oldMonday, 7)) return { ok: false, reason: "step" };
+  const diff = weekCloseCountsEqual_(plan.ordersBefore, plan.ordersAfter);
+  if (diff.length) return { ok: false, reason: "clients", diff: diff };
+  const bad = (plan.updates || []).filter(function (u) {
+    return !u || !u.id || u.day == null;
+  });
+  if (bad.length) return { ok: false, reason: "update" };
+  return { ok: true };
 }
 
 export function planWeekCloseD1_(input) {
@@ -213,17 +251,9 @@ export function planWeekCloseD1_(input) {
       weekCloseCanon: "d1-only"
     };
   }
-  if (weekCloseLocked_(finished, pointer)) {
-    return {
-      ok: false,
-      status: "error",
-      message: "week_already_finished",
-      reason: "lock",
-      sheets: false,
-      fromD1: true,
-      weekCloseCanon: "d1-only"
-    };
-  }
+  // Замок на той же неделе, что и указатель: закрытие отметилось, а слоты остались.
+  // Повтор доводит day_name. date_iso эта функция не меняет.
+  const retriedStuckLock = weekCloseLocked_(finished, pointer);
   const prev = weekCloseAddDays_(pointer, -7);
   if (calendarMonday && pointer === calendarMonday && todayIso === calendarMonday && weekCloseLocked_(finished, prev)) {
     return {
@@ -272,6 +302,15 @@ export function planWeekCloseD1_(input) {
     } else if (o.status === "active" && !o.day && o.iso && o.iso >= newMonday && o.iso <= newEnd) {
       day = weekCloseWeekday_(o.iso);
       reason = "materialize";
+    } else if (
+      o.status === "active" &&
+      o.iso &&
+      o.iso >= futureMonday &&
+      o.iso <= weekCloseAddDays_(futureMonday, 6) &&
+      o.day !== "Будущая неделя"
+    ) {
+      day = "Будущая неделя";
+      reason = "future-label";
     }
     return { o: o, day: day, reason: reason };
   });
@@ -317,13 +356,7 @@ export function planWeekCloseD1_(input) {
 
   const after = applyWeekClosePlan_(orders, { updates: updates });
   const board = weekCloseBoardNicks_(after, newMonday);
-  const counts = WEEK_CLOSE_DAYS_.concat(["Будущая неделя"]).map(function (day, idx) {
-    const iso = idx < 7 ? weekCloseAddDays_(newMonday, idx) : futureMonday;
-    const count = after.filter(function (o) {
-      return o.status === "active" && String(o.day || o.day_name || "") === day;
-    }).length;
-    return { day: day, short: day, date: weekCloseDmy_(iso), count: count, dateIso: iso };
-  });
+  const counts = weekSlotCountsFromOrders_(after, newMonday);
   const materializeAdded = updates.filter(function (u) {
     return u.reason === "materialize";
   }).length;
@@ -356,6 +389,7 @@ export function planWeekCloseD1_(input) {
     archived: archived,
     ordersBefore: weekCloseClientCounts_(orders),
     ordersAfter: weekCloseClientCounts_(after),
+    retriedStuckLock: retriedStuckLock,
     warehouseApply: stageCOk && warehouseCanon,
     warehouseReason: stageCOk && warehouseCanon ? "d1-compute" : !stageCOk ? "stage_c_formula_ok_not_1" : "warehouse_canon_off",
     sheets: false,
