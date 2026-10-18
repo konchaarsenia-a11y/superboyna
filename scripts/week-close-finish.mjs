@@ -92,6 +92,53 @@ function writeSql(name, lines) {
   return file;
 }
 
+function chunkList(list, size) {
+  const out = [];
+  const rows = list || [];
+  const n = size > 0 ? size : 40;
+  for (let i = 0; i < rows.length; i += n) out.push(rows.slice(i, i + n));
+  if (!out.length) out.push([]);
+  return out;
+}
+
+function saveSnap(key, payload, now, fileName) {
+  const body = JSON.stringify(payload);
+  if (body.length > 50000) throw new Error("snap too big " + key + " " + body.length);
+  d1File(writeSql(fileName, [
+    "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES (" +
+      sqlStr(key) + ", " + sqlStr(body) + ", " + sqlStr(now) +
+      ") ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at;"
+  ]));
+}
+
+function saveBackup(base, state, now) {
+  const orderChunks = chunkList(state.orders, 40);
+  const subChunks = chunkList(state.subs, 40);
+  orderChunks.forEach(function (rows, i) {
+    saveSnap(base + ":orders:" + i, { i: i, n: orderChunks.length, rows: rows }, now, "bak-o-" + i + ".sql");
+  });
+  subChunks.forEach(function (rows, i) {
+    saveSnap(base + ":subs:" + i, { i: i, n: subChunks.length, rows: rows }, now, "bak-s-" + i + ".sql");
+  });
+  saveSnap(base, {
+    at: now,
+    oldMonday: state.planOld,
+    newMonday: state.planNew,
+    orderChunks: orderChunks.length,
+    subChunks: subChunks.length,
+    orders: orderChunks.reduce(function (n, rows) { return n + rows.length; }, 0),
+    subs: subChunks.reduce(function (n, rows) { return n + rows.length; }, 0),
+    slots: (state.counts && state.counts.items) || []
+  }, now, "bak-meta.sql");
+  const got = d1(
+    "SELECT cache_key, length(payload) AS n FROM snap_cache WHERE cache_key = " + sqlStr(base) +
+      " OR cache_key LIKE " + sqlStr(base + ":%")
+  );
+  const need = 1 + orderChunks.length + subChunks.length;
+  if (got.length < need) throw new Error("backup short " + got.length + "/" + need);
+  return { orderChunks: orderChunks.length, subChunks: subChunks.length, snaps: got.length };
+}
+
 function orderStable(row) {
   return [row.id, row.date_iso || "", row.status || "", row.match_key || "", row.client || ""].join("\t");
 }
@@ -341,18 +388,14 @@ function main() {
     }));
     return;
   }
-  const backup = {
-    at: now,
-    oldMonday: plan.oldMonday,
-    newMonday: plan.newMonday,
+  const saved = saveBackup(backupKey, {
     orders: state.orders,
     subs: state.subs,
-    slots: (state.counts && state.counts.items) || []
-  };
-  d1File(writeSql("backup.sql", [
-    "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES (" +
-      sqlStr(backupKey) + ", " + sqlStr(JSON.stringify(backup)) + ", " + sqlStr(now) + ");"
-  ]));
+    counts: state.counts,
+    planOld: plan.oldMonday,
+    planNew: plan.newMonday
+  }, now);
+  result.backupSnaps = saved.snaps;
   applyUpdates(plan.updates || [], now);
   const mid = loadState();
   const orderDiff = diffIds(state.orders, mid.orders, orderStable);
