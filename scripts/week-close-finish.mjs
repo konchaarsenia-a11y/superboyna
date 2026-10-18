@@ -130,12 +130,14 @@ function saveBackup(base, state, now) {
     subs: subChunks.reduce(function (n, rows) { return n + rows.length; }, 0),
     slots: (state.counts && state.counts.items) || []
   }, now, "bak-meta.sql");
+  const keys = [base];
+  orderChunks.forEach(function (_rows, i) { keys.push(base + ":orders:" + i); });
+  subChunks.forEach(function (_rows, i) { keys.push(base + ":subs:" + i); });
   const got = d1(
-    "SELECT cache_key, length(payload) AS n FROM snap_cache WHERE cache_key = " + sqlStr(base) +
-      " OR cache_key LIKE " + sqlStr(base + ":%")
+    "SELECT cache_key, length(payload) AS n FROM snap_cache WHERE cache_key IN (" +
+      keys.map(sqlStr).join(", ") + ")"
   );
-  const need = 1 + orderChunks.length + subChunks.length;
-  if (got.length < need) throw new Error("backup short " + got.length + "/" + need);
+  if (got.length < keys.length) throw new Error("backup short " + got.length + "/" + keys.length);
   return { orderChunks: orderChunks.length, subChunks: subChunks.length, snaps: got.length };
 }
 
