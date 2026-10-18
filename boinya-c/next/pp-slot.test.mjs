@@ -112,6 +112,19 @@ test("вторая ПП1 в том же месяце — свой цикл и с
   assert.equal(rows[2]._pay, 145);
 });
 
+test("БП с ценой 0 — известный ноль, пустая цена остаётся пустой", function () {
+  var rows = [
+    { name: "sashin.pushok", segment: "БП", orderType: "bp", orderPrice: "0", dateIso: "2026-10-19" }
+  ];
+  assert.equal(L.revenueSum(rows), 0);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-19" }), 0);
+  assert.equal(L.revenueSum([], { onlyDate: "2026-10-19" }), null);
+  assert.equal(
+    L.revenueSum([{ segment: "БП", orderPrice: "", dateIso: "2026-10-19" }], { onlyDate: "2026-10-19" }),
+    null
+  );
+});
+
 test("цена ПП в форме сразу попадает в сумму заказа", function () {
   var src = fs.readFileSync(new URL("./orders.js", import.meta.url), "utf8");
   var fn = src.slice(src.indexOf("async function refreshPp"), src.indexOf("function orderVisible"));

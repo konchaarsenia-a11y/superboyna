@@ -1,0 +1,40 @@
+name: week-close-plan
+
+# План закрытия 12–18.10. Только чтение D1.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/week-close-plan.yml
+      - scripts/week-close-finish.mjs
+      - boinya-c/proxy/week-close-d1.js
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Plan week close
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WEEK_CLOSE_FINISH: plan
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/week-close-finish.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: week-close-plan
+          path: artifacts/week-close-finish/result.json
