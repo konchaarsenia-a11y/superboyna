@@ -10320,27 +10320,9 @@ function isOpenDeficitStatus_(status) {
   return s === "open" || s === "открыт";
 }
 
-/** Если после Deploy URL /exec сменился — кнопки в Telegram молчат. Подтягиваем webhook сами. */
+/** Webhook @boyniaGB_bot стоит на воркере /telegram/boinya. Не возвращать его на /exec. */
 function ensureTelegramWebhookUrl_() {
-  var token = getTelegramToken_();
-  if (!token) return;
-  var url = "";
-  try { url = ScriptApp.getService().getUrl(); } catch (e) { return; }
-  if (!url) return;
-  try {
-    var infoRes = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo", {
-      muteHttpExceptions: true
-    });
-    var info = JSON.parse(infoRes.getContentText());
-    var current = info && info.result ? String(info.result.url || "") : "";
-    if (current === url) return;
-    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify({ url: url, allowed_updates: ["message", "callback_query"] }),
-      muteHttpExceptions: true
-    });
-  } catch (e2) {}
+  return;
 }
 
 function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
