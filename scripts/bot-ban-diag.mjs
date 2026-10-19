@@ -132,12 +132,16 @@ function staffIds(accessPayload) {
 function summarizeDeferred(payload, staff) {
   const items = (payload && payload.items) || [];
   const since = Date.parse("2026-10-16T00:00:00Z");
+  const now = Date.now();
   let open = 0;
   let fail = 0;
   let maxFail = 0;
   let sendError = 0;
   let sentMarked = 0;
   let recentTouch = 0;
+  let dueNow = 0;
+  let dueFuture = 0;
+  let silent = 0;
   const modes = {};
   const recipients = {};
   let outside = 0;
@@ -153,6 +157,11 @@ function summarizeDeferred(payload, staff) {
     if (fails > maxFail) maxFail = fails;
     if (payloadItem.remindSendError) sendError++;
     if (payloadItem.remindSent || item.remindSent) sentMarked++;
+    const silentOn = payloadItem.remindSilent === true || payloadItem.remindSilent === "1" || payloadItem.remindSilent === 1;
+    if (silentOn) silent++;
+    const due = Number(payloadItem.remindAtMs || item.remindAtMs || Date.parse(payloadItem.remindAt || item.remindAt || "")) || 0;
+    if (due && due <= now && !silentOn) dueNow++;
+    if (due && due > now) dueFuture++;
     const stamp = Date.parse(payloadItem.remindSentAt || item.updatedAt || item.createdAt || "") || 0;
     if (stamp >= since) recentTouch++;
     const to = String(
@@ -165,6 +174,9 @@ function summarizeDeferred(payload, staff) {
   return {
     items: items.length,
     open: open,
+    dueNow: dueNow,
+    dueFuture: dueFuture,
+    silentOpen: silent,
     withFailCount: fail,
     maxFail: maxFail,
     sendError: sendError,
@@ -201,12 +213,21 @@ function summarizeSurvey(payload) {
   return { items: items.length, byStatus: by };
 }
 
-function countRemindKeys(payload) {
-  if (!payload || typeof payload !== "object") return 0;
+function countRemindKeys(payload, staff) {
+  if (!payload || typeof payload !== "object") return { keys: 0, recipients: 0, outside: 0 };
   const map = payload.map && typeof payload.map === "object" ? payload.map : payload;
-  return Object.keys(map).filter(function (k) {
+  const keys = Object.keys(map).filter(function (k) {
     return k !== "map" && k !== "day" && k !== "_savedAt";
-  }).length;
+  });
+  const ids = {};
+  let outside = 0;
+  keys.forEach(function (k) {
+    const id = String(k.split("|").pop() || "").trim();
+    if (!/^\d{5,}$/.test(id)) return;
+    ids[id] = true;
+    if (staff && !staff[id]) outside++;
+  });
+  return { keys: keys.length, recipients: Object.keys(ids).length, outside: outside };
 }
 
 function snapPayload(cacheKey) {
@@ -263,6 +284,45 @@ function pickLog(event) {
   };
 }
 
+async function cloudflareAccounts() {
+  const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
+  if (!token) return [];
+  const res = await fetch("https://api.cloudflare.com/client/v4/accounts?per_page=20", {
+    headers: { Authorization: "Bearer " + token }
+  });
+  const json = await res.json().catch(function () { return {}; });
+  return (json.result || []).map(function (a) {
+    return { id: a.id, name: a.name };
+  });
+}
+
+async function workerSettings(accountId) {
+  const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
+  if (!token || !accountId) return { skipped: "no_account" };
+  const res = await fetch(
+    "https://api.cloudflare.com/client/v4/accounts/" + accountId + "/workers/scripts/boinya-c/settings",
+    { headers: { Authorization: "Bearer " + token } }
+  );
+  const json = await res.json().catch(function () { return {}; });
+  const bindings = ((json.result || {}).bindings) || [];
+  const safe = bindings.map(function (b) {
+    const type = String(b.type || "");
+    const name = String(b.name || "");
+    if (type === "secret_text") return { name: name, type: type };
+    if (name === "TELEGRAM_BOT_USERNAME" || name === "GOALS_TG_NOTIFY" || name === "NOTIFY_CHAT_ENABLED" || name === "WEEK_CLOSE_CANON") {
+      return { name: name, type: type, text: redact(b.text || "") };
+    }
+    if (/CHAT|TOKEN|SECRET|PIN|KEY|PASSWORD/i.test(name)) return { name: name, type: type, set: !!(b.text || b.value) };
+    return { name: name, type: type };
+  });
+  return {
+    http: res.status,
+    success: json.success === true,
+    errors: (json.errors || []).map(function (e) { return redact(e.message || ""); }).slice(0, 3),
+    bindings: safe
+  };
+}
+
 async function cfQuery(body) {
   const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
@@ -285,13 +345,15 @@ async function cfQuery(body) {
   const err = (json.errors || []).map(function (e) {
     return redact(e.message || JSON.stringify(e)).slice(0, 240);
   });
-  const events = (((json.result || {}).events || {}).events) || [];
+  const eventsNode = (json.result || {}).events;
+  const events = Array.isArray(eventsNode) ? eventsNode : (eventsNode && eventsNode.events) || [];
   return {
     http: res.status,
     success: json.success === true,
     errors: err,
-    eventCount: ((json.result || {}).events || {}).count == null ? events.length : json.result.events.count,
-    sample: events.slice(0, 15).map(pickLog)
+    resultKeys: Object.keys(json.result || {}).slice(0, 12),
+    eventCount: eventsNode && eventsNode.count != null ? eventsNode.count : events.length,
+    sample: events.slice(0, 8).map(pickLog)
   };
 }
 
@@ -309,18 +371,27 @@ async function logsSince(fromMs, toMs) {
       ]
     }
   };
-  const needles = ["429", "Too Many Requests", "Unauthorized", "retry after"];
+  const needles = ["429", "Unauthorized", "error_code", "getMe"];
   const out = {};
   for (let i = 0; i < needles.length; i++) {
     const body = JSON.parse(JSON.stringify(base));
+    delete body.dry;
     body.parameters.needle = { value: needles[i], matchCase: false, isRegex: false };
     out[needles[i]] = await cfQuery(body);
   }
-  if (out["429"] && out["429"].errors && out["429"].errors.length) {
+  const first = out["429"] || {};
+  if ((first.errors && first.errors.length) || first.skipped) {
     const sec = JSON.parse(JSON.stringify(base));
+    delete sec.dry;
     sec.timeframe = { from: Math.floor(fromMs / 1000), to: Math.floor(toMs / 1000) };
-    sec.parameters.needle = { value: "429", matchCase: false, isRegex: false };
-    out["429_seconds"] = await cfQuery(sec);
+    sec.parameters.needle = { value: "Unauthorized", matchCase: false, isRegex: false };
+    out.unauthorized_seconds = await cfQuery(sec);
+    const alt = JSON.parse(JSON.stringify(sec));
+    alt.view = "events";
+    alt.parameters.filters = [
+      { kind: "filter", key: "$workers.scriptName", operation: "eq", type: "string", value: "boinya-c" }
+    ];
+    out.unauthorized_filter_kind = await cfQuery(alt);
   }
   return out;
 }
@@ -389,9 +460,15 @@ async function main() {
     const key = String(row.cache_key || "");
     if (key.indexOf("bp_survey_remind_") !== 0) return;
     const one = snapPayload(key);
-    remind[key] = { updated_at: row.updated_at, n: row.n, keys: countRemindKeys(one.payload) };
+    remind[key] = Object.assign({ updated_at: row.updated_at, n: row.n }, countRemindKeys(one.payload, staff));
   });
 
+  const accounts = await cloudflareAccounts();
+  if (!process.env.CLOUDFLARE_ACCOUNT_ID && accounts.length === 1) {
+    process.env.CLOUDFLARE_ACCOUNT_ID = accounts[0].id;
+  }
+  const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const settings = await workerSettings(accountId);
   const fromMs = Date.parse("2026-10-16T00:00:00Z");
   const toMs = Date.now();
   const report = {
@@ -399,6 +476,8 @@ async function main() {
     publicStartDesktopAuth: "no_bot_username",
     pingHasTelegramToken: true,
     api: api,
+    accounts: accounts.map(function (a) { return { name: a.name, id_tail: String(a.id || "").slice(-6) }; }),
+    workerSettings: settings,
     workerSecrets: secretNames(),
     meta: { exit: meta.exit, error: meta.error, rows: (meta.rows || []).map(function (r) {
       return { key: r.key, value: redact(r.value).slice(0, 40), updated_at: r.updated_at };
