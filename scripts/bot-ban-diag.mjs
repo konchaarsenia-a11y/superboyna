@@ -275,13 +275,30 @@ function pickLog(event) {
   else if (source && typeof source === "object") message = source.message || JSON.stringify(source).slice(0, 300);
   message = redact(message).slice(0, 240);
   message = message.replace(/https:\/\/api\.telegram\.org\/bot\[REDACTED\]\/([A-Za-z]+)/g, "tg:$1");
+  const ts = event && (event.timestamp || event.datetime) || null;
   return {
-    ts: event && (event.timestamp || event.datetime) || null,
+    ts: ts,
+    iso: ts ? new Date(Number(ts)).toISOString() : "",
     eventType: workers.eventType || "",
     outcome: workers.outcome || "",
     script: workers.scriptName || "",
     message: message
   };
+}
+
+function windows(event, needle) {
+  const s = redact(JSON.stringify(event));
+  const low = s.toLowerCase();
+  const n = String(needle || "").toLowerCase();
+  const out = [];
+  let i = 0;
+  while (out.length < 2) {
+    const at = low.indexOf(n, i);
+    if (at < 0) break;
+    out.push(s.slice(Math.max(0, at - 50), at + n.length + 50));
+    i = at + n.length;
+  }
+  return out;
 }
 
 async function cloudflareAccounts() {
@@ -347,13 +364,15 @@ async function cfQuery(body) {
   });
   const eventsNode = (json.result || {}).events;
   const events = Array.isArray(eventsNode) ? eventsNode : (eventsNode && eventsNode.events) || [];
+  const needle = body && body.parameters && body.parameters.needle && body.parameters.needle.value;
   return {
     http: res.status,
     success: json.success === true,
     errors: err,
     resultKeys: Object.keys(json.result || {}).slice(0, 12),
     eventCount: eventsNode && eventsNode.count != null ? eventsNode.count : events.length,
-    sample: events.slice(0, 8).map(pickLog)
+    sample: events.slice(0, 5).map(pickLog),
+    windows: needle ? events.slice(0, 2).map(function (ev) { return windows(ev, needle); }) : []
   };
 }
 
@@ -371,7 +390,7 @@ async function logsSince(fromMs, toMs) {
       ]
     }
   };
-  const needles = ["429", "Unauthorized", "error_code", "getMe"];
+  const needles = ["429", "api.telegram.org", "sendMessage", "Unauthorized"];
   const out = {};
   for (let i = 0; i < needles.length; i++) {
     const body = JSON.parse(JSON.stringify(base));
