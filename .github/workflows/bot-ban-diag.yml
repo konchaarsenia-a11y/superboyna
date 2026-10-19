@@ -1,0 +1,41 @@
+# Разовое чтение: getMe/getWebhookInfo и счётчики рассылки. Сообщений не шлёт. Не мержить.
+name: bot-ban-diag
+
+on:
+  push:
+    paths:
+      - .github/workflows/bot-ban-diag.yml
+      - scripts/bot-ban-diag.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Redact self-test
+        run: node scripts/bot-ban-diag.mjs --self-test
+      - name: Read bot status, D1 notify counters, worker logs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          BOINYA_BOT_TOKEN: ${{ secrets.BOINYA_BOT_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TG_EXTRA_BOT_TOKENS: ${{ secrets.TG_EXTRA_BOT_TOKENS }}
+          PARTNER_BOT_TOKEN: ${{ secrets.PARTNER_BOT_TOKEN }}
+          BOT_DIAG_OUT: ${{ github.workspace }}/artifacts/bot-ban-diag
+        run: node scripts/bot-ban-diag.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-ban-diag
+          path: artifacts/bot-ban-diag/
+          if-no-files-found: warn
