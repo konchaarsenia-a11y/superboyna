@@ -51,3 +51,5 @@ jobs:
         run: node scripts/test-pricing-2026-10-09.mjs
       - name: week close stays in d1
         run: node boinya-c/next/week-close-d1.test.mjs
+      - name: AFK does not return to PP
+        run: node boinya-c/proxy/afk-guard.test.mjs
