@@ -97,7 +97,14 @@ const publicGroups = groups.map(function (group) {
       source: row.source || ""
     };
   });
-  return { members: members, futureOrders: future, orderRows: mine.length };
+  return {
+    members: members,
+    futureOrders: future,
+    orderRows: mine.length,
+    allOrders: mine.map(function (row) {
+      return { id: row.id, date_iso: row.date_iso || "", status: row.status || "" };
+    })
+  };
 });
 
 const report = {
@@ -115,6 +122,7 @@ console.log(JSON.stringify({ action: report.action, groups: report.groups, peopl
   return {
     members: g.members.map(function (m) { return m.kind + " " + (m.nick || m.label) + " " + m.sheet + " " + m.subId; }),
     orders: g.orderRows,
+    dated: (g.allOrders || []).map(function (o) { return o.date_iso + " " + o.status + " " + o.id; }),
     future: g.futureOrders.map(function (o) { return o.date_iso + " " + o.id; })
   };
 }) }));
