@@ -5,6 +5,18 @@ import {
   weekCloseSlotAction_,
   weekSlotCountsFromOrders_
 } from "./week-close-d1.js";
+import {
+  BOINYA_MINI_URL,
+  botAccessAsk_,
+  botCallbackKind_,
+  botGroupMemberAction_,
+  botInboundMedia_,
+  botProbeFrom_,
+  botPrivateChatOk_,
+  botRoleLabel_,
+  botStartCommand_,
+  botStartPack_
+} from "./bot-hook.js";
 
 /**
  * Бойня C — Worker + D1.
@@ -338,6 +350,27 @@ async function notifyRecipientsWorker_(env, key, baseIds, opts) {
 function notifyChatEnabledWorker_(env) {
   const v = String((env && env.NOTIFY_CHAT_ENABLED) || "").trim().toLowerCase();
   return !(v === "0" || v === "off" || v === "false" || v === "no");
+}
+
+/** Общий чат: секрет/переменная, иначе id, который бот запомнил при добавлении в группу. */
+async function notifyGroupChatId_(env) {
+  if (!notifyChatEnabledWorker_(env)) return "";
+  const fromEnv = String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim();
+  if (fromEnv) return fromEnv;
+  if (!env || !env.DB) return "";
+  try {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind("telegram_chat_id").first();
+    return row && row.value != null ? String(row.value).trim() : "";
+  } catch (eChat) {
+    return "";
+  }
+}
+
+async function appendNotifyGroup_(env, ids) {
+  const list = Array.isArray(ids) ? ids.map(function (id) { return String(id || "").trim(); }).filter(Boolean) : [];
+  const chat = await notifyGroupChatId_(env);
+  if (chat && list.indexOf(chat) < 0) list.push(chat);
+  return list;
 }
 
 /** Поля уведомлений для карточки человека в «Доступах». */
@@ -1047,6 +1080,7 @@ export default {
       return stageNAdmin_(request, env);
     }
     if (request.method === "POST" && url.pathname === "/telegram/boinya") {
+      // Telegram webhook (X-Telegram-Bot-Api-Secret-Token) или пересылка GAS с _wk.
       return stageGTelegram_(request, env);
     }
     if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
@@ -14383,10 +14417,7 @@ async function supplyNotifyIds_(env) {
     ids = [];
   }
   if (!Array.isArray(ids)) ids = [];
-  const chatOn = notifyChatEnabledWorker_(env);
-  const chat = chatOn ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() : "";
-  if (chat && ids.indexOf(chat) < 0) ids.push(chat);
-  return ids;
+  return appendNotifyGroup_(env, ids);
 }
 
 function instagramUrlForNick_(nick) {
@@ -29726,7 +29757,10 @@ function partnerAccessRequestMirror_(env, ctx, row) {
 async function partnerAccessRequestNotify_(env, row) {
   let admin = null;
   try { admin = await getSnapRaw_(env, "partnerListAdmin"); } catch (e) { admin = null; }
-  const recipients = await notifyRecipientsWorker_(env, "partner_access_request", (admin && admin.notifyRecipients) || []);
+    const recipients = await appendNotifyGroup_(
+      env,
+      await notifyRecipientsWorker_(env, "partner_access_request", (admin && admin.notifyRecipients) || [])
+    );
   const text =
     "Запрос на подключение точки\n" +
     (row.venueName || "") +
@@ -30041,7 +30075,10 @@ async function partnerNotifyOrderFastWorker_(order, env) {
   try {
     const admin = await getSnapRaw_(env, "partnerListAdmin");
     // v71116013: ключ partner_order + легаси-список хаба (кто не выключил себе)
-    const recipients = await notifyRecipientsWorker_(env, "partner_order", (admin && admin.notifyRecipients) || []);
+    const recipients = await appendNotifyGroup_(
+      env,
+      await notifyRecipientsWorker_(env, "partner_order", (admin && admin.notifyRecipients) || [])
+    );
     const teamText =
       "🛍 Новая заявка партнёра " +
       (order.id || "") +
@@ -30223,7 +30260,7 @@ async function partnerSuggestNotifyIdsWorker_(env) {
   var hub = await notifyHubIdsWorker_(env);
   var out = await notifyRecipientsWorker_(env, "partner_suggest", hub);
   if (!out.length) out = authOwnerIds_(env);
-  return out;
+  return appendNotifyGroup_(env, out);
 }
 
 async function partnerNotifySuggestionWorker_(row, env) {
@@ -32709,12 +32746,8 @@ async function submitGoodboyTryD1_(params, env) {
   await putSnap_(env, "goodboyLeads", pack);
   // TG команде — бот Бойни (тот же TELEGRAM_BOT_TOKEN)
   try {
-    const chat = notifyChatEnabledWorker_(env)
-      ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim()
-      : "";
-    // v71116013: ключ gb_lead (дефолт — владельцы) + общий чат как раньше
-    const gbIds = await notifyRecipientsWorker_(env, "gb_lead");
-    if (chat && gbIds.indexOf(chat) < 0) gbIds.push(chat);
+    // v71116013: ключ gb_lead (дефолт — владельцы) + общий чат из D1 или TELEGRAM_CHAT_ID
+    const gbIds = await appendNotifyGroup_(env, await notifyRecipientsWorker_(env, "gb_lead"));
     if (gbIds.length && hasTelegramToken_(env)) {
       const text =
         "🐾 GOOD BOY · заявка с сайта (worker)\n" +
@@ -33869,67 +33902,378 @@ async function stageGWorkbook_(env) {
   };
 }
 
-async function stageGStartText_(env, from, name) {
+async function botLoadStart_(env, from, name) {
   const tid = String((from && from.id) || "");
   let role = "";
+  let status = "";
   try {
     const list = await getSnapRaw_(env, "listAccess");
     const people = (list && list.people) || [];
     for (let i = 0; i < people.length; i++) {
       if (String(people[i].telegramId) === tid) {
         role = String(people[i].role || "");
+        status = String(people[i].status || "");
         break;
       }
     }
   } catch (eRole) {}
-  return "Привет" + (name ? ", " + name : "") + "!\nID: " + (tid || "—") + (role ? "\nРоль: " + role : "\nОткрой мини-апп Бойни.") + "\nЗаявки и кабинет читаются из D1.";
+  const isOwner = authOwnerIds_(env).indexOf(tid) >= 0;
+  return botStartPack_({
+    name: name,
+    tid: tid,
+    role: isOwner ? "owner" : role,
+    status: isOwner ? "active" : status,
+    isOwner: isOwner,
+    miniUrl: BOINYA_MINI_URL
+  });
+}
+
+async function botStartRecent_(env, chatId) {
+  const raw = await stageNMeta_(env, "tg_start_ts:" + String(chatId || ""));
+  const ts = Number(raw) || 0;
+  return ts > 0 && Date.now() - ts < 86400000;
+}
+
+async function botMarkStart_(env, chatId) {
+  await stageNSetMeta_(env, "tg_start_ts:" + String(chatId || ""), String(Date.now()));
+}
+
+async function botUpdateSeen_(env, update) {
+  const id = update && update.update_id;
+  if (id == null || id === "") return false;
+  let pack = [];
+  try {
+    const raw = await stageNMeta_(env, "tg_seen_ids");
+    pack = raw ? JSON.parse(raw) : [];
+  } catch (ePack) {
+    pack = [];
+  }
+  if (!Array.isArray(pack)) pack = [];
+  const s = String(id);
+  if (pack.indexOf(s) >= 0) return true;
+  pack.push(s);
+  if (pack.length > 300) pack = pack.slice(-300);
+  await stageNSetMeta_(env, "tg_seen_ids", JSON.stringify(pack));
+  return false;
+}
+
+async function botRememberChat_(env, from, name, chat) {
+  if (botProbeFrom_(from)) return { skipped: "probe" };
+  if (!botPrivateChatOk_(chat, from)) return { skipped: "chat" };
+  const tid = String(from.id);
+  const chatId = String(chat.id);
+  const username = String(from.username || "").replace(/^@/, "");
+  let map = {};
+  try { map = (await getSnapRaw_(env, "boinya_tg_chats")) || {}; } catch (eMap) { map = {}; }
+  if (!map || typeof map !== "object" || Array.isArray(map)) map = {};
+  map[tid] = { chatId: chatId, username: username, name: name || "", at: new Date().toISOString() };
+  try { await putSnap_(env, "boinya_tg_chats", map); } catch (ePut) {}
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    const people = list && Array.isArray(list.people) ? list.people : null;
+    if (!people) return { bound: false, stored: true };
+    let idx = -1;
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) { idx = i; break; }
+    }
+    if (idx < 0) return { bound: false, stored: true };
+    people[idx] = Object.assign({}, people[idx], {
+      chatId: chatId,
+      name: people[idx].name || name || "",
+      username: username || people[idx].username || ""
+    });
+    list.people = people;
+    list._d1TouchedAt = Date.now();
+    await putSnap_(env, "listAccess", list);
+    return { bound: true, stored: true };
+  } catch (eList) {
+    return { bound: false, stored: true };
+  }
+}
+
+async function botEnsureGbiAccess_(env, from, name, chat) {
+  if (botProbeFrom_(from)) return;
+  const tid = String((from && from.id) || "").trim();
+  if (!/^\d{5,15}$/.test(tid)) return;
+  const isOwner = authOwnerIds_(env).indexOf(tid) >= 0;
+  let list = null;
+  try { list = await getSnapRaw_(env, "listAccess"); } catch (eL) { list = null; }
+  list = list && typeof list === "object" ? list : { status: "success", people: [] };
+  const people = Array.isArray(list.people) ? list.people.slice() : [];
+  let idx = -1;
+  for (let i = 0; i < people.length; i++) {
+    if (String(people[i].telegramId) === tid) { idx = i; break; }
+  }
+  const username = String((from && from.username) || "").replace(/^@/, "");
+  const chatId = chat && chat.id != null ? String(chat.id) : tid;
+  if (idx < 0) {
+    people.push({
+      telegramId: tid,
+      name: name || "",
+      username: username,
+      role: isOwner ? "owner" : "pending",
+      status: isOwner ? "active" : "pending",
+      chatId: chatId
+    });
+  } else {
+    const prev = people[idx];
+    const patch = {
+      chatId: chatId,
+      name: prev.name || name || "",
+      username: username || prev.username || ""
+    };
+    if (isOwner) {
+      patch.role = "owner";
+      patch.status = "active";
+    }
+    people[idx] = Object.assign({}, prev, patch);
+  }
+  list.people = people;
+  list.status = "success";
+  list._d1TouchedAt = Date.now();
+  try { await putSnap_(env, "listAccess", list); } catch (ePut) {}
+}
+
+async function botAccessRequest_(env, from, name, chatId, callbackId) {
+  const tid = String((from && from.id) || "").trim();
+  const username = String((from && from.username) || "").replace(/^@/, "");
+  if (!tid || botProbeFrom_(from)) {
+    if (callbackId) {
+      try { await telegramAnswerCallbackWorker_(env, callbackId, "Нет ID"); } catch (e0) {}
+    }
+    return { kind: "access_req", sent: false, reply: "" };
+  }
+  if (authOwnerIds_(env).indexOf(tid) >= 0) {
+    if (callbackId) {
+      try { await telegramAnswerCallbackWorker_(env, callbackId, "Вы владелец"); } catch (e1) {}
+    }
+    if (chatId) {
+      try { await telegramSendTextWorker_(env, chatId, "Ты владелец — доступ уже есть.", null); } catch (e2) {}
+    }
+    return { kind: "access_owner", sent: true, reply: "owner" };
+  }
+  let existing = null;
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    const people = (list && list.people) || [];
+    for (let i = 0; i < people.length; i++) {
+      if (String(people[i].telegramId) === tid) { existing = people[i]; break; }
+    }
+  } catch (eFind) {}
+  const role = String((existing && existing.role) || "").toLowerCase();
+  const status = String((existing && existing.status) || "").toLowerCase();
+  if (existing && status === "active" && role && role !== "pending" && role !== "denied") {
+    if (callbackId) {
+      try { await telegramAnswerCallbackWorker_(env, callbackId, "Уже есть доступ"); } catch (e3) {}
+    }
+    if (chatId) {
+      try {
+        await telegramSendTextWorker_(env, chatId, "Доступ уже есть.\nРоль: " + botRoleLabel_(role) + ".\nID: " + tid, null);
+      } catch (e4) {}
+    }
+    try { await botRememberChat_(env, from, name, { id: chatId, type: "private" }); } catch (e5) {}
+    return { kind: "access_have", sent: true, reply: role };
+  }
+  let recent = false;
+  try {
+    const prev = Number(await stageNMeta_(env, "access_req_at:" + tid)) || 0;
+    if (prev && Date.now() - prev < 300000) recent = true;
+  } catch (eLim) {}
+  if (recent) {
+    if (callbackId) {
+      try { await telegramAnswerCallbackWorker_(env, callbackId, "Уже отправляли недавно"); } catch (e6) {}
+    } else if (chatId) {
+      try { await telegramSendTextWorker_(env, chatId, "Запрос недавно уже отправляли — подожди пару минут.", null); } catch (e7) {}
+    }
+    return { kind: "access_recent", sent: false, reply: "" };
+  }
+  try { await stageNSetMeta_(env, "access_req_at:" + tid, String(Date.now())); } catch (eMark) {}
+  try {
+    await mutateAccess_("requestAccess", { telegramId: tid, targetId: tid, name: name, username: username }, env);
+  } catch (eMut) {}
+  try { await botRememberChat_(env, from, name, { id: chatId, type: "private" }); } catch (eRem) {}
+  let ids = [];
+  try {
+    ids = await appendNotifyGroup_(env, await notifyRecipientsWorker_(env, "access_req"));
+  } catch (eIds) {
+    ids = [];
+  }
+  const text = "Запрос доступа в Бойню\nID: " + tid +
+    "\nИмя: " + (name || "") +
+    "\n@" + (username || "") +
+    "\nНазначьте роль: Бойня → Заказы (удерживать вкладку) → Доступы → блок «Заявки».";
+  for (let n = 0; n < ids.length; n++) {
+    if (String(ids[n]) === tid) continue;
+    try { await telegramSendTextWorker_(env, ids[n], text, null); } catch (eN) {}
+  }
+  if (callbackId) {
+    try { await telegramAnswerCallbackWorker_(env, callbackId, "Запрос отправлен"); } catch (e8) {}
+  }
+  if (chatId) {
+    try {
+      await telegramSendTextWorker_(env, chatId, "Запрос отправлен владельцу. Жди назначения роли.\nID: " + tid, null);
+    } catch (e9) {}
+  }
+  return { kind: "access_req", sent: true, reply: "sent" };
+}
+
+async function botCallbackApply_(env, cq, send) {
+  const kind = botCallbackKind_(cq && cq.data);
+  if (!kind || kind === "svsent" || kind === "ppafk" || kind === "defdone") return null;
+  if (!send) return { kind: kind, sent: false, reply: "" };
+  const from = (cq && cq.from) || {};
+  const name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
+  const chatId = cq && cq.message && cq.message.chat ? cq.message.chat.id : from.id;
+  if (kind === "access_req") return botAccessRequest_(env, from, name, chatId, cq.id);
+  if (kind === "mtrack") {
+    const out = await fulfillMailTrack_({
+      token: String(cq.data || ""),
+      callbackQueryId: cq.id,
+      managerTelegramId: String(from.id || "")
+    }, env);
+    return { kind: "mtrack", sent: false, reply: (out && out.toast) || "" };
+  }
+  if (kind === "costpub") {
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Обновляю прайс"); } catch (eA) {}
+    let pub = null;
+    try { pub = await publishRetailFromCosts_({ _wkOk: "1" }, env); } catch (eP) { pub = null; }
+    let text = "Прайс в мини-аппе обновлён от текущего себеса. Обновите цены в Instagram и на других площадках.";
+    if (!pub || pub.status !== "success") text = "Прайс не обновился. Откройте «Себестоимость» и нажмите «Обновить прайс».";
+    else if (!pub.changed) text = "Себес не менялся относительно прошлого прайса. Цены те же. Проверьте Instagram, если правили вручную.";
+    if (chatId) {
+      try { await telegramSendTextWorker_(env, chatId, text, null); } catch (eT) {}
+    }
+    return { kind: "costpub", sent: true, reply: text };
+  }
+  if (kind === "vrc") {
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Эта кнопка другого бота"); } catch (eV) {}
+    return { kind: "vrc", sent: false, reply: "" };
+  }
+  return null;
 }
 
 async function stageGApplyUpdate_(env, update, opts) {
   opts = opts || {};
   const send = opts.send !== false;
+  const group = botGroupMemberAction_(update);
+  if (group.action === "save" || group.action === "clear") {
+    if (send && env && env.DB) {
+      try {
+        if (group.action === "save") await stageNSetMeta_(env, "telegram_chat_id", group.chatId);
+        else {
+          const cur = await stageNMeta_(env, "telegram_chat_id");
+          if (String(cur) === group.chatId) await stageNSetMeta_(env, "telegram_chat_id", "");
+        }
+      } catch (eG) {}
+    }
+    return { kind: group.action === "save" ? "group_saved" : "group_cleared", sent: false, reply: "" };
+  }
   const cq = update && update.callback_query;
   if (cq && cq.data) {
-    const handled = await stageNCallback_(env, cq, send);
-    if (handled) return handled;
+    const known = botCallbackKind_(cq.data);
+    if (known === "svsent" || known === "ppafk" || known === "defdone") {
+      const handled = await stageNCallback_(env, cq, send);
+      if (handled) return handled;
+    }
+    const extra = await botCallbackApply_(env, cq, send);
+    if (extra) return extra;
+    if (send && !known) {
+      try { await telegramAnswerCallbackWorker_(env, cq.id, "Неизвестная кнопка"); } catch (eU) {}
+    }
+    return { kind: "ignored", sent: false, reply: "" };
   }
   const msg = update && (update.message || update.edited_message);
-  const text = String((msg && msg.text) || "");
-  const start = text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
-  if (start && msg && msg.chat) {
-    const payload = String(start[1] || "");
-    const from = msg.from || {};
-    const name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
+  if (!msg || !msg.chat) return { kind: "ignored", sent: false, reply: "" };
+  if (msg.chat.type && msg.chat.type !== "private") return { kind: "ignored", sent: false, reply: "" };
+  const text = String(msg.text || "");
+  const isEdit = !!(update && !update.message && update.edited_message);
+  const start = botStartCommand_(text);
+  const from = msg.from || {};
+  const name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
+  if (start && !isEdit) {
+    const payload = start.payload;
     if (/^gbi_/i.test(payload)) {
       const token = payload.replace(/^gbi_/i, "");
-      try {
-        await putSnap_(env, "native_auth_" + token, {
-          linked: true,
-          telegramId: String(from.id || ""),
-          name: name,
-          username: String(from.username || ""),
-          cachedAt: new Date().toISOString()
-        });
-      } catch (eNat) {}
-      const reply = "GBI: Telegram подключён.\nИмя: " + (name || "—") + "\nID: " + (from.id || "—") + "\nВернись в приложение.";
-      if (send) await telegramSendTextWorker_(env, msg.chat.id, reply);
-      return { kind: "gbi", sent: !!send, reply: reply };
+      if (token) {
+        try {
+          await putSnap_(env, "native_auth_" + token, {
+            linked: true,
+            telegramId: String(from.id || ""),
+            name: name,
+            username: String(from.username || ""),
+            cachedAt: new Date().toISOString()
+          });
+        } catch (eNat) {}
+      }
+      if (send) {
+        try { await botEnsureGbiAccess_(env, from, name, msg.chat); } catch (eAcc) {}
+        try { await botRememberChat_(env, from, name, msg.chat); } catch (eCh) {}
+        try {
+          await telegramSendTextWorker_(
+            env,
+            msg.chat.id,
+            "GBI: Telegram подключён.\nИмя: " + (name || "—") + "\nID: " + (from.id || "—") + "\nВернись в приложение.",
+            null
+          );
+        } catch (eSend) {}
+      }
+      return {
+        kind: "gbi",
+        sent: !!send,
+        reply: "GBI: Telegram подключён.\nИмя: " + (name || "—") + "\nID: " + (from.id || "—") + "\nВернись в приложение."
+      };
     }
-    const reply = await stageGStartText_(env, from, name);
-    if (send) await telegramSendTextWorker_(env, msg.chat.id, reply);
-    return { kind: "start", sent: !!send, reply: reply };
+    const pack = await botLoadStart_(env, from, name);
+    if (!send) return { kind: "start", sent: false, reply: pack.text };
+    try { await botRememberChat_(env, from, name, msg.chat); } catch (eRem) {}
+    let recent = false;
+    if (!botProbeFrom_(from)) {
+      try { recent = await botStartRecent_(env, msg.chat.id); } catch (eRec) { recent = false; }
+    }
+    if (recent) return { kind: "start_recent", sent: false, reply: pack.text };
+    if (botProbeFrom_(from)) return { kind: "start", sent: false, reply: pack.text };
+    try { await botMarkStart_(env, msg.chat.id); } catch (eMk) {}
+    try { await telegramSendTextWorker_(env, msg.chat.id, pack.text, pack.markup); } catch (eTx) {}
+    return { kind: "start", sent: true, reply: pack.text };
+  }
+  if (botInboundMedia_(msg)) return { kind: "media_ignored", sent: false, reply: "" };
+  if (!isEdit && botAccessAsk_(text)) {
+    if (!send) return { kind: "access_req", sent: false, reply: "" };
+    return botAccessRequest_(env, from, name, msg.chat.id, "");
   }
   return { kind: "ignored", sent: false, reply: "" };
 }
 
 async function stageGTelegram_(request, env) {
+  const hookSecret = String((env && env.TELEGRAM_WEBHOOK_SECRET) || "").trim();
+  const header = String(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "").trim();
+  const headerOk = !!(hookSecret && varkaSecretEq_(header, hookSecret));
   let body = {};
   try { body = await request.json(); } catch (eBody) { body = {}; }
-  const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
-  const got = String((body && body._wk) || "").trim();
-  if (sec && got !== sec) return json({ status: "error", message: "forbidden" }, 403);
-  const update = (body && body.update) || body;
-  const out = await stageGApplyUpdate_(env, update, { send: true });
+  if (!headerOk) {
+    const sec = String((env && env.GAS_SHARED_SECRET) || "").trim();
+    const got = String((body && body._wk) || "").trim();
+    if (!(sec && got === sec)) return json({ status: "error", message: "forbidden" }, 403);
+  }
+  const update = headerOk
+    ? (body && body.update_id != null ? body : ((body && body.update) || body))
+    : ((body && body.update) || body);
+  if (headerOk) {
+    try {
+      if (await botUpdateSeen_(env, update)) {
+        return new Response("ok", { status: 200, headers: { "X-Boinya-Kind": "dup" } });
+      }
+    } catch (eSeen) {}
+  }
+  let out = { kind: "ignored", sent: false, reply: "" };
+  try {
+    out = await stageGApplyUpdate_(env, update, { send: true });
+  } catch (eApply) {
+    out = { kind: "error", sent: false, reply: "" };
+  }
+  if (headerOk) {
+    return new Response("ok", { status: 200, headers: { "X-Boinya-Kind": String(out.kind || "ignored") } });
+  }
   return json({ status: "success", kind: out.kind, sent: out.sent });
 }
 
@@ -34117,11 +34461,7 @@ async function stageNStaff_(env, key, baseIds, opts) {
     ids = [];
   }
   if (!Array.isArray(ids)) ids = [];
-  if (!(opts && opts.filterOnly)) {
-    const chatOn = notifyChatEnabledWorker_(env);
-    const chat = chatOn ? String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() : "";
-    if (chat && ids.indexOf(chat) < 0) ids.push(chat);
-  }
+  if (!(opts && opts.filterOnly)) return appendNotifyGroup_(env, ids);
   return ids;
 }
 

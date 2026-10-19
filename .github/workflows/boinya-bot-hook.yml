@@ -1,0 +1,100 @@
+# Разово и при смене скрипта: секрет вебхука на воркер и setWebhook @boyniaGB_bot.
+# Сообщений не шлёт. Партнёрский бот не трогает.
+name: boinya-bot-hook
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/boinya-bot-hook.yml
+      - scripts/boinya-bot-hook.mjs
+      - boinya-c/proxy/bot-hook.js
+      - boinya-c/proxy/bot-hook.test.mjs
+      - boinya-c/proxy/worker.js
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/boinya-bot-hook.yml
+      - scripts/boinya-bot-hook.mjs
+      - boinya-c/proxy/bot-hook.js
+      - boinya-c/proxy/worker.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Hook decisions and worker syntax
+        run: |
+          node --check boinya-c/proxy/worker.js
+          node --test boinya-c/proxy/bot-hook.test.mjs
+
+  apply:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Wait until worker deploy on this sha finishes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          deadline = time.time() + 20 * 60
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          while time.time() < deadline:
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
+                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "boinya-bot-hook"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  runs = json.load(resp).get("workflow_runs") or []
+              mine = [r for r in runs if r.get("name") == "boinya-c-worker-deploy"]
+              if not mine:
+                  print("worker-deploy: ещё нет", flush=True)
+                  time.sleep(15)
+                  continue
+              if any(r.get("status") in active for r in mine):
+                  print("worker-deploy: ещё идёт", flush=True)
+                  time.sleep(15)
+                  continue
+              last = sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+              print("worker-deploy: " + str(last.get("conclusion")), flush=True)
+              if last.get("conclusion") != "success":
+                  raise SystemExit("worker-deploy не зелёный")
+              break
+          else:
+              raise SystemExit("worker-deploy не дождались")
+          PY
+      - name: Secret, webhook, probe /start
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          BOT_HOOK_OUT: ${{ github.workspace }}/artifacts/boinya-bot-hook
+        run: |
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          node scripts/boinya-bot-hook.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boinya-bot-hook
+          path: artifacts/boinya-bot-hook/
+          if-no-files-found: warn
