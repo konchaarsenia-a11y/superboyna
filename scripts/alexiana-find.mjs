@@ -66,10 +66,10 @@ const clients = d1(
 
 const orders = d1(
   "SELECT id, client, match_key, date_iso, day_name, status, segment, source FROM orders " +
-    "WHERE lower(ifnull(client,'')) LIKE '%alexian%' OR lower(ifnull(client,'')) LIKE '%aleksian%' " +
-    "OR upper(ifnull(match_key,'')) LIKE '%ALEXIAN%' OR upper(ifnull(match_key,'')) LIKE '%ALEKSIAN%' " +
-    "OR ifnull(client,'') LIKE '%лексиан%' OR ifnull(client,'') LIKE '%Лексиан%'"
-);
+    "WHERE lower(ifnull(client,'')) LIKE '%aleksi%' OR lower(ifnull(client,'')) LIKE '%alexi%' " +
+    "OR upper(ifnull(match_key,'')) LIKE '%ALEKSI%' OR upper(ifnull(match_key,'')) LIKE '%ALEXI%' " +
+    "OR ifnull(client,'') LIKE '%лексиан%' OR ifnull(client,'') LIKE '%Лекси%'"
+).filter(alexianaHitRow_);
 
 const pool = cards.concat(subs, clients);
 const groups = groupAlexiana_(pool);
@@ -77,17 +77,15 @@ const decision = alexianaMoveDecision_(groups);
 const today = "2026-10-20";
 const publicGroups = groups.map(function (group) {
   const members = group.members.map(pub);
-  const keys = Object.create(null);
-  members.forEach(function (row) {
-    if (row.match_key) keys[String(row.match_key).toUpperCase()] = true;
-    const nick = String(row.nick || row.client || "").trim().toLowerCase();
-    if (nick) keys[nick] = true;
+  const mine = groups.length === 1 ? orders : orders.filter(function (row) {
+    return group.members.some(function (member) {
+      const key = String(row.match_key || "").toUpperCase();
+      const nick = String(row.client || "").trim().toLowerCase();
+      return (member.match_key && String(member.match_key).toUpperCase() === key) ||
+        (member.nick && String(member.nick).trim().toLowerCase() === nick);
+    });
   });
-  const future = orders.filter(function (row) {
-    if (!alexianaHitRow_(row)) return false;
-    const key = String(row.match_key || "").toUpperCase();
-    const nick = String(row.client || "").trim().toLowerCase();
-    if (!keys[key] && !keys[nick]) return false;
+  const future = mine.filter(function (row) {
     return String(row.date_iso || "") >= today && String(row.status || "") === "active";
   }).map(function (row) {
     return {
@@ -99,7 +97,7 @@ const publicGroups = groups.map(function (group) {
       source: row.source || ""
     };
   });
-  return { members: members, futureOrders: future };
+  return { members: members, futureOrders: future, orderRows: mine.length };
 });
 
 const report = {
@@ -116,6 +114,7 @@ writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ action: report.action, groups: report.groups, people: publicGroups.map(function (g) {
   return {
     members: g.members.map(function (m) { return m.kind + " " + (m.nick || m.label) + " " + m.sheet + " " + m.subId; }),
+    orders: g.orderRows,
     future: g.futureOrders.map(function (o) { return o.date_iso + " " + o.id; })
   };
 }) }));
