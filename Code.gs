@@ -11261,6 +11261,8 @@ function fetchYieldMapForCutting_(dateText) {
 }
 
 function maybeSendCostDigest_() {
+  // 1-е число 11:00 Минск шлёт крон воркера. Здесь не слать: старый токен и второй замок.
+  return { skipped: true, reason: "worker_cron" };
   var tz = "Europe/Minsk";
   var now = new Date();
   var day = Utilities.formatDate(now, tz, "d");

@@ -17,6 +17,7 @@ import {
   botStartCommand_,
   botStartPack_
 } from "./bot-hook.js";
+import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 
 /**
  * Бойня C — Worker + D1.
@@ -35163,7 +35164,70 @@ async function stageNTick_(env, when) {
   if ((parts.hour === 11 || parts.hour === 19) && parts.minute === 0) {
     out.nudge = await stageNNudge_(env, { send: true, slot: String(parts.hour), now: now });
   }
+  if (costDigestDue_(parts)) {
+    out.costDigest = await stageNCostDigest_(env, { send: true, now: now });
+  }
   return out;
+}
+
+async function stageNCostDigest_(env, opts) {
+  opts = opts || {};
+  const send = opts.send === true;
+  const now = stageNNow_(opts.now);
+  const parts = stageNParts_(now, "Europe/Minsk");
+  const month = costDigestDue_(parts);
+  if (!month) return { skipped: true, reason: "not_slot", ymd: parts.ymd, hour: parts.hour };
+  const key = "cost_digest:" + month;
+  if (send) {
+    const prev = await stageNMeta_(env, key);
+    if (prev === "1") return { skipped: true, reason: "already", month: month };
+  }
+  let dig = null;
+  try {
+    dig = await costMonthDigest_({ month: month }, env);
+  } catch (eDig) {
+    dig = null;
+  }
+  if (!dig || dig.status !== "success") return { skipped: true, reason: "fetch", month: month };
+  const changes = dig.changes || [];
+  let ids = [];
+  try {
+    ids = await stageNStaff_(env, "date_nudge");
+  } catch (eIds) {
+    ids = [];
+  }
+  const group = await notifyGroupChatId_(env);
+  if (!group) {
+    authOwnerIds_(env).forEach(function (id) {
+      const s = String(id || "");
+      if (s && ids.indexOf(s) < 0) ids.push(s);
+    });
+  }
+  if (send) {
+    try { await stageNSetMeta_(env, key, "1"); } catch (eLock) {}
+  }
+  if (!changes.length) {
+    return { skipped: true, reason: "empty", month: month, locked: send, hasGroup: !!group, recipientCount: ids.length };
+  }
+  const text = costDigestText_(month, changes);
+  let sent = 0;
+  if (send) {
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const r = await telegramSendTextWorker_(env, ids[i], text, COST_DIGEST_MARKUP);
+        if (r && r.ok) sent++;
+      } catch (eSend) {}
+    }
+  }
+  return {
+    ok: true,
+    month: month,
+    sent: sent,
+    changes: changes.length,
+    hasGroup: !!group,
+    recipientCount: ids.length,
+    wouldSend: changes.length > 0 && !send
+  };
 }
 
 async function stageNDry_(env) {
