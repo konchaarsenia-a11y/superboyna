@@ -118,7 +118,12 @@ const report = {
 
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 2));
-console.log(JSON.stringify({ action: report.action, groups: report.groups, people: publicGroups.map(function (g) {
+const sub43 = cards.concat(subs).filter(function (row) {
+  return String(row.subId || row.id || "") === "43";
+}).map(function (row) {
+  return row.kind + " " + (row.nick || "") + " " + alexianaSheet_(row) + " " + (row.subId || row.id || "");
+});
+console.log(JSON.stringify({ action: report.action, groups: report.groups, sub43: sub43, people: publicGroups.map(function (g) {
   return {
     members: g.members.map(function (m) { return m.kind + " " + (m.nick || m.label) + " " + m.sheet + " " + m.subId; }),
     orders: g.orderRows,
