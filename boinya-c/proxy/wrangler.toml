@@ -40,6 +40,7 @@ PARTNER_OWNER_USERNAMES = "one_more_person_228"
 # Secret: GAS_SHARED_SECRET — = Script Property WORKER_SHARED_SECRET в Apps Script (GAS доверяет Worker).
 # Secret: VARKA_ADMIN_KEY — заголовок X-Varka-Admin-Key только для partnerMigrateVarkaConsent и partnerVarkaBroadcast.
 # Secret: GOODBOY_WEBHOOK_SECRET — X-Telegram-Bot-Api-Secret-Token на POST /telegram/goodboy (не WORKER_SHARED_SECRET).
+# Secret: TELEGRAM_WEBHOOK_SECRET — тот же заголовок на POST /telegram/boinya для @boyniaGB_bot. Пустой секрет этот вход закрывает.
 # Secret: SUBS_VIEW_PASSWORD — пароль экрана «Подписки» (раньше лежал в app.main.js).
 # Без секрета sendCourier/forceSurvey → GAS fallback
 # PP cost breakdown: wrangler secret put PP_COST_BREAKDOWN_PIN

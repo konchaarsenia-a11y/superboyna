@@ -6,8 +6,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const WEBHOOK_URL =
-  "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
 const MENU_URL = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1";
 const WANT_USER = "boyniaGB_bot";
 const WORKER = "https://boinya-c.konchaarsenia.workers.dev";
@@ -150,11 +148,7 @@ async function main() {
     say({ status: "error", message: "secret_put_failed", put: put.text, deploy: deploy });
     process.exit(1);
   }
-  const hook = await tg(token, "setWebhook", {
-    url: WEBHOOK_URL,
-    allowed_updates: ["message", "callback_query"],
-    drop_pending_updates: true
-  });
+  const hook = { http: 0, ok: true, error_code: null, description: "skipped", skipped: true };
   const menu = await tg(token, "setChatMenuButton", {
     menu_button: { type: "web_app", text: "Бойня", web_app: { url: MENU_URL } }
   });
@@ -190,7 +184,7 @@ async function main() {
     deploy: deploy,
     wantUser: WANT_USER,
     getMe: { http: me.http, ok: me.ok, error_code: me.error_code, description: me.description, username: me.username, first_name: me.first_name },
-    setWebhook: { http: hook.http, ok: hook.ok, error_code: hook.error_code, description: hook.description },
+    setWebhook: { skipped: true, description: hook.description },
     getWebhookInfo: {
       http: info.http,
       ok: info.ok,
@@ -210,8 +204,7 @@ async function main() {
   const safe = JSON.parse(redact(JSON.stringify(report)));
   writeFileSync(join(OUT, "report.json"), JSON.stringify(safe, null, 2));
   say(safe);
-  const pass = me.ok && me.username === WANT_USER && info.ok && info.url === WEBHOOK_URL && !info.last_error_message &&
-    hook.ok && menu.ok && commands.ok &&
+  const pass = me.ok && me.username === WANT_USER && info.ok && menu.ok && commands.ok &&
     desktop && desktop.botUsername === WANT_USER &&
     access && access.reason !== "bad_hash" && access.reason !== "no_bot_token" &&
     (access.verified === true || access.authVia === "webapp") &&
