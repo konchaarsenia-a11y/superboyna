@@ -18,6 +18,7 @@ import {
   botStartPack_
 } from "./bot-hook.js";
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
+import { ppCreateBlockedByAfk_ } from "./afk-guard.js";
 
 /**
  * Бойня C — Worker + D1.
@@ -19071,6 +19072,15 @@ async function handleCutover_(a, params, env, ctx) {
           action: a
         };
       }
+      if (d1SubRes && d1SubRes.message === "afk_holds") {
+        return {
+          status: "error",
+          message: "afk_holds",
+          cutover: true,
+          sandbox: false,
+          action: a
+        };
+      }
       if (!sheetsOrdersReadonly_(env)) {
         const gasSubP = gasProxy_(a, params, env, { write: true }).catch(function () {
           return null;
@@ -19176,6 +19186,16 @@ async function handleCutover_(a, params, env, ctx) {
         );
       } catch (eEnD1) {
         d1Enroll = { status: "error", message: String((eEnD1 && eEnD1.message) || eEnD1) };
+      }
+      if (d1Enroll && d1Enroll.message === "afk_holds") {
+        return {
+          status: "error",
+          message: "afk_holds",
+          cutover: true,
+          sandbox: false,
+          nick: enrollNick,
+          action: a
+        };
       }
       const gasEnrollP = sheetsOrdersReadonly_(env) ? Promise.resolve(null) : gasProxy_(
         a,
@@ -24415,6 +24435,7 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
     }
   }
   if (idx >= 0) arr[idx] = merged;
+  else if (ppCreateBlockedByAfk_(arr, merged)) return;
   else arr.push(merged);
   const collapsedDetail = collapseSubscriptionList_(arr);
   list.subscriptions = collapsedDetail;
@@ -24548,6 +24569,8 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
       if (old._d1Detail && subscriptionLocalHasCrmDetail_(Object.assign({ found: true }, preserved))) {
         arr[idx]._d1Detail = true;
       }
+    } else if (ppCreateBlockedByAfk_(arr, Object.assign({}, inc, { sheet: inc.sheet || sheet || "ПП" }))) {
+      continue;
     } else {
       const fresh = Object.assign({}, inc, {
         sheet: inc.sheet || sheet || "ПП",
@@ -25248,7 +25271,10 @@ async function upsertSubscription_(params, env) {
         await putSubDeleteTombstone_(env, plan.removed[ri], 24 * 60 * 60 * 1000);
       } catch (eMoveTomb) {}
     }
-    try { await stageBUpsertSubRow_(env, plan.row, {}); } catch (eSubMove) {}
+    try { await stageBUpsertSubRow_(env, plan.row, { allowLeaveAfk: true }); } catch (eSubMove) {}
+    for (let rr = 0; rr < (plan.removed || []).length; rr++) {
+      try { await stageBRetireOtherSheet_(env, plan.removed[rr], plan.row); } catch (eRet) {}
+    }
     return {
       status: "success",
       wrote: 1,
@@ -25323,7 +25349,15 @@ async function upsertSubscription_(params, env) {
   row._d1Detail = true;
   row._savedAt = Date.now();
   if (idx >= 0) arr[idx] = row;
-  else arr.push(row);
+  else if (ppCreateBlockedByAfk_(arr, row)) {
+    return {
+      status: "error",
+      message: "afk_holds",
+      wrote: 0,
+      nick: row.nick || nick,
+      sheet: "АФК"
+    };
+  } else arr.push(row);
   const collapsedSave = collapseSubscriptionList_(arr);
   list.subscriptions = collapsedSave;
   list.count = collapsedSave.length;
@@ -33238,9 +33272,20 @@ async function stageBUpsertSubRow_(env, row, opts) {
       await stageBAssignClient_(env, { match_key: mk, client: nick || mk, phone: row.phone || "", address: row.address || "", note: row.note || row.wishes || "" }, null);
     }
   }
-  var existing = await env.DB.prepare("SELECT id, match_key FROM subs WHERE id = ?").bind(id).first();
+  var existing = await env.DB.prepare("SELECT id, match_key, sheet FROM subs WHERE id = ?").bind(id).first();
   if (existing && String(existing.match_key || "") && mk && String(existing.match_key) !== mk) {
     return { ok: false, shared: true, id: id, other: String(existing.match_key), nick: nick, sheet: sheet };
+  }
+  if (sheet === "pp" && !opts.allowLeaveAfk) {
+    if (existing && String(existing.sheet || "") === "afk") {
+      return { ok: false, blocked: "afk", id: id };
+    }
+    if (!existing && mk) {
+      var afkHold = await env.DB.prepare(
+        "SELECT id FROM subs WHERE match_key = ? AND sheet = 'afk' AND status != 'deleted' LIMIT 1"
+      ).bind(mk).first();
+      if (afkHold && afkHold.id) return { ok: false, blocked: "afk", id: id };
+    }
   }
   var now = new Date().toISOString();
   var price = row.price != null && row.price !== "" ? Number(row.price) : row.orderPrice != null ? Number(row.orderPrice) : null;
@@ -33283,6 +33328,22 @@ async function stageBRetireSubRow_(env, row) {
   await env.DB.prepare("UPDATE subs SET status = 'deleted', updated_at = ? WHERE id = ?")
     .bind(new Date().toISOString(), id)
     .run();
+}
+
+function stageBRowId_(row) {
+  var nick = String((row && (row.nick || row.client)) || "").trim();
+  var mk = normalizeMatchKey_((row && (row.matchKey || row.match_key)) || nick);
+  var sheet = stageBSheet_(row && (row.sheet || row.segment));
+  var sid = String((row && (row.subId || row.id)) || "").trim();
+  var pending = !sid || sid.indexOf("pending:") === 0;
+  return pending ? "pending:" + (sheet || "x") + ":" + mk : sid;
+}
+
+async function stageBRetireOtherSheet_(env, removed, kept) {
+  var oldId = stageBRowId_(removed);
+  var newId = stageBRowId_(kept);
+  if (!oldId || oldId === newId) return;
+  await stageBRetireSubRow_(env, Object.assign({}, removed || {}, { subId: oldId }));
 }
 
 function stageBSecretOk_(request, env) {
