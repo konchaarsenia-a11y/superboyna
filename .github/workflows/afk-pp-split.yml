@@ -1,0 +1,152 @@
+name: afk-pp-split
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/afk-pp-split.yml
+      - boinya-c/proxy/afk-guard.js
+      - boinya-c/proxy/afk-guard.test.mjs
+      - boinya-c/proxy/worker.js
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/afk-pp-split.yml
+      - boinya-c/proxy/afk-guard.js
+      - boinya-c/proxy/worker.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: |
+          node --check boinya-c/proxy/worker.js
+          node --test boinya-c/proxy/afk-guard.test.mjs
+
+  apply:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Wait until worker deploy on this sha finishes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          deadline = time.time() + 20 * 60
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          while time.time() < deadline:
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
+                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "afk-pp-split"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  runs = json.load(resp).get("workflow_runs") or []
+              mine = [r for r in runs if r.get("name") == "boinya-c-worker-deploy"]
+              if not mine:
+                  print("worker-deploy: ещё нет", flush=True)
+                  time.sleep(15)
+                  continue
+              if any(r.get("status") in active for r in mine):
+                  print("worker-deploy: ещё идёт", flush=True)
+                  time.sleep(15)
+                  continue
+              last = sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
+              print("worker-deploy: " + str(last.get("conclusion")), flush=True)
+              if last.get("conclusion") != "success":
+                  raise SystemExit("worker-deploy не зелёный")
+              break
+          else:
+              raise SystemExit("worker-deploy не дождались")
+          PY
+      - name: Dry-run then apply
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/afk-pp-split"
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          put_ok=0
+          for i in 1 2 3 4 5 6; do
+            if printf '%s' "$TOKEN" | npx --yes wrangler@4 secret put AFK_SPLIT_ADMIN_TOKEN; then
+              put_ok=1
+              break
+            fi
+            echo "secret put не прошёл, попытка $i"
+            sleep 20
+          done
+          test "$put_ok" = 1
+          post() {
+            local mode="$1"
+            local out="$2"
+            local confirm="$3"
+            local code
+            code=$(curl -sS -o "$out" -w "%{http_code}" \
+              -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/afk-pp-split" \
+              -H "Content-Type: application/json" \
+              -H "X-Afk-Split-Token: $TOKEN" \
+              --data "{\"mode\":\"$mode\",\"confirm\":\"$confirm\"}" \
+              --max-time 120 || true)
+            echo "$mode HTTP $code" >&2
+            printf '%s' "$code"
+          }
+          dry_code=$(post dry-run "$GITHUB_WORKSPACE/artifacts/afk-pp-split/dry.json" "")
+          python3 - "$GITHUB_WORKSPACE/artifacts/afk-pp-split/dry.json" "$dry_code" <<'PY'
+          import json, sys
+          path, code = sys.argv[1], sys.argv[2]
+          data = json.load(open(path, encoding="utf-8"))
+          print(json.dumps({"status": data.get("status"), "mode": data.get("mode"), "plan": data.get("plan"), "errors": data.get("errors"), "sync": data.get("sync")}, ensure_ascii=False))
+          if code != "200" or data.get("status") != "success":
+              raise SystemExit("dry-run не сошёлся")
+          sync = data.get("sync") or {}
+          if not (sync.get("minaevaPpBlocked") and sync.get("madmazelkaAfkBlocked") and sync.get("madmazelkaPpOpen")):
+              raise SystemExit("синк после плана не закрывает дубль")
+          PY
+          apply_code=$(post apply "$GITHUB_WORKSPACE/artifacts/afk-pp-split/apply.json" "split-afk-pp-2026-10-19")
+          python3 - "$GITHUB_WORKSPACE/artifacts/afk-pp-split/apply.json" "$apply_code" <<'PY'
+          import json, sys
+          path, code = sys.argv[1], sys.argv[2]
+          data = json.load(open(path, encoding="utf-8"))
+          print(json.dumps({"status": data.get("status"), "backup": data.get("backup"), "ordersSame": data.get("ordersSame"), "subsSame": data.get("subsSame"), "plan": data.get("plan"), "sync": data.get("sync"), "message": data.get("message")}, ensure_ascii=False))
+          if code != "200" or data.get("status") != "success" or data.get("ordersSame") is not True:
+              raise SystemExit("apply не сошёлся, смотри восстановление")
+          PY
+      - name: Delete one-time AFK_SPLIT_ADMIN_TOKEN
+        if: always()
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          npx --yes wrangler@4 secret delete AFK_SPLIT_ADMIN_TOKEN || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: afk-pp-split
+          path: artifacts/afk-pp-split/
+          if-no-files-found: warn
