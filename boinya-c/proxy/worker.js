@@ -18,7 +18,7 @@ import {
   botStartPack_
 } from "./bot-hook.js";
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
-import { ppCreateBlockedByAfk_ } from "./afk-guard.js";
+import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 
 /**
  * Бойня C — Worker + D1.
@@ -1068,6 +1068,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/admin/week-close-dupes") {
       return weekCloseDupesAdmin_(request, env);
+    }
+    if (url.pathname === "/admin/afk-pp-split") {
+      return afkPpSplitAdmin_(request, env);
     }
     if (url.pathname === "/admin/stage-b") {
       return stageBAdmin_(request, env);
@@ -19072,10 +19075,10 @@ async function handleCutover_(a, params, env, ctx) {
           action: a
         };
       }
-      if (d1SubRes && d1SubRes.message === "afk_holds") {
+      if (d1SubRes && (d1SubRes.message === "afk_holds" || d1SubRes.message === "other_sheet_holds")) {
         return {
           status: "error",
-          message: "afk_holds",
+          message: d1SubRes.message,
           cutover: true,
           sandbox: false,
           action: a
@@ -24435,7 +24438,7 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
     }
   }
   if (idx >= 0) arr[idx] = merged;
-  else if (ppCreateBlockedByAfk_(arr, merged)) return;
+  else if (duplicateSheetBlocked_(arr, merged)) return;
   else arr.push(merged);
   const collapsedDetail = collapseSubscriptionList_(arr);
   list.subscriptions = collapsedDetail;
@@ -24569,7 +24572,7 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
       if (old._d1Detail && subscriptionLocalHasCrmDetail_(Object.assign({ found: true }, preserved))) {
         arr[idx]._d1Detail = true;
       }
-    } else if (ppCreateBlockedByAfk_(arr, Object.assign({}, inc, { sheet: inc.sheet || sheet || "ПП" }))) {
+    } else if (duplicateSheetBlocked_(arr, Object.assign({}, inc, { sheet: inc.sheet || sheet || "ПП" }))) {
       continue;
     } else {
       const fresh = Object.assign({}, inc, {
@@ -25349,13 +25352,14 @@ async function upsertSubscription_(params, env) {
   row._d1Detail = true;
   row._savedAt = Date.now();
   if (idx >= 0) arr[idx] = row;
-  else if (ppCreateBlockedByAfk_(arr, row)) {
+  else if (duplicateSheetBlocked_(arr, row)) {
+    const held = String(row.sheet || row.segment || "").toUpperCase() === "АФК" ? "ПП" : "АФК";
     return {
       status: "error",
-      message: "afk_holds",
+      message: held === "АФК" ? "afk_holds" : "other_sheet_holds",
       wrote: 0,
       nick: row.nick || nick,
-      sheet: "АФК"
+      sheet: held
     };
   } else arr.push(row);
   const collapsedSave = collapseSubscriptionList_(arr);
@@ -33276,15 +33280,16 @@ async function stageBUpsertSubRow_(env, row, opts) {
   if (existing && String(existing.match_key || "") && mk && String(existing.match_key) !== mk) {
     return { ok: false, shared: true, id: id, other: String(existing.match_key), nick: nick, sheet: sheet };
   }
-  if (sheet === "pp" && !opts.allowLeaveAfk) {
-    if (existing && String(existing.sheet || "") === "afk") {
-      return { ok: false, blocked: "afk", id: id };
+  if ((sheet === "pp" || sheet === "afk") && !opts.allowLeaveAfk) {
+    var otherSheet = sheet === "pp" ? "afk" : "pp";
+    if (existing && String(existing.sheet || "") === otherSheet) {
+      return { ok: false, blocked: otherSheet, id: id };
     }
     if (!existing && mk) {
-      var afkHold = await env.DB.prepare(
-        "SELECT id FROM subs WHERE match_key = ? AND sheet = 'afk' AND status != 'deleted' LIMIT 1"
-      ).bind(mk).first();
-      if (afkHold && afkHold.id) return { ok: false, blocked: "afk", id: id };
+      var otherHold = await env.DB.prepare(
+        "SELECT id FROM subs WHERE match_key = ? AND sheet = ? AND status != 'deleted' LIMIT 1"
+      ).bind(mk, otherSheet).first();
+      if (otherHold && otherHold.id) return { ok: false, blocked: otherSheet, id: id };
     }
   }
   var now = new Date().toISOString();
@@ -36074,6 +36079,223 @@ function weekCloseDupesReport_(classified, extras, range, decisions, tail) {
       return part !== "";
     })
     .join("\n");
+}
+
+var AFK_PP_SPLIT_CONFIRM_ = "split-afk-pp-2026-10-19";
+var AFK_PP_SPLIT_BACKUP_ = "afkPpSplitBackup:2026-10-19";
+var AFK_PP_SPLIT_TOMB_MS_ = 180 * 24 * 60 * 60 * 1000;
+
+function afkPpSplitSecretOk_(request, env) {
+  var secret = String((env && env.AFK_SPLIT_ADMIN_TOKEN) || "").trim();
+  if (!secret) return false;
+  var got = String((request.headers && request.headers.get("x-afk-split-token")) || "");
+  if (!got || got.length !== secret.length) return false;
+  var diff = 0;
+  for (var i = 0; i < secret.length; i++) diff |= secret.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
+function afkPpSplitOrderFinger_(rows) {
+  return (rows || []).map(function (row) {
+    return [
+      row.id,
+      row.date_iso,
+      row.status,
+      row.segment,
+      row.source,
+      row.basket_json || ""
+    ].join("|");
+  }).sort().join("\n");
+}
+
+function afkPpSplitSubsFinger_(rows) {
+  return (rows || []).map(function (row) {
+    return [
+      row.id,
+      row.match_key,
+      row.nick,
+      row.sheet,
+      row.status,
+      row.n,
+      row.price,
+      row.basket_json || ""
+    ].join("|");
+  }).sort().join("\n");
+}
+
+async function afkPpSplitLoadOrders_(env) {
+  const q = await env.DB.prepare(
+    "SELECT id, date_iso, status, segment, source, basket_json FROM orders " +
+      "WHERE lower(client) LIKE '%minaeva%' OR lower(client) LIKE '%madmazelka%' " +
+      "OR upper(match_key) LIKE '%MINAEVA%' OR upper(match_key) LIKE '%MADMAZELKA%' " +
+      "ORDER BY id"
+  ).all();
+  return (q && q.results) || [];
+}
+
+async function afkPpSplitLoadSubs_(env) {
+  const q = await env.DB.prepare(
+    "SELECT id, match_key, nick, sheet, status, n, price, basket_json FROM subs " +
+      "WHERE id IN ('45','47') OR lower(nick) LIKE '%minaeva%' OR lower(nick) LIKE '%madmazelka%' " +
+      "ORDER BY id"
+  ).all();
+  return (q && q.results) || [];
+}
+
+function afkPpSplitSubsShape_(subs) {
+  const mina = (subs || []).filter(function (row) {
+    return String(row.id) === "45" || /minaeva/i.test(String(row.nick || ""));
+  });
+  const mad = (subs || []).filter(function (row) {
+    return String(row.id) === "47" || /madmazelka/i.test(String(row.nick || ""));
+  });
+  if (mina.length !== 1 || String(mina[0].id) !== "45" || String(mina[0].sheet) !== "afk") {
+    return { ok: false, reason: "minaeva_subs" };
+  }
+  if (mad.length !== 1 || String(mad[0].id) !== "47") return { ok: false, reason: "mad_subs" };
+  if (String(mad[0].sheet) !== "afk" && String(mad[0].sheet) !== "pp") return { ok: false, reason: "mad_sheet" };
+  return { ok: true, mina: mina[0], mad: mad[0] };
+}
+
+function afkPpSplitBrief_(plan, orders, subs, shape) {
+  return {
+    removed: plan.removed,
+    kept: plan.kept,
+    already: !!plan.already,
+    orders: (orders || []).length,
+    subs: (subs || []).map(function (row) {
+      return { id: row.id, nick: row.nick, sheet: row.sheet, status: row.status };
+    }),
+    shape: shape && shape.ok ? "ok" : (shape && shape.reason) || ""
+  };
+}
+
+async function afkPpSplitRestore_(env, backup) {
+  if (backup && backup.list) await putSnap_(env, "listSubscriptions", backup.list);
+  const subs = (backup && backup.subs) || [];
+  for (let i = 0; i < subs.length; i++) {
+    const row = subs[i];
+    await env.DB.prepare(
+      "UPDATE subs SET sheet = ?, updated_at = ? WHERE id = ?"
+    ).bind(String(row.sheet || ""), new Date().toISOString(), String(row.id)).run();
+  }
+}
+
+async function afkPpSplitAdmin_(request, env) {
+  if (!request || request.method !== "POST" || !afkPpSplitSecretOk_(request, env)) {
+    return new Response("not found", { status: 404 });
+  }
+  if (!env || !env.DB) return json({ status: "error", message: "no_d1" }, 500);
+  var body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  const mode = String((body && body.mode) || "dry-run").trim().toLowerCase();
+  const list = (await getSnapRaw_(env, "listSubscriptions")) || { status: "success", subscriptions: [] };
+  const cards = Array.isArray(list.subscriptions) ? list.subscriptions : [];
+  const orders = await afkPpSplitLoadOrders_(env);
+  const subs = await afkPpSplitLoadSubs_(env);
+  const shape = afkPpSplitSubsShape_(subs);
+  const plan = planAfkPpSplit_(cards);
+  const orderFinger = afkPpSplitOrderFinger_(orders);
+  const subsFinger = afkPpSplitSubsFinger_(subs);
+  const sync = {
+    minaevaPpBlocked: duplicateSheetBlocked_(plan.rows, { nick: "vi.minaeva_nails", sheet: "ПП", subId: "45" }),
+    madmazelkaAfkBlocked: duplicateSheetBlocked_(plan.rows, { nick: "_madmazelka_", sheet: "АФК", subId: "47" }),
+    madmazelkaPpOpen: !duplicateSheetBlocked_(plan.rows, { nick: "_madmazelka_", sheet: "ПП", subId: "47" })
+  };
+  if (mode !== "apply") {
+    return json({
+      status: plan.ok && shape.ok ? "success" : "error",
+      mode: "dry-run",
+      backup: AFK_PP_SPLIT_BACKUP_,
+      plan: afkPpSplitBrief_(plan, orders, subs, shape),
+      errors: plan.errors,
+      sync: sync
+    });
+  }
+  if (String((body && body.confirm) || "") !== AFK_PP_SPLIT_CONFIRM_) {
+    return json({ status: "error", message: "confirm" }, 400);
+  }
+  if (!plan.ok || !shape.ok) {
+    return json({ status: "error", message: "plan", errors: plan.errors, shape: shape.reason }, 400);
+  }
+  const backup = {
+    at: new Date().toISOString(),
+    name: AFK_PP_SPLIT_BACKUP_,
+    list: list,
+    subs: subs,
+    orders: orders
+  };
+  await putSnap_(env, AFK_PP_SPLIT_BACKUP_, backup);
+  const saved = await getSnapRaw_(env, AFK_PP_SPLIT_BACKUP_);
+  if (!saved || !saved.list || !Array.isArray(saved.list.subscriptions)) {
+    return json({ status: "error", message: "backup_failed", backup: AFK_PP_SPLIT_BACKUP_ }, 500);
+  }
+  if (plan.already && String(shape.mad.sheet) === "pp") {
+    return json({
+      status: "success",
+      mode: "apply",
+      already: true,
+      backup: AFK_PP_SPLIT_BACKUP_,
+      plan: afkPpSplitBrief_(plan, orders, subs, shape),
+      sync: sync,
+      ordersSame: true,
+      subsSame: true
+    });
+  }
+  list.subscriptions = plan.rows;
+  list.count = plan.rows.length;
+  list.status = "success";
+  await putSnap_(env, "listSubscriptions", list);
+  if (String(shape.mad.sheet) !== "pp") {
+    await env.DB.prepare(
+      "UPDATE subs SET sheet = 'pp', updated_at = ? WHERE id = '47' AND lower(nick) LIKE '%madmazelka%'"
+    ).bind(new Date().toISOString()).run();
+  }
+  const ordersAfter = await afkPpSplitLoadOrders_(env);
+  const subsAfter = await afkPpSplitLoadSubs_(env);
+  const shapeAfter = afkPpSplitSubsShape_(subsAfter);
+  const listAfter = (await getSnapRaw_(env, "listSubscriptions")) || { subscriptions: [] };
+  const planAfter = planAfkPpSplit_(listAfter.subscriptions || []);
+  const subsComparable = afkPpSplitSubsFinger_(subsAfter.map(function (row) {
+    if (String(row.id) === "47") return Object.assign({}, row, { sheet: shape.mad.sheet });
+    return row;
+  }));
+  const ordersSame = afkPpSplitOrderFinger_(ordersAfter) === orderFinger;
+  const subsSame = subsComparable === subsFinger;
+  const cardsOk = planAfter.ok && planAfter.already && shapeAfter.ok && String(shapeAfter.mad.sheet) === "pp";
+  const syncAfter = {
+    minaevaPpBlocked: duplicateSheetBlocked_(planAfter.rows, { nick: "vi.minaeva_nails", sheet: "ПП", subId: "45" }),
+    madmazelkaAfkBlocked: duplicateSheetBlocked_(planAfter.rows, { nick: "_madmazelka_", sheet: "АФК", subId: "47" }),
+    madmazelkaPpOpen: !duplicateSheetBlocked_(planAfter.rows, { nick: "_madmazelka_", sheet: "ПП", subId: "47" })
+  };
+  const syncOk = syncAfter.minaevaPpBlocked && syncAfter.madmazelkaAfkBlocked && syncAfter.madmazelkaPpOpen;
+  if (!ordersSame || !subsSame || !cardsOk || !syncOk) {
+    await afkPpSplitRestore_(env, backup);
+    return json({
+      status: "error",
+      message: "mismatch_restored",
+      backup: AFK_PP_SPLIT_BACKUP_,
+      ordersSame: ordersSame,
+      subsSame: subsSame,
+      cardsOk: cardsOk,
+      sync: syncAfter
+    }, 500);
+  }
+  for (let i = 0; i < plan.removed.length; i++) {
+    const gone = plan.removed[i];
+    try {
+      await putSubDeleteTombstone_(env, { nick: gone.nick, sheet: gone.sheet, subId: gone.subId }, AFK_PP_SPLIT_TOMB_MS_);
+    } catch (eTomb) {}
+  }
+  return json({
+    status: "success",
+    mode: "apply",
+    backup: AFK_PP_SPLIT_BACKUP_,
+    plan: afkPpSplitBrief_(plan, ordersAfter, subsAfter, shapeAfter),
+    ordersSame: true,
+    subsSame: true,
+    sync: syncAfter
+  });
 }
 
 async function weekCloseDupesAdmin_(request, env) {
