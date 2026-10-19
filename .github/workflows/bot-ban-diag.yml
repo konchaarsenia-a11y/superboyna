@@ -14,7 +14,7 @@ permissions:
 jobs:
   read:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,6 +33,136 @@ jobs:
           PARTNER_BOT_TOKEN: ${{ secrets.PARTNER_BOT_TOKEN }}
           BOT_DIAG_OUT: ${{ github.workspace }}/artifacts/bot-ban-diag
         run: node scripts/bot-ban-diag.mjs
+      - name: getMe via undeployed preview version
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            CLOUDFLARE_ACCOUNT_ID=$(curl -sS --max-time 30 -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/accounts?per_page=5" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("result") or [{}])[0].get("id",""))')
+            export CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/bot-ban-diag"
+          python3 - <<'PY'
+          import json, os, subprocess
+          out = os.environ["GITHUB_WORKSPACE"] + "/artifacts/bot-ban-diag/preview.json"
+          def status():
+              r = subprocess.run(["npx","--yes","wrangler@4","deployments","status","--json"], capture_output=True, text=True)
+              text = r.stdout or ""
+              start = text.find("{")
+              if start < 0:
+                  start = text.find("[")
+              data = {}
+              if start >= 0:
+                  try:
+                      data = json.loads(text[start:])
+                  except Exception as e:
+                      data = {"parse": str(e)}
+              return r.returncode, data
+          before_code, before = status()
+          def live_id(data):
+              deps = data.get("deployments") if isinstance(data, dict) else None
+              if deps is None and isinstance(data, list):
+                  deps = data
+              if not isinstance(deps, list):
+                  return ""
+              for d in deps:
+                  versions = d.get("versions") or []
+                  for v in versions:
+                      if v.get("percentage") == 100:
+                          return v.get("version_id") or ""
+                  if d.get("annotations", {}).get("workers/triggered_by") and versions:
+                      return versions[0].get("version_id") or ""
+              return ""
+          live_before = live_id(before)
+          gate = subprocess.check_output(["openssl","rand","-hex","16"], text=True).strip()
+          alias = "bd" + gate[:10]
+          src = open("worker.js", encoding="utf-8").read()
+          needle = "    const url = new URL(request.url);\n"
+          insert = needle + """    if (url.pathname === "/__bot_ban_diag") {
+      if (request.headers.get("x-diag") !== "%s") return new Response("no", { status: 404 });
+      const token = getTelegramTokenWorker_(env);
+      async function tg(method) {
+        if (!token) return { http: 0, ok: false, error_code: null, description: "no_token" };
+        const res = await fetch("https://api.telegram.org/bot" + token + "/" + method);
+        let body = {};
+        try { body = await res.json(); } catch (e) { body = { ok: false, description: "non_json" }; }
+        const result = body && body.result ? body.result : {};
+        return {
+          http: res.status,
+          ok: body.ok === true,
+          error_code: body.error_code == null ? null : body.error_code,
+          description: body.description || "",
+          username: result.username || "",
+          first_name: result.first_name || "",
+          webhook_set: !!result.url,
+          pending_update_count: result.pending_update_count == null ? null : result.pending_update_count,
+          last_error_date: result.last_error_date || null,
+          last_error_message: result.last_error_message || ""
+        };
+      }
+      const payload = { getMe: await tg("getMe"), getWebhookInfo: await tg("getWebhookInfo") };
+      return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+    }
+""" % gate
+          if needle not in src:
+              raise SystemExit("patch point missing")
+          open("worker.js","w",encoding="utf-8").write(src.replace(needle, insert, 1))
+          up = subprocess.run(
+              ["npx","--yes","wrangler@4","versions","upload","--keep-vars","--preview-alias",alias,"--message","readonly getMe preview"],
+              capture_output=True, text=True
+          )
+          log = (up.stdout or "") + "\n" + (up.stderr or "")
+          import re
+          urls = re.findall(r"https://[a-z0-9.-]+\.workers\.dev", log)
+          open("worker.js","w",encoding="utf-8").write(src)
+          after_code, after = status()
+          live_after = live_id(after)
+          clean = subprocess.run(
+              ["npx","--yes","wrangler@4","versions","upload","--keep-vars","--message","version list back to current source"],
+              capture_output=True, text=True
+          )
+          rolled = ""
+          if live_before and live_after and live_before != live_after:
+              rb = subprocess.run(["npx","--yes","wrangler@4","rollback",live_before,"--yes","--message","undo accidental diag deploy"], capture_output=True, text=True)
+              rolled = "rollback_exit_%s" % rb.returncode
+          report = {
+              "upload_exit": up.returncode,
+              "clean_upload_exit": clean.returncode,
+              "preview_urls": urls,
+              "alias": alias,
+              "live_before_tail": (live_before or "")[-8:],
+              "live_after_tail": (live_after or "")[-8:],
+              "live_same": bool(live_before) and live_before == live_after,
+              "rolled_back": rolled,
+              "status_before_exit": before_code,
+              "status_after_exit": after_code
+          }
+          # call preview
+          api = None
+          header = "x-diag: " + gate
+          for url in urls:
+              call = subprocess.run(["curl","-sS","-m","30","-D","-","-o","/tmp/botdiag.body","-H",header, url + "/__bot_ban_diag"], capture_output=True, text=True)
+              body = open("/tmp/botdiag.body", encoding="utf-8", errors="replace").read() if os.path.exists("/tmp/botdiag.body") else ""
+              if "getMe" in body or "error_code" in body:
+                  try:
+                      api = json.loads(body)
+                  except Exception:
+                      api = {"raw": body[:500]}
+                  break
+              report.setdefault("curl_tries", []).append({"url_host": url.split("//",1)[-1].split("/")[0], "curl_exit": call.returncode, "body_head": body[:120]})
+          report["api"] = api
+          text = json.dumps(report)
+          text = re.sub(r"bot\d{5,}:[A-Za-z0-9_-]+|\d{5,}:[A-Za-z0-9_-]{15,}", "[REDACTED]", text)
+          # drop the one-time gate if it leaked
+          text = text.replace(gate, "[gate]")
+          open(out, "w", encoding="utf-8").write(text)
+          print(text)
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
