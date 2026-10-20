@@ -1,0 +1,22 @@
+name: wellsneakers-ops
+
+on:
+  pull_request:
+    paths:
+      - "wellsneakers-ops/**"
+      - ".github/workflows/wellsneakers-ops.yml"
+  push:
+    paths:
+      - "wellsneakers-ops/**"
+      - ".github/workflows/wellsneakers-ops.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Logic tests
+        run: node --test wellsneakers-ops/test/logic.test.mjs
