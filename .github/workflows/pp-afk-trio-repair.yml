@@ -1,0 +1,45 @@
+# Одноразовый сухой план repairPpAfkTrio. Репозиторий публичный:
+# лог — счётчики, subId, строки и три ника. Секреты не печатаются.
+# Push этой ветки запускает dry. Запись — только если в том же прогоне
+# REPAIR_CONFIRM=evgenia-marga-andrei и план не трогает никого кроме троих.
+# На main не запускается.
+name: pp-afk-trio-repair
+
+on:
+  push:
+    branches:
+      - cursor/pp-afk-trio-repair-f592
+    paths:
+      - scripts/repair-pp-afk-trio-ci.mjs
+      - .github/workflows/pp-afk-trio-repair.yml
+      - boinya-c/proxy/worker.js
+      - Code.gs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pp-afk-trio-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Self-test redaction
+        run: node scripts/repair-pp-afk-trio-ci.mjs --self-test
+      - name: Dry plan (write only with confirm)
+        env:
+          GAS_SHARED_SECRET: ${{ secrets.GAS_SHARED_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REPAIR_CONFIRM: ""
+        run: node scripts/repair-pp-afk-trio-ci.mjs
