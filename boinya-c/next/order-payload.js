@@ -251,7 +251,11 @@
       editClient: editClient,
       originalClient: editClient,
       matchKey: editKey,
-      address: composedAddress(state, eng),
+      address: addressFull(state, eng),
+      entrance: String(state.entrance || "").trim(),
+      doorCode: String(state.doorCode || "").trim(),
+      floor: String(state.floor || "").trim(),
+      flat: String(state.flat || "").trim(),
       phone: String(state.phone || "").trim(),
       note: packed.note || "",
       permanentNote: packed.permanentNote || "",
@@ -270,6 +274,10 @@
       source: sourceOf(ot),
       basket: JSON.stringify(basket || [])
     };
+    var dog1 = String((state.dogNames && state.dogNames[1]) || "").trim();
+    var dog2 = String((state.dogNames && state.dogNames[2]) || "").trim();
+    if (dog1 || dog2) book.dogNames = JSON.stringify({ 1: dog1, 2: dog2 });
+    if (Number(state.dogCount) >= 2) book.dogCount = "2";
     if (geo) book.geo = JSON.stringify(geo);
     if (state.survey) {
       try { book.survey = JSON.stringify(state.survey); } catch (eSv) {}
@@ -319,6 +327,7 @@
       phone: String(state.phone || "").trim(),
       address: String(state.address || "").trim(),
       entrance: String(state.entrance || "").trim(),
+      doorCode: String(state.doorCode || "").trim(),
       floor: String(state.floor || "").trim(),
       flat: String(state.flat || "").trim(),
       deliveryDate: String(state.deliveryDate || "").trim(),
@@ -401,11 +410,163 @@
     return false;
   }
 
+  function splitDoor_(entrance) {
+    var s = String(entrance || "").trim();
+    var m = s.match(/домофон\s*([^\s,;·|]{1,24})/i);
+    if (!m) return { entrance: s, doorCode: "" };
+    var door = String(m[1] || "").replace(/[.,;]+$/g, "").trim();
+    var rest = (s.slice(0, m.index) + " " + s.slice(m.index + m[0].length))
+      .replace(/[,\s·|]+/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return { entrance: rest, doorCode: door };
+  }
+
+  function addressParts(client, eng) {
+    client = client || {};
+    var street = String(client.address || "").trim();
+    var entrance = String(client.entrance || "").trim();
+    var doorCode = String(client.doorCode || "").trim();
+    var floor = String(client.floor || "").trim();
+    var flat = String(client.flat || "").trim();
+    if (!entrance && !doorCode && !floor && !flat && street && eng && eng.parseDeliveryAddress) {
+      var parsed = eng.parseDeliveryAddress(street);
+      var door = splitDoor_(parsed && parsed.entrance);
+      street = String((parsed && parsed.street) || street).trim();
+      entrance = door.entrance;
+      doorCode = door.doorCode;
+      floor = String((parsed && parsed.floor) || "").trim();
+      flat = String((parsed && parsed.flat) || "").trim();
+    } else if (entrance && !doorCode) {
+      var doorOnly = splitDoor_(entrance);
+      entrance = doorOnly.entrance;
+      doorCode = doorOnly.doorCode;
+    }
+    return { street: street, entrance: entrance, doorCode: doorCode, floor: floor, flat: flat };
+  }
+
+  function showAddress(client, eng) {
+    var p = addressParts(client, eng);
+    var bits = [];
+    if (p.street) bits.push(p.street);
+    if (p.entrance) bits.push(/^(подъезд|п\.)/i.test(p.entrance) ? p.entrance : ("п." + p.entrance));
+    if (p.doorCode) bits.push(/^домофон/i.test(p.doorCode) ? p.doorCode : ("домофон " + p.doorCode));
+    if (p.floor) bits.push(/^(этаж|эт\.)/i.test(p.floor) ? p.floor : ("эт." + p.floor));
+    if (p.flat) {
+      var ft = String(p.flat).replace(/^(квартира|кв\.?)\s*/i, "").trim();
+      if (ft) bits.push("кв." + ft);
+    }
+    return bits.join(" · ");
+  }
+
+  function mapStreet(client, eng) {
+    return addressParts(client, eng).street;
+  }
+
+  function addressCompact_(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/ё/g, "е")
+      .replace(/подъезд/g, "п.")
+      .replace(/этаж/g, "эт.")
+      .replace(/квартира/g, "кв.")
+      .replace(/[·|,;/]+/g, " ")
+      .replace(/\s+/g, "")
+      .replace(/\./g, "");
+  }
+
+  function addressResidue_(street) {
+    return /подъезд|домофон|этаж|эт\.|кв\.|(?:^|[\s,·])п\.\s*\d/i.test(String(street || ""));
+  }
+
+  function addressLossless(raw, eng) {
+    var source = String(raw || "").trim();
+    var empty = addressParts({ address: "" }, eng);
+    if (!source) return { ok: false, reason: "empty", parts: empty, shown: "" };
+    var parts = addressParts({ address: source }, eng);
+    var shown = showAddress({
+      address: parts.street,
+      entrance: parts.entrance,
+      doorCode: parts.doorCode,
+      floor: parts.floor,
+      flat: parts.flat
+    }, eng);
+    var same = addressCompact_(shown) === addressCompact_(source);
+    var residue = addressResidue_(parts.street);
+    var moved = !!(parts.entrance || parts.doorCode || parts.floor || parts.flat);
+    var reason = !moved ? "plain" : (residue ? "residue" : (same ? "ok" : "diff"));
+    return { ok: same && !residue && moved, reason: reason, parts: parts, shown: shown };
+  }
+
+  function absorbGluedAddress(state, eng) {
+    state = state || {};
+    var raw = String(state.address || "").trim();
+    if (!raw || !eng || !eng.parseDeliveryAddress) return false;
+    var parsed = eng.parseDeliveryAddress(raw);
+    var door = splitDoor_(parsed && parsed.entrance);
+    var street = String((parsed && parsed.street) || "").trim();
+    if (door.entrance && !String(state.entrance || "").trim()) state.entrance = door.entrance;
+    if (door.doorCode && !String(state.doorCode || "").trim()) state.doorCode = door.doorCode;
+    if (parsed && parsed.floor && !String(state.floor || "").trim()) state.floor = parsed.floor;
+    if (parsed && parsed.flat && !String(state.flat || "").trim()) state.flat = parsed.flat;
+    if (street) state.address = street;
+    return street !== raw;
+  }
+
+  function fillEmptyContact(state, card, eng) {
+    state = state || {};
+    card = card || {};
+    var changed = false;
+    var addr = String(card.address || "").trim();
+    var emptyAddr = !String(state.address || "").trim() &&
+      !String(state.entrance || "").trim() &&
+      !String(state.floor || "").trim() &&
+      !String(state.flat || "").trim() &&
+      !String(state.doorCode || "").trim();
+    if (addr && emptyAddr) {
+      state.address = addr;
+      absorbGluedAddress(state, eng);
+      changed = true;
+    } else if (
+      addr &&
+      String(state.address || "").trim() &&
+      !String(state.entrance || "").trim() &&
+      !String(state.floor || "").trim() &&
+      !String(state.flat || "").trim() &&
+      !String(state.doorCode || "").trim()
+    ) {
+      var cardParts = addressParts({ address: addr }, eng);
+      var mine = addressCompact_(state.address);
+      var theirs = addressCompact_(cardParts.street);
+      if (mine && theirs && (mine === theirs || theirs.indexOf(mine) === 0 || mine.indexOf(theirs) === 0)) {
+        if (cardParts.entrance) { state.entrance = cardParts.entrance; changed = true; }
+        if (cardParts.doorCode) { state.doorCode = cardParts.doorCode; changed = true; }
+        if (cardParts.floor) { state.floor = cardParts.floor; changed = true; }
+        if (cardParts.flat) { state.flat = cardParts.flat; changed = true; }
+      }
+    }
+    if (card.phone && !String(state.phone || "").trim()) {
+      state.phone = String(card.phone).trim();
+      changed = true;
+    }
+    state.dogNames = state.dogNames || { 1: "", 2: "" };
+    if (card.dogName && !String(state.dogNames[1] || "").trim()) {
+      state.dogNames[1] = String(card.dogName).trim();
+      changed = true;
+    }
+    if (card.dogName2 && !String(state.dogNames[2] || "").trim()) {
+      state.dogNames[2] = String(card.dogName2).trim();
+      changed = true;
+    }
+    return changed;
+  }
+
   function formHasData(state) {
     if (!state) return false;
     if (String(state.client || "").trim()) return true;
     if (String(state.address || "").trim()) return true;
     if (String(state.entrance || "").trim()) return true;
+    if (String(state.doorCode || "").trim()) return true;
     if (String(state.floor || "").trim()) return true;
     if (String(state.flat || "").trim()) return true;
     if (String(state.phone || "").trim()) return true;
@@ -434,6 +595,12 @@
     geoOf: geoOf,
     composedAddress: composedAddress,
     addressFull: addressFull,
+    addressParts: addressParts,
+    showAddress: showAddress,
+    mapStreet: mapStreet,
+    addressLossless: addressLossless,
+    absorbGluedAddress: absorbGluedAddress,
+    fillEmptyContact: fillEmptyContact,
     buildSaveBookingParams: buildSaveBookingParams,
     buildDeferredSnapshot: buildDeferredSnapshot,
     retailOrderSnapshot: retailOrderSnapshot,

@@ -1072,6 +1072,9 @@ export default {
     if (url.pathname === "/admin/afk-pp-split") {
       return afkPpSplitAdmin_(request, env);
     }
+    if (url.pathname === "/admin/addr-parts") {
+      return addrPartsAdmin_(request, env);
+    }
     if (url.pathname === "/admin/stage-b") {
       return stageBAdmin_(request, env);
     }
@@ -2751,6 +2754,10 @@ const ORDER_META_COPY_KEYS_ = [
   "deliveryBefore",
   "dogCount",
   "dogNames",
+  "entrance",
+  "doorCode",
+  "floor",
+  "flat",
   "geo",
   "noCut",
   "couponsQty",
@@ -12278,6 +12285,10 @@ async function saveOrder_(params, env, asBooking) {
     deliveryBefore: params.deliveryBefore,
     dogCount: params.dogCount,
     dogNames: params.dogNames || null,
+    entrance: Object.prototype.hasOwnProperty.call(params, "entrance") ? String(params.entrance || "").trim() : undefined,
+    doorCode: Object.prototype.hasOwnProperty.call(params, "doorCode") ? String(params.doorCode || "").trim() : undefined,
+    floor: Object.prototype.hasOwnProperty.call(params, "floor") ? String(params.floor || "").trim() : undefined,
+    flat: Object.prototype.hasOwnProperty.call(params, "flat") ? String(params.flat || "").trim() : undefined,
     geo: params.geo,
     noCut: toBool_(params.noCut) || String(params.cutRaw || "") === "0" || String(params.cutRaw || "").toLowerCase() === "no",
     couponsQty: params.couponsQty,
@@ -12285,6 +12296,13 @@ async function saveOrder_(params, env, asBooking) {
     segment: segSave,
     orderType: params.orderType || srcSave
   };
+  if (typeof meta.dogNames === "string" && String(meta.dogNames).trim()) {
+    try {
+      meta.dogNames = JSON.parse(meta.dogNames);
+    } catch (eDogNames) {
+      meta.dogNames = null;
+    }
+  }
   if (meta.ppSlot && meta.deliveriesN >= 1) {
     const slotN = parseForcedPpSlotD1_(meta.ppSlot, meta.deliveriesN);
     if (slotN >= 1) {
@@ -24169,11 +24187,47 @@ function subscriptionNickKeys_(it) {
   return out;
 }
 
+function sheetsEqual_(a, b) {
+  const fold = function (s) {
+    const x = String(s || "").trim().toUpperCase();
+    if (x === "PP") return "ПП";
+    if (x === "AFK") return "АФК";
+    if (x === "BP") return "БП";
+    return x;
+  };
+  return fold(a) === fold(b);
+}
+
+function subscriptionContactScore_(it) {
+  if (!it) return -1;
+  let n = 0;
+  if (String(it.address || "").trim()) n += 8;
+  if (String(it.phone || "").trim()) n += 4;
+  if (Array.isArray(it.basket) && it.basket.length) n += 4;
+  if (String(it.dogName || "").trim()) n += 2;
+  if (String(it.nick || "").trim()) n += 1;
+  return n;
+}
+
+function pickSubscriptionHit_(arr, nickKey, sheetWant, subId) {
+  let best = null;
+  let bestScore = -1;
+  for (let i = 0; i < (arr || []).length; i++) {
+    if (!subscriptionMatch_(arr[i], nickKey, sheetWant, subId)) continue;
+    const score = subscriptionContactScore_(arr[i]);
+    if (!best || score > bestScore) {
+      best = arr[i];
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 function subscriptionMatch_(it, nickKey, sheetWant, subId) {
   if (!it) return false;
   if (sheetWant) {
     const sh = subscriptionSheetKey_(it);
-    if (sh && sh !== String(sheetWant).toUpperCase()) return false;
+    if (sh && !sheetsEqual_(sh, sheetWant)) return false;
   }
   const keys = subscriptionNickKeys_(it);
   const wantNick = String(nickKey || "").trim();
@@ -24618,23 +24672,10 @@ async function getSubscription_(params, env) {
   const arr = (list && (list.subscriptions || list.items || list.list)) || [];
   const nickKey = normalizeMatchKey_(nick);
   const sheetWant = segment ? segment.toUpperCase() : "";
-  let found = null;
-  for (let i = 0; i < arr.length; i++) {
-    if (subscriptionMatch_(arr[i], nickKey, sheetWant, subId)) {
-      found = arr[i];
-      break;
-    }
-  }
+  let found = pickSubscriptionHit_(arr, nickKey, sheetWant, subId);
   if (!found) {
     const labelKey = normalizeMatchKey_(params.label || "");
-    if (labelKey && labelKey !== nickKey) {
-      for (let i = 0; i < arr.length; i++) {
-        if (subscriptionMatch_(arr[i], labelKey, sheetWant, "")) {
-          found = arr[i];
-          break;
-        }
-      }
-    }
+    if (labelKey && labelKey !== nickKey) found = pickSubscriptionHit_(arr, labelKey, sheetWant, "");
   }
   if (!found) {
     return { status: "success", found: false, nick: nick, segment: segment };
@@ -26403,6 +26444,108 @@ function stampPpCoefIntoWishesD1_(wishes, coef) {
   return (base + (base ? " " : "") + tag).trim();
 }
 
+async function orderFormContact_(nick, env) {
+  const out = {
+    cardAddress: "",
+    cardPhone: "",
+    cardDogName: "",
+    cardDogName2: "",
+    cardSheet: "",
+    cardSubId: "",
+    cardNick: "",
+    cardMatch: ""
+  };
+  const rawNick = String(nick || "").trim();
+  if (!rawNick) return out;
+  const nickKey = normalizeMatchKey_(rawNick);
+  let arr = [];
+  try {
+    const list = await getSnapRaw_(env, "listSubscriptions");
+    arr = (list && (list.subscriptions || list.items || list.list)) || [];
+  } catch (eList) {
+    arr = [];
+  }
+  let hit = pickSubscriptionHit_(arr, nickKey, "ПП", "");
+  let how = hit ? "pp" : "";
+  if (!hit) {
+    const any = [];
+    for (let i = 0; i < arr.length; i++) {
+      if (subscriptionMatch_(arr[i], nickKey, "", "")) any.push(arr[i]);
+    }
+    const ids = Object.create(null);
+    any.forEach(function (it) {
+      ids[String((it && (it.subId || it.id)) || "")] = true;
+    });
+    const idKeys = Object.keys(ids).filter(Boolean);
+    if (any.length === 1 || (any.length && idKeys.length === 1)) {
+      hit = pickSubscriptionHit_(any, nickKey, "", "");
+      how = "other-sheet";
+    } else if (idKeys.length > 1) {
+      out.cardMatch = "ambiguous";
+      out.cardSubId = idKeys.join(",");
+      return out;
+    }
+  }
+  if (hit) {
+    out.cardAddress = String(hit.address || "").trim();
+    out.cardPhone = String(hit.phone || "").trim();
+    const dogs = namesFromDogSource_(hit);
+    out.cardDogName = dogs[1] || "";
+    out.cardDogName2 = dogs[2] || "";
+    out.cardSheet = String(hit.sheet || "");
+    out.cardSubId = String(hit.subId || hit.id || "");
+    out.cardNick = String(hit.nick || hit.label || "");
+    out.cardMatch = how || "pp";
+  }
+  if (env && env.DB && nickKey && (!out.cardAddress || !out.cardPhone || !out.cardDogName)) {
+    try {
+      const row = await env.DB.prepare(
+        "SELECT nick, phone, address, dogs_json, note FROM clients WHERE match_key = ? LIMIT 1"
+      )
+        .bind(nickKey)
+        .first();
+      if (row) {
+        if (!out.cardAddress && row.address) out.cardAddress = String(row.address).trim();
+        if (!out.cardPhone && row.phone) out.cardPhone = String(row.phone).trim();
+        const dogs = namesFromDogSource_(row);
+        try {
+          const parsed = JSON.parse(row.dogs_json || "[]");
+          if (Array.isArray(parsed)) {
+            parsed.forEach(function (d, i) {
+              if (!d) return;
+              const nm = cleanDogNick_(d.name || d.dogName || d.nick);
+              const slot = Number(d.dog || d.slot || d.part) || i + 1;
+              if (nm && slot === 1 && !dogs[1]) dogs[1] = nm;
+              if (nm && slot === 2 && !dogs[2]) dogs[2] = nm;
+            });
+          }
+        } catch (eDogs) {}
+        if (!out.cardDogName && dogs[1]) out.cardDogName = dogs[1];
+        if (!out.cardDogName2 && dogs[2]) out.cardDogName2 = dogs[2];
+        if (!out.cardMatch) out.cardMatch = "clients";
+        if (!out.cardNick) out.cardNick = String(row.nick || "");
+      }
+    } catch (eCli) {}
+  }
+  return out;
+}
+
+async function attachOrderFormContact_(res, nick, env) {
+  if (!res || typeof res !== "object") return res;
+  try {
+    const c = await orderFormContact_(nick, env);
+    res.cardAddress = c.cardAddress || "";
+    res.cardPhone = c.cardPhone || "";
+    res.cardDogName = c.cardDogName || "";
+    res.cardDogName2 = c.cardDogName2 || "";
+    res.cardSheet = c.cardSheet || "";
+    res.cardSubId = c.cardSubId || "";
+    res.cardNick = c.cardNick || "";
+    res.cardMatch = c.cardMatch || "";
+  } catch (eContact) {}
+  return res;
+}
+
 async function getPpFactCostD1_(params, env, ctx) {
   const force =
     String((params && params.force) || "") === "1" ||
@@ -26447,7 +26590,11 @@ async function getPpFactCostD1_(params, env, ctx) {
     }
     return live;
   }
-  if (force || !nick) return (await fromGas_()) || { status: "error", message: "need_nick", cutover: true };
+  if (force || !nick) {
+    const forced = (await fromGas_()) || { status: "error", message: "need_nick", cutover: true };
+    if (nick) await attachOrderFormContact_(forced, nick, env);
+    return forced;
+  }
 
   let local = null;
   try {
@@ -26553,9 +26700,12 @@ async function getPpFactCostD1_(params, env, ctx) {
       priceCanon: "d1-primary",
       d1Verified: true
     };
+    await attachOrderFormContact_(out, nick, env);
     return out;
   }
-  return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getPpFactCost" };
+  const gasFact = (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getPpFactCost" };
+  await attachOrderFormContact_(gasFact, nick, env);
+  return gasFact;
 }
 
 
@@ -26928,7 +27078,9 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     return live;
   }
   if (force || !nick) {
-    return (await fromGas_()) || { status: "error", message: "need_nick", cutover: true };
+    const forcedSuggest = (await fromGas_()) || { status: "error", message: "need_nick", cutover: true };
+    if (nick) await attachOrderFormContact_(forcedSuggest, nick, env);
+    return forcedSuggest;
   }
 
   let local = null;
@@ -26942,7 +27094,9 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
   let basket = (local && Array.isArray(local.basket) && local.basket.length && local.basket) || null;
   // нет состава в snap — один раз GAS warm (не конфликт, cold start)
   if (!local || !local.found || !basket) {
-    return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true };
+    const gasSuggest = (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true };
+    await attachOrderFormContact_(gasSuggest, nick, env);
+    return gasSuggest;
   }
 
   const deliveriesN = Math.max(1, Number(local.deliveries) || 1);
@@ -27004,7 +27158,7 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
       ? "ПП N=1 · состав целиком · d1"
       : "ПП N=" + deliveriesN + " · слот " + slot + (needManualSlot ? " · спросить" : "") + " · d1";
 
-  return {
+  const suggestOut = {
     status: "success",
     nick: local.nick || nick,
     subId: local.subId || "",
@@ -27040,6 +27194,8 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     priceCanon: "d1-primary",
     d1Verified: true
   };
+  await attachOrderFormContact_(suggestOut, nick, env);
+  return suggestOut;
 }
 
 /**
@@ -36084,6 +36240,191 @@ function weekCloseDupesReport_(classified, extras, range, decisions, tail) {
 var AFK_PP_SPLIT_CONFIRM_ = "split-afk-pp-2026-10-19";
 var AFK_PP_SPLIT_BACKUP_ = "afkPpSplitBackup:2026-10-19";
 var AFK_PP_SPLIT_TOMB_MS_ = 180 * 24 * 60 * 60 * 1000;
+
+const ADDR_PARTS_FROM_ = "2026-10-22";
+const ADDR_PARTS_BACKUP_ = "addrPartsBackup:2026-10-22";
+const ADDR_PARTS_CONFIRM_ = "addr-parts-2026-10-22";
+
+function addrPartsSecretOk_(request, env) {
+  var secret = String((env && env.ADDR_PARTS_ADMIN_TOKEN) || "").trim();
+  if (!secret) return false;
+  var got = String((request.headers && request.headers.get("x-addr-parts-token")) || "");
+  if (!got || got.length !== secret.length) return false;
+  var diff = 0;
+  for (var i = 0; i < secret.length; i++) diff |= secret.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
+function addrPartsIso_(raw) {
+  const s = String(raw || "").trim();
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return "";
+}
+
+function addrPartsDirtyStreet_(street) {
+  return /подъезд|домофон|этаж|эт\.|кв\.|(?:^|[\s,·])п\.\s*\d/i.test(String(street || ""));
+}
+
+async function addrPartsAdmin_(request, env) {
+  if (!request || request.method !== "POST" || !addrPartsSecretOk_(request, env)) {
+    return new Response("not found", { status: 404 });
+  }
+  if (!env || !env.DB) return json({ status: "error", message: "no_d1" }, 500);
+  var body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  const mode = String((body && body.mode) || "dry-run").trim().toLowerCase();
+  const rows = Array.isArray(body && body.rows) ? body.rows : [];
+  const checked = [];
+  for (let i = 0; i < rows.length; i++) {
+    const item = rows[i] || {};
+    const id = String(item.id || "");
+    const before = String(item.before == null ? "" : item.before);
+    const street = String(item.street || "").trim();
+    if (!id) {
+      checked.push({ id: "", skip: "id" });
+      continue;
+    }
+    const cur = await env.DB.prepare(
+      "SELECT id, client, date_iso, status, address, meta_json, updated_at FROM orders WHERE id = ? LIMIT 1"
+    ).bind(id).first();
+    if (!cur) {
+      checked.push({ id: id, skip: "missing" });
+      continue;
+    }
+    const iso = addrPartsIso_(cur.date_iso);
+    if (!iso || iso < ADDR_PARTS_FROM_) {
+      checked.push({ id: id, client: cur.client, date: cur.date_iso || "", skip: "past" });
+      continue;
+    }
+    if (String(cur.status || "") !== "active") {
+      checked.push({ id: id, client: cur.client, date: iso, skip: "status" });
+      continue;
+    }
+    if (String(cur.address || "") !== before) {
+      checked.push({ id: id, client: cur.client, date: iso, skip: "changed" });
+      continue;
+    }
+    if (!street || addrPartsDirtyStreet_(street)) {
+      checked.push({ id: id, client: cur.client, date: iso, skip: "street" });
+      continue;
+    }
+    checked.push({
+      id: id,
+      client: cur.client,
+      date: iso,
+      ok: true,
+      before: before,
+      street: street,
+      entrance: String(item.entrance || "").trim(),
+      doorCode: String(item.doorCode || "").trim(),
+      floor: String(item.floor || "").trim(),
+      flat: String(item.flat || "").trim(),
+      meta_json: cur.meta_json,
+      updated_at: cur.updated_at,
+      address: cur.address
+    });
+  }
+  const todo = checked.filter(function (row) { return row.ok; });
+  const brief = checked.map(function (row) {
+    return {
+      id: row.id,
+      client: row.client || "",
+      date: row.date || "",
+      skip: row.skip || "",
+      before: row.ok ? row.before : "",
+      street: row.ok ? row.street : "",
+      entrance: row.ok ? row.entrance : "",
+      doorCode: row.ok ? row.doorCode : "",
+      floor: row.ok ? row.floor : "",
+      flat: row.ok ? row.flat : ""
+    };
+  });
+  if (mode !== "apply") {
+    return json({ status: "success", mode: "dry-run", from: ADDR_PARTS_FROM_, count: todo.length, rows: brief });
+  }
+  if (String((body && body.confirm) || "") !== ADDR_PARTS_CONFIRM_) {
+    return json({ status: "error", message: "confirm" }, 400);
+  }
+  const backup = {
+    at: new Date().toISOString(),
+    name: ADDR_PARTS_BACKUP_,
+    rows: todo.map(function (row) {
+      return {
+        id: row.id,
+        client: row.client,
+        date: row.date,
+        address: row.address,
+        meta_json: row.meta_json,
+        updated_at: row.updated_at
+      };
+    })
+  };
+  await putSnap_(env, ADDR_PARTS_BACKUP_, backup);
+  const saved = await getSnapRaw_(env, ADDR_PARTS_BACKUP_);
+  if (!saved || !Array.isArray(saved.rows) || saved.rows.length !== todo.length) {
+    return json({ status: "error", message: "backup_failed", backup: ADDR_PARTS_BACKUP_ }, 500);
+  }
+  const now = new Date().toISOString();
+  for (let w = 0; w < todo.length; w++) {
+    const row = todo[w];
+    const meta = parseMeta_(row.meta_json);
+    meta.entrance = row.entrance;
+    meta.doorCode = row.doorCode;
+    meta.floor = row.floor;
+    meta.flat = row.flat;
+    await env.DB.prepare(
+      "UPDATE orders SET address = ?, meta_json = ?, updated_at = ? WHERE id = ? AND status = 'active' AND address = ?"
+    )
+      .bind(row.street, JSON.stringify(meta), now, row.id, row.before)
+      .run();
+  }
+  const bad = [];
+  for (let v = 0; v < todo.length; v++) {
+    const row = todo[v];
+    const cur = await env.DB.prepare("SELECT address, meta_json, status FROM orders WHERE id = ? LIMIT 1")
+      .bind(row.id)
+      .first();
+    const meta = parseMeta_(cur && cur.meta_json);
+    const ok = cur &&
+      String(cur.status || "") === "active" &&
+      String(cur.address || "") === row.street &&
+      String(meta.entrance || "") === row.entrance &&
+      String(meta.doorCode || "") === row.doorCode &&
+      String(meta.floor || "") === row.floor &&
+      String(meta.flat || "") === row.flat;
+    if (!ok) bad.push(row.id);
+  }
+  if (bad.length) {
+    for (let r = 0; r < todo.length; r++) {
+      const row = todo[r];
+      await env.DB.prepare("UPDATE orders SET address = ?, meta_json = ?, updated_at = ? WHERE id = ?")
+        .bind(row.address || "", row.meta_json || "{}", row.updated_at || now, row.id)
+        .run();
+    }
+    return json({ status: "error", message: "restored", bad: bad, backup: ADDR_PARTS_BACKUP_ }, 500);
+  }
+  return json({
+    status: "success",
+    mode: "apply",
+    backup: ADDR_PARTS_BACKUP_,
+    updated: todo.map(function (row) {
+      return {
+        id: row.id,
+        client: row.client,
+        date: row.date,
+        before: row.before,
+        street: row.street,
+        entrance: row.entrance,
+        doorCode: row.doorCode,
+        floor: row.floor,
+        flat: row.flat
+      };
+    }),
+    skipped: brief.filter(function (row) { return row.skip; })
+  });
+}
 
 function afkPpSplitSecretOk_(request, env) {
   var secret = String((env && env.AFK_SPLIT_ADMIN_TOKEN) || "").trim();

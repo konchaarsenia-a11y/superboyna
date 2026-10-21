@@ -133,7 +133,13 @@
     } else if (c.orderPrice != null && c.orderPrice !== "") {
       price = String(c.orderPrice).replace(".", ",") + " BYN";
     }
-    var addr = [c.address, price].filter(Boolean).join(", ");
+    var shown = c.address || "";
+    try {
+      if (root.BoinyaOrderPayload && root.BoinyaOrderPayload.showAddress) {
+        shown = root.BoinyaOrderPayload.showAddress(c, root.BoinyaOrderEngine);
+      }
+    } catch (eAddr) {}
+    var addr = [shown, price].filter(Boolean).join(", ");
     return '<button type="button" class="row" data-act="wrow" data-i="' + index + '" data-src="' + source + '">' +
       '<span class="avatar" aria-hidden="true">' + esc(who.letter) + "</span>" +
       '<span class="who"><span class="name">' + esc(who.dog) + "</span>" +
@@ -403,7 +409,7 @@
         view.drafts.forEach(function (c, i) {
           var who = splitWho(c);
           html += '<div class="b-card" style="margin-bottom:8px"><p class="b-li__title" style="margin:0">' + esc(who.dog) + (who.nick ? " " + esc(who.nick) : "") + "</p>" +
-            '<p class="b-note">' + esc([c.address, c.phone].filter(Boolean).join(", ") || "дополните адрес и телефон") + "</p>" +
+            '<p class="b-note">' + esc([root.BoinyaOrderPayload && root.BoinyaOrderPayload.showAddress ? root.BoinyaOrderPayload.showAddress(c, root.BoinyaOrderEngine) : c.address, c.phone].filter(Boolean).join(", ") || "дополните адрес и телефон") + "</p>" +
             '<button type="button" class="nx-link" data-act="wfill" data-i="' + i + '">Дополнить</button> ' +
             '<button type="button" class="nx-link" data-act="wunstage" data-i="' + i + '">Вернуть</button></div>';
         });

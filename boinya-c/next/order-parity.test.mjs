@@ -97,7 +97,12 @@ test("saveBooking розницы совпадает с полями старой
   assert.equal(book.day, "Среда");
   assert.equal(book.alsoSaveOrder, "1");
   assert.equal(book.calendarOnly, "0");
-  assert.equal(book.address, eng.composeDeliveryAddress("Сурганова 57Б", "2", "5", "12"));
+  assert.equal(book.address, "Сурганова 57Б");
+  assert.equal(book.entrance, "2");
+  assert.equal(book.doorCode, "");
+  assert.equal(book.floor, "5");
+  assert.equal(book.flat, "12");
+  assert.equal(pay.showAddress(state, eng), eng.composeDeliveryAddress("Сурганова 57Б", "2", "5", "12"));
   assert.equal(book.phone, "+375 29 111-22-33");
   assert.equal(book.deliveryAfter, "10:00");
   assert.equal(book.deliveryBefore, "14:00");
