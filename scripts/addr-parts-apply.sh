@@ -21,14 +21,24 @@ post() {
   local mode="$1"
   local out="$2"
   local confirm="$3"
-  local code
-  code=$(curl -sS -o "$out" -w "%{http_code}" \
-    -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/addr-parts" \
-    -H "Content-Type: application/json" \
-    -H "X-Addr-Parts-Token: $TOKEN" \
-    --data-binary @"$OUT/body-$mode.json" \
-    --max-time 120 || true)
-  echo "$mode HTTP $code" >&2
+  local code="" attempt
+  for attempt in 1 2 3 4 5 6 7 8; do
+    code=$(curl -sS -o "$out" -w "%{http_code}" \
+      -X POST "https://boinya-c.konchaarsenia.workers.dev/admin/addr-parts" \
+      -H "Content-Type: application/json" \
+      -H "X-Addr-Parts-Token: $TOKEN" \
+      --data-binary @"$OUT/body-$mode.json" \
+      --max-time 120 || true)
+    echo "$mode HTTP $code attempt $attempt" >&2
+    if [ "$code" = "200" ]; then
+      printf '%s' "$code"
+      return 0
+    fi
+    echo "body:" >&2
+    head -c 180 "$out" >&2 || true
+    echo >&2
+    sleep 15
+  done
   printf '%s' "$code"
 }
 python3 - "$OUT" <<'PY'

@@ -11,6 +11,9 @@ on:
     branches: [main]
     paths:
       - .github/workflows/addr-parts.yml
+      - scripts/addr-parts-apply.sh
+      - scripts/addr-parts-plan.mjs
+      - scripts/addr-parts-read.sh
   workflow_dispatch:
 
 permissions:
