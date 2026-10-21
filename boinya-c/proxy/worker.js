@@ -24178,11 +24178,18 @@ function subscriptionNickKeys_(it) {
   const raw = [it.nick, it.name, it.label, it.client];
   const out = [];
   const seen = Object.create(null);
-  for (let i = 0; i < raw.length; i++) {
-    const k = normalizeMatchKey_(raw[i] || "");
-    if (!k || seen[k]) continue;
+  function add(k) {
+    k = String(k || "").trim();
+    if (!k || seen[k]) return;
     seen[k] = true;
     out.push(k);
+  }
+  for (let i = 0; i < raw.length; i++) {
+    add(normalizeMatchKey_(raw[i] || ""));
+    const text = String(raw[i] || "");
+    const re = /[A-Za-z][A-Za-z0-9._]{2,}/g;
+    let m;
+    while ((m = re.exec(text))) add(m[0].toUpperCase().replace(/[._]/g, ""));
   }
   return out;
 }
@@ -36264,7 +36271,7 @@ function addrPartsIso_(raw) {
 }
 
 function addrPartsDirtyStreet_(street) {
-  return /подъезд|домофон|этаж|эт\.|кв\.|(?:^|[\s,·])п\.\s*\d/i.test(String(street || ""));
+  return /подъезд|домофон|этаж|эт\.|кв\.|п\.|(?:^|[\s,·])[кk]\d{4,}/i.test(String(street || ""));
 }
 
 async function addrPartsAdmin_(request, env) {

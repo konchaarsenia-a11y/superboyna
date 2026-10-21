@@ -61,11 +61,18 @@ function rowsOf(file) {
 function cardKeys(card) {
   const keys = [];
   const seen = Object.create(null);
-  [card.nick, card.label, card.name, card.client].forEach(function (raw) {
-    const k = normalizeMatchKey_(raw);
+  function add(k) {
+    k = String(k || "").trim();
     if (!k || seen[k]) return;
     seen[k] = true;
     keys.push(k);
+  }
+  [card.nick, card.label, card.name, card.client].forEach(function (raw) {
+    add(normalizeMatchKey_(raw));
+    const re = /[A-Za-z][A-Za-z0-9._]{2,}/g;
+    let m;
+    const text = String(raw || "");
+    while ((m = re.exec(text))) add(m[0].toUpperCase().replace(/[._]/g, ""));
   });
   return keys;
 }

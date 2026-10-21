@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,6 +10,24 @@ const require = createRequire(import.meta.url);
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const eng = require("./order-engine.js");
 const pay = require("./order-payload.js");
+const wSrc = fs.readFileSync(path.join(dir, "../proxy/worker.js"), "utf8");
+
+function extractFn(src, name) {
+  const marker = "function " + name + "(";
+  const startFn = src.indexOf(marker);
+  if (startFn < 0) throw new Error("missing function " + name);
+  const brace = src.indexOf("{", startFn);
+  let depth = 0;
+  for (let i = brace; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return src.slice(startFn, i + 1);
+    }
+  }
+  throw new Error("unclosed function " + name);
+}
 
 test("saveBooking хранит улицу отдельно от подъезда", () => {
   const book = pay.buildSaveBookingParams({
@@ -61,6 +80,34 @@ test("повтор подъезда в строке не считается бе
   assert.equal(split.ok, false);
 });
 
+test("буквенный код подъезда и код домофона без слова отделяются", () => {
+  const letter = pay.addressLossless("Октябрьская улица · 8 · п.К1202 · кв.40", eng);
+  assert.equal(letter.ok, true, letter.reason);
+  assert.equal(letter.parts.street, "Октябрьская улица · 8");
+  assert.equal(letter.parts.entrance, "К1202");
+  assert.equal(letter.parts.flat, "40");
+  const code = pay.addressLossless("улица Космонавтов · 37 · п.5, к1441500 · эт.7 · кв.168", eng);
+  assert.equal(code.ok, true, code.reason + " " + code.parts.street);
+  assert.equal(code.parts.street, "улица Космонавтов · 37");
+  assert.equal(code.parts.entrance, "5");
+  assert.equal(code.parts.doorCode, "к1441500");
+  assert.equal(code.parts.floor, "7");
+  assert.equal(code.parts.flat, "168");
+});
+
+test("повтор и обрывок подъезда форма не раскладывает", () => {
+  const dup = { address: "Корженевского 17 · п.4 · п.4", entrance: "", doorCode: "", floor: "", flat: "" };
+  assert.equal(pay.absorbGluedAddress(dup, eng), false);
+  assert.equal(dup.address, "Корженевского 17 · п.4 · п.4");
+  assert.equal(dup.entrance, "");
+  const state = { address: "Октябрьская улица · 8 · п.К1202 · кв.40", entrance: "", doorCode: "", floor: "", flat: "" };
+  assert.equal(pay.absorbGluedAddress(state, eng), true);
+  assert.equal(state.address, "Октябрьская улица · 8");
+  assert.equal(state.entrance, "К1202");
+  assert.equal(state.flat, "40");
+  assert.equal(pay.absorbGluedAddress(state, eng), false);
+});
+
 test("улица без подъезда не переписывается", () => {
   const split = pay.addressLossless("Сурганова 57Б", eng);
   assert.equal(split.ok, false);
@@ -82,6 +129,24 @@ test("пустые поля заказа добираются из карточ�
   assert.equal(state.flat, "8");
   assert.equal(state.dogNames[1], "Бим");
   assert.doesNotMatch(state.address, /подъезд|домофон|этаж|кв/);
+});
+
+test("опечатка в нике находится по второму handle в подписи карточки", () => {
+  const ctx = vm.createContext({ Object, String, RegExp });
+  const names = ["normalizeMatchKey_", "subscriptionNickKeys_", "subscriptionMatch_", "subscriptionSheetKey_", "sheetsEqual_"];
+  vm.runInContext(names.map((n) => extractFn(wSrc, n)).join("\n"), ctx);
+  const card = {
+    sheet: "ПП",
+    subId: "3",
+    nick: "sunflower2175",
+    label: "Тамара sunfkower2175 sunflower2175",
+    address: "Октябрьская"
+  };
+  const keys = ctx.subscriptionNickKeys_(card);
+  assert.ok(keys.includes("SUNFKOWER2175"));
+  assert.ok(keys.includes("SUNFLOWER2175"));
+  assert.equal(ctx.subscriptionMatch_(card, "SUNFKOWER2175", "ПП", ""), true);
+  assert.equal(ctx.subscriptionMatch_(card, "DARYAVOLCHEK15", "ПП", ""), false);
 });
 
 test("закрытие недели из воркера не дописывает чужой понедельник", () => {

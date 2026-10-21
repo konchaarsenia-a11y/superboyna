@@ -442,7 +442,42 @@
       entrance = doorOnly.entrance;
       doorCode = doorOnly.doorCode;
     }
+    var loose = peelLooseMarkers_(street);
+    var takeEntrance = !!(loose.entrance && (!entrance || entrance === loose.entrance));
+    var takeDoor = !!(loose.doorCode && (!doorCode || doorCode === loose.doorCode));
+    var dropped = (loose.entrance && !takeEntrance) || (loose.doorCode && !takeDoor);
+    if (!dropped) {
+      street = loose.street;
+      if (takeEntrance) entrance = loose.entrance;
+      if (takeDoor) doorCode = loose.doorCode;
+    }
     return { street: street, entrance: entrance, doorCode: doorCode, floor: floor, flat: flat };
+  }
+
+  function tidyStreet_(s) {
+    return String(s || "")
+      .replace(/[ \t]*[·|;,]+[ \t]*/g, " · ")
+      .replace(/(?:\s*·\s*){2,}/g, " · ")
+      .replace(/^(?:\s*·\s*)+|(?:\s*·\s*)+$/g, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim();
+  }
+
+  function peelLooseMarkers_(street) {
+    var s = String(street || "");
+    var entrance = "";
+    var doorCode = "";
+    function cut(re) {
+      var m = s.match(re);
+      if (!m) return "";
+      var val = String(m[1] || "").trim();
+      s = s.slice(0, m.index) + " " + s.slice(m.index + m[0].length);
+      return val;
+    }
+    entrance = cut(/(?:^|[·|;,\s])п\.\s*([0-9]*[A-Za-zА-Яа-яЁё][0-9A-Za-zА-Яа-яЁё]{0,14})/);
+    doorCode = cut(/(?:^|[·|;,\s])код\s+([^\s·|;,]{1,16})/i);
+    if (!doorCode) doorCode = cut(/(?:^|[·|;,\s])([кКkK]\d{4,})\b/);
+    return { street: tidyStreet_(s), entrance: entrance, doorCode: doorCode };
   }
 
   function showAddress(client, eng) {
@@ -475,8 +510,12 @@
       .replace(/\./g, "");
   }
 
+  function addressCompactBare_(s) {
+    return addressCompact_(String(s || "").replace(/домофон/gi, ""));
+  }
+
   function addressResidue_(street) {
-    return /подъезд|домофон|этаж|эт\.|кв\.|(?:^|[\s,·])п\.\s*\d/i.test(String(street || ""));
+    return /подъезд|домофон|этаж|эт\.|кв\.|п\.|(?:^|[\s,·])[кk]\d{4,}/i.test(String(street || ""));
   }
 
   function addressLossless(raw, eng) {
@@ -491,7 +530,8 @@
       floor: parts.floor,
       flat: parts.flat
     }, eng);
-    var same = addressCompact_(shown) === addressCompact_(source);
+    var same = addressCompact_(shown) === addressCompact_(source) ||
+      addressCompactBare_(shown) === addressCompactBare_(source);
     var residue = addressResidue_(parts.street);
     var moved = !!(parts.entrance || parts.doorCode || parts.floor || parts.flat);
     var reason = !moved ? "plain" : (residue ? "residue" : (same ? "ok" : "diff"));
@@ -501,16 +541,23 @@
   function absorbGluedAddress(state, eng) {
     state = state || {};
     var raw = String(state.address || "").trim();
-    if (!raw || !eng || !eng.parseDeliveryAddress) return false;
-    var parsed = eng.parseDeliveryAddress(raw);
-    var door = splitDoor_(parsed && parsed.entrance);
-    var street = String((parsed && parsed.street) || "").trim();
-    if (door.entrance && !String(state.entrance || "").trim()) state.entrance = door.entrance;
-    if (door.doorCode && !String(state.doorCode || "").trim()) state.doorCode = door.doorCode;
-    if (parsed && parsed.floor && !String(state.floor || "").trim()) state.floor = parsed.floor;
-    if (parsed && parsed.flat && !String(state.flat || "").trim()) state.flat = parsed.flat;
-    if (street) state.address = street;
-    return street !== raw;
+    if (!raw) return false;
+    var split = addressLossless(raw, eng);
+    if (!split.ok) return false;
+    var p = split.parts;
+    function agrees(cur, next) {
+      cur = String(cur || "").trim();
+      next = String(next || "").trim();
+      return !cur || !next || cur === next;
+    }
+    if (!agrees(state.entrance, p.entrance) || !agrees(state.doorCode, p.doorCode) ||
+      !agrees(state.floor, p.floor) || !agrees(state.flat, p.flat)) return false;
+    if (p.entrance) state.entrance = p.entrance;
+    if (p.doorCode) state.doorCode = p.doorCode;
+    if (p.floor) state.floor = p.floor;
+    if (p.flat) state.flat = p.flat;
+    if (p.street) state.address = p.street;
+    return state.address !== raw;
   }
 
   function fillEmptyContact(state, card, eng) {
