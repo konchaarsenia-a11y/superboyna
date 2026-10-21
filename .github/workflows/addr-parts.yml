@@ -62,16 +62,40 @@ jobs:
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
           deadline = time.time() + 20 * 60
+          started = time.time()
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
-          while time.time() < deadline:
-              req = urllib.request.Request(
-                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
-                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "addr-parts"},
-              )
+          headers = {"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "addr-parts"}
+
+          def get(url):
+              req = urllib.request.Request(url, headers=headers)
               with urllib.request.urlopen(req, timeout=30) as resp:
-                  runs = json.load(resp).get("workflow_runs") or []
-              mine = [r for r in runs if r.get("name") == "boinya-c-worker-deploy"]
+                  return json.load(resp)
+
+          def same_worker_as_last_deploy():
+              latest = get("https://api.github.com/repos/%s/actions/workflows/boinya-c-worker-deploy.yml/runs?branch=main&status=success&per_page=1" % repo)
+              runs = latest.get("workflow_runs") or []
+              if not runs:
+                  return False
+              prev = runs[0].get("head_sha") or ""
+              if not prev or prev == sha:
+                  print("worker-deploy: уже этот коммит", flush=True)
+                  return True
+              cmp = get("https://api.github.com/repos/%s/compare/%s...%s" % (repo, prev, sha))
+              if cmp.get("truncated") or not isinstance(cmp.get("files"), list):
+                  return False
+              names = [f.get("filename") for f in cmp.get("files")]
+              same = cmp.get("status") in ("ahead", "identical") and "boinya-c/proxy/worker.js" not in names
+              if same:
+                  print("worker-deploy: worker.js тот же, что в " + prev[:8], flush=True)
+                  return True
+              return False
+
+          while time.time() < deadline:
+              data = get("https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha))
+              mine = [r for r in (data.get("workflow_runs") or []) if r.get("name") == "boinya-c-worker-deploy"]
               if not mine:
+                  if time.time() - started > 45 and same_worker_as_last_deploy():
+                      break
                   print("worker-deploy: ещё нет", flush=True)
                   time.sleep(15)
                   continue
