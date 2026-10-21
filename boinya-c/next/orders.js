@@ -59,6 +59,7 @@
       phone: "",
       address: "",
       entrance: "",
+      doorCode: "",
       floor: "",
       flat: "",
       deliveryDate: "",
@@ -184,6 +185,11 @@
     mem[key] = {
       nick: nick,
       address: state.address || prev.address || "",
+      entrance: state.entrance || prev.entrance || "",
+      doorCode: state.doorCode || prev.doorCode || "",
+      floor: state.floor || prev.floor || "",
+      flat: state.flat || prev.flat || "",
+      dogNames: state.dogNames || prev.dogNames || null,
       phone: state.phone || prev.phone || "",
       note: prev.note || "",
       basket: prev.basket || [],
@@ -521,7 +527,7 @@
       html += '<p class="kicker">Телефон</p>' + field("phone", state.phone, "+375", 'inputmode="tel"');
       html += '<button type="button" class="nx-link" data-act="fold-details">' + (folds.details ? "Скрыть подъезд" : "Подъезд и детали") + "</button>";
       if (folds.details) {
-        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
+        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("doorCode", state.doorCode, "код подъезда") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
       }
       html += '<p class="kicker">Почта</p><div class="b-row"><span class="b-grow b-note" style="margin:0">Отправка почтой</span><div class="b-seg" style="flex:none">' +
         segBtn("mail0", "Нет", !state.mailOn) + segBtn("mail1", "Да", !!state.mailOn) + "</div></div>";
@@ -748,9 +754,14 @@
     if (k !== "pq" && k.indexOf("noteItem") !== 0) persistDraft();
     if (k === "client") scheduleSuggest();
     if (k === "address") scheduleAddress();
-    if (k === "address" || k === "entrance" || k === "floor" || k === "flat") {
-      var parsed = eng().parseDeliveryAddress(state.address);
-      if (parsed && parsed.entrance && !state.entrance) state.entrance = parsed.entrance;
+    if (k === "address" && pay() && pay().absorbGluedAddress) {
+      var beforeAddr = state.address;
+      pay().absorbGluedAddress(state, eng());
+      if (state.address !== beforeAddr && node.value !== state.address) node.value = state.address;
+      ["entrance", "doorCode", "floor", "flat"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = state[id] || "";
+      });
     }
   }
 
@@ -789,6 +800,25 @@
     }
     if (!state.priceInput && (res.statedCost != null || res.factCost != null)) {
       state.priceInput = String(res.statedCost != null ? res.statedCost : res.factCost);
+    }
+    var filled = false;
+    if (res.cardMatch !== "ambiguous" && pay() && pay().fillEmptyContact) {
+      filled = pay().fillEmptyContact(state, {
+        address: res.cardAddress || "",
+        phone: res.cardPhone || "",
+        dogName: res.cardDogName || "",
+        dogName2: res.cardDogName2 || ""
+      }, eng());
+    }
+    if (filled) {
+      ["address", "entrance", "doorCode", "floor", "flat", "phone", "dog1", "dog2"].forEach(function (id) {
+        var el = document.getElementById(id);
+        var value = id === "dog1" ? (state.dogNames && state.dogNames[1]) : id === "dog2" ? (state.dogNames && state.dogNames[2]) : state[id];
+        if (el && document.activeElement !== el) el.value = value || "";
+      });
+      if (state.entrance || state.doorCode || state.floor || state.flat) folds.details = true;
+      var active = document.activeElement;
+      if (!active || (active.id !== "client" && active.id !== "address")) paint();
     }
     var box = document.getElementById("nxExtras");
     if (box && !sh().sheetOpen()) box.innerHTML = typeExtras();
@@ -1439,12 +1469,16 @@
     if (!res || res.status !== "success") { sh().toast("Не удалось прочитать лист ПП"); return; }
     state.deliveriesN = Number(res.deliveriesN) || state.deliveriesN;
     if (res.needManualSlot && !(state.ppSlotManual >= 1)) { sh().toast("Выбери ПП 1 или ПП 2"); paint(); return; }
-    if (res.address && !state.address) {
-      var parsed = eng().parseDeliveryAddress(res.address);
-      state.address = parsed.street || res.address;
-      if (parsed.entrance) state.entrance = parsed.entrance;
-      if (parsed.floor) state.floor = parsed.floor;
-      if (parsed.flat) state.flat = parsed.flat;
+    if (res.cardMatch !== "ambiguous" && pay() && pay().fillEmptyContact) {
+      pay().fillEmptyContact(state, {
+        address: res.address || res.cardAddress || "",
+        phone: res.phone || res.cardPhone || "",
+        dogName: res.cardDogName || "",
+        dogName2: res.cardDogName2 || ""
+      }, eng());
+    } else if (res.address && !state.address) {
+      state.address = res.address;
+      if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     }
     if (res.phone && !state.phone) state.phone = res.phone;
     var proposed = eng().mapApiBasketToLocal(res.proposedBasket || []);
@@ -1651,6 +1685,7 @@
   async function save() {
     if (saving) return;
     var clientName = String(state.client || "").trim();
+    if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     var street = eng().formatStreetHouse(state.address) || String(state.address || "").trim();
     state.address = street;
     if (!state.geo) {
@@ -2131,12 +2166,17 @@
       if (!row) return true;
       state.client = row.nick;
       if (row.phone) state.phone = row.phone;
-      if (row.address) {
-        var p = eng().parseDeliveryAddress(row.address);
-        state.address = p.street || row.address;
-        if (p.entrance) state.entrance = p.entrance;
-        if (p.floor) state.floor = p.floor;
-        if (p.flat) state.flat = p.flat;
+      if (row.address || row.entrance || row.floor || row.flat || row.doorCode) {
+        state.address = row.address || "";
+        state.entrance = row.entrance || "";
+        state.doorCode = row.doorCode || "";
+        state.floor = row.floor || "";
+        state.flat = row.flat || "";
+        if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
+      }
+      if (row.dogNames && state.dogNames) {
+        if (row.dogNames[1] || row.dogNames["1"]) state.dogNames[1] = row.dogNames[1] || row.dogNames["1"];
+        if (row.dogNames[2] || row.dogNames["2"]) state.dogNames[2] = row.dogNames[2] || row.dogNames["2"];
       }
       if (row.ppPartner && state.orderType === "bp") state.ppPartner = row.ppPartner;
       suggest = [];
@@ -2289,6 +2329,16 @@
     next.client = client.name || client.client || "";
     next.phone = client.phone || "";
     next.address = client.address || "";
+    next.entrance = client.entrance || "";
+    next.doorCode = client.doorCode || "";
+    next.floor = client.floor || "";
+    next.flat = client.flat || "";
+    if (client.dogNames && (client.dogNames[1] || client.dogNames["1"] || client.dogNames[2] || client.dogNames["2"])) {
+      next.dogNames[1] = client.dogNames[1] || client.dogNames["1"] || "";
+      next.dogNames[2] = client.dogNames[2] || client.dogNames["2"] || "";
+    } else if (client.dogName) {
+      next.dogNames[1] = client.dogName;
+    }
     next.deliveryAfter = client.deliveryAfter || "";
     next.deliveryBefore = client.deliveryBefore || "";
     next.ppPartner = client.ppPartner || "";
@@ -2347,7 +2397,9 @@
     } catch (eMail) {}
     state = next;
     eng().applyState(state);
+    if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     paint();
+    if (next.orderType === "pp") refreshPp();
   }
 
   function loadDeferred(payload, id) {
@@ -2359,6 +2411,7 @@
       state.phone = payload.phone || "";
       state.address = payload.address || "";
       state.entrance = payload.entrance || "";
+      state.doorCode = payload.doorCode || "";
       state.floor = payload.floor || "";
       state.flat = payload.flat || "";
       state.deliveryDate = payload.deliveryDate || "";

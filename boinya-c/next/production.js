@@ -1332,14 +1332,23 @@
     return "";
   }
 
-  function addrBits(raw) {
-    var p = eng() && eng().parseDeliveryAddress ? eng().parseDeliveryAddress(raw) : null;
-    if (!p) return { street: String(raw || "").trim(), details: "" };
+  function addrBits(c) {
+    var client = typeof c === "string" ? { address: c } : (c || {});
+    var pay = root.BoinyaOrderPayload;
+    var parts = pay && pay.addressParts ? pay.addressParts(client, eng()) : null;
+    if (!parts) return { street: String(client.address || "").trim(), details: "" };
     var bits = [];
-    if (p.entrance) bits.push("подъезд " + p.entrance);
-    if (p.floor) bits.push("этаж " + p.floor);
-    if (p.flat) bits.push("кв " + p.flat);
-    return { street: p.street || String(raw || "").trim(), details: bits.join(", ") };
+    if (parts.entrance) bits.push("подъезд " + parts.entrance);
+    if (parts.doorCode) bits.push("домофон " + parts.doorCode);
+    if (parts.floor) bits.push("этаж " + parts.floor);
+    if (parts.flat) bits.push("кв " + parts.flat);
+    return { street: parts.street || String(client.address || "").trim(), details: bits.join(", ") };
+  }
+
+  function mapStreet(c) {
+    var pay = root.BoinyaOrderPayload;
+    if (pay && pay.mapStreet) return pay.mapStreet(c, eng());
+    return String((c && c.address) || "");
   }
 
   function slotLabel(c) {
@@ -1458,7 +1467,7 @@
     }
     if (!list.length) html += '<p class="b-note">Нет клиентов на день</p>';
     list.forEach(function (c, idx) {
-      var addr = addrBits(c.address || "");
+      var addr = addrBits(c);
       var noteCtx = { note: c.note || "", role: "cour" };
       var note = noteFor(c.note || "", "cour");
       var tel = phoneOf(c);
@@ -1684,9 +1693,9 @@
           lon = office.lon;
         }
       } else {
-        address = route.normalizeAddressForMaps(c.address || "");
+        address = route.normalizeAddressForMaps(mapStreet(c));
         var saved = c.geo || route.parseGeoFromNote(c.note || "");
-        if (maps() && maps().savedGeoUsable && maps().savedGeoUsable(saved, c.address || "")) {
+        if (maps() && maps().savedGeoUsable && maps().savedGeoUsable(saved, mapStreet(c))) {
           lat = Number(saved.lat);
           lon = Number(saved.lon);
         } else {
@@ -1966,11 +1975,12 @@
     if (!c) return;
     var route = rt();
     var saved = c.geo || route.parseGeoFromNote(c.note || "");
-    var point = { address: c.address || "" };
-    if (saved && saved.lat != null) point = { lat: Number(saved.lat), lon: Number(saved.lon), address: c.address || "" };
+    var street = mapStreet(c);
+    var point = { address: street };
+    if (saved && saved.lat != null) point = { lat: Number(saved.lat), lon: Number(saved.lon), address: street };
     else {
-      var geo = await route.geocodeAddress(route.normalizeAddressForMaps(c.address || ""), true);
-      if (geo) point = { lat: geo.lat, lon: geo.lon, address: c.address || "" };
+      var geo = await route.geocodeAddress(route.normalizeAddressForMaps(street), true);
+      if (geo) point = { lat: geo.lat, lon: geo.lon, address: street };
     }
     var url = maps() && maps().buildYandexPointUrl ? maps().buildYandexPointUrl(point) : "";
     if (url) openLink(url);
