@@ -267,6 +267,9 @@ async function main() {
   let account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
   if (!account && token) account = accountFromWhoami();
+  report.dayOrders = sh(
+    "SELECT id, client, match_key, date_iso, day_name, segment, status, substr(ifnull(note,''),1,80) AS note, substr(ifnull(meta_json,''),1,240) AS meta FROM orders WHERE date_iso IN ('2026-10-27','27.10.2026') OR client LIKE '%Шевченко%' OR client = 'Варка'"
+  );
   report.writes = sh(
     "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN ('peopleWrite:pw_mvjn9gbj_wh54qt','peopleWrite:pw_mvjnb2tr_302ywt','deleteTombstones','viewDate:2026-10-27')"
   ).map(function (row) {
@@ -359,6 +362,7 @@ async function main() {
     deferredNow: report.deferredNow,
     recentDeferred: report.recentDeferred,
     touched: report.touched,
+    dayOrders: report.dayOrders,
     writes: report.writes,
     accountFound: report.accountFound,
     logsNote: Array.isArray(report.logs) ? "" : report.logs,
