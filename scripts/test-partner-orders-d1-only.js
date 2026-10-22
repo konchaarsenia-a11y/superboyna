@@ -187,7 +187,8 @@ sandbox.telegramSendTextWorker_ = async function (e, id, text) {
   const afterSlot = (mem.listDeferred.items || []).find(function (it) {
     return it && it.payload && it.payload.partnerOrderId === made.order.id;
   });
-  if (!afterSlot || afterSlot.status !== "done") fail("slot must close the deferred card");
+  if (!afterSlot || afterSlot.status !== "open") fail("slot must keep the deferred card");
+  if (!afterSlot.payload || afterSlot.payload.deliverDateIso !== "2026-10-23") fail("slot date missing on the card");
   if ((mem.partnerOrders.orders || []).some(function (o) { return o.id === "po_old"; }) === false) {
     fail("slot dropped the old order");
   }

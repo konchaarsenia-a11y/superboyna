@@ -25,9 +25,23 @@
     return ax().tabHas(access, "deferredScreen." + sub) || ax().tabHas(access, "deferredScreen");
   }
 
+  function partnerDated_(it) {
+    var pl = it && it.payload;
+    if (typeof pl === "string") {
+      try { pl = JSON.parse(pl); } catch (ePl) { pl = null; }
+    }
+    if (!pl || typeof pl !== "object") return false;
+    var mode = String((it && it.mode) || pl.mode || "").toLowerCase();
+    if (mode !== "partner" && String(pl.orderType || "") !== "partner") return false;
+    var st = String(pl.orderStatus || "new").toLowerCase();
+    if (st === "delivered" || st === "cancelled" || st === "canceled") return false;
+    return !!String(pl.deliverDateIso || "").trim();
+  }
+
   function openItems() {
     return (items || []).filter(function (it) {
-      return String((it && it.status) || "open").toLowerCase() === "open";
+      if (String((it && it.status) || "open").toLowerCase() === "open") return true;
+      return partnerDated_(it);
     });
   }
 
@@ -97,8 +111,8 @@
       light: "1"
     }, { timeoutMs: 12000, cacheTtlMs: 8000 });
     items = (res && res.items) || [];
-    if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
-      return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
+    if (root.__nxTasksCount) root.__nxTasksCount(openItems().filter(function (it) {
+      return allowed(L().tasksSub(it));
     }).length);
     var title = document.getElementById("nxSheetTitle");
     if (title && String(title.textContent || "").indexOf("Задачи") === 0) paintSheet();
@@ -298,8 +312,8 @@
       items = items.filter(function (it) { return String(it.id) !== hideId; });
       sh().closeTop("ok");
       paintSheet();
-      if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
-        return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
+      if (root.__nxTasksCount) root.__nxTasksCount(openItems().filter(function (it) {
+        return allowed(L().tasksSub(it));
       }).length);
       return true;
     }
