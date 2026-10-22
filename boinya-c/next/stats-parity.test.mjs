@@ -106,6 +106,12 @@ test("заявки, точки и доступы партнёров", () => {
   ]);
   assert.equal(orders.length, 1);
   assert.equal(orders[0].id, "1");
+  const dated = partners.partnerHubOrders_([
+    { id: "s", status: "done", mode: "partner", payload: { deliverDateIso: "2026-10-27", orderStatus: "new", partnerOrderId: "po_shev" } },
+    { id: "x", status: "done", mode: "partner", payload: { deliverDateIso: "2026-10-27", orderStatus: "delivered", partnerOrderId: "po_done" } }
+  ]);
+  assert.equal(dated.length, 1);
+  assert.equal(dated[0].id, "s");
 });
 
 test("диапазон показывает топливо только если сервер его прислал", () => {

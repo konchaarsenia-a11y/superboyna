@@ -51,12 +51,16 @@
 
   function partnerHubOrders_(items) {
     var list = (items || []).filter(function (it) {
-      if (!it || String(it.status || "open").toLowerCase() === "done") return false;
+      if (!it) return false;
       var pl = it.payload || {};
       var isPartner = String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
         String(pl.orderType || "") === "partner";
       if (!isPartner) return false;
-      if (String(pl.orderStatus || "new").toLowerCase() === "delivered") return false;
+      var orderSt = String(pl.orderStatus || "new").toLowerCase();
+      if (orderSt === "delivered" || orderSt === "cancelled" || orderSt === "canceled") return false;
+      var rowSt = String(it.status || "open").toLowerCase();
+      // Слот пишет дату и раньше закрывал карточку (status done). Дата уже в D1 — карточку оставляем.
+      if ((rowSt === "done" || rowSt === "cancelled") && !String(pl.deliverDateIso || "").trim()) return false;
       return true;
     });
     var seenPo = Object.create(null);

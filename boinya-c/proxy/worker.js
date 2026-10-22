@@ -31973,7 +31973,7 @@ async function mutatePartnerD1_(action, params, env) {
     pack.orders[hit] = updated;
     pack._d1TouchedAt = Date.now();
     await putSnap_(env, "partnerOrders", pack);
-    // Обновить deferred: дата есть → убрать из Партнёры→Заказы (status done)
+    // Дата есть, заявка остаётся открытой: иначе карточка пропадает и кажется, что слот не записался.
     try {
       let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
       let items = Array.isArray(list.items) ? list.items.slice() : [];
@@ -31993,7 +31993,7 @@ async function mutatePartnerD1_(action, params, env) {
           String(it.id) === id;
         if (!match) continue;
         items[j] = Object.assign({}, it, {
-          status: "done",
+          status: "open",
           updatedAt: new Date().toISOString(),
           payload: Object.assign({}, pl, {
             deliverDateIso: dateIso,
