@@ -49,7 +49,9 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 `/start` у @GOODBOY_LG: без доступа — текст «Чтобы подключить свою точку к партнёрке Good Boy, нажмите кнопку.» и кнопка «Подключить точку». С доступом — кнопка открыть мини-апп. Заявка: `partnerAccessRequestCreate` (initData, не больше 3 в день, повтор открытой заявки не плодит новую), лист в хабе, `partnerAccessRequestResolve` только owner. После отправки бот пишет «Спасибо! Заявка принята, мы свяжемся с вами.» Пуш команде — ключ `partner_access_request` (вместе с `partner_order` и `partner_suggest` в «Сотрудники»). «Подключить» создаёт точку и доступ role=partner. «Отклонить» только меняет статус, заявителю не пишем.
 
-API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`, `partnerAccessRequestCreate`, `partnerAccessRequestList`, `partnerAccessRequestResolve`, `partnerAccessRequestUpsert`.
+Каталог партнёров (сети, точки, доступы, согласие) читается и пишется только в D1, снимок `partnerListAdmin`: `partnerListAdmin`, `partnerGetMe`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerDeletePoint`, `partnerSaveAccess`, `partnerAcceptAccess`, `partnerRevokeAccess`, `partnerSetNotifyRecipients`, `partnerSetPointConsent`, `partnerMigrateVarkaConsent`. Пустой или битый снап не пересобирается из листа: ответ `partner_admin_snap_missing`, D1 не затирается. `partnerSeedDefaults` каталог из листа больше не подтягивает.
+
+Заявки и подсказки по-прежнему могут ходить в GAS: `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSetOrderStatus`, `partnerSetOrderSlot`, `partnerVarkaBroadcast` (отправка), `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`, `partnerAccessRequestCreate`, `partnerAccessRequestList`, `partnerAccessRequestResolve`, `partnerAccessRequestUpsert`.
 
 **Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Вкладка «Для аллергиков»: `vr_t_lamb_lung` → `БАРАНЬЕ ЛЁГКОЕ / Целое` (сырьё 8.40 за 100 г), `vr_t_turkey` → `ИНДЕЙКА / Ломтики` (сырьё 7.50 за 100 г). Если в снимке `priceCostsPp` этих ключей нет, Worker берёт `RAW_COST_BUILTIN_`, GAS — `PP_RAW_COST_OVERRIDE_BYN_`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.2**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6**, доставка подписки **7.60**. В заявке Varka доставка заменяется на `PARTNER_VARKA_DELIVERY_BYN = 4` (за заказ, не ×N). Потолок 0.92×R не меняется: база — розница товара плюс розничная доставка 9, если товар на доставку ниже 80. Recover 3.30 за 100 г и 0.80 за жевалку берутся из канона 09.10. GAS передаёт 2.2 четвёртым аргументом в `computePpFactFromCost_`, затем `partnerApplyVarkaDelivery_`. Worker так же через `calcPricePpD1_`. Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0`. Фракция «Ломтики» и «Целое» — ставка 0. Сумма заявки = цена клиенту до рубля (`clientDisplayPrice`). Колонка `totalByn` — последняя в `Partner_Orders`.
 
@@ -148,13 +150,13 @@ TELEGRAM_ID=827494606 bash scripts/grant-arseniy-rokoss80-staff.sh
 
 ## Согласие Varka и рассылка (не отправлять до деплоя)
 
-Точки сети `net_varka` закрываются для заказов только явным `paidConsent=pending` или `declined`. Пустое поле до утренней миграции читается как `accepted` (заказ открыт); `partnerMigrateVarkaConsent` пишет явный `pending`, и только тогда точка закрывается. Другие сети не затрагиваются.
+Точки сети `net_varka` закрываются для заказов только явным `paidConsent=pending` или `declined`. Пустое поле читается как `accepted` (заказ открыт). `partnerMigrateVarkaConsent` `pending` не пишет и согласие не понижает (`pendingWritten` всегда 0, `downgraded` всегда 0). Другие сети не затрагиваются.
 
-Колонка `paidConsent` в конце листа `Partner_Points`: `pending` / `accepted` / `declined`. Если колонки нет, запись ответа её создаёт. Пустая ячейка до утренней миграции = `accepted`. Сохранение точки само `pending` не пишет. Снимок D1 при подмешивании листа не отдаёт `accepted`/`declined` обратно в `pending`: согласие D1 и его `paidConsentAt` остаются, если ответ уже `accepted`/`declined` или метка D1 новее. В Бойне: Партнёры → Точки, у точки Varka список «Согласие на платные лакомства». То же действие `partnerSetPointConsent` (только owner, без сервисного ключа). Кнопка в боте пишет лист через `partnerBroadcastCallback` и тем же согласием ещё раз вызывает `partnerSetPointConsent`.
+Согласие лежит в D1: поле `paidConsent` точки в `partnerListAdmin` и ответы в `partnerBroadcastReplies`. Листы `Partner_Points` и `Ответы_рассылки` каталог не пересобирают. Если снимка нет или он битый, чтение отвечает `partner_admin_snap_missing` и ничего не пишет. Сохранение точки само `pending` не пишет. В Бойне: Партнёры → Точки, у точки Varka список «Согласие на платные лакомства». Действие `partnerSetPointConsent` (только owner, без сервисного ключа) пишет и точку, и строку ответа, чтобы старый ответ не откатил ручную правку. Кнопка в боте пишет `partnerBroadcastReplies` и тем же согласием обновляет точки в D1, если снап на месте. Пустой снап ответ может сохранить, каталог при этом не затирается.
 
-Мини-апп и `partnerSubmitOrder` (GAS и Worker) при `pending` / `declined` заявку не принимают.
+Мини-апп и `partnerSubmitOrder` при `pending` / `declined` заявку не принимают.
 
-Рассылка хозяевам точек Varka (активный доступ, роль не `staff`, есть Telegram ID) ботом @GOODBOY_LG. id рассылки `varka-paid-2026-10`. Ответы: лист `Ответы_рассылки` и снимок D1 `partnerBroadcastReplies`. Повтор кнопки не пишет вторую строку. Команде уходит пуш ботом Бойни на `PARTNER_ORDER_NOTIFY_IDS`. Кнопка «Продолжаем…» ставит `accepted` на все точки Varka этого человека. «Спасибо, но…» ставит `declined`. Доступ в `Partner_Access` не отзывается: заказ закрыт флагом, вернуть можно списком в Бойне или ячейкой листа.
+Рассылка хозяевам точек Varka (активный доступ, роль не `staff`, есть Telegram ID) ботом @GOODBOY_LG. id рассылки `varka-paid-2026-10`. Источник правды по согласию — снимок D1 `partnerBroadcastReplies` (`paid` → `accepted`, `decline` → `declined`). Пустой список ответов уже стоящие согласия не меняет. Повтор кнопки не пишет вторую строку. Команде уходит пуш ботом Бойни на `PARTNER_ORDER_NOTIFY_IDS`. Кнопка «Продолжаем…» ставит `accepted` на все точки Varka этого человека. «Спасибо, но…» ставит `declined`. Доступ в `Partner_Access` не отзывается: заказ закрыт флагом, вернуть можно списком в Бойне.
 
 В сиде репозитория список `access` пустой, поэтому dry-run по файлам репо даёт **0 получателей**. Точек Varka в сиде 13. Живое число появится только после dry-run на задеплоенных D1 и листе. `@arseniyhotko` в репо записан как staff, в рассылку не входит.
 
@@ -166,7 +168,7 @@ TELEGRAM_ID=827494606 bash scripts/grant-arseniy-rokoss80-staff.sh
 2. Дождаться CI `clasp-deploy` (`Code.gs`).
 3. Дождаться деплоя Worker.
 4. Дождаться Pages (`varka/app.html`).
-5. Утром, один раз: `partnerMigrateVarkaConsent`. Пустым точкам Varka пишется явный `pending`, заказ закрывается. Уже стоящие `accepted` / `declined` не затираются. До этого шага пустое согласие = заказ открыт.
+5. `partnerMigrateVarkaConsent` согласия не понижает и `pending` не пишет. Пустое согласие остаётся «заказ открыт». Явный `pending` или `declined` закрывает точку, пока владелец или ответ кнопки не поставит другое.
 6. Привязать webhook @GOODBOY_LG (не бота Бойни) на `https://boinya-c.konchaarsenia.workers.dev/telegram/goodboy`. Заголовок `X-Telegram-Bot-Api-Secret-Token` = секрет Worker `GOODBOY_WEBHOOK_SECRET` (не `WORKER_SHARED_SECRET`). Токен бота — `PARTNER_BOT_TOKEN`. Пока webhook не стоит, кнопки не дойдут. Если `GOODBOY_WEBHOOK_SECRET` пустой, заголовок не проверяется.
 7. Dry-run, без сообщений. Смотреть `count`, `recipients`, `skipped`.
 8. Тест на свой Telegram ID. Точки не меняются, если этот ID не хозяин точки Varka. Ответ на кнопку приходит в бот.
@@ -207,7 +209,7 @@ curl -sS -X POST "$BASE/?action=partnerVarkaBroadcast&mode=test&testTelegramId=�
   -H "X-Varka-Admin-Key: $KEY"
 ```
 
-Ответ migrate: `{"status":"success","pendingWritten":N,"kept":M}`.
+Ответ migrate: `{"status":"success","pendingWritten":0,"kept":M,"downgraded":0}`.
 
 Ответ broadcast (dry / test / live):
 
@@ -235,9 +237,9 @@ curl -sS -X POST "https://api.telegram.org/bot$PARTNER_BOT_TOKEN/setWebhook" \
   -d "secret_token=$GOODBOY_WEBHOOK_SECRET"
 ```
 
-Проверка: до миграции пустая точка Varka оформляет заказ. После `partnerMigrateVarkaConsent` мини-апп показывает текст про бота и не даёт отправить заявку. После `accepted` корзина считается. После `declined` текст «Точка отключена…». Чужая сеть оформляет заказ как раньше.
+Проверка: пустая точка Varka оформляет заказ. Явный `pending` или `declined` закрывает заявку. После `accepted` корзина считается. После `declined` текст «Точка отключена…». Чужая сеть оформляет заказ как раньше. Пропавший снап `partnerListAdmin` согласия не сбрасывает: запрос отвечает ошибкой, D1 не переписывается.
 
-Откат согласия без отката кода: в Бойне или в колонке `paidConsent` поставить `accepted` нужным точкам. Откат кода: не мержить этот PR. Уже записанные ответы в `Ответы_рассылки` при откате кода сами не сотрутся. Webhook @GOODBOY_LG, если мешает, снять в BotFather / `deleteWebhook` этим ботом, не трогая webhook бота Бойни.
+Откат согласия: в Бойне `partnerSetPointConsent` поставить `accepted` нужным точкам. Колонка листа каталог не меняет. Ответы живут в D1 `partnerBroadcastReplies`. Webhook @GOODBOY_LG, если мешает, снять в BotFather / `deleteWebhook` этим ботом, не трогая webhook бота Бойни.
 
 Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) — секрет кладётся CI **после** успешного deploy из одноимённого GitHub secret (workflow `boinya-c-worker-deploy`; skip если пусто, fail не валит деплой). GAS: Script Property с тем же именем. `VARKA_ADMIN_KEY` и `GOODBOY_WEBHOOK_SECRET` в этот CI не входят: их задают отдельно на Worker `boinya-c` перед утренним запуском.
 
@@ -253,7 +255,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум сердца и лёгкого 100 г; аллергики, NFC, баннер и купон без них можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` после `partnerMigrateVarkaConsent` и `declined` заказ закрывают. Рассылка хозяевам не запускалась. Pages varka `3.3.68`, **не задеплоено** (Pages, Worker, Code.gs)
+- [~] **Каталог партнёров только D1 2026-10-22:** сети, точки, доступы и `paidConsent` читаются и пишутся в D1. Пересборка `partnerListAdmin` из Sheets/GAS убрана, в том числе при пустом снапе (ошибка `partner_admin_snap_missing`, без записи поверх). `partnerMigrateVarkaConsent` не пишет `pending`. Согласие с кнопок и из Бойни — снимок `partnerBroadcastReplies`. `telegramSendTextWorker_` и `telegramSendPartnerBot_` пишут в лог `ok` / `error_code` / `description`. Заявки, слот, статус и зеркало заявок на подключение по-прежнему могут ходить в GAS. **Worker не задеплоен**
+- [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум сердца и лёгкого 100 г; аллергики, NFC, баннер и купон без них можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` и `declined` заказ закрывают. Миграция сама `pending` не пишет. Рассылка хозяевам не запускалась. Pages varka `3.3.68`, **не задеплоено** (Pages, Worker, Code.gs)
 - [~] **Для аллергиков:** вкладка в мини-аппе. `vr_t_lamb_lung` «Баранье лёгкое» → `БАРАНЬЕ ЛЁГКОЕ|Целое`, сырьё 8.40. `vr_t_turkey` «Индейка» → `ИНДЕЙКА|Ломтики`, сырьё 7.50. В минимум граммов не входят. Короткая цена товара 15 BYN/100 г; заявка на 100 г одной позиции — 23 BYN (лакомства 19, доставка 4). Подсказка «Чем больше заказ, тем выгоднее». Pages varka `3.3.68`, **не задеплоено**
 - [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.
 - [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**

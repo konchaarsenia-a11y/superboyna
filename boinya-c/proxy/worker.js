@@ -17344,19 +17344,18 @@ async function partnerWriteMeSnapsForRow_(env, admin, row) {
 }
 
 async function putPartnerAdminFromGas_(env, gasAdmin) {
-  if (!env || !env.DB || !gasAdmin) return null;
+  console.log("partnerAdmin sheets rebuild blocked", JSON.stringify({
+    ok: false,
+    error_code: "sheets_rebuild_disabled",
+    description: "partnerListAdmin is D1 only"
+  }));
   let prev = null;
   try {
-    prev = await getSnapRaw_(env, "partnerListAdmin");
+    prev = env && env.DB ? await getSnapRaw_(env, "partnerListAdmin") : null;
   } catch (e) {
     prev = null;
   }
-  const next = partnerMergeAdminKeepD1Access_(
-    prev,
-    Object.assign({}, gasAdmin, { cachedAt: new Date().toISOString() })
-  );
-  await putSnap_(env, "partnerListAdmin", next);
-  return next;
+  return prev || null;
 }
 
 async function cutoverPartnerGetMe_(params, env, ctx) {
@@ -17364,60 +17363,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
   const snapKey = partnerMeSnapKey_(params);
 
   async function fetchLive_() {
-    if (sheetsEdgeOff_(env)) return { status: "skipped", sheetsReadonly: true, fromD1: true };
-    const live = await gasProxy_("partnerGetMe", params, env, { write: false });
-    let out = partnerGuardOrRewrite_("partnerGetMe", params, live);
-    try {
-      const adminLive = await getSnapRaw_(env, "partnerListAdmin");
-      if (
-        adminLive &&
-        Array.isArray(adminLive.access) &&
-        !isPartnerCanonOwner_(params) &&
-        !isPartnerLiveTestUser_(params) &&
-        !isPartnerManualAccessUser_(params) &&
-        !isPartnerOwnerAllUser_(params) &&
-        !isPartnerArseniy_(params)
-      ) {
-        const d1Me = partnerBuildGetMeFromAdmin_(adminLive, params);
-        out = partnerGuardOrRewrite_(
-          "partnerGetMe",
-          params,
-          Object.assign({}, out || {}, {
-            allowed: d1Me.allowed,
-            ownersOnly: false,
-            ownerMode: false,
-            isOwner: false,
-            role: d1Me.role,
-            isPartner: d1Me.isPartner,
-            isStaff: d1Me.isStaff,
-            accessStatus: d1Me.accessStatus,
-            pendingAccept: d1Me.pendingAccept,
-            message: d1Me.message,
-            name: d1Me.name || (out && out.name),
-            username: d1Me.username || (out && out.username),
-            telegramId: d1Me.telegramId || (out && out.telegramId),
-            networkId: d1Me.networkId,
-            pointIds: d1Me.pointIds,
-            allowedPointIds: d1Me.allowedPointIds,
-            networks: d1Me.networks,
-            points: d1Me.points,
-            fromD1Access: true
-          })
-        );
-      }
-    } catch (eOv) {}
-    if (out && out.status === "success" && env && env.DB) {
-      try {
-        await putSnap_(env, snapKey, Object.assign({}, out, { cachedAt: new Date().toISOString() }));
-      } catch (eS) {}
-    }
-    if (out && typeof out === "object") {
-      out.cutover = true;
-      out.fromGas = true;
-      out.sandbox = false;
-      out.partnerCanon = partnerCanonLabel_(env);
-    }
-    return out;
+    return { status: "skipped", sheetsReadonly: true, fromD1: true, fromGas: false };
   }
 
   if (isPartnerLiveTestUser_(params)) {
@@ -17653,9 +17599,19 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     return out;
   }
 
-  const live = await fetchLive_();
-  if (live && typeof live === "object") return live;
-  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerGetMe" };
+  console.log("partnerGetMe sheets read blocked", JSON.stringify({
+    ok: false,
+    error_code: "sheets_read_disabled",
+    description: "no D1 partnerListAdmin"
+  }));
+  return {
+    status: "error",
+    message: "partner_admin_snap_missing",
+    fromD1: true,
+    fromGas: false,
+    cutover: true,
+    action: "partnerGetMe"
+  };
 }
 
 async function handleCutover_(a, params, env, ctx) {
@@ -19633,10 +19589,32 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^partnerBroadcastCallback$/i.test(a)) {
       return { status: "error", message: "webhook_only", action: a };
     }
-    // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
+    // Сети, точки, доступы и согласия — только D1. Лист не читаем и не пишем.
+    if (
+      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerAcceptAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerMigrateVarkaConsent|partnerSetPointConsent)$/i.test(
+        a
+      )
+    ) {
+      let d1Dir = null;
+      try {
+        if (env && env.DB) d1Dir = await mutatePartnerD1_(a, params, env);
+      } catch (eDir) {
+        d1Dir = { status: "error", message: String((eDir && eDir.message) || eDir) };
+      }
+      return Object.assign({}, d1Dir || { status: "error", message: "partner_admin_snap_missing" }, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        pendingSheets: false,
+        sheetsReadonly: true,
+        partnerCanon: partnerCanonLabel_(env),
+        action: a
+      });
+    }
+    // Заявки партнёра — D1, зеркало GAS нужно отложенным Бойни. Каталог точек туда не возвращается.
     if (
       isPartnerD1PrimaryCanon_(env) &&
-      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerAcceptAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot|partnerVarkaBroadcast|partnerMigrateVarkaConsent|partnerSetPointConsent)$/i.test(
+      /^(partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot|partnerVarkaBroadcast)$/i.test(
         a
       )
     ) {
@@ -20403,9 +20381,8 @@ async function handleCutover_(a, params, env, ctx) {
     if (a === "previewWeekCloseWarehouse") {
       return previewWeekCloseWarehouseD1_(params, env, ctx);
     }
-    if (isPartnerD1PrimaryCanon_(env) && a === "partnerListAdmin") {
-      const adminFast = await partnerListAdminD1_(params, env, ctx);
-      if (adminFast) return adminFast;
+    if (a === "partnerListAdmin") {
+      return partnerListAdminD1_(params, env, ctx);
     }
     if (isPartnerD1PrimaryCanon_(env) && a === "partnerListMyOrders") {
       const ordFast = await partnerListMyOrdersD1_(params, env, ctx);
@@ -29588,8 +29565,18 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
       body: JSON.stringify(payload)
     });
     const body = await res.json();
+    console.log("telegramSendTextWorker_", JSON.stringify({
+      ok: !!(body && body.ok),
+      error_code: body && body.error_code,
+      description: body && body.description
+    }));
     return body;
   } catch (e) {
+    console.log("telegramSendTextWorker_", JSON.stringify({
+      ok: false,
+      error_code: "fetch_failed",
+      description: String(e && e.message ? e.message : e)
+    }));
     return { ok: false, error: String(e && e.message ? e.message : e) };
   }
 }
@@ -29619,8 +29606,19 @@ async function telegramSendPartnerBot_(env, chatId, text, markup) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    return await res.json();
+    const body = await res.json();
+    console.log("telegramSendPartnerBot_", JSON.stringify({
+      ok: !!(body && body.ok),
+      error_code: body && body.error_code,
+      description: body && body.description
+    }));
+    return body;
   } catch (e) {
+    console.log("telegramSendPartnerBot_", JSON.stringify({
+      ok: false,
+      error_code: "fetch_failed",
+      description: String(e && e.message ? e.message : e)
+    }));
     return { ok: false, error: String(e && e.message ? e.message : e) };
   }
 }
@@ -29654,7 +29652,7 @@ function partnerPointIsVarka_(p) {
 
 function partnerEffectiveConsent_(p) {
   if (!partnerPointIsVarka_(p)) return "accepted";
-  return partnerNormalizeConsent_(p && p.paidConsent) || "accepted"; // пусто = accepted до partnerMigrateVarkaConsent (пишет явный pending утром)
+  return partnerNormalizeConsent_(p && p.paidConsent) || "accepted"; // пусто = accepted; pending только явная запись, не автопонижение
 }
 
 function partnerConsentRejectForPoint_(p) {
@@ -29914,6 +29912,51 @@ async function partnerRememberBroadcastReply_(env, rec, choice) {
   return { already: already, prevChoice: prevChoice };
 }
 
+/** Явная запись согласия. Ответ в partnerBroadcastReplies — источник правды, не лист. */
+async function partnerWriteBroadcastConsent_(env, point, consent) {
+  const choice = consent === "declined" ? "decline" : consent === "accepted" ? "paid" : "";
+  const pointId = String((point && point.id) || "");
+  if (!env || !env.DB || !choice || !pointId) return;
+  const key = "partnerBroadcastReplies";
+  let prev = [];
+  try {
+    const snap = await getSnapRaw_(env, key);
+    if (snap && Array.isArray(snap.rows)) prev = snap.rows.slice();
+  } catch (e) {
+    prev = [];
+  }
+  const now = new Date().toISOString();
+  let hit = false;
+  const rows = prev.map(function (row) {
+    if (!row || String(row.pointId) !== pointId || row.broadcastId !== PARTNER_VARKA_BROADCAST_ID_) return row;
+    hit = true;
+    return Object.assign({}, row, { choice: choice, createdAt: now });
+  });
+  if (!hit) {
+    rows.push({
+      dateIso: now.slice(0, 10),
+      broadcastId: PARTNER_VARKA_BROADCAST_ID_,
+      networkId: (point && point.networkId) || "net_varka",
+      pointId: pointId,
+      pointName: (point && (point.name || point.pointName)) || pointId,
+      telegramId: String((point && point.telegramId) || ""),
+      name: (point && point.name) || "",
+      username: (point && point.username) || "",
+      choice: choice,
+      createdAt: now
+    });
+  }
+  try {
+    await putSnap_(env, key, { rows: rows, updatedAt: now });
+  } catch (ePut) {
+    console.log("partnerBroadcastReplies", JSON.stringify({
+      ok: false,
+      error_code: "write_failed",
+      description: String((ePut && ePut.message) || ePut)
+    }));
+  }
+}
+
 /** Лимит заявок на подключение: открытая заявка или больше 3 за календарный день. */
 function partnerAccessRequestGate_(rows, tid, nowIso) {
   const day = String(nowIso || "").slice(0, 10);
@@ -30138,8 +30181,16 @@ async function handleGoodboyTelegramWebhook_(request, env, ctx) {
   }
   let admin = null;
   try { admin = await getSnapRaw_(env, "partnerListAdmin"); } catch (eA) { admin = null; }
-  admin = admin || { points: [], access: [] };
-  const pack = partnerVarkaBroadcastRecipients_(admin.access || [], admin.points || []);
+  const adminOk = partnerAdminSnapOk_(admin);
+  if (!adminOk) {
+    console.log("partnerBroadcastCallback", JSON.stringify({
+      ok: false,
+      error_code: "snap_missing",
+      description: "reply may be saved, partnerListAdmin is not overwritten"
+    }));
+  }
+  const lookup = adminOk ? admin : { points: [], access: [] };
+  const pack = partnerVarkaBroadcastRecipients_(lookup.access || [], lookup.points || []);
   let rec = null;
   for (let i = 0; i < pack.recipients.length; i++) {
     if (pack.recipients[i].telegramId === tid) { rec = pack.recipients[i]; break; }
@@ -30167,7 +30218,7 @@ async function handleGoodboyTelegramWebhook_(request, env, ctx) {
   try { await partnerClearKeyboard_(env, chatId, msg.message_id); } catch (eK) {}
   if (!saved.already) {
     const consent = parsed.choice === "paid" ? "accepted" : "declined";
-    if (!testOnly) {
+    if (!testOnly && adminOk) {
       partnerApplyConsentOnAdmin_(admin, rec, consent);
       try {
         await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
@@ -30184,55 +30235,13 @@ async function handleGoodboyTelegramWebhook_(request, env, ctx) {
     } catch (eR) {
       console.log("varka broadcast reply error", String((eR && eR.message) || eR));
     }
-    // gasProxy_ пишет _wk из GAS_SHARED_SECRET → GAS GAS_AUTH_.viaWorker. Без маркера callback = webhook_only.
-    const gasCall = (async function () {
-      let cbRes = null;
-      try {
-        cbRes = await gasProxy_(
-          "partnerBroadcastCallback",
-          {
-            telegramId: tid,
-            username: rec.username || from.username || "",
-            name: rec.name || "",
-            choice: parsed.choice,
-            testOnly: testOnly ? "1" : ""
-          },
-          env,
-          { write: true }
-        );
-      } catch (eCb) {
-        cbRes = { status: "error", message: String((eCb && eCb.message) || eCb) };
-      }
-      console.log("partnerBroadcastCallback", JSON.stringify({
-        status: cbRes && cbRes.status,
-        message: cbRes && cbRes.message,
-        paidConsent: cbRes && cbRes.paidConsent,
-        points: cbRes && cbRes.points,
-        workerMarker: !!String((env && env.GAS_SHARED_SECRET) || "").trim()
-      }));
-      if (!testOnly) {
-        const ids = (rec.points || []).map(function (p) { return p && p.id; }).filter(Boolean);
-        for (let i = 0; i < ids.length; i++) {
-          if (ids[i] === "test") continue;
-          const body = { pointId: ids[i], paidConsent: consent };
-          stampVarkaAdminOwner_(body);
-          let setRes = null;
-          try {
-            setRes = await gasProxy_("partnerSetPointConsent", body, env, { write: true });
-          } catch (eSet) {
-            setRes = { status: "error", message: String((eSet && eSet.message) || eSet) };
-          }
-          console.log("partnerSetPointConsent", JSON.stringify({
-            pointId: ids[i],
-            status: setRes && setRes.status,
-            message: setRes && setRes.message,
-            paidConsent: setRes && setRes.paidConsent
-          }));
-        }
-      }
-      return cbRes;
-    })();
-    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasCall);
+    console.log("partnerBroadcastCallback", JSON.stringify({
+      status: "success",
+      message: "d1",
+      paidConsent: consent,
+      points: (rec.points || []).length,
+      fromGas: false
+    }));
   }
   return new Response("ok");
 }
@@ -30919,21 +30928,108 @@ function nicksMatchLooseD1_(a, b) {
 
 /* —— Varka / Goodboy D1-primary (snap) —— */
 
-async function ensurePartnerAdminSnap_(env, ctx) {
-  let admin = await getSnapRaw_(env, "partnerListAdmin");
-  if (admin && admin.status === "success" && Array.isArray(admin.networks)) {
-    admin = await partnerEnsureMayakovskyPoint_(env, admin);
+function partnerAdminSnapOk_(admin) {
+  return !!(
+    admin &&
+    admin.status === "success" &&
+    Array.isArray(admin.networks) &&
+    Array.isArray(admin.points)
+  );
+}
+
+/** Пустой или битый снап не затираем листом. Ответов нет — согласия не трогаем. */
+function partnerAdminSheetsRebuildPlan_(prev) {
+  if (!partnerAdminSnapOk_(prev)) {
+    return { write: false, reason: "snap_missing", consentsReset: false };
+  }
+  return { write: false, reason: "sheets_rebuild_disabled", consentsReset: false };
+}
+
+function partnerPointsWithBroadcastConsent_(points, rows) {
+  const list = Array.isArray(points) ? points.slice() : [];
+  if (!Array.isArray(rows) || !rows.length) return list;
+  const byPoint = {};
+  rows.forEach(function (row) {
+    if (!row || !row.pointId) return;
+    const choice = partnerBroadcastChoiceNorm_(row.choice);
+    const consent = choice === "paid" ? "accepted" : choice === "decline" ? "declined" : "";
+    if (!consent) return;
+    const at = Date.parse(String(row.createdAt || "")) || 0;
+    const prev = byPoint[String(row.pointId)];
+    if (!prev || at >= prev.at) byPoint[String(row.pointId)] = { consent: consent, at: at };
+  });
+  return list.map(function (p) {
+    if (!p || !p.id) return p;
+    const hit = byPoint[String(p.id)];
+    if (!hit) return p;
+    if (partnerNormalizeConsent_(p.paidConsent) === hit.consent) return p;
+    return Object.assign({}, p, { paidConsent: hit.consent, paidConsentAt: hit.at || p.paidConsentAt || 0 });
+  });
+}
+
+async function partnerOverlayBroadcastConsent_(env, admin) {
+  if (!admin || !Array.isArray(admin.points)) return admin;
+  let rows = [];
+  try {
+    const snap = await getSnapRaw_(env, "partnerBroadcastReplies");
+    if (snap && Array.isArray(snap.rows)) rows = snap.rows;
+  } catch (eR) {
+    console.log("partnerBroadcastReplies", JSON.stringify({
+      ok: false,
+      error_code: "read_failed",
+      description: String((eR && eR.message) || eR)
+    }));
     return admin;
   }
-  try {
-    const live = await gasProxy_("partnerListAdmin", {}, env, { write: false });
-    if (live && live.status === "success") {
-      const fixed = await partnerEnsureMayakovskyPoint_(env, live);
-      await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
-      return fixed;
+  const points = partnerPointsWithBroadcastConsent_(admin.points, rows);
+  let changed = false;
+  for (let i = 0; i < points.length; i++) {
+    const prevC = partnerNormalizeConsent_(admin.points[i] && admin.points[i].paidConsent);
+    const nextC = partnerNormalizeConsent_(points[i] && points[i].paidConsent);
+    if (prevC !== nextC) changed = true;
+  }
+  if (!changed) return Object.assign({}, admin, { points: points });
+  const next = Object.assign({}, admin, { points: points });
+  if (env && env.DB) {
+    try {
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, next, {
+        cachedAt: new Date().toISOString(),
+        _d1TouchedAt: Date.now()
+      }));
+    } catch (eW) {
+      console.log("partnerAdmin consent overlay", JSON.stringify({
+        ok: false,
+        error_code: "write_failed",
+        description: String((eW && eW.message) || eW)
+      }));
     }
-  } catch (e) {}
-  return admin || { status: "success", networks: [], points: [], access: [], catalog: PARTNER_CATALOG_STATIC };
+  }
+  return next;
+}
+
+async function ensurePartnerAdminSnap_(env, ctx) {
+  let admin = null;
+  try {
+    admin = await getSnapRaw_(env, "partnerListAdmin");
+  } catch (eRead) {
+    console.log("partnerAdmin snap", JSON.stringify({
+      ok: false,
+      error_code: "read_failed",
+      description: String((eRead && eRead.message) || eRead)
+    }));
+    return { status: "error", message: "partner_admin_snap_unavailable", fromD1: true, fromGas: false };
+  }
+  const plan = partnerAdminSheetsRebuildPlan_(admin);
+  if (!plan.write && plan.reason === "snap_missing") {
+    console.log("partnerAdmin snap", JSON.stringify({
+      ok: false,
+      error_code: "snap_missing",
+      description: "refuse sheets rebuild"
+    }));
+    return { status: "error", message: "partner_admin_snap_missing", fromD1: true, fromGas: false };
+  }
+  admin = await partnerEnsureMayakovskyPoint_(env, admin);
+  return partnerOverlayBroadcastConsent_(env, admin);
 }
 
 /** Varka Маяковского 14 — upsert + чистка дублей (PARTNER_PROD_V16). */
@@ -31112,70 +31208,39 @@ async function partnerEnsureManualAccess_(env, admin) {
 }
 
 async function partnerListAdminD1_(params, env, ctx) {
-  let admin = await getSnapRaw_(env, "partnerListAdmin");
-  const force = String((params && params.force) || "") === "1";
-  const touchedAt = Number((admin && admin._d1TouchedAt) || 0);
-  const hasD1 =
-    admin &&
-    admin.status === "success" &&
-    Array.isArray(admin.networks);
-  // After grant/revoke: force must return D1 now, not wait GAS TTL / stale listAdmin.
-  const serveD1 = hasD1 && (!force || touchedAt > 0);
-  if (serveD1) {
-    admin = await partnerEnsureMayakovskyPoint_(env, admin);
-    const skipSwr = force || (touchedAt > 0 && Date.now() - touchedAt < 180000);
-    if (!skipSwr && ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(
-        (async function () {
-          try {
-            const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
-            if (live && live.status === "success") {
-              const fixed = await partnerEnsureMayakovskyPoint_(env, live);
-              await putPartnerAdminFromGas_(env, fixed);
-            }
-          } catch (e) {}
-        })()
-      );
-    }
-    return partnerGuardOrRewrite_(
-      "partnerListAdmin",
-      params,
-      Object.assign({}, admin, {
-        cutover: true,
-        fromD1: true,
-        fromGas: false,
-        sandbox: false,
-        d1Verified: true,
-        partnerCanon: partnerCanonLabel_(env)
-      })
-    );
+  let admin = null;
+  try {
+    admin = await getSnapRaw_(env, "partnerListAdmin");
+  } catch (eRead) {
+    console.log("partnerListAdmin", JSON.stringify({
+      ok: false,
+      error_code: "read_failed",
+      description: String((eRead && eRead.message) || eRead)
+    }));
+    return { status: "error", message: "partner_admin_snap_unavailable", fromD1: true, fromGas: false };
   }
-  const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
-  if (live && live.status === "success" && env && env.DB) {
-    try {
-      const fixed = await partnerEnsureMayakovskyPoint_(env, live);
-      const stored = await putPartnerAdminFromGas_(env, fixed);
-      const use = stored || fixed;
-      return partnerGuardOrRewrite_(
-        "partnerListAdmin",
-        params,
-        Object.assign({}, use, {
-          cutover: true,
-          fromGas: !Number(use && use._d1TouchedAt),
-          fromD1: !!Number(use && use._d1TouchedAt),
-          partnerCanon: partnerCanonLabel_(env)
-        })
-      );
-    } catch (eS) {}
+  if (!partnerAdminSnapOk_(admin)) {
+    console.log("partnerListAdmin", JSON.stringify({
+      ok: false,
+      error_code: "snap_missing",
+      description: "refuse sheets rebuild"
+    }));
+    return { status: "error", message: "partner_admin_snap_missing", fromD1: true, fromGas: false };
   }
-  if (live && typeof live === "object") {
-    live.cutover = true;
-    live.fromGas = true;
-    live.fromD1 = false;
-    live.partnerCanon = partnerCanonLabel_(env);
-    return partnerGuardOrRewrite_("partnerListAdmin", params, live);
-  }
-  return live;
+  admin = await partnerEnsureMayakovskyPoint_(env, admin);
+  admin = await partnerOverlayBroadcastConsent_(env, admin);
+  return partnerGuardOrRewrite_(
+    "partnerListAdmin",
+    params,
+    Object.assign({}, admin, {
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sandbox: false,
+      d1Verified: true,
+      partnerCanon: partnerCanonLabel_(env)
+    })
+  );
 }
 
 async function partnerListMyOrdersD1_(params, env, ctx) {
@@ -31417,9 +31482,17 @@ async function mutatePartnerD1_(action, params, env) {
     return { status: "error", message: "seed_via_gas" };
   }
   let admin = await ensurePartnerAdminSnap_(env, null);
-  admin = Object.assign({ status: "success", networks: [], points: [], access: [], notifyRecipients: [], catalog: PARTNER_CATALOG_STATIC }, admin || {});
-  admin.networks = Array.isArray(admin.networks) ? admin.networks.slice() : [];
-  admin.points = Array.isArray(admin.points) ? admin.points.slice() : [];
+  if (!partnerAdminSnapOk_(admin)) {
+    return {
+      status: "error",
+      message: (admin && admin.message) || "partner_admin_snap_missing",
+      fromD1: true,
+      fromGas: false
+    };
+  }
+  admin = Object.assign({}, admin);
+  admin.networks = admin.networks.slice();
+  admin.points = admin.points.slice();
   admin.access = Array.isArray(admin.access) ? admin.access.slice() : [];
   admin.notifyRecipients = Array.isArray(admin.notifyRecipients) ? admin.notifyRecipients.slice() : [];
 
@@ -31468,16 +31541,15 @@ async function mutatePartnerD1_(action, params, env) {
 
   if (/^partnerMigrateVarkaConsent$/i.test(a)) {
     if (!partnerBroadcastOwnerOk_(params)) return { status: "error", message: "owner_only" };
-    let wrote = 0;
-    let kept = 0;
-    for (let i = 0; i < admin.points.length; i++) {
-      if (!partnerPointIsVarka_(admin.points[i])) continue;
-      if (partnerNormalizeConsent_(admin.points[i].paidConsent)) { kept++; continue; }
-      admin.points[i] = Object.assign({}, admin.points[i], { paidConsent: "pending" });
-      wrote++;
-    }
-    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
-    return { status: "success", pendingWritten: wrote, kept: kept, d1Verified: true };
+    const next = await partnerOverlayBroadcastConsent_(env, admin);
+    return {
+      status: "success",
+      pendingWritten: 0,
+      kept: (next.points || []).length,
+      downgraded: 0,
+      d1Verified: true,
+      fromD1: true
+    };
   }
 
   if (/^partnerSetPointConsent$/i.test(a)) {
@@ -31490,8 +31562,9 @@ async function mutatePartnerD1_(action, params, env) {
       if (String(admin.points[i].id) === id) { hit = i; break; }
     }
     if (hit < 0 || !partnerPointIsVarka_(admin.points[hit])) return { status: "error", message: "not_varka_point" };
-    admin.points[hit] = Object.assign({}, admin.points[hit], { paidConsent: consent });
+    admin.points[hit] = Object.assign({}, admin.points[hit], { paidConsent: consent, paidConsentAt: Date.now() });
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    await partnerWriteBroadcastConsent_(env, admin.points[hit], consent);
     return { status: "success", id: id, paidConsent: consent, d1Verified: true };
   }
 
@@ -32460,13 +32533,12 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     }
     await putSnap_(env, "partnerOrders", pack);
   }
-  if (/^partner(Save|Revoke|SetNotify|Seed)/i.test(action)) {
-    try {
-      const admin = await gasProxy_("partnerListAdmin", { telegramId: params && params.telegramId }, env, { write: false });
-      if (admin && admin.status === "success") {
-        await putPartnerAdminFromGas_(env, admin);
-      }
-    } catch (e) {}
+  if (/^partner(Save|Revoke|SetNotify|Seed|Migrate|SetPointConsent)/i.test(action)) {
+    console.log("partnerAdmin sheets rebuild blocked", JSON.stringify({
+      ok: false,
+      error_code: "sheets_rebuild_disabled",
+      description: String(action || "")
+    }));
   }
 }
 
