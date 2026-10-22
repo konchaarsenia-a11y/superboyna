@@ -55,3 +55,5 @@ jobs:
         run: node boinya-c/proxy/afk-guard.test.mjs
       - name: address parts stay separate
         run: node --test boinya-c/next/addr-parts.test.mjs boinya-c/next/order-parity.test.mjs
+      - name: partner orders stay on the month
+        run: node --test boinya-c/next/partner-month.test.mjs

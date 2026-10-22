@@ -35,7 +35,14 @@
     if (mode !== "partner" && String(pl.orderType || "") !== "partner") return false;
     var st = String(pl.orderStatus || "new").toLowerCase();
     if (st === "delivered" || st === "cancelled" || st === "canceled") return false;
-    return !!String(pl.deliverDateIso || "").trim();
+    var date = String(pl.deliverDateIso || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    var today = new Date(Date.now() + 3 * 3600 * 1000);
+    var y = today.getUTCFullYear();
+    var m = String(today.getUTCMonth() + 1);
+    var d = String(today.getUTCDate());
+    var iso = y + "-" + (m.length < 2 ? "0" + m : m) + "-" + (d.length < 2 ? "0" + d : d);
+    return date >= iso;
   }
 
   function openItems() {
