@@ -25,30 +25,11 @@
     return ax().tabHas(access, "deferredScreen." + sub) || ax().tabHas(access, "deferredScreen");
   }
 
-  function partnerDated_(it) {
-    var pl = it && it.payload;
-    if (typeof pl === "string") {
-      try { pl = JSON.parse(pl); } catch (ePl) { pl = null; }
-    }
-    if (!pl || typeof pl !== "object") return false;
-    var mode = String((it && it.mode) || pl.mode || "").toLowerCase();
-    if (mode !== "partner" && String(pl.orderType || "") !== "partner") return false;
-    var st = String(pl.orderStatus || "new").toLowerCase();
-    if (st === "delivered" || st === "cancelled" || st === "canceled") return false;
-    var date = String(pl.deliverDateIso || "").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-    var today = new Date(Date.now() + 3 * 3600 * 1000);
-    var y = today.getUTCFullYear();
-    var m = String(today.getUTCMonth() + 1);
-    var d = String(today.getUTCDate());
-    var iso = y + "-" + (m.length < 2 ? "0" + m : m) + "-" + (d.length < 2 ? "0" + d : d);
-    return date >= iso;
-  }
-
   function openItems() {
+    var logic = root.BoinyaPartnersLogic;
     return (items || []).filter(function (it) {
-      if (String((it && it.status) || "open").toLowerCase() === "open") return true;
-      return partnerDated_(it);
+      if (logic && logic.partnerTaskOpen_) return logic.partnerTaskOpen_(it);
+      return String((it && it.status) || "open").toLowerCase() === "open";
     });
   }
 
@@ -161,7 +142,7 @@
     }
     if (mode === "partner") {
       var st = String(pl.orderStatus || "new").toLowerCase();
-      var needSlot = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+      var needSlot = !String(pl.deliverDateIso || "").trim();
       var po = esc(pl.partnerOrderId || "");
       if (needSlot) {
         buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-slot" data-id="' + esc(id) + '" data-po="' + po + '">Назначить дату</button>';

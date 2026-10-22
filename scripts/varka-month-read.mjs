@@ -54,6 +54,7 @@ function briefDeferred(it) {
     location: pl.locationName || it.title || "",
     orderStatus: pl.orderStatus || "",
     date: pl.deliverDateIso || "",
+    needsSlot: pl.needsSlot,
     updatedAt: it.updatedAt || ""
   };
 }
@@ -61,7 +62,7 @@ function briefDeferred(it) {
 function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const orders = sh(
-    "SELECT id, client, date_iso, day_name, segment, source, status, updated_at FROM orders WHERE status = 'active' AND (date_iso = '2026-10-27' OR client LIKE '%арка%' OR client LIKE '%евченко%' OR client LIKE '%Varka%' OR client LIKE '%varka%' OR id LIKE 'PO:%') ORDER BY date_iso, client LIMIT 80"
+    "SELECT id, client, match_key, date_iso, day_name, segment, source, status, updated_at, substr(ifnull(note,''),1,180) AS note, substr(ifnull(basket_json,''),1,220) AS basket FROM orders WHERE status = 'active' AND date_iso = '2026-10-27' ORDER BY client LIMIT 80"
   );
   const recent = sh(
     "SELECT id, client, date_iso, day_name, segment, source, status, updated_at FROM orders WHERE updated_at >= '2026-10-22T12:00:00' AND status = 'active' ORDER BY updated_at DESC LIMIT 40"
