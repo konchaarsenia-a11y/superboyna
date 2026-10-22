@@ -8472,6 +8472,9 @@ async function getClients_(params, env) {
   try {
     clientsOut = await attachStoredServiceGeo_(env, clientsOut);
   } catch (eGeoAtt) {}
+  try {
+    clientsOut = await appendPartnerOrdersForDate_(env, clientsOut, dateIso, day);
+  } catch (ePartnerDate) {}
   return {
     status: "success",
     sandbox: true,
@@ -9317,7 +9320,7 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
     if (!iso) return;
     weekMap[iso] = { count: Number(it.count) || 0, day: String(it.day || "") };
   });
-  if (!Object.keys(weekMap).length) return body;
+  if (!Object.keys(weekMap).length) return overlayPartnerDatesOnMonth_(env, body);
 
   // сегменты с D1 по date_iso (count уже с листа)
   const segByIso = Object.create(null);
@@ -9406,7 +9409,7 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
   body.days = days;
   body.total = total;
   body.weekOverlay = true;
-  return body;
+  return overlayPartnerDatesOnMonth_(env, body);
 }
 
 function minkTodayIso_() {
@@ -11504,7 +11507,149 @@ function monthEndExclusive_(month) {
   return y + "-" + (m < 10 ? "0" : "") + m + "-01";
 }
 
-/** Лёгкий список людей месяца одним SELECT. Старые getViewCompare / getMonthOverview не меняет. */
+function partnerOrderIsClosed_(order) {
+  const st = String((order && (order.status || order.orderStatus)) || "").toLowerCase();
+  return st === "delivered" || st === "cancelled" || st === "canceled";
+}
+
+function partnerOrderDate_(order) {
+  return String((order && order.deliverDateIso) || "").slice(0, 10);
+}
+
+async function openDatedPartnerOrders_(env) {
+  if (!env) return [];
+  let pack = null;
+  try {
+    pack = await getSnapRaw_(env, "partnerOrders");
+  } catch (ePack) {
+    pack = null;
+  }
+  const today = minkTodayIso_();
+  return ((pack && pack.orders) || []).filter(function (o) {
+    if (!o || partnerOrderIsClosed_(o)) return false;
+    const date = partnerOrderDate_(o);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    return date >= today;
+  });
+}
+
+function partnerClientFromOrder_(order, day) {
+  const name = String((order && (order.locationName || order.userName)) || "Партнёр").trim() || "Партнёр";
+  const basket = Array.isArray(order && order.basket) ? order.basket : [];
+  const price = order && order.totalByn != null && order.totalByn !== "" ? order.totalByn : "";
+  return {
+    name: name,
+    matchKey: normalizeMatchKey_(name),
+    address: String((order && order.address) || "").trim(),
+    note: String((order && order.note) || "").trim(),
+    phone: "",
+    basket: basket,
+    segment: "ПАРТНЁР",
+    source: "partner",
+    orderType: "partner",
+    partnerOrderId: String((order && order.id) || ""),
+    dateIso: partnerOrderDate_(order),
+    day: day || "",
+    orderPrice: price,
+    orderCount: basket.length
+  };
+}
+
+function partnerOrderListed_(list, order) {
+  const id = String((order && order.id) || "");
+  const mk = normalizeMatchKey_((order && order.locationName) || "");
+  for (let i = 0; i < (list || []).length; i++) {
+    const c = list[i];
+    if (!c) continue;
+    if (id && String(c.partnerOrderId || "") === id) return true;
+    if (id && String(c.note || "").indexOf(id) >= 0) return true;
+    const cmk = normalizeMatchKey_(c.matchKey || c.name || "");
+    if (mk && cmk === mk) return true;
+  }
+  return false;
+}
+
+async function partnerOrderAlreadyStored_(env, order) {
+  if (!env || !env.DB || !order) return false;
+  const date = partnerOrderDate_(order);
+  const name = String(order.locationName || "").trim();
+  const mk = normalizeMatchKey_(name);
+  if (!date || !mk) return false;
+  try {
+    const row = await env.DB.prepare(
+      "SELECT id FROM orders WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR client = ?) LIMIT 1"
+    )
+      .bind(date, mk, name)
+      .first();
+    return !!row;
+  } catch (eHas) {
+    return false;
+  }
+}
+
+/** Заявка с датой видна в месяце, даже если в заказах её ещё нет. Прошедшие не добавляем. */
+async function overlayPartnerDatesOnMonth_(env, body) {
+  if (!body || !env) return body;
+  const month = String(body.month || "").slice(0, 7);
+  if (!month) return body;
+  let orders = [];
+  try {
+    orders = await openDatedPartnerOrders_(env);
+  } catch (eOrd) {
+    orders = [];
+  }
+  if (!orders.length) return body;
+  const byIso = Object.create(null);
+  (body.days || []).forEach(function (d) {
+    if (d && d.dateIso) byIso[d.dateIso] = d;
+  });
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i];
+    const date = partnerOrderDate_(o);
+    if (date.slice(0, 7) !== month) continue;
+    if (await partnerOrderAlreadyStored_(env, o)) continue;
+    if (!byIso[date]) {
+      byIso[date] = {
+        dateIso: date,
+        count: 0,
+        segments: { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 }
+      };
+    }
+    const day = byIso[date];
+    day.count = (Number(day.count) || 0) + 1;
+    if (!day.segments) day.segments = {};
+    day.segments["ПАРТНЁР"] = (Number(day.segments["ПАРТНЁР"]) || 0) + 1;
+  }
+  body.days = Object.keys(byIso)
+    .sort()
+    .map(function (k) {
+      return byIso[k];
+    });
+  body.total = body.days.reduce(function (s, d) {
+    return s + (Number(d.count) || 0);
+  }, 0);
+  return body;
+}
+
+async function appendPartnerOrdersForDate_(env, clients, dateIso, day) {
+  const list = Array.isArray(clients) ? clients.slice() : [];
+  const date = String(dateIso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < minkTodayIso_()) return list;
+  let orders = [];
+  try {
+    orders = await openDatedPartnerOrders_(env);
+  } catch (eApp) {
+    return list;
+  }
+  orders.forEach(function (o) {
+    if (partnerOrderDate_(o) !== date) return;
+    if (partnerOrderListed_(list, o)) return;
+    list.push(partnerClientFromOrder_(o, day || ""));
+  });
+  return list;
+}
+
+/** Лёгкий список людей месяца одним SELECT плюс открытые заявки партнёров с датой. */
 async function getCalendarMonthPeople_(params, env) {
   const month = monthKeyFromParam_(params && params.month);
   if (!month) {
@@ -11533,11 +11678,26 @@ async function getCalendarMonthPeople_(params, env) {
     if (!byDate[iso]) byDate[iso] = [];
     byDate[iso].push(clientFromRow_(r));
   });
+  try {
+    const extra = await openDatedPartnerOrders_(env);
+    for (let ei = 0; ei < extra.length; ei++) {
+      const o = extra[ei];
+      const date = partnerOrderDate_(o);
+      if (date.slice(0, 7) !== month) continue;
+      if (!byDate[date]) byDate[date] = [];
+      if (partnerOrderListed_(byDate[date], o)) continue;
+      byDate[date].push(partnerClientFromOrder_(o, ""));
+    }
+  } catch (eExtra) {}
+  let totalPeople = 0;
+  Object.keys(byDate).forEach(function (k) {
+    totalPeople += (byDate[k] || []).length;
+  });
   return {
     status: "success",
     month: month,
     byDate: byDate,
-    total: rows.length,
+    total: totalPeople,
     source: "d1"
   };
 }
