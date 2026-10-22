@@ -5420,6 +5420,30 @@ async function appendRecentPlacedTransfers_(env, list) {
   return list;
 }
 
+/** Заявка с датой — не задача «назначить дату». Открытой её не оставляем. */
+function closeDatedPartnerDeferredItems_(items) {
+  let changed = 0;
+  const next = (items || []).map(function (it) {
+    if (!it) return it;
+    const pl = it.payload && typeof it.payload === "object" ? it.payload : {};
+    const mode = String(it.mode || pl.mode || "").toLowerCase();
+    const isPartner = mode === "partner" || String(pl.orderType || "") === "partner";
+    if (!isPartner) return it;
+    const ost = String(pl.orderStatus || "").toLowerCase();
+    if (ost === "delivered" || ost === "cancelled" || ost === "canceled") return it;
+    const date = String(pl.deliverDateIso || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return it;
+    const st = String(it.status || "open").toLowerCase();
+    if (st !== "open" && pl.needsSlot !== true) return it;
+    changed++;
+    return Object.assign({}, it, {
+      status: st === "open" ? "done" : it.status,
+      payload: Object.assign({}, pl, { needsSlot: false })
+    });
+  });
+  return { items: next, changed: changed };
+}
+
 async function finalizeListDeferredPayload_(env, payload) {
   if (!payload || typeof payload !== "object") return payload;
   // НЕ подменять GAS/merged items целиком snap’ом — иначе saveDeferred «не пишется»,
@@ -5462,6 +5486,11 @@ async function finalizeListDeferredPayload_(env, payload) {
     try {
       payload.items = await filterDeferredCancelTombstones_(env, payload.items);
     } catch (eFT) {}
+    const closed = closeDatedPartnerDeferredItems_(payload.items);
+    if (closed.changed) {
+      payload.items = closed.items;
+      payload.datedPartnerClosed = closed.changed;
+    }
     payload.openCount = payload.items.filter(function (it) {
       return String((it && it.status) || "open").toLowerCase() === "open";
     }).length;
@@ -11533,13 +11562,32 @@ async function openDatedPartnerOrders_(env) {
   });
 }
 
+/** Точка партнёра целиком. «Varka Цвирко» и «Varka Шевченко» — разные люди, не один handle VARKA. */
+function partnerPointKey_(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\bVARKA\b/g, "ВАРКА");
+}
+
+function partnerRowMatchesOrder_(row, order) {
+  if (!row || !order) return false;
+  const id = String(order.id || "");
+  if (id && String(row.note || "").indexOf(id) >= 0) return true;
+  const key = partnerPointKey_(order.locationName || order.userName || "");
+  if (!key) return false;
+  return partnerPointKey_(row.client || row.name || "") === key;
+}
+
 function partnerClientFromOrder_(order, day) {
   const name = String((order && (order.locationName || order.userName)) || "Партнёр").trim() || "Партнёр";
   const basket = Array.isArray(order && order.basket) ? order.basket : [];
   const price = order && order.totalByn != null && order.totalByn !== "" ? order.totalByn : "";
   return {
     name: name,
-    matchKey: normalizeMatchKey_(name),
+    matchKey: partnerPointKey_(name),
     address: String((order && order.address) || "").trim(),
     note: String((order && order.note) || "").trim(),
     phone: "",
@@ -11557,14 +11605,14 @@ function partnerClientFromOrder_(order, day) {
 
 function partnerOrderListed_(list, order) {
   const id = String((order && order.id) || "");
-  const mk = normalizeMatchKey_((order && order.locationName) || "");
+  const key = partnerPointKey_((order && (order.locationName || order.userName)) || "");
   for (let i = 0; i < (list || []).length; i++) {
     const c = list[i];
     if (!c) continue;
     if (id && String(c.partnerOrderId || "") === id) return true;
     if (id && String(c.note || "").indexOf(id) >= 0) return true;
-    const cmk = normalizeMatchKey_(c.matchKey || c.name || "");
-    if (mk && cmk === mk) return true;
+    const ck = partnerPointKey_(c.name || c.client || "");
+    if (key && ck === key) return true;
   }
   return false;
 }
@@ -11572,16 +11620,19 @@ function partnerOrderListed_(list, order) {
 async function partnerOrderAlreadyStored_(env, order) {
   if (!env || !env.DB || !order) return false;
   const date = partnerOrderDate_(order);
-  const name = String(order.locationName || "").trim();
-  const mk = normalizeMatchKey_(name);
-  if (!date || !mk) return false;
+  const key = partnerPointKey_(order.locationName || order.userName || "");
+  if (!date || !key) return false;
   try {
-    const row = await env.DB.prepare(
-      "SELECT id FROM orders WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR client = ?) LIMIT 1"
+    const q = await env.DB.prepare(
+      "SELECT client, note FROM orders WHERE status = 'active' AND date_iso = ? LIMIT 200"
     )
-      .bind(date, mk, name)
-      .first();
-    return !!row;
+      .bind(date)
+      .all();
+    const rows = (q && q.results) || [];
+    for (let i = 0; i < rows.length; i++) {
+      if (partnerRowMatchesOrder_(rows[i], order)) return true;
+    }
+    return false;
   } catch (eHas) {
     return false;
   }
@@ -20845,6 +20896,7 @@ async function handleCutover_(a, params, env, ctx) {
           const afterD1 = await getSnapRaw_(env, "listDeferred");
           if (afterD1 && Array.isArray(afterD1.items) && afterD1.items.length) {
             const finalD1 = await finalizeListDeferredPayload_(env, afterD1);
+            if (finalD1 && finalD1.datedPartnerClosed) delete finalD1.datedPartnerClosed;
             try {
               await putSnap_(env, "listDeferred", finalD1);
             } catch (eFaD1) {}
@@ -20957,6 +21009,12 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         fast = await finalizeListDeferredPayload_(env, fast);
       } catch (eFinDef) {}
+      if (fast && fast.datedPartnerClosed) {
+        delete fast.datedPartnerClosed;
+        try {
+          await putSnap_(env, "listDeferred", fast);
+        } catch (eDatedClose) {}
+      }
     }
     if (a === "listSubscriptions" && isSubsD1PrimaryCanon_(env)) {
       fast.fromD1 = true;
@@ -21697,6 +21755,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
         const prev = await getSnapRaw_(env, "listDeferred");
         if (prev && Array.isArray(prev.items) && prev.items.length) {
           const finalPrev = await finalizeListDeferredPayload_(env, prev);
+          if (finalPrev && finalPrev.datedPartnerClosed) delete finalPrev.datedPartnerClosed;
           await putSnap_(env, "listDeferred", finalPrev);
           return;
         }
@@ -21708,6 +21767,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
     payload = await mergeListDeferredPayload_(env, payload);
     if (!payload) return;
     payload = await finalizeListDeferredPayload_(env, payload);
+    if (payload && payload.datedPartnerClosed) delete payload.datedPartnerClosed;
     await putSnap_(env, "listDeferred", payload);
     return;
   }
@@ -32133,7 +32193,7 @@ async function mutatePartnerD1_(action, params, env) {
     pack.orders[hit] = updated;
     pack._d1TouchedAt = Date.now();
     await putSnap_(env, "partnerOrders", pack);
-    // Дата есть, заявка остаётся открытой: иначе карточка пропадает и кажется, что слот не записался.
+    // Дата есть: карточка остаётся в «Партнёры → Заказы» (будущая дата), но не в задачах «назначить дату».
     try {
       let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
       let items = Array.isArray(list.items) ? list.items.slice() : [];
@@ -32153,7 +32213,7 @@ async function mutatePartnerD1_(action, params, env) {
           String(it.id) === id;
         if (!match) continue;
         items[j] = Object.assign({}, it, {
-          status: "open",
+          status: "done",
           updatedAt: new Date().toISOString(),
           payload: Object.assign({}, pl, {
             deliverDateIso: dateIso,

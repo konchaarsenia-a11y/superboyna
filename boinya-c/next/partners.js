@@ -613,7 +613,7 @@
     } catch (e) { deferred = []; }
     if (tab === "orders") paintBody();
     if (access && !prompted && (access.role === "owner" || access.role === "manager" || access.role === "all")) {
-      var pending = L().partnerHubOrders_(deferred);
+      var pending = L().partnerHubOrders_(deferred).filter(L().partnerOrderNeedsDate_);
       if (pending.length) {
         prompted = true;
         var pl = (pending[0] && pending[0].payload) || {};

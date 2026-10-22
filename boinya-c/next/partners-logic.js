@@ -95,6 +95,39 @@
     });
   }
 
+  function partnerPayload_(it) {
+    var pl = it && it.payload;
+    if (typeof pl === "string") {
+      try { pl = JSON.parse(pl); } catch (ePl) { pl = null; }
+    }
+    return pl && typeof pl === "object" ? pl : {};
+  }
+
+  function partnerItem_(it) {
+    var pl = partnerPayload_(it);
+    var mode = String((it && it.mode) || pl.mode || "").toLowerCase();
+    return mode === "partner" || String(pl.orderType || "") === "partner";
+  }
+
+  function partnerOrderNeedsDate_(it) {
+    if (!partnerItem_(it)) return false;
+    var pl = partnerPayload_(it);
+    var st = String(pl.orderStatus || "new").toLowerCase();
+    if (st === "delivered" || st === "cancelled" || st === "canceled") return false;
+    var rowSt = String((it && it.status) || "").toLowerCase();
+    if (rowSt === "cancelled") return false;
+    return !/^\d{4}-\d{2}-\d{2}$/.test(String(pl.deliverDateIso || "").trim());
+  }
+
+  function partnerTaskOpen_(it) {
+    if (!it) return false;
+    if (partnerItem_(it) && !partnerOrderNeedsDate_(it)) {
+      var pl = partnerPayload_(it);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(pl.deliverDateIso || "").trim())) return false;
+    }
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }
+
   function partnerOrderDayName_(iso) {
     try {
       var p = String(iso || "").split("-");
@@ -113,6 +146,8 @@
     partnerAccessOpen_: partnerAccessOpen_,
     partnerMinskToday_: partnerMinskToday_,
     partnerHubOrders_: partnerHubOrders_,
+    partnerOrderNeedsDate_: partnerOrderNeedsDate_,
+    partnerTaskOpen_: partnerTaskOpen_,
     partnerOrderDayName_: partnerOrderDayName_
   };
 });
