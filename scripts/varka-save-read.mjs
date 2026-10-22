@@ -116,6 +116,19 @@ async function queryLogs(account, token, filters, label) {
   };
 }
 
+function accountFromWhoami() {
+  try {
+    const raw = execFileSync("npx", ["--yes", "wrangler@4", "whoami"], {
+      encoding: "utf8",
+      env: process.env
+    });
+    const m = raw.match(/[0-9a-f]{32}/i);
+    return m ? m[0] : "";
+  } catch (e) {
+    return "";
+  }
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const snaps = sh(
@@ -148,8 +161,22 @@ async function main() {
       return { id: r.id, name: r.name, address: r.address, active: r.active };
     }) : []
   };
-  const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  fs.writeFileSync(path.join(OUT, "d1.json"), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify({
+    snaps: report.snaps,
+    listPartnersAt: report.listPartnersAt,
+    partnerCount: report.partnerCount,
+    partnerHits: report.partnerHits,
+    partnerAll: report.partnerAll,
+    adminAt: report.adminAt,
+    pointHits: report.pointHits,
+    networkHits: report.networkHits,
+    varkaPoints: report.varkaPoints
+  }, null, 2));
+  let account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
+  if (!account && token) account = accountFromWhoami();
+  report.accountFound = !!account;
   if (account && token) {
     report.logs = [];
     const jobs = [
@@ -171,6 +198,7 @@ async function main() {
     report.logs = "no-token";
   }
   fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 2));
+  const logList = Array.isArray(report.logs) ? report.logs : [];
   const pub = {
     snaps: snaps,
     listPartnersAt: report.listPartnersAt,
@@ -181,7 +209,9 @@ async function main() {
     pointHits: report.pointHits,
     networkHits: report.networkHits,
     varkaPoints: report.varkaPoints,
-    logs: (report.logs || []).map(function (l) {
+    accountFound: report.accountFound,
+    logsNote: Array.isArray(report.logs) ? "" : report.logs,
+    logs: logList.map(function (l) {
       return { label: l.label, http: l.http, ok: l.ok, count: l.count, error: l.error, keys: l.keys, events: l.events };
     })
   };
