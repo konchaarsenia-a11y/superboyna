@@ -166,6 +166,9 @@ async function main() {
       return { id: r.id, name: r.name, address: r.address, active: r.active };
     }) : []
   };
+  report.touched = sh(
+    "SELECT cache_key, updated_at, length(payload) AS n FROM snap_cache WHERE updated_at >= '2026-10-22T14:20:00.000Z' AND updated_at <= '2026-10-22T15:10:00.000Z' ORDER BY updated_at"
+  );
   const ordersSnap = sh("SELECT payload, updated_at FROM snap_cache WHERE cache_key = 'partnerOrders'");
   const defSnap = sh("SELECT payload, updated_at FROM snap_cache WHERE cache_key = 'listDeferred'");
   function parseOne(rows) {
@@ -187,7 +190,11 @@ async function main() {
       locationName: o && (o.locationName || o.name),
       user: o && (o.userName || o.username || o.telegramId),
       total: o && o.totalByn,
-      note: String((o && o.note) || "").slice(0, 80)
+      note: String((o && o.note) || "").slice(0, 80),
+      slotAt: o && o.slotAt,
+      statusAt: o && o.statusAt,
+      deliverDateIso: o && o.deliverDateIso,
+      needsSlot: o && o.needsSlot
     };
   });
   report.shevOrders = poList.filter(function (o) {
@@ -204,6 +211,21 @@ async function main() {
   });
   const defItems = (df && df.payload && df.payload.items) || [];
   report.deferredAt = df && df.at;
+  report.deferredNow = defItems.filter(function (it) {
+    return String((it && it.updatedAt) || "") >= "2026-10-22T14:20";
+  }).slice(0, 30).map(function (it) {
+    const pl = (it && it.payload) || {};
+    return {
+      id: it.id,
+      updatedAt: it.updatedAt,
+      status: it.status,
+      title: it.title,
+      location: pl.locationName,
+      orderStatus: pl.orderStatus,
+      deliverDateIso: pl.deliverDateIso,
+      partnerOrderId: pl.partnerOrderId
+    };
+  });
   report.recentDeferred = defItems.filter(function (it) {
     const blob = JSON.stringify(it || {});
     const at = String((it && (it.updatedAt || it.at)) || "");
@@ -212,7 +234,8 @@ async function main() {
     const pl = (it && it.payload) || {};
     return {
       id: it.id,
-      at: it.at || it.updatedAt,
+      at: it.at,
+      updatedAt: it.updatedAt,
       status: it.status,
       mode: it.mode,
       title: it.title,
@@ -237,7 +260,9 @@ async function main() {
     recentOrders: report.recentOrders,
     shevOrders: report.shevOrders,
     deferredAt: report.deferredAt,
-    recentDeferred: report.recentDeferred
+    deferredNow: report.deferredNow,
+    recentDeferred: report.recentDeferred,
+    touched: report.touched
   }, null, 2));
   let account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
@@ -296,7 +321,9 @@ async function main() {
     recentOrders: report.recentOrders,
     shevOrders: report.shevOrders,
     deferredAt: report.deferredAt,
+    deferredNow: report.deferredNow,
     recentDeferred: report.recentDeferred,
+    touched: report.touched,
     accountFound: report.accountFound,
     logsNote: Array.isArray(report.logs) ? "" : report.logs,
     logs: logList.map(function (l) {
