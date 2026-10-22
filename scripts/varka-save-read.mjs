@@ -50,18 +50,21 @@ function namesFrom(payload, kind) {
   return out;
 }
 
-async function queryLogs(account, token, filters, label) {
+async function queryLogs(account, token, filters, label, opts) {
+  opts = opts || {};
   const body = {
     queryId: "varka-save-" + label,
-    view: "events",
-    limit: 80,
+    view: opts.view || "events",
+    limit: opts.limit || 20,
     dry: true,
-    timeframe: { from: FROM, to: TO },
+    timeframe: { from: opts.from || FROM, to: opts.to || TO },
     parameters: {
       filterCombination: "and",
-      filters: [
+      filters: (opts.noService ? [] : [
         { key: "$metadata.service", operation: "eq", type: "string", value: "boinya-c" }
-      ].concat(filters)
+      ]).concat(filters),
+      calculations: opts.calculations || [],
+      groupBys: opts.groupBys || []
     }
   };
   const res = await fetch(
@@ -111,6 +114,8 @@ async function queryLogs(account, token, filters, label) {
     ok: json.success !== false && res.ok,
     error: json.errors || json.messages || null,
     count: Array.isArray(events) ? events.length : 0,
+    statistics: (json.result && json.result.statistics) || null,
+    calculations: (json.result && (json.result.calculations || json.result.aggregates)) || null,
     keys: json.result ? Object.keys(json.result) : Object.keys(json || {}),
     events: brief
   };
@@ -161,6 +166,61 @@ async function main() {
       return { id: r.id, name: r.name, address: r.address, active: r.active };
     }) : []
   };
+  const ordersSnap = sh("SELECT payload, updated_at FROM snap_cache WHERE cache_key = 'partnerOrders'");
+  const defSnap = sh("SELECT payload, updated_at FROM snap_cache WHERE cache_key = 'listDeferred'");
+  function parseOne(rows) {
+    if (!rows[0]) return null;
+    try { return { at: rows[0].updated_at, payload: JSON.parse(rows[0].payload || "{}") }; }
+    catch (e) { return { at: rows[0].updated_at, payload: {} }; }
+  }
+  const po = parseOne(ordersSnap);
+  const df = parseOne(defSnap);
+  const poList = (po && po.payload && (po.payload.orders || po.payload.items)) || [];
+  report.partnerOrdersAt = po && po.at;
+  report.partnerOrdersN = poList.length;
+  report.recentOrders = poList.slice(0, 25).map(function (o) {
+    return {
+      id: o && o.id,
+      createdAt: o && (o.createdAt || o.at),
+      status: o && o.status,
+      locationId: o && (o.locationId || o.pointId),
+      locationName: o && (o.locationName || o.name),
+      user: o && (o.userName || o.username || o.telegramId),
+      total: o && o.totalByn,
+      note: String((o && o.note) || "").slice(0, 80)
+    };
+  });
+  report.shevOrders = poList.filter(function (o) {
+    return hit(JSON.stringify(o || {}).slice(0, 2000));
+  }).slice(0, 20).map(function (o) {
+    return {
+      id: o.id,
+      createdAt: o.createdAt || o.at,
+      status: o.status,
+      locationName: o.locationName,
+      locationId: o.locationId,
+      user: o.userName || o.username
+    };
+  });
+  const defItems = (df && df.payload && df.payload.items) || [];
+  report.deferredAt = df && df.at;
+  report.recentDeferred = defItems.filter(function (it) {
+    const blob = JSON.stringify(it || {});
+    const at = String((it && (it.updatedAt || it.at)) || "");
+    return hit(blob) || at >= "2026-10-22T14:00";
+  }).slice(0, 20).map(function (it) {
+    const pl = (it && it.payload) || {};
+    return {
+      id: it.id,
+      at: it.at || it.updatedAt,
+      status: it.status,
+      mode: it.mode,
+      title: it.title,
+      location: pl.locationName || pl.locationId,
+      orderStatus: pl.orderStatus,
+      partnerOrderId: pl.partnerOrderId
+    };
+  });
   fs.writeFileSync(path.join(OUT, "d1.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({
     snaps: report.snaps,
@@ -171,7 +231,13 @@ async function main() {
     adminAt: report.adminAt,
     pointHits: report.pointHits,
     networkHits: report.networkHits,
-    varkaPoints: report.varkaPoints
+    varkaPoints: report.varkaPoints,
+    partnerOrdersAt: report.partnerOrdersAt,
+    partnerOrdersN: report.partnerOrdersN,
+    recentOrders: report.recentOrders,
+    shevOrders: report.shevOrders,
+    deferredAt: report.deferredAt,
+    recentDeferred: report.recentDeferred
   }, null, 2));
   let account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
@@ -194,6 +260,22 @@ async function main() {
         report.logs.push({ label: job[0], error: String(e && e.message || e) });
       }
     }
+    try {
+      report.logs.push(await queryLogs(account, token, [], "sample", { noService: true, limit: 3 }));
+    } catch (eS) {
+      report.logs.push({ label: "sample", error: String(eS && eS.message || eS) });
+    }
+    try {
+      report.logs.push(await queryLogs(account, token, [], "by-service", {
+        noService: true,
+        view: "calculations",
+        limit: 20,
+        calculations: [{ key: "$metadata.service", operator: "count" }],
+        groupBys: [{ key: "$metadata.service", type: "string" }]
+      }));
+    } catch (eG) {
+      report.logs.push({ label: "by-service", error: String(eG && eG.message || eG) });
+    }
   } else {
     report.logs = "no-token";
   }
@@ -209,10 +291,16 @@ async function main() {
     pointHits: report.pointHits,
     networkHits: report.networkHits,
     varkaPoints: report.varkaPoints,
+    partnerOrdersAt: report.partnerOrdersAt,
+    partnerOrdersN: report.partnerOrdersN,
+    recentOrders: report.recentOrders,
+    shevOrders: report.shevOrders,
+    deferredAt: report.deferredAt,
+    recentDeferred: report.recentDeferred,
     accountFound: report.accountFound,
     logsNote: Array.isArray(report.logs) ? "" : report.logs,
     logs: logList.map(function (l) {
-      return { label: l.label, http: l.http, ok: l.ok, count: l.count, error: l.error, keys: l.keys, events: l.events };
+      return { label: l.label, http: l.http, ok: l.ok, count: l.count, error: l.error, keys: l.keys, statistics: l.statistics, calculations: l.calculations, events: l.events };
     })
   };
   console.log(JSON.stringify(pub, null, 2));
