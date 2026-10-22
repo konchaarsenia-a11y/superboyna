@@ -267,8 +267,43 @@ async function main() {
   let account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
   if (!account && token) account = accountFromWhoami();
+  report.writes = sh(
+    "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN ('peopleWrite:pw_mvjn9gbj_wh54qt','peopleWrite:pw_mvjnb2tr_302ywt','deleteTombstones','viewDate:2026-10-27')"
+  ).map(function (row) {
+    let payload = {};
+    try { payload = JSON.parse(row.payload || "{}"); } catch (e) { payload = { raw: String(row.payload || "").slice(0, 500) }; }
+    const bits = [];
+    function walk(obj, depth) {
+      if (!obj || depth > 5 || bits.length > 40) return;
+      if (typeof obj === "string") {
+        if (/шевчен|цвирко|варка|varka|error|tomb/i.test(obj)) bits.push(obj.slice(0, 140));
+        return;
+      }
+      if (typeof obj !== "object") return;
+      const list = Array.isArray(obj) ? obj.slice(0, 20) : obj;
+      const keys = Array.isArray(list) ? list : Object.keys(list).slice(0, 30);
+      if (Array.isArray(list)) {
+        list.forEach(function (x) { walk(x, depth + 1); });
+        return;
+      }
+      keys.forEach(function (k) {
+        const v = list[k];
+        if (v == null || typeof v === "object") {
+          walk(v, depth + 1);
+          return;
+        }
+        if (/client|nick|name|action|status|message|day|date|error|segment|sheet|source|match/i.test(k)) {
+          bits.push(k + "=" + String(v).slice(0, 100));
+        }
+      });
+    }
+    walk(payload, 0);
+    return { key: row.cache_key, bits: bits.slice(0, 40) };
+  });
   report.accountFound = !!account;
-  if (account && token) {
+  if (process.env.SKIP_LOGS === "1") {
+    report.logs = "skipped";
+  } else if (account && token) {
     report.logs = [];
     const jobs = [
       ["shev", [{ key: "$metadata.message", operation: "includes", type: "string", value: "Шевченко" }]],
@@ -324,6 +359,7 @@ async function main() {
     deferredNow: report.deferredNow,
     recentDeferred: report.recentDeferred,
     touched: report.touched,
+    writes: report.writes,
     accountFound: report.accountFound,
     logsNote: Array.isArray(report.logs) ? "" : report.logs,
     logs: logList.map(function (l) {
