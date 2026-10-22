@@ -51,7 +51,7 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 Каталог партнёров (сети, точки, доступы, согласие) читается и пишется только в D1, снимок `partnerListAdmin`: `partnerListAdmin`, `partnerGetMe`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerDeletePoint`, `partnerSaveAccess`, `partnerAcceptAccess`, `partnerRevokeAccess`, `partnerSetNotifyRecipients`, `partnerSetPointConsent`, `partnerMigrateVarkaConsent`. Пустой или битый снап не пересобирается из листа: ответ `partner_admin_snap_missing`, D1 не затирается. `partnerSeedDefaults` каталог из листа больше не подтягивает.
 
-Заявки и подсказки по-прежнему могут ходить в GAS: `partnerCalcPrice`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSetOrderStatus`, `partnerSetOrderSlot`, `partnerVarkaBroadcast` (отправка), `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`, `partnerAccessRequestCreate`, `partnerAccessRequestList`, `partnerAccessRequestResolve`, `partnerAccessRequestUpsert`.
+Заявки, слоты, статусы, рассылка, подсказки и заявки «Подключить точку» тоже только в D1: `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSetOrderStatus`, `partnerSetOrderSlot`, `partnerVarkaBroadcast`, `partnerSuggestPartner`, `partnerListSuggestions`, `partnerSetSuggestionStatus`, `partnerAccessRequestCreate`, `partnerAccessRequestList`, `partnerAccessRequestResolve`. Цена `partnerCalcPrice` считается в Worker по снимку прайса. Лист эти действия не пишут.
 
 **Цена лакомства:** `vr_t_heart` → `СЕРДЦЕ / Ломтики`, `vr_t_lung` → `ЛЁГКОЕ / Ломтики`. Вкладка «Для аллергиков»: `vr_t_lamb_lung` → `БАРАНЬЕ ЛЁГКОЕ / Целое` (сырьё 8.40 за 100 г), `vr_t_turkey` → `ИНДЕЙКА / Ломтики` (сырьё 7.50 за 100 г). Если в снимке `priceCostsPp` этих ключей нет, Worker берёт `RAW_COST_BUILTIN_`, GAS — `PP_RAW_COST_OVERRIDE_BYN_`. Режим `pp`, `fullFact=1`, `scheme=RAW26`, `deliveriesN=1`, `coef = PARTNER_VARKA_COEF` (**2.2**). Константа подписки `PP_RAW26_COEF_DEFAULT_` / `PP_RAW26_COEF_DEFAULT_D1_` остаётся **2.6**, доставка подписки **7.60**. В заявке Varka доставка заменяется на `PARTNER_VARKA_DELIVERY_BYN = 4` (за заказ, не ×N). Потолок 0.92×R не меняется: база — розница товара плюс розничная доставка 9, если товар на доставку ниже 80. Recover 3.30 за 100 г и 0.80 за жевалку берутся из канона 09.10. GAS передаёт 2.2 четвёртым аргументом в `computePpFactFromCost_`, затем `partnerApplyVarkaDelivery_`. Worker так же через `calcPricePpD1_`. Тот же вызов у `partnerCalcPrice` и у повторного пересчёта в `partnerSubmitOrder`. Пакеты `{u1,u2,u3,up4}=0`. Фракция «Ломтики» и «Целое» — ставка 0. Сумма заявки = цена клиенту до рубля (`clientDisplayPrice`). Колонка `totalByn` — последняя в `Partner_Orders`.
 
@@ -129,10 +129,11 @@ TELEGRAM_ID=827494606 bash scripts/grant-arseniy-rokoss80-staff.sh
 
 ```
 Партнёр жмёт Отправить
-  → лист Partner_Orders + Отложенное (режим partner)
+  → D1 partnerOrders + listDeferred (режим partner)
   → пуш команде в бота Бойни (Партнёры→Пуши, иначе owners)
-  → пуш партнёру в @GOODBOY_LG: день и время слота (завтра, вс→пн, 19:00–22:00)
-Отложенные → Заказы
+  → пуш партнёру в @GOODBOY_LG
+Бойня Партнёры → Заказы читает listDeferred
+  → слот пишет дату в D1 и закрывает карточку отложенного
   → «В пути» → партнёру «курьер уже в пути»
   → «Доставлено» → партнёру «доставлено», заявка в историю, карточка закрывается
 ```
@@ -182,7 +183,7 @@ Worker в `wrangler.toml`: имя `boinya-c`. Секреты утреннего 
 | `GOODBOY_WEBHOOK_SECRET` | `secret_token` вебхука `/telegram/goodboy` |
 | `PARTNER_BOT_TOKEN` | отправка и ответ кнопок ботом @GOODBOY_LG (`GOODBOY_BOT_TOKEN` — запасное имя) |
 
-Зеркало в GAS идёт тем же доверенным путём Worker→GAS (`GAS_SHARED_SECRET` = Script Property `WORKER_SHARED_SECRET`): в запрос ставится канон-owner. `live` без `confirm=SEND_VARKA` не отправляется.
+Рассылка уходит ботом Worker. Лист и GAS сообщение не дублируют. `live` без `confirm=SEND_VARKA` не отправляется.
 
 Утренний запуск без initData. `KEY` — значение `VARKA_ADMIN_KEY`. Порядок: migrate, потом dry, потом live.
 
@@ -255,7 +256,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [~] **Каталог партнёров только D1 2026-10-22:** сети, точки, доступы и `paidConsent` читаются и пишутся в D1. Пересборка `partnerListAdmin` из Sheets/GAS убрана, в том числе при пустом снапе (ошибка `partner_admin_snap_missing`, без записи поверх). `partnerMigrateVarkaConsent` не пишет `pending`. Согласие с кнопок и из Бойни — снимок `partnerBroadcastReplies`. `telegramSendTextWorker_` и `telegramSendPartnerBot_` пишут в лог `ok` / `error_code` / `description`. Заявки, слот, статус и зеркало заявок на подключение по-прежнему могут ходить в GAS. **Worker не задеплоен**
+- [~] **Заявки партнёров только D1 2026-10-22:** `partnerOrders`, слот, статус, `listDeferred`, рассылка, `partnerSuggestions` и `partnerAccessRequests` без записи в Sheets. Новая заявка добавляется к уже лежащим в D1, не заменяет снимок. Пуш команде и партнёру остаётся в Worker. Живой ping: `edgeSheets=d1-no-sheets`, каталог заявок уже с D1. **Worker не задеплоен**
+- [~] **Каталог партнёров только D1 2026-10-22:** сети, точки, доступы и `paidConsent` читаются и пишутся в D1. Пересборка `partnerListAdmin` из Sheets/GAS убрана, в том числе при пустом снапе (ошибка `partner_admin_snap_missing`, без записи поверх). `partnerMigrateVarkaConsent` не пишет `pending`. Согласие с кнопок и из Бойни — снимок `partnerBroadcastReplies`. `telegramSendTextWorker_` и `telegramSendPartnerBot_` пишут в лог `ok` / `error_code` / `description`. Заявки, слот, статус и заявки на подключение тоже уведены в D1 пунктом выше. **Worker не задеплоен**
 - [~] **Лакомства платные (RAW26, разовый заказ):** сердце/лёгкое = ПП `СЕРДЦЕ`/`ЛЁГКОЕ`, sub «Ломтики», пакеты и фракции 0, `deliveriesN=1`, наценка `PARTNER_VARKA_COEF = 2.2`, доставка Varka `PARTNER_VARKA_DELIVERY_BYN = 4` (подписка остаётся 2.6 и 7.60, потолок 0.92×R как в каноне). Минимум сердца и лёгкого 100 г; аллергики, NFC, баннер и купон без них можно. NFC / купон / баннер = 0 BYN. Верхний лимит 200 г снят. Сумма `totalByn` в листе и D1. Пустой `paidConsent` = заказ открыт; явный `pending` и `declined` заказ закрывают. Миграция сама `pending` не пишет. Рассылка хозяевам не запускалась. Pages varka `3.3.68`, **не задеплоено** (Pages, Worker, Code.gs)
 - [~] **Для аллергиков:** вкладка в мини-аппе. `vr_t_lamb_lung` «Баранье лёгкое» → `БАРАНЬЕ ЛЁГКОЕ|Целое`, сырьё 8.40. `vr_t_turkey` «Индейка» → `ИНДЕЙКА|Ломтики`, сырьё 7.50. В минимум граммов не входят. Короткая цена товара 15 BYN/100 г; заявка на 100 г одной позиции — 23 BYN (лакомства 19, доставка 4). Подсказка «Чем больше заказ, тем выгоднее». Pages varka `3.3.68`, **не задеплоено**
 - [~] **Лимит 200 г снят:** `MAX_ORDER_GRAMS` и отказ `max_order_grams` убраны из UI, Worker и `partnerSubmitOrder`. Пресеты строки 50/100/150/200 г остаются. Старые заявки не переписываем.

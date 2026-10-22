@@ -19560,31 +19560,15 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eW) {
         d1W = { status: "error", message: String((eW && eW.message) || eW) };
       }
-      if (!sheetsEdgeOff_(env)) {
-        if (ctx && typeof ctx.waitUntil === "function") {
-          ctx.waitUntil(
-            gasProxy_(a, params, env, { write: true }).catch(function () {
-              return null;
-            })
-          );
-        } else {
-          try {
-            await gasProxy_(a, params, env, { write: true });
-          } catch (eGasW) {}
-        }
-      }
-      return Object.assign(
-        {
-          status: (d1W && d1W.status) || "error",
-          action: a,
-          cutover: true,
-          fromD1: true,
-          pendingSheets: !sheetsEdgeOff_(env),
-          sheetsReadonly: sheetsEdgeOff_(env),
-          partnerCanon: partnerCanonLabel_(env)
-        },
-        d1W || {}
-      );
+      return Object.assign({}, d1W || { status: "error", message: "partner_write_failed" }, {
+        action: a,
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        pendingSheets: false,
+        sheetsReadonly: true,
+        partnerCanon: partnerCanonLabel_(env)
+      });
     }
     if (/^partnerBroadcastCallback$/i.test(a)) {
       return { status: "error", message: "webhook_only", action: a };
@@ -19611,12 +19595,9 @@ async function handleCutover_(a, params, env, ctx) {
         action: a
       });
     }
-    // Заявки партнёра — D1, зеркало GAS нужно отложенным Бойни. Каталог точек туда не возвращается.
+    // Заявки, слот, статус и рассылка — только D1. Отложенные Бойни читают listDeferred.
     if (
-      isPartnerD1PrimaryCanon_(env) &&
-      /^(partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot|partnerVarkaBroadcast)$/i.test(
-        a
-      )
+      /^(partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot|partnerVarkaBroadcast)$/i.test(a)
     ) {
       let d1P = null;
       try {
@@ -19624,149 +19605,35 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eP) {
         d1P = { status: "error", message: String((eP && eP.message) || eP) };
       }
-      // Worker шлёт TG сразу; GAS зеркало без повторных пушей + тот же order id (без дубля в Заказах)
-      if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
-        params = Object.assign({}, params, {
-          skipPartnerNotify: "1",
-          clientOrderId: d1P.order.id,
-          id: d1P.order.id,
-          deferredId: d1P.deferredId || d1P.order.deferredId || ""
-        });
-      }
-      if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success") {
-        params = Object.assign({}, params, { skipPartnerNotify: "1" });
-      }
-      if (/^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success") {
-        params = Object.assign({}, params, { skipPartnerNotify: "1" });
-      }
-      if (/^partnerVarkaBroadcast$/i.test(a)) {
-        params = Object.assign({}, params, { skipSend: "1" });
-      }
       const quietPartner =
         String((params && params.skipPartnerNotify) || "") === "1" ||
         /ТЕСТ/i.test(String((params && (params.note || params.userName)) || ""));
-      const gasP = sheetsEdgeOff_(env)
-        ? Promise.resolve(null)
-        : gasProxy_(a, params, env, { write: true }).catch(function () {
-            return null;
-          });
-      if (
-        !quietPartner &&
-        /^partnerSubmitOrder$/i.test(a) &&
-        d1P &&
-        d1P.status === "success" &&
-        d1P.order &&
-        ctx &&
-        typeof ctx.waitUntil === "function"
-      ) {
-        ctx.waitUntil(partnerNotifyOrderFastWorker_(d1P.order, env));
-      }
-      if (
-        !quietPartner &&
-        /^partnerSetOrderSlot$/i.test(a) &&
-        d1P &&
-        d1P.status === "success" &&
-        d1P.order &&
-        ctx &&
-        typeof ctx.waitUntil === "function"
-      ) {
-        ctx.waitUntil(partnerNotifySlotFastWorker_(d1P.order, env));
-      }
-      if (
-        !quietPartner &&
-        /^partnerSetOrderStatus$/i.test(a) &&
-        d1P &&
-        d1P.status === "success" &&
-        d1P.order &&
-        ctx &&
-        typeof ctx.waitUntil === "function"
-      ) {
-        const stN = String(d1P.orderStatus || d1P.order.status || "").trim().toLowerCase();
-        if (stN === "in_transit" || stN === "delivered") {
-          ctx.waitUntil(partnerNotifyStatusFastWorker_(d1P.order, env, stN));
-        }
-      }
-      if (!sheetsEdgeOff_(env) && ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(
-          gasP.then(async function (live) {
-            try {
-              if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
-            } catch (eR) {}
-            return live;
-          })
-        );
-      } else if (!sheetsEdgeOff_(env) || !quietPartner) {
-        try {
-          if (!quietPartner && /^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
-            await partnerNotifyOrderFastWorker_(d1P.order, env);
+      const notifyPartner_ = async function () {
+        if (quietPartner || !d1P || d1P.status !== "success" || !d1P.order) return;
+        if (/^partnerSubmitOrder$/i.test(a)) await partnerNotifyOrderFastWorker_(d1P.order, env);
+        else if (/^partnerSetOrderSlot$/i.test(a)) await partnerNotifySlotFastWorker_(d1P.order, env);
+        else if (/^partnerSetOrderStatus$/i.test(a)) {
+          const stN = String(d1P.orderStatus || (d1P.order && d1P.order.status) || "").trim().toLowerCase();
+          if (stN === "in_transit" || stN === "delivered") {
+            await partnerNotifyStatusFastWorker_(d1P.order, env, stN);
           }
-          if (!quietPartner && /^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
-            await partnerNotifySlotFastWorker_(d1P.order, env);
-          }
-          if (!quietPartner && /^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
-            const stN2 = String(d1P.orderStatus || d1P.order.status || "").trim().toLowerCase();
-            if (stN2 === "in_transit" || stN2 === "delivered") {
-              await partnerNotifyStatusFastWorker_(d1P.order, env, stN2);
-            }
-          }
-          const live = await gasP;
-          if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
-        } catch (eG) {}
-      }
-      if (d1P && d1P.status === "success") {
-        return Object.assign({}, d1P, {
-          cutover: true,
-          sandbox: false,
-          d1Verified: true,
-          optimistic: false,
-          partnerCanon: partnerCanonLabel_(env),
-          action: a
-        });
-      }
-      // owner/staff validation — не ждать GAS (иначе UI «выдано», список D1 пустой)
-      if (
-        d1P &&
-        d1P.status === "error" &&
-        /^(staff_cannot_grant|owner_only|need_user|need_points|need_name|need_name_network|need_id)$/i.test(
-          String(d1P.message || "")
-        )
-      ) {
-        return Object.assign({}, d1P, {
-          cutover: true,
-          fromD1: true,
-          partnerCanon: partnerCanonLabel_(env),
-          action: a
-        });
-      }
-      if (sheetsEdgeOff_(env)) {
-        return Object.assign({}, d1P || { status: "error", message: "partner_write_failed" }, {
-          sheetsReadonly: true,
-          fromGas: false,
-          action: a
-        });
-      }
-      // cold / validation miss — дождаться уже запущенного GAS (без второго вызова)
-      try {
-        const liveOnly = await gasP;
-        if (liveOnly && liveOnly.status === "success" && env && env.DB) {
-          try {
-            await refreshPartnerSnapsFromGas_(a, params, env, liveOnly);
-          } catch (eS) {}
         }
-        if (liveOnly && typeof liveOnly === "object") {
-          liveOnly.cutover = true;
-          liveOnly.fromGas = true;
-          liveOnly.partnerCanon = partnerCanonLabel_(env);
-        }
-        return liveOnly || { status: "error", message: (d1P && d1P.message) || "partner_write_failed", cutover: true };
-      } catch (eFall) {
-        return {
-          status: "error",
-          message: (d1P && d1P.message) || String((eFall && eFall.message) || eFall),
-          cutover: true,
-          action: a
-        };
+      };
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(notifyPartner_());
+      else {
+        try { await notifyPartner_(); } catch (eN) {}
       }
+      return Object.assign({}, d1P || { status: "error", message: "partner_write_failed" }, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        pendingSheets: false,
+        sheetsReadonly: true,
+        sandbox: false,
+        optimistic: false,
+        partnerCanon: partnerCanonLabel_(env),
+        action: a
+      });
     }
     // Goodboy GB_* — D1/snap правда → GAS зеркало (CRM read-only)
     if (
@@ -20384,9 +20251,8 @@ async function handleCutover_(a, params, env, ctx) {
     if (a === "partnerListAdmin") {
       return partnerListAdminD1_(params, env, ctx);
     }
-    if (isPartnerD1PrimaryCanon_(env) && a === "partnerListMyOrders") {
-      const ordFast = await partnerListMyOrdersD1_(params, env, ctx);
-      if (ordFast) return ordFast;
+    if (a === "partnerListMyOrders") {
+      return partnerListMyOrdersD1_(params, env, ctx);
     }
     if (/^partnerCalcPrice$/i.test(a)) {
       let basketQ = params && (params.basket || params.basketJson);
@@ -29981,22 +29847,11 @@ async function partnerAccessRequestSave_(env, rows) {
 }
 
 function partnerAccessRequestMirror_(env, ctx, row) {
-  const job = gasProxy_("partnerAccessRequestUpsert", {
-    id: row.id,
-    createdAt: row.createdAt || "",
-    telegramId: row.telegramId || "",
-    username: row.username || "",
-    name: row.name || "",
-    phone: row.phone || "",
-    venueName: row.venueName || "",
-    address: row.address || "",
-    status: row.status || "new",
-    resolvedAt: row.resolvedAt || "",
-    resolvedBy: row.resolvedBy || "",
-    networkId: row.networkId || "",
-    pointId: row.pointId || ""
-  }, env, { write: true }).catch(function () { return null; });
-  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(job);
+  console.log("partnerAccessRequest sheets mirror blocked", JSON.stringify({
+    ok: false,
+    error_code: "sheets_write_disabled",
+    description: String((row && row.id) || "")
+  }));
 }
 
 async function partnerAccessRequestNotify_(env, row) {
@@ -30511,42 +30366,34 @@ async function partnerSuggestionsUpsertSnap_(env, row) {
 async function partnerSuggestPartnerWorker_(params, env) {
   var norm = partnerSuggestNormalize_(params || {});
   if (!norm.ok) {
-    return { status: "error", message: norm.message, cutover: true, action: "partnerSuggestPartner" };
+    return { status: "error", message: norm.message, cutover: true, fromD1: true, fromGas: false, action: "partnerSuggestPartner" };
   }
-  var canTg = hasTelegramToken_(env);
-  var gasParams = Object.assign({}, params || {}, {
-    id: norm.row.id,
-    clientSuggestionId: norm.row.id,
-    type: norm.row.type,
-    name: norm.row.name,
-    cityAddress: norm.row.cityAddress,
-    contact: norm.row.contact,
-    comment: norm.row.comment,
-    skipPartnerNotify: canTg ? "1" : ""
-  });
-  var live = null;
+  if (!env || !env.DB) {
+    return { status: "error", message: "partner_suggestions_unavailable", fromD1: true, fromGas: false, action: "partnerSuggestPartner" };
+  }
   try {
-    live = await gasProxy_("partnerSuggestPartner", gasParams, env, { write: true });
-  } catch (eG) {
-    live = null;
+    await partnerSuggestionsUpsertSnap_(env, norm.row);
+  } catch (eU) {
+    console.log("partnerSuggestions", JSON.stringify({
+      ok: false,
+      error_code: "write_failed",
+      description: String((eU && eU.message) || eU)
+    }));
+    return { status: "error", message: "partner_suggestions_write_failed", fromD1: true, fromGas: false, action: "partnerSuggestPartner" };
   }
-  if (live && live.status === "success") {
-    var saved = live.suggestion || norm.row;
-    if (canTg) {
-      try { await partnerNotifySuggestionWorker_(saved, env); } catch (eT) {}
-    }
-    try { await partnerSuggestionsUpsertSnap_(env, saved); } catch (eU) {}
-    live.cutover = true;
-    live.fromGas = true;
-    live.sheet = live.sheet || "Предложения_партнёров";
-    return live;
+  if (hasTelegramToken_(env)) {
+    try { await partnerNotifySuggestionWorker_(norm.row, env); } catch (eT) {}
   }
-  if (live && typeof live === "object") {
-    live.cutover = true;
-    live.fromGas = true;
-    return live;
-  }
-  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerSuggestPartner" };
+  return {
+    status: "success",
+    suggestion: norm.row,
+    id: norm.row.id,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    d1Verified: true,
+    action: "partnerSuggestPartner"
+  };
 }
 
 async function partnerSuggestCanManageWorker_(params, env) {
@@ -30562,97 +30409,74 @@ async function partnerSuggestCanManageWorker_(params, env) {
   return false;
 }
 
-async function partnerSuggestionsRefreshFromGas_(params, env) {
-  var live = null;
-  try {
-    live = await gasProxy_("partnerListSuggestions", params || {}, env, { write: false });
-  } catch (eG) {
-    live = null;
-  }
-  if (live && live.status === "success" && Array.isArray(live.suggestions) && env && env.DB) {
-    try {
-      await putSnap_(env, "partnerSuggestions", Object.assign({}, live, {
-        newCount: partnerSuggestNewCount_(live.suggestions),
-        cachedAt: new Date().toISOString(),
-        _d1TouchedAt: Date.now()
-      }));
-    } catch (eP) {}
-  }
-  if (live && typeof live === "object") {
-    live.cutover = true;
-    live.fromGas = true;
-    if (Array.isArray(live.suggestions) && live.newCount == null) {
-      live.newCount = partnerSuggestNewCount_(live.suggestions);
-    }
-    return live;
-  }
-  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerListSuggestions" };
-}
-
 async function partnerListSuggestionsWorker_(params, env, ctx) {
-  var snap = null;
-  try { snap = await getSnapRaw_(env, "partnerSuggestions"); } catch (eS) { snap = null; }
-  var touched = Number((snap && snap._d1TouchedAt) || 0);
-  var fresh = !!(snap && snap.status === "success" && Array.isArray(snap.suggestions) && touched && (Date.now() - touched < 60000));
   var can = false;
   try { can = await partnerSuggestCanManageWorker_(params, env); } catch (eC) { can = false; }
-  if (can && fresh) {
-    if (ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(partnerSuggestionsRefreshFromGas_(params, env));
-    }
-    return Object.assign({}, snap, {
-      cutover: true,
-      fromD1: true,
-      newCount: partnerSuggestNewCount_(snap.suggestions)
-    });
+  if (!can) return { status: "error", message: "owner_only", cutover: true, fromD1: true, fromGas: false };
+  var snap = null;
+  try { snap = await getSnapRaw_(env, "partnerSuggestions"); } catch (eS) {
+    console.log("partnerSuggestions", JSON.stringify({
+      ok: false,
+      error_code: "read_failed",
+      description: String((eS && eS.message) || eS)
+    }));
+    return { status: "error", message: "partner_suggestions_unavailable", fromD1: true, fromGas: false };
   }
-  return partnerSuggestionsRefreshFromGas_(params, env);
+  var items = snap && Array.isArray(snap.suggestions) ? snap.suggestions : [];
+  return {
+    status: "success",
+    suggestions: items,
+    newCount: partnerSuggestNewCount_(items),
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    d1Verified: true
+  };
 }
 
 async function partnerSetSuggestionStatusWorker_(params, env) {
   var id = String((params && (params.id || params.suggestionId)) || "").trim();
   var status = partnerSuggestStatusOk_(params && (params.status || params.suggestionStatus));
-  if (!id) return { status: "error", message: "need_id", cutover: true };
-  if (!status) return { status: "error", message: "bad_status", cutover: true };
-  var live = null;
+  if (!id) return { status: "error", message: "need_id", cutover: true, fromGas: false };
+  if (!status) return { status: "error", message: "bad_status", cutover: true, fromGas: false };
+  if (!env || !env.DB) {
+    return { status: "error", message: "partner_suggestions_unavailable", fromD1: true, fromGas: false };
+  }
+  var snap = null;
+  try { snap = await getSnapRaw_(env, "partnerSuggestions"); } catch (eS) { snap = null; }
+  var items = snap && Array.isArray(snap.suggestions) ? snap.suggestions.slice() : [];
+  var hit = -1;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i] && items[i].id === id) { hit = i; break; }
+  }
+  if (hit < 0) return { status: "error", message: "not_found", fromD1: true, fromGas: false };
+  items[hit] = Object.assign({}, items[hit], { status: status });
   try {
-    live = await gasProxy_(
-      "partnerSetSuggestionStatus",
-      Object.assign({}, params || {}, { id: id, status: status }),
-      env,
-      { write: true }
-    );
-  } catch (eG) {
-    live = null;
+    await putSnap_(env, "partnerSuggestions", {
+      status: "success",
+      suggestions: items,
+      newCount: partnerSuggestNewCount_(items),
+      cachedAt: new Date().toISOString(),
+      _d1TouchedAt: Date.now()
+    });
+  } catch (eW) {
+    console.log("partnerSuggestions", JSON.stringify({
+      ok: false,
+      error_code: "write_failed",
+      description: String((eW && eW.message) || eW)
+    }));
+    return { status: "error", message: "partner_suggestions_write_failed", fromD1: true, fromGas: false };
   }
-  if (live && live.status === "success") {
-    try {
-      var snap = await getSnapRaw_(env, "partnerSuggestions");
-      var items = snap && Array.isArray(snap.suggestions) ? snap.suggestions.slice() : [];
-      for (var i = 0; i < items.length; i++) {
-        if (items[i] && items[i].id === id) items[i] = Object.assign({}, items[i], { status: status });
-      }
-      if (env && env.DB) {
-        await putSnap_(env, "partnerSuggestions", {
-          status: "success",
-          suggestions: items,
-          newCount: partnerSuggestNewCount_(items),
-          cachedAt: new Date().toISOString(),
-          _d1TouchedAt: Date.now()
-        });
-      }
-    } catch (eS) {}
-    live.cutover = true;
-    live.fromGas = true;
-    live.suggestionStatus = status;
-    return live;
-  }
-  if (live && typeof live === "object") {
-    live.cutover = true;
-    live.fromGas = true;
-    return live;
-  }
-  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerSetSuggestionStatus" };
+  return {
+    status: "success",
+    id: id,
+    suggestionStatus: status,
+    suggestion: items[hit],
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    d1Verified: true
+  };
 }
 
 async function telegramStatusD1_(params, env) {
@@ -31295,74 +31119,27 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
         return (tid && ot === tid) || (user && ou === user);
       });
     }
-    if (orders.length || (pack && pack._d1TouchedAt)) {
-      const skipGasMerge = !!(pack && pack._wipeEmpty);
-      if (!skipGasMerge && ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(
-          (async function () {
-            try {
-              const live = await gasProxy_("partnerListMyOrders", params || {}, env, { write: false });
-              if (live && live.status === "success" && Array.isArray(live.orders)) {
-                // merge into global pack by id
-                let all = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
-                if (all && all._wipeEmpty) return;
-                const byId = {};
-                (all.orders || []).forEach(function (o) {
-                  if (o && o.id) byId[o.id] = o;
-                });
-                live.orders.forEach(function (o) {
-                  if (o && o.id) byId[o.id] = partnerMergeListedOrder_(byId[o.id], o);
-                });
-                all.orders = Object.keys(byId).map(function (k) {
-                  return byId[k];
-                });
-                all.status = "success";
-                await putSnap_(env, "partnerOrders", all);
-              }
-            } catch (e) {}
-          })()
-        );
-      }
-      return {
-        status: "success",
-        orders: orders,
-        cutover: true,
-        fromD1: true,
-        fromGas: false,
-        sandbox: false,
-        d1Verified: true,
-        partnerCanon: partnerCanonLabel_(env)
-      };
-    }
+    return {
+      status: "success",
+      orders: orders,
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sandbox: false,
+      d1Verified: true,
+      partnerCanon: partnerCanonLabel_(env)
+    };
   }
-  const live = await gasProxy_("partnerListMyOrders", params || {}, env, { write: false });
-  if (live && live.status === "success" && env && env.DB) {
-    try {
-      let all = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
-      if (all && all._wipeEmpty) {
-        live.orders = [];
-        live.fromD1 = true;
-        live.wiped = true;
-        return live;
-      }
-      const byId = {};
-      (all.orders || []).forEach(function (o) {
-        if (o && o.id) byId[o.id] = o;
-      });
-      (live.orders || []).forEach(function (o) {
-        if (o && o.id) byId[o.id] = partnerMergeListedOrder_(byId[o.id], o);
-      });
-      all.orders = Object.keys(byId).map(function (k) {
-        return byId[k];
-      });
-      all.status = "success";
-      await putSnap_(env, "partnerOrders", all);
-    } catch (eS) {}
-    live.cutover = true;
-    live.fromGas = true;
-    live.partnerCanon = partnerCanonLabel_(env);
-  }
-  return partnerGuardOrRewrite_("partnerListMyOrders", params, live);
+  return {
+    status: "success",
+    orders: orders,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    d1Verified: true,
+    partnerCanon: partnerCanonLabel_(env)
+  };
 }
 
 function partnerUid_(prefix) {
@@ -32042,7 +31819,8 @@ async function mutatePartnerD1_(action, params, env) {
       id: id,
       deferredId: deferredId,
       d1Verified: true,
-      pendingSheets: true
+      pendingSheets: false,
+      fromGas: false
     };
   }
 
@@ -32116,7 +31894,7 @@ async function mutatePartnerD1_(action, params, env) {
         }
       } catch (eDefDone) {}
     }
-    return { status: "success", id: oid, orderStatus: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
+    return { status: "success", id: oid, orderStatus: st, order: pack.orders[hit], d1Verified: true, pendingSheets: false, fromGas: false };
   }
 
   if (/^partnerSetOrderSlot$/i.test(a)) {
@@ -32246,7 +32024,8 @@ async function mutatePartnerD1_(action, params, env) {
       deliverDateLabel: dateLabel,
       deliverTimeLabel: timeLabel,
       d1Verified: true,
-      pendingSheets: true
+      pendingSheets: false,
+      fromGas: false
     };
   }
 
@@ -32301,7 +32080,8 @@ async function mutatePartnerD1_(action, params, env) {
       deferredRemoved: deferredRemoved,
       wipedAt: nowIso,
       d1Verified: true,
-      pendingSheets: true
+      pendingSheets: false,
+      fromGas: false
     };
   }
 
@@ -32366,6 +32146,14 @@ function partnerMergeListedOrder_(d1Order, gasOrder) {
 
 async function refreshPartnerSnapsFromGas_(action, params, env, live) {
   if (!env || !env.DB || !live) return;
+  if (/^partner(SubmitOrder|SetOrderStatus|SetOrderSlot|ListMyOrders|VarkaBroadcast|Suggest|AccessRequest)/i.test(action)) {
+    console.log("partner sheets merge blocked", JSON.stringify({
+      ok: false,
+      error_code: "sheets_merge_disabled",
+      description: String(action || "")
+    }));
+    return;
+  }
   if (/^partnerSubmitOrder$/i.test(action) && live.order) {
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
     pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];

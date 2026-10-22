@@ -47,7 +47,7 @@ if (hub.indexOf("partnerHubSetConsent_") < 0 || hub.indexOf("partnerSetPointCons
 if (gas.indexOf("function handlePartnerSubmitOrder") < 0) fail("submit missing");
 const submitGas = gas.slice(gas.indexOf("function handlePartnerSubmitOrder"), gas.indexOf("function handlePartnerListMyOrders"));
 if (submitGas.indexOf("partnerConsentRejectForPoint_") < 0) fail("GAS submit must reject consent");
-const submitAt = worker.indexOf("if (/^partnerSubmitOrder$/i.test(a))");
+const submitAt = worker.indexOf("if (/^partnerSubmitOrder$/i.test(a)) {");
 const submitW = worker.slice(submitAt, submitAt + 8000);
 if (submitW.indexOf("partnerConsentRejectForPoint_") < 0) fail("Worker submit must reject consent");
 
