@@ -53,6 +53,10 @@ Menu Button / Web App URL →
 Пока Mini App ещё на Pages (до смены URL в BotFather):  
 `https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html`
 
+Бот кабинета @klientGB_bot открывает короткий URL  
+`https://boinya-c.konchaarsenia.workers.dev/k`  
+(тот же `app.html` с GitHub Pages). В BotFather для него: `/setdomain` → `boinya-c.konchaarsenia.workers.dev`, Main App — этот же `/k`. Сайт goodboy.by этот URL не использует.
+
 ## Режим
 
 `js/config.js` → `mode: "live"`, webhook = Cloudflare Worker `boinya-c.konchaarsenia.workers.dev`.  
