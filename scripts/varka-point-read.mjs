@@ -251,10 +251,28 @@ async function main() {
   if (viewRows[0]) {
     try {
       const view = JSON.parse(viewRows[0].payload || "{}");
-      const list = view.clients || view.people || view.rows || [];
-      viewClients = (Array.isArray(list) ? list : []).map(function (c) {
-        return { name: c.name || c.client || "", address: c.address || "", matchKey: c.matchKey || "", basket: c.basket || c.orderCount || "" };
-      });
+      const list = []
+        .concat(Array.isArray(view.month) ? view.month : [])
+        .concat(Array.isArray(view.week) ? view.week : [])
+        .concat(Array.isArray(view.clients) ? view.clients : []);
+      viewClients = {
+        keys: Object.keys(view),
+        n: list.length,
+        people: list.map(function (c) {
+          const basket = Array.isArray(c.basket) ? c.basket.map(function (it) {
+            return it && typeof it === "object" ? [it.name, it.sub, it.value].filter(function (x) { return x != null && x !== ""; }).join(" ") : String(it || "");
+          }) : [];
+          return {
+            name: c.name || c.client || "",
+            matchKey: c.matchKey || "",
+            address: c.address || "",
+            segment: c.segment || "",
+            partnerOrderId: c.partnerOrderId || "",
+            price: c.orderPrice != null ? c.orderPrice : "",
+            basket: basket
+          };
+        })
+      };
     } catch (eV) {
       viewClients = [{ error: String(eV.message || eV) }];
     }
