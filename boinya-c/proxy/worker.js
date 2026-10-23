@@ -11572,6 +11572,60 @@ function partnerPointKey_(raw) {
     .replace(/\bVARKA\b/g, "ВАРКА");
 }
 
+function partnerAddressKey_(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+}
+
+/** Имя только «Варка», без улицы. Точка «Varka Цвирко 100» сюда не попадает. */
+function partnerNetworkOnly_(name) {
+  return partnerPointKey_(name) === "ВАРКА";
+}
+
+/** Строка «Варка» с адресом точки — тот же заказ, что заявка на эту дату. */
+function partnerNetworkRowDup_(row, order) {
+  if (!row || !order || !partnerNetworkOnly_(row.name || row.client || "")) return false;
+  const addr = partnerAddressKey_(row.address || "");
+  if (!addr) return false;
+  const loc = partnerPointKey_(order.locationName || order.userName || "");
+  const oaddr = partnerAddressKey_(order.address || "");
+  if (oaddr && (addr === oaddr || oaddr.indexOf(addr) >= 0 || addr.indexOf(oaddr) >= 0)) return true;
+  return !!(loc && loc.indexOf(addr) >= 0);
+}
+
+function dropPartnerNetworkDupes_(list, orders, date) {
+  const dated = (orders || []).filter(function (o) {
+    return partnerOrderDate_(o) === date;
+  });
+  if (!dated.length) return Array.isArray(list) ? list.slice() : [];
+  return (list || []).filter(function (c) {
+    for (let i = 0; i < dated.length; i++) {
+      if (partnerNetworkRowDup_(c, dated[i])) return false;
+    }
+    return true;
+  });
+}
+
+async function partnerGenericCoveredBySlot_(env, client, address, dateIso) {
+  const date = String(dateIso || "").slice(0, 10);
+  if (!partnerNetworkOnly_(client) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+  const row = { client: client, name: client, address: address || "" };
+  let orders = [];
+  try {
+    orders = await openDatedPartnerOrders_(env);
+  } catch (eCov) {
+    orders = [];
+  }
+  for (let i = 0; i < orders.length; i++) {
+    if (partnerOrderDate_(orders[i]) !== date) continue;
+    if (partnerNetworkRowDup_(row, orders[i])) return String(orders[i].id || "1");
+  }
+  return "";
+}
+
 function partnerRowMatchesOrder_(row, order) {
   if (!row || !order) return false;
   const id = String(order.id || "");
@@ -11624,13 +11678,14 @@ async function partnerOrderAlreadyStored_(env, order) {
   if (!date || !key) return false;
   try {
     const q = await env.DB.prepare(
-      "SELECT client, note FROM orders WHERE status = 'active' AND date_iso = ? LIMIT 200"
+      "SELECT client, note, address FROM orders WHERE status = 'active' AND date_iso = ? LIMIT 200"
     )
       .bind(date)
       .all();
     const rows = (q && q.results) || [];
     for (let i = 0; i < rows.length; i++) {
       if (partnerRowMatchesOrder_(rows[i], order)) return true;
+      if (partnerNetworkRowDup_(rows[i], order)) return true;
     }
     return false;
   } catch (eHas) {
@@ -11683,15 +11738,17 @@ async function overlayPartnerDatesOnMonth_(env, body) {
 }
 
 async function appendPartnerOrdersForDate_(env, clients, dateIso, day) {
-  const list = Array.isArray(clients) ? clients.slice() : [];
   const date = String(dateIso || "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < minkTodayIso_()) return list;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < minkTodayIso_()) {
+    return Array.isArray(clients) ? clients.slice() : [];
+  }
   let orders = [];
   try {
     orders = await openDatedPartnerOrders_(env);
   } catch (eApp) {
-    return list;
+    return Array.isArray(clients) ? clients.slice() : [];
   }
+  const list = dropPartnerNetworkDupes_(clients, orders, date);
   orders.forEach(function (o) {
     if (partnerOrderDate_(o) !== date) return;
     if (partnerOrderListed_(list, o)) return;
@@ -11731,6 +11788,9 @@ async function getCalendarMonthPeople_(params, env) {
   });
   try {
     const extra = await openDatedPartnerOrders_(env);
+    Object.keys(byDate).forEach(function (iso) {
+      byDate[iso] = dropPartnerNetworkDupes_(byDate[iso], extra, iso);
+    });
     for (let ei = 0; ei < extra.length; ei++) {
       const o = extra[ei];
       const date = partnerOrderDate_(o);
@@ -12446,6 +12506,19 @@ async function saveOrder_(params, env, asBooking) {
   }
 
   const matchKey = normalizeMatchKey_(params.matchKey || client);
+  try {
+    const covered = await partnerGenericCoveredBySlot_(env, client, params.address, dateIso);
+    if (covered) {
+      return {
+        status: "success",
+        skipped: "partner_point_shown",
+        wrote: 0,
+        id: covered,
+        dateIso: dateIso || "",
+        calendarOnly: !day && !!dateIso
+      };
+    }
+  } catch (eCover) {}
   const editClient = String(params.editClient || params.originalClient || "").trim();
   const oldDayParam = String(params.oldDay || params.editDay || "").trim();
   try {
