@@ -218,24 +218,193 @@ function isBp_(row) {
   return s === "БП" || s === "BP";
 }
 
+const PAY_MOVE_NOTE_ = "перенесено на доставку 2";
+
+function moveSlot_(row) {
+  const pp = String((row && row.ppSlot) || "");
+  const frac = pp.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (frac) return Number(frac[1]) || 0;
+  const delRaw = row && row.deliverySlot != null ? String(row.deliverySlot) : "";
+  const delFrac = delRaw.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (delFrac) return Number(delFrac[1]) || 0;
+  const n = Number(row && (row.slot != null && row.slot !== "" ? row.slot : row.deliverySlot));
+  if (n >= 1) return n;
+  if (pp === "1" || pp === "2") return Number(pp);
+  return 0;
+}
+
+function moveStarts_(prev, row) {
+  const slot = moveSlot_(row);
+  const prevSlot = moveSlot_(prev);
+  if (slot === 1) return true;
+  if (slot >= 1 && prevSlot >= 1 && slot < prevSlot) return true;
+  return false;
+}
+
+function moveCycles_(rows) {
+  const list = (rows || []).slice().sort(function (a, b) {
+    const ad = String(a.date || "");
+    const bd = String(b.date || "");
+    if (ad !== bd) return ad < bd ? -1 : 1;
+    return moveSlot_(a) - moveSlot_(b);
+  });
+  const cycles = [];
+  let cur = [];
+  let prev = null;
+  list.forEach(function (row) {
+    if (prev && moveStarts_(prev, row)) {
+      cycles.push(cur);
+      cur = [];
+    }
+    cur.push(row);
+    prev = row;
+  });
+  if (cur.length) cycles.push(cur);
+  return cycles;
+}
+
+function moveGroup_(row) {
+  return String((row && (row.group || row.matchKey || row.client || row.name)) || "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+}
+
+function moveMonth_(row) {
+  const d = String((row && row.date) || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.slice(0, 7) : "";
+}
+
+function flagOn_(row, key) {
+  const v = row && row[key];
+  if (v == null || v === "") return false;
+  if (key === "payDue" || key === "payMovedAmount") {
+    const n = Number(v);
+    return isFinite(n) && n > 0;
+  }
+  return true;
+}
+
+function sameFlag_(row, key, want) {
+  const v = row && row[key];
+  if (typeof want === "number") return Number(v) === want;
+  if (want == null || want === "") return !flagOn_(row, key);
+  return String(v == null ? "" : v) === String(want);
+}
+
+function pushPatch_(patches, row, set, clear) {
+  const realSet = {};
+  const realClear = [];
+  Object.keys(set || {}).forEach(function (k) {
+    if (!sameFlag_(row, k, set[k])) realSet[k] = set[k];
+  });
+  (clear || []).forEach(function (k) {
+    if (flagOn_(row, k)) realClear.push(k);
+  });
+  if (!Object.keys(realSet).length && !realClear.length) return;
+  patches.push({ id: row.id, set: realSet, clear: realClear });
+}
+
 /**
- * Как в Бойне сейчас: слот 2+ сумму не несёт.
- * paid=no остаётся на этой же доставке и на ПП2 не переписывается.
+ * Неоплата ПП1 в том же цикле и том же месяце переносит сумму на ПП2.
+ * orderPrice и paid не меняются. Нет ПП2 в месяце — сумма остаётся, notify.
+ * Повтор с теми же пометками не даёт патч.
+ */
+export function planPpPayMove_(rows) {
+  const patches = [];
+  const notify = [];
+  const groups = {};
+  (rows || []).forEach(function (row) {
+    if (!row || !row.id || !isPp_(row)) return;
+    const month = moveMonth_(row);
+    const who = moveGroup_(row);
+    if (!month || !who) return;
+    const key = who + "|" + month;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+  });
+  Object.keys(groups).forEach(function (key) {
+    const monthRows = groups[key];
+    const monthHasSecond = monthRows.some(function (row) { return moveSlot_(row) >= 2; });
+    moveCycles_(monthRows).forEach(function (cycle) {
+      let first = null;
+      let second = null;
+      cycle.forEach(function (row) {
+        const slot = moveSlot_(row);
+        if (slot < 2 && !first) first = row;
+        if (slot >= 2 && !second) second = row;
+      });
+      if (!first) {
+        cycle.forEach(function (row) {
+          pushPatch_(patches, row, {}, ["payDue", "payFromDate", "payMoved", "payMovedAmount", "payMovedTo"]);
+        });
+        return;
+      }
+      const paid = paidOf_(first);
+      const amount = moneyOf_(first);
+      if (paid === "no" && second && amount > 0) {
+        pushPatch_(
+          patches,
+          first,
+          { payMoved: "pp2", payMovedAmount: amount, payMovedTo: String(second.date).slice(0, 10) },
+          ["payDue", "payFromDate"]
+        );
+        pushPatch_(
+          patches,
+          second,
+          { payDue: amount, payFromDate: String(first.date).slice(0, 10) },
+          ["payMoved", "payMovedAmount", "payMovedTo"]
+        );
+        cycle.forEach(function (row) {
+          if (row === first || row === second) return;
+          pushPatch_(patches, row, {}, ["payMoved", "payMovedAmount", "payMovedTo", "payDue", "payFromDate"]);
+        });
+        return;
+      }
+      cycle.forEach(function (row) {
+        pushPatch_(patches, row, {}, ["payMoved", "payMovedAmount", "payMovedTo", "payDue", "payFromDate"]);
+      });
+      if (paid === "no" && !second && !monthHasSecond && amount > 0) {
+        notify.push({
+          id: first.id,
+          client: String(first.client || first.name || ""),
+          date: String(first.date || "").slice(0, 10),
+          amount: amount,
+          matchKey: String(first.matchKey || "")
+        });
+      }
+    });
+  });
+  return { patches: patches, notify: notify };
+}
+
+/**
+ * ПП2 с переносом: «к оплате на доставке 2: N BYN».
+ * ПП1 после переноса: «перенесено на доставку 2», к оплате 0.
+ * Нет ПП2 — «К оплате N BYN» на первой.
  */
 export function payLabel_(row) {
   row = row || {};
-  const slot = slotOf_(row);
+  const slot = moveSlot_(row) || slotOf_(row);
   const n = Math.max(0, Number(row.deliveriesN || row.deliveries) || 0);
   const paid = paidOf_(row);
   const money = moneyOf_(row);
+  const due = Number(row.payDue);
+  const moved = String(row.payMoved || "") === "pp2";
   if (isBp_(row)) return { role: "none", text: "", dueOnSecond: "" };
-  if (isPp_(row) && n >= 2 && slot >= 2) {
+  if (isPp_(row) && slot >= 2 && isFinite(due) && due > 0) {
+    return { role: "due", text: "к оплате на доставке 2: " + due + " BYN", dueOnSecond: "" };
+  }
+  if (isPp_(row) && (n >= 2 || slot >= 2) && slot >= 2) {
     return { role: "free", text: "Бесплатная, входит в первую", dueOnSecond: "" };
   }
   if (paid === "yes") return { role: "paid", text: "Оплачено", dueOnSecond: "" };
+  if (paid === "no" && moved) {
+    return { role: "moved", text: PAY_MOVE_NOTE_, dueOnSecond: "" };
+  }
   if (paid === "no") {
-    const due = money ? "К оплате " + money + " BYN" : "К оплате";
-    return { role: "unpaid", text: "Не оплачено. " + due, dueOnSecond: "" };
+    const text = money ? "Не оплачено. К оплате " + money + " BYN" : "Не оплачено. К оплате";
+    return { role: "unpaid", text: text, dueOnSecond: "" };
   }
   if (isRetail_(row) || isPp_(row) || money) {
     if (!money) return { role: "due", text: "К оплате", dueOnSecond: "" };
@@ -259,6 +428,9 @@ export function deliveryType_(row) {
 }
 
 export function pairRole_(row) {
+  const due = Number(row && row.payDue);
+  if (String(row && row.payMoved || "") === "pp2") return "";
+  if (isFinite(due) && due > 0) return "";
   const slot = slotOf_(row);
   const n = Math.max(0, Number(row && (row.deliveriesN || row.deliveries)) || 0);
   if (isPp_(row) && n >= 2 && slot >= 2) return "бесплатная";

@@ -38,6 +38,7 @@ import {
   parseAddress_,
   pausePlan_,
   payLabel_,
+  planPpPayMove_,
   planPublicIds_,
   stockDecision_,
   subFingerprint_,
@@ -8021,11 +8022,126 @@ async function persistOrderMetaJson_(env, id, metaRaw) {
   return true;
 }
 
-/** Ответ курьера «оплачено» пишется в meta заказа этой даты. Цены других слотов не трогаем. */
+function payMoveMonthEnd_(iso) {
+  const month = String(iso || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return "";
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  if (m === 12) return (y + 1) + "-01-01";
+  const next = m + 1;
+  return y + "-" + (next < 10 ? "0" : "") + next + "-01";
+}
+
+function payMoveRow_(r, group) {
+  const meta = parseMeta_(r.meta_json);
+  return {
+    id: r.id,
+    date: r.date_iso,
+    matchKey: r.match_key,
+    group: group,
+    client: r.client,
+    segment: r.segment || meta.segment || (meta.ppSlot || meta.deliverySlot ? "ПП" : ""),
+    slot: meta.deliverySlot || "",
+    ppSlot: meta.ppSlot || "",
+    deliverySlot: meta.deliverySlot || "",
+    deliveriesN: meta.deliveriesN || "",
+    paid: meta.paid || "",
+    orderPrice: meta.orderPrice,
+    payMoved: meta.payMoved || "",
+    payDue: meta.payDue || 0,
+    payMovedAmount: meta.payMovedAmount || 0,
+    payMovedTo: meta.payMovedTo || "",
+    payFromDate: meta.payFromDate || ""
+  };
+}
+
+function applyPayMoveMeta_(meta, patch) {
+  const set = (patch && patch.set) || {};
+  const keys = Object.keys(set);
+  let changed = false;
+  for (let i = 0; i < keys.length; i++) {
+    if (meta[keys[i]] !== set[keys[i]]) {
+      meta[keys[i]] = set[keys[i]];
+      changed = true;
+    }
+  }
+  const clear = (patch && patch.clear) || [];
+  for (let i = 0; i < clear.length; i++) {
+    if (meta[clear[i]] != null && meta[clear[i]] !== "") {
+      delete meta[clear[i]];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** После «не оплачено» на ПП1 сумма этого цикла переносится на ПП2 того же месяца. */
+async function applyPpUnpaidMoveD1_(env, iso, aliases, notifyNow) {
+  if (!env || !env.DB || !iso) return;
+  const from = String(iso).slice(0, 7) + "-01";
+  const to = payMoveMonthEnd_(iso);
+  if (!to) return;
+  const keys = [];
+  (aliases || []).forEach(function (k) {
+    if (k && keys.indexOf(k) < 0) keys.push(k);
+  });
+  if (!keys.length) return;
+  const byId = {};
+  for (let i = 0; i < keys.length; i++) {
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(
+        "SELECT id, date_iso, match_key, client, segment, meta_json FROM orders WHERE status = 'active' AND match_key = ? AND date_iso >= ? AND date_iso < ? LIMIT 40"
+      )
+        .bind(keys[i], from, to)
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {
+      rows = [];
+    }
+    for (let r = 0; r < rows.length; r++) byId[rows[r].id] = rows[r];
+  }
+  const ids = Object.keys(byId);
+  if (!ids.length) return;
+  const group = keys[0];
+  const planRows = ids.map(function (id) { return payMoveRow_(byId[id], group); });
+  let plan = { patches: [], notify: [] };
+  try { plan = planPpPayMove_(planRows) || plan; } catch (eP) { return; }
+  const metaById = {};
+  ids.forEach(function (id) { metaById[id] = parseMeta_(byId[id].meta_json); });
+  const patches = plan.patches || [];
+  for (let i = 0; i < patches.length; i++) {
+    const patch = patches[i];
+    const meta = metaById[patch.id];
+    if (!meta) continue;
+    if (!applyPayMoveMeta_(meta, patch)) continue;
+    try { await persistOrderMetaJson_(env, patch.id, JSON.stringify(meta)); } catch (eW) {}
+  }
+  if (!notifyNow) return;
+  const sent = {};
+  const notes = plan.notify || [];
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i];
+    if (!n || String(n.date || "") !== String(iso).slice(0, 10)) continue;
+    const sig = String(n.matchKey || n.client || "") + "|" + n.date;
+    if (sent[sig]) continue;
+    sent[sig] = true;
+    const who = String(n.client || n.matchKey || "клиент");
+    try {
+      await gbStaffNotify_(
+        env,
+        who + " " + n.date + ": ПП1 не оплачено. ПП2 в этом месяце нет. Сумма " + n.amount + " BYN остаётся на первой доставке."
+      );
+    } catch (eN) {}
+  }
+}
+
+/** Ответ курьера «оплачено» пишется в meta этой даты. Цена заказа не переписывается. */
 async function stampOrderPaidOnDateD1_(env, iso, aliases, paid) {
   if (!env || !env.DB || !iso) return;
   if (paid !== "yes" && paid !== "no") return;
   const keys = aliases || [];
+  let changed = false;
   for (let i = 0; i < keys.length; i++) {
     if (!keys[i]) continue;
     let rows = [];
@@ -8043,9 +8159,12 @@ async function stampOrderPaidOnDateD1_(env, iso, aliases, paid) {
       const meta = parseMeta_(rows[r].meta_json);
       if (String(meta.paid || "") === paid) continue;
       meta.paid = paid;
+      changed = true;
       try { await persistOrderMetaJson_(env, rows[r].id, JSON.stringify(meta)); } catch (eW) {}
     }
   }
+  if (!changed) return;
+  try { await applyPpUnpaidMoveD1_(env, iso, keys, paid === "no"); } catch (eM) {}
 }
 
 /**
@@ -12055,7 +12174,7 @@ async function siblingPaidFromCourierSnaps_(env, month) {
   return out;
 }
 
-/** На чтении курьера: ПП2 не спрашивает оплату и не несёт сумму к сбору. */
+/** На чтении курьера: ПП2 не спрашивает оплату. К сбору на ПП2 только сумма переноса. */
 async function refreshCourierAskPaid_(env, snap) {
   const clients = (snap && snap.clients) || [];
   if (!clients.length) return snap;
@@ -12111,9 +12230,30 @@ async function refreshCourierAskPaid_(env, snap) {
       }
       c.siblingPaid = sib;
     }
+    let ownMeta = null;
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      if (String((row && row.date_iso) || "") !== iso) continue;
+      const mk = String((row && row.match_key) || "");
+      const nameMk = normalizeMatchKey_((row && row.client) || "");
+      const aliases = matchKeyAliases_(c.matchKey || c.name);
+      let hit = aliases.indexOf(mk) >= 0 || aliases.indexOf(nameMk) >= 0;
+      if (!hit && row && c.name && String(row.client) === String(c.name)) hit = true;
+      if (!hit) continue;
+      ownMeta = parseMeta_(row.meta_json);
+      break;
+    }
+    if (ownMeta) {
+      if (ownMeta.payMoved) c.payMoved = ownMeta.payMoved;
+      if (ownMeta.payDue != null && ownMeta.payDue !== "") c.payDue = ownMeta.payDue;
+      if (ownMeta.payMovedAmount != null && ownMeta.payMovedAmount !== "") c.payMovedAmount = ownMeta.payMovedAmount;
+    }
     c.ppAskReady = true;
     c.askPaid = courierAskPaidDecision_(c);
-    if (n >= 2 && slot >= 2) c.orderPrice = "";
+    if (n >= 2 && slot >= 2) {
+      const dueN = Number(c.payDue);
+      c.orderPrice = isFinite(dueN) && dueN > 0 ? dueN : "";
+    }
   }
   return snap;
 }
@@ -15667,7 +15807,48 @@ function statsPpSplitCyclesD1_(rows) {
   return cycles;
 }
 
+function statsPpRowCopyD1_(row, price) {
+  const copy = {};
+  const keys = Object.keys(row || {});
+  for (let i = 0; i < keys.length; i++) copy[keys[i]] = row[keys[i]];
+  copy.price = price;
+  return copy;
+}
+
+function statsPpMovedCarrierD1_(cycle) {
+  let due = null;
+  for (let i = 0; i < cycle.length; i++) {
+    const d = Number(cycle[i].payDue);
+    if (isFinite(d) && d > 0) {
+      due = cycle[i];
+      break;
+    }
+  }
+  if (due) return { row: due, amount: Math.round(Number(due.payDue) * 100) / 100 };
+  let yes = false;
+  let first = null;
+  let second = null;
+  for (let i = 0; i < cycle.length; i++) {
+    const row = cycle[i];
+    const paid = String(row.paid || "");
+    if (paid === "yes") yes = true;
+    const slot = statsPpSlotD1_(row);
+    if (!first && slot < 2 && paid === "no") first = row;
+    if (!second && slot >= 2) second = row;
+  }
+  if (yes || !first) return null;
+  const amount = Number(first.price) || 0;
+  if (!(amount > 0)) return null;
+  const fm = statsIsoDayD1_(first.iso).slice(0, 7);
+  const sm = second ? statsIsoDayD1_(second.iso).slice(0, 7) : "";
+  if (second && fm && fm === sm) return { row: second, amount: amount };
+  if (String(first.payMoved || "") === "pp2") return null;
+  return { row: first, amount: amount };
+}
+
 function statsPpPayRowD1_(cycle) {
+  const moved = statsPpMovedCarrierD1_(cycle);
+  if (moved) return statsPpRowCopyD1_(moved.row, moved.amount);
   const yes = [];
   const open = [];
   for (let i = 0; i < cycle.length; i++) {
@@ -16026,6 +16207,8 @@ async function buildStatsFormulaD1_(env, params, res) {
       missingBasket: units.missingBasket,
       slot: slot,
       paid: paid,
+      payDue: Number(meta.payDue) || 0,
+      payMoved: String(meta.payMoved || ""),
       basketN: basket.length
     };
     const dedupe = iso + "|" + ck;
@@ -16041,6 +16224,8 @@ async function buildStatsFormulaD1_(env, params, res) {
     if (!(keep.price > 0) && other.price > 0) keep.price = other.price;
     if (!keep.slot && other.slot) keep.slot = other.slot;
     if (keep.paid !== "yes" && other.paid === "yes") keep.paid = "yes";
+    if (!(Number(keep.payDue) > 0) && Number(other.payDue) > 0) keep.payDue = other.payDue;
+    if (!keep.payMoved && other.payMoved) keep.payMoved = other.payMoved;
     if (keep.missingBasket && !other.missingBasket) {
       keep.S = other.S;
       keep.G = other.G;
@@ -33455,7 +33640,9 @@ function gbViewOrder_(row, sub) {
     ppSlot: meta.ppSlot || "",
     deliveriesN: meta.deliveriesN || (sub && sub.deliveries) || "",
     paid: meta.paid || "",
-    orderPrice: meta.orderPrice
+    orderPrice: meta.orderPrice,
+    payMoved: meta.payMoved || "",
+    payDue: meta.payDue || 0
   };
   const pay = payLabel_(view);
   const lines = gbLines_(row.basket_json);

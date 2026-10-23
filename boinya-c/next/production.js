@@ -1482,6 +1482,7 @@
       var accentBits = [];
       if (slot && slot !== kind && /^ПП/.test(slot)) accentBits.push(slot);
       if (price) accentBits.push(price);
+      else if (c && c.payMoved === "pp2") accentBits.push("0, перенесено на доставку 2");
       var accent = accentBits.join(", ");
       var packsApi = root.BoinyaAsmPacks;
       var dogLine = c.twoDogs && packsApi && packsApi.courierDogLine ? packsApi.courierDogLine(c) : (c.twoDogs ? "2 собаки, 2 пакета" : "");

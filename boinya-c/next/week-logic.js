@@ -426,13 +426,26 @@
     return cycles;
   }
 
-  /* Цена подписки один раз на цикл: на слоте с paid=yes (ПП1 или ПП2).
-     Если отметки ещё нет — на слоте 1 / без номера, где оплату ждут.
-     ПП2 без paid=yes в сумму не входит, даже если это единственная доставка месяца.
-     Следующая ПП1 в том же месяце — новый цикл и своя сумма.
-     Явный paid=no в сумму не входит. Доставка при этом остаётся. */
+  var PAY_MOVE_NOTE_ = "перенесено на доставку 2";
+
+  function payDueOf_(c) {
+    var n = Number(c && c.payDue);
+    if (!isFinite(n) || !(n > 0)) return 0;
+    return Math.round(n * 100) / 100;
+  }
+
+  function movedAway_(c) {
+    return String(c && c.payMoved || "") === "pp2";
+  }
+
+  /* Цена подписки один раз на цикл.
+     paid=yes на ПП1 — сумма там, ПП2 её не забирает.
+     paid=no на ПП1 и ПП2 в том же месяце — сумма один раз на ПП2, на ПП1 ноль и пометка.
+     ПП2 в этом месяце нет — сумма остаётся на ПП1.
+     Пометки payDue / payMoved важнее догадки, чтобы день без соседней строки совпал. */
   function attributePpRevenue(list) {
     var amount = {};
+    var notes = {};
     var doubled = [];
     var groups = {};
     (list || []).forEach(function (c, i) {
@@ -460,8 +473,6 @@
             prices: priced.map(function (i) { return orderMoney_(list[i]); })
           });
         }
-        var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
-        var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
         function bySlot(a, b) {
           var as = paySlotOf_(list[a]) || 9;
           var bs = paySlotOf_(list[b]) || 9;
@@ -470,6 +481,43 @@
           var bi = rowIso_(list[b]);
           return ai < bi ? -1 : ai > bi ? 1 : 0;
         }
+        var dueIdx = idxs.filter(function (i) { return payDueOf_(list[i]) > 0; });
+        if (dueIdx.length) {
+          dueIdx.forEach(function (i) { amount[i] = payDueOf_(list[i]); });
+          idxs.forEach(function (i) {
+            if (movedAway_(list[i])) notes[i] = PAY_MOVE_NOTE_;
+          });
+          return;
+        }
+        var movedIdx = idxs.filter(function (i) { return movedAway_(list[i]); });
+        if (movedIdx.length) {
+          movedIdx.forEach(function (i) { notes[i] = PAY_MOVE_NOTE_; });
+          var host = idxs.filter(function (i) { return paySlotOf_(list[i]) >= 2; }).sort(bySlot)[0];
+          if (host != null) {
+            var mv = Number(list[movedIdx[0]].payMovedAmount);
+            if (!(mv > 0)) mv = orderMoney_(list[movedIdx[0]]);
+            if (mv > 0) amount[host] = mv;
+          }
+          return;
+        }
+        var unpaid = idxs.filter(function (i) {
+          return paidFlag_(list[i]) === "no" && paySlotOf_(list[i]) < 2;
+        });
+        var seconds = idxs.filter(function (i) { return paySlotOf_(list[i]) >= 2; });
+        if (unpaid.length && seconds.length) {
+          unpaid.forEach(function (i) { notes[i] = PAY_MOVE_NOTE_; });
+          var host2 = seconds.slice().sort(bySlot)[0];
+          var movedMoney = orderMoney_(list[unpaid[0]]);
+          if (movedMoney != null && movedMoney > 0) amount[host2] = movedMoney;
+          return;
+        }
+        if (unpaid.length) {
+          var stay = orderMoney_(list[unpaid[0]]);
+          if (stay != null && stay > 0) amount[unpaid[0]] = stay;
+          return;
+        }
+        var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
+        var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
         var poolSrc = yes.length ? yes : open.filter(function (i) { return paySlotOf_(list[i]) < 2; });
         var pool = poolSrc.slice().sort(bySlot);
         var chosen = pool.length ? pool[0] : -1;
@@ -478,19 +526,22 @@
         if (money != null && money > 0) amount[chosen] = money;
       });
     });
-    return { amount: amount, doubled: doubled };
+    return { amount: amount, doubled: doubled, notes: notes };
   }
 
-  /* На строке ПП показываем только ту цену, которая входит в сумму месяца. */
+  /* На строке ПП — только сумма, которая входит в месяц. Перенос пишет пометку. */
   function stampPpPay(list) {
     var attr = attributePpRevenue(list);
     (list || []).forEach(function (c, i) {
       if (!c) return;
       if (!isPpRow_(c)) {
         if (c._pay != null) delete c._pay;
+        if (c._payNote) delete c._payNote;
         return;
       }
       c._pay = attr.amount[i] || 0;
+      if (attr.notes && attr.notes[i]) c._payNote = attr.notes[i];
+      else if (c._payNote) delete c._payNote;
     });
     return list;
   }
@@ -543,8 +594,8 @@
     return 0;
   }
 
-  /* Курьер сегодня: цена на первой доставке. Слот 2+ в сбор не входит —
-     оплата второй доставки уже внутри первой. paid=no не входит.
+  /* Курьер сегодня: цена на первой доставке. Слот 2+ входит в сбор только
+     с переносом payDue. paid=no и «перенесено на доставку 2» в сбор не входят.
      БП и партнёр курьеру не платят. Розница платит здесь. */
   function courierStopMoney(c) {
     if (!c) return null;
@@ -552,8 +603,10 @@
     try { ot = resolveOrderType(c); } catch (eOt) { ot = ""; }
     if (!ot && isPpRow_(c)) ot = "pp";
     if (ot === "bp" || ot === "partner") return null;
+    var dueN = payDueOf_(c);
+    if (ot === "pp" && dueN > 0) return dueN;
     var slot = courierPaySlot_(c);
-    if (ot === "pp" && slot >= 2) return null;
+    if (ot === "pp" && (slot >= 2 || movedAway_(c))) return null;
     var money = orderMoney_(c);
     if (money == null || !(money > 0)) return null;
     if (ot !== "pp") return money;

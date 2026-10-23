@@ -11,6 +11,7 @@ import {
   parseAddress_,
   pausePlan_,
   payLabel_,
+  planPpPayMove_,
   planPublicIds_,
   publicIdPrefix_,
   stockDecision_,
@@ -72,19 +73,63 @@ test("поиск точный и не выбирает из нескольких
   assert.equal(many.status, "many");
 });
 
-test("ПП2 бесплатная, неоплата не переносится на вторую", () => {
-  const pp1 = payLabel_({ sheet: "ПП", slot: 1, deliveriesN: 2, paid: "no", orderPrice: 140 });
-  assert.match(pp1.text, /К оплате 140 BYN/);
-  assert.equal(pp1.dueOnSecond, "");
-  const pp2 = payLabel_({ sheet: "ПП", slot: 2, deliveriesN: 2, paid: "", orderPrice: 140 });
-  assert.equal(pp2.role, "free");
-  assert.equal(pp2.dueOnSecond, "");
+test("неоплата ПП1 переносится на ПП2 того же месяца", () => {
+  const rows = [
+    { id: "a", date: "2026-10-03", matchKey: "REX", client: "Рекс", segment: "ПП", ppSlot: "1/2", paid: "no", orderPrice: 140 },
+    { id: "b", date: "2026-10-17", matchKey: "REX", client: "Рекс", segment: "ПП", ppSlot: "2/2", paid: "", orderPrice: 140 }
+  ];
+  const plan = planPpPayMove_(rows);
+  assert.equal(plan.notify.length, 0);
+  assert.equal(plan.patches.length, 2);
+  const pp1 = plan.patches.find((p) => p.id === "a");
+  const pp2 = plan.patches.find((p) => p.id === "b");
+  assert.equal(pp1.set.payMoved, "pp2");
+  assert.equal(pp1.set.payMovedAmount, 140);
+  assert.equal(pp1.set.payMovedTo, "2026-10-17");
+  assert.equal(pp2.set.payDue, 140);
+  assert.equal(pp2.set.payFromDate, "2026-10-03");
+  const again = planPpPayMove_([
+    Object.assign({}, rows[0], pp1.set),
+    Object.assign({}, rows[1], pp2.set)
+  ]);
+  assert.equal(again.patches.length, 0);
+  const undone = planPpPayMove_([
+    Object.assign({}, rows[0], pp1.set, { paid: "yes" }),
+    Object.assign({}, rows[1], pp2.set)
+  ]);
+  assert.equal(undone.notify.length, 0);
+  assert.ok(undone.patches.some((p) => p.id === "a" && p.clear.indexOf("payMoved") >= 0));
+  assert.ok(undone.patches.some((p) => p.id === "b" && p.clear.indexOf("payDue") >= 0));
+  const stay = planPpPayMove_([rows[0]]);
+  assert.equal(stay.patches.length, 0);
+  assert.equal(stay.notify.length, 1);
+  assert.equal(stay.notify[0].amount, 140);
+  const nextMonth = planPpPayMove_([
+    rows[0],
+    { id: "c", date: "2026-11-03", matchKey: "REX", client: "Рекс", segment: "ПП", ppSlot: "2/2", paid: "", orderPrice: 140 }
+  ]);
+  assert.equal(nextMonth.notify.length, 1);
+  assert.equal(nextMonth.patches.filter((p) => p.set && p.set.payDue).length, 0);
+  const labelMoved = payLabel_({ sheet: "ПП", slot: 1, deliveriesN: 2, paid: "no", orderPrice: 140, payMoved: "pp2" });
+  assert.equal(labelMoved.text, "перенесено на доставку 2");
+  const labelDue = payLabel_({ sheet: "ПП", slot: 2, deliveriesN: 2, paid: "", orderPrice: 140, payDue: 140 });
+  assert.equal(labelDue.text, "к оплате на доставке 2: 140 BYN");
+  assert.equal(payLabel_({ sheet: "ПП", slot: 1, deliveriesN: 2, paid: "no", orderPrice: 140 }).text, "Не оплачено. К оплате 140 BYN");
+  assert.equal(payLabel_({ sheet: "ПП", slot: 2, deliveriesN: 2, paid: "", orderPrice: 140 }).role, "free");
   assert.equal(payLabel_({ sheet: "ПП", slot: 1, deliveriesN: 2, paid: "yes", orderPrice: 140 }).text, "Оплачено");
   assert.equal(pairRole_({ sheet: "ПП", slot: 1, deliveriesN: 2 }), "платная");
   assert.equal(pairRole_({ sheet: "ПП", slot: 2, deliveriesN: 2 }), "бесплатная");
+  assert.equal(pairRole_({ sheet: "ПП", slot: 2, deliveriesN: 2, payDue: 140 }), "");
   assert.equal(deliveryType_({ sheet: "Р", slot: 1 }), "ДОМ");
   assert.equal(deliveryType_({ sheet: "БП" }), "БП");
   assert.equal(deliveryType_({ sheet: "ПП", ppSlot: "2/2", deliveriesN: 2 }), "ПП2");
+  assert.equal(planPpPayMove_([{ id: "r", date: "2026-10-03", matchKey: "R", segment: "Р", slot: 1, paid: "no", orderPrice: 9 }]).patches.length, 0);
+  const wide = planPpPayMove_([
+    { id: "w1", date: "2026-10-01", matchKey: "REX", client: "Рекс", segment: "ПП", ppSlot: "1/2", paid: "no", orderPrice: 50 },
+    { id: "w2", date: "2026-10-21", matchKey: "REX", client: "Рекс", segment: "ПП", ppSlot: "2/2", paid: "", orderPrice: 50 }
+  ]);
+  assert.equal(wide.notify.length, 0);
+  assert.equal(wide.patches.find((p) => p.id === "w2").set.payDue, 50);
 });
 
 test("перенос в день доставки только просьба, за сутки применяется", () => {
