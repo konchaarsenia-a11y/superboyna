@@ -705,6 +705,7 @@
         : '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус")) +
       '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
       (c.sheet === "ПП" ? '<p class="b-note" id="cxDelivLine">' + esc(delivLine(c.deliveries)) + "</p>" : "") +
+      // publicId не заменяет subId: код выдаётся один раз и остаётся при смене ника и листа.
       '<p class="b-lbl">Код</p><p class="b-note">' + esc(c.publicId || "—") + "</p>" +
       '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
     if (c.sheet === "БП") {
