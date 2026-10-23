@@ -111,7 +111,7 @@
     if (acc) access = acc;
     var list = [];
     if (canSubs()) {
-      // cabinet-login-h1: заявки новых клиентов, внутренний ID только для команды
+      // cabinet-login-h1: заявки новых клиентов, внутренний ID только для команды. live v71125407.
       list.push({ id: "pp", label: "ПП" }, { id: "afk", label: "АФК" }, { id: "bp", label: "БП" }, { id: "survey", label: "Опросник" }, { id: "leads", label: "Заявки" });
     }
     access = prev || access;
