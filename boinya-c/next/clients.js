@@ -689,7 +689,8 @@
       '<p class="b-lbl">Адрес</p>' + field("cxAddress", c.addrStreet, "Адрес") +
       '<p class="b-lbl">Подъезд</p>' + field("cxEnt", c.addrEntrance, "Подъезд") +
       '<p class="b-lbl">Этаж</p>' + field("cxFl", c.addrFloor, "Этаж") +
-      '<p class="b-lbl">Квартира</p>' + field("cxApt", c.addrFlat, "Квартира");
+      '<p class="b-lbl">Квартира</p>' + field("cxApt", c.addrFlat, "Квартира") +
+      '<p class="b-lbl">Код домофона</p>' + field("cxDoor", c.doorCode, "Код");
     if (c.sheet === "БП") {
       clientFields += '<p class="b-lbl">Менеджер</p><label class="b-field"><select class="b-field__input" id="cxOwner" data-k="cxOwner">' + ownerOptions(c.ownerTelegramId) + "</select></label>";
     }
@@ -704,6 +705,7 @@
         : '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус")) +
       '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
       (c.sheet === "ПП" ? '<p class="b-note" id="cxDelivLine">' + esc(delivLine(c.deliveries)) + "</p>" : "") +
+      '<p class="b-lbl">Код</p><p class="b-note">' + esc(c.publicId || "—") + "</p>" +
       '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
     if (c.sheet === "БП") {
       var wkLab = W() ? W().statusLabel(c.bpWeeks, c.bpOutcome) : "";
@@ -962,6 +964,7 @@
     if (k === "cxEnt" && card) { card.addrEntrance = v; joinAddr(); }
     if (k === "cxFl" && card) { card.addrFloor = v; joinAddr(); }
     if (k === "cxApt" && card) { card.addrFlat = v; joinAddr(); }
+    if (k === "cxDoor" && card) card.doorCode = v;
     if (k === "cxPhone" && card) card.phone = v;
     if (k === "cxStated" && card) { card.statedCost = v; card.statedTouched = true; }
     if (k === "cxSv2" && card) card.surveyBp2Due = v;
@@ -1514,6 +1517,7 @@
       wishes: wishes,
       address: card.address || "",
       phone: card.phone || "",
+      doorCode: card.doorCode || "",
       note: wishes,
       geo: card.serviceGeo || null,
       factCost: card.sheet === "ПП" ? (card.statedCost || "") : (card.factCost || ""),

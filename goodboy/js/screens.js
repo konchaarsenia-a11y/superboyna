@@ -156,6 +156,7 @@
 
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">Ваш аккаунт</h3>" +
+        "<div class=\"cabinet-kv\"><span>Код</span><strong>" + esc((st.cabinet && st.cabinet.publicId) || "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Имя</span><strong>" + esc(user.name || "Гость") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Telegram</span><strong>" + esc(user.username ? "@" + user.username : "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
@@ -210,6 +211,13 @@
     );
   }
 
+  function lineText(it) {
+    var name = (it && (it.name || it.main)) || "Позиция";
+    var grams = it && (it.grams != null ? it.grams : (it.val != null ? it.val : it.value));
+    var unit = (it && it.unit) || "г";
+    return name + (grams != null && grams !== "" ? " · " + grams + " " + unit : "");
+  }
+
   function renderSubscriptionPage(st) {
     var access = currentAccess(st);
     if (access === "limited" || access === "city") {
@@ -222,46 +230,70 @@
         "</div>"
       );
     }
-    var sub = st.subscription || {};
-    var link = st.link || {};
-    var linked = link.status === "linked";
-    var items = (sub.basket && sub.basket.length)
-      ? sub.basket.map(function (b) {
-          return (b.name || b.main || "Позиция") + (b.val || b.value ? " · " + (b.val || b.value) + (b.unit || " г") : "");
-        })
-      : ["Лёгкое говяжье · 100 г", "Рубец · 80 г", "Треска сушёная · 60 г"];
-    var badge = linked && sub.status === "active" ? "в пути" : (linked ? esc(sub.status || "активна") : "не привязана");
-    var when = linked
-      ? esc(sub.nextDateLabel || sub.nextDate || "Дата уточняется") + (link.address || sub.address ? " · " + esc(link.address || sub.address) : "")
-      : "Привяжите заказ — покажем дату и состав";
-    var progress = linked ? 78 : 12;
-
+    var cab = st.cabinet || {};
+    var linked = !!cab.linked || (st.link && st.link.status === "linked");
+    var deliveries = cab.deliveries || [];
+    var nearest = null;
+    deliveries.forEach(function (d) { if (d.nearest) nearest = d; });
+    if (!nearest && deliveries.length) nearest = deliveries[0];
+    var dogs = (cab.dogs || []).map(function (d) { return d.name; }).filter(Boolean).join(", ");
+    var addr = cab.address || {};
+    var cards = deliveries.map(function (d) {
+      var lines = (d.lines || []).map(function (it) { return "<span>" + esc(lineText(it)) + "</span>"; }).join("");
+      return (
+        "<div class=\"ps-card ps-card--rich cabinet-sub-card\">" +
+          "<div class=\"ps-row\"><strong>" + esc(d.date || "Дата") + "</strong><em class=\"ps-badge\">" + esc(d.type || "") + "</em></div>" +
+          (d.pair ? "<span>" + esc(d.pair) + "</span>" : "") +
+          (dogs ? "<span>Собаки: " + esc(dogs) + "</span>" : "") +
+          "<span>" + esc(d.address || addr.line || "") + "</span>" +
+          "<div class=\"ps-list\">" + (lines || "<span>Состав пуст</span>") + "</div>" +
+          (d.payText ? "<strong>" + esc(d.payText) + "</strong>" : "") +
+        "</div>"
+      );
+    }).join("");
+    var editLines = nearest && nearest.lines ? nearest.lines.map(lineText).join("\n") : "";
+    var warn = st.stockWarn ? "<p class=\"cabinet-hint\">" + esc(st.stockWarn) + "</p>" : "";
     return (
       "<div class=\"cabinet-block\">" +
-        "<div class=\"ps-card ps-card--rich cabinet-sub-card\">" +
-          "<div class=\"ps-row\"><strong>Месячный набор</strong><em class=\"ps-badge\">" + badge + "</em></div>" +
-          "<span>" + when + "</span>" +
-          "<div class=\"ps-bar\"><i style=\"--w:" + progress + "%\"></i></div>" +
-          "<div class=\"ps-list\">" + items.map(function (line) {
-            return "<span>" + esc(line) + "</span>";
-          }).join("") + "</div>" +
-        "</div>" +
-        (linked
-          ? "<div class=\"ps-tip\"><b>Осталось 8 дней</b><span>Следующий набор соберём автоматически&nbsp;— можно поменять состав до&nbsp;среды.</span></div>"
-          : "<p class=\"cabinet-hint\">Введите телефон или ник из заказа Бойни.</p>") +
+        "<div class=\"cabinet-kv\"><span>Код</span><strong>" + esc(cab.publicId || "—") + "</strong></div>" +
+        "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(cab.nick || (st.link && st.link.clientNick) || "—") + "</strong></div>" +
+        (cards || "<p class=\"cabinet-hint\">" + (linked ? "В этом месяце доставок нет." : "Привяжите клиента по коду, нику или телефону.") + "</p>") +
       "</div>" +
-
+      (linked && nearest
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Состав и дата</h3>" + warn +
+            "<form id=\"orderForm\" class=\"cabinet-form\">" +
+              "<input type=\"hidden\" id=\"orderId\" value=\"" + esc(nearest.id || "") + "\" />" +
+              "<div class=\"field\"><label>Состав, строка = название и граммы</label><textarea id=\"orderBasket\" rows=\"4\">" + esc(editLines) + "</textarea></div>" +
+              "<div class=\"field\"><label>Дата</label><input id=\"orderDate\" type=\"date\" value=\"" + esc(nearest.date || "") + "\" /></div>" +
+              "<label class=\"cabinet-hint\"><input id=\"confirmOnly\" type=\"checkbox\" /> Только после подтверждения</label>" +
+              "<button type=\"submit\" class=\"btn\">Сохранить заказ</button>" +
+              (st.stockWarn ? "<button type=\"button\" class=\"btn btn-ghost\" id=\"keepMissing\" style=\"margin-top:8px;\">Оставить своё изменение</button>" : "") +
+            "</form></div>" +
+          "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Адрес</h3>" +
+            "<form id=\"addrForm\" class=\"cabinet-form\">" +
+              "<div class=\"field\"><label>Улица и дом</label><input id=\"addrStreet\" value=\"" + esc(addr.street || "") + "\" /></div>" +
+              "<div class=\"field-row\">" +
+                "<div class=\"field\"><label>Подъезд</label><input id=\"addrEntrance\" value=\"" + esc(addr.entrance || "") + "\" /></div>" +
+                "<div class=\"field\"><label>Код домофона</label><input id=\"addrDoor\" value=\"" + esc(addr.doorCode || "") + "\" /></div>" +
+              "</div>" +
+              "<div class=\"field-row\">" +
+                "<div class=\"field\"><label>Этаж</label><input id=\"addrFloor\" value=\"" + esc(addr.floor || "") + "\" /></div>" +
+                "<div class=\"field\"><label>Квартира</label><input id=\"addrFlat\" value=\"" + esc(addr.flat || "") + "\" /></div>" +
+              "</div>" +
+              "<button type=\"submit\" class=\"btn\">Сохранить адрес</button>" +
+            "</form></div>"
+        : "") +
+      (linked
+        ? "<div class=\"cabinet-block\"><button type=\"button\" class=\"btn btn-ghost\" id=\"pauseSub\">Пауза</button>" +
+            "<p class=\"cabinet-hint\">Будущий заказ снимется, подписка уйдёт в АФК.</p></div>"
+        : "") +
       "<div class=\"cabinet-block\">" +
-        "<h3 class=\"cabinet-block-title\">" + (linked ? "Детали подписки" : "Привязать заказ") + "</h3>" +
-        (linked
-          ? "<div class=\"cabinet-kv\"><span>Сегмент</span><strong>" + esc(sub.segment || "—") + "</strong></div>" +
-            "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(link.clientNick || "—") + "</strong></div>" +
-            "<div class=\"cabinet-kv\"><span>Адрес</span><strong>" + esc(link.address || sub.address || "—") + "</strong></div>"
-          : "") +
+        "<h3 class=\"cabinet-block-title\">Привязать</h3>" +
         "<form id=\"linkForm\" class=\"cabinet-form\">" +
+          "<div class=\"field\"><label>Код</label><input id=\"linkId\" name=\"publicId\" placeholder=\"ПП01\" autocomplete=\"off\" /></div>" +
+          "<div class=\"field\"><label>Ник</label><input id=\"linkNick\" name=\"nick\" placeholder=\"@nick\" autocomplete=\"off\" /></div>" +
           "<div class=\"field\"><label>Телефон</label><input id=\"linkPhone\" name=\"phone\" placeholder=\"+375…\" inputmode=\"tel\" autocomplete=\"tel\" /></div>" +
-          "<div class=\"field\"><label>Ник / Instagram</label><input id=\"linkNick\" name=\"nick\" placeholder=\"@nick\" autocomplete=\"off\" /></div>" +
-          "<button type=\"submit\" class=\"btn\">" + (linked ? "Обновить привязку" : "Найти и привязать") + "</button>" +
+          "<button type=\"submit\" class=\"btn\">Найти</button>" +
         "</form>" +
       "</div>"
     );

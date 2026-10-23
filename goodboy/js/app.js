@@ -86,21 +86,13 @@
       applyBootstrap(opts.bootstrap, { user: user });
       showCabinet();
       if (opts.needsLink && (user.phone || user.username) && !(opts.bootstrap.link && opts.bootstrap.link.status === "linked" && opts.bootstrap.link.segment)) {
-        GBApi.get({
-          action: "gbLinkClient",
-          telegramId: user.telegramId || "",
+        GBApi.postJson(cabinetAuth({
+          action: "gbCabinetLink",
           phone: user.phone || "",
           nick: user.username || ""
-        }).then(function (linkRes) {
-          if (linkRes && linkRes.status === "success") {
-            GBStore.set({
-              link: linkRes.link || null,
-              subscription: linkRes.subscription || GBStore.get().subscription,
-              privilege: linkRes.privilege || GBStore.get().privilege,
-              access: (linkRes.user && linkRes.user.access) || GBStore.get().access
-            });
-            GBUI.render();
-          }
+        })).then(function (linkRes) {
+          if (linkRes && linkRes.status === "success") applyCabinet(linkRes);
+          else if (linkRes && linkRes.message) GBUI.toast(linkRes.message);
         });
       }
       return;
@@ -154,29 +146,96 @@
         throw new Error((res && res.message) || "gbMe failed");
       }
       applyBootstrap(res, { user: user });
+      refreshCabinet();
       if (opts.needsLink && (user.phone || user.username)) {
-        return GBApi.get({
-          action: "gbLinkClient",
-          telegramId: user.telegramId || "",
+        return GBApi.postJson(cabinetAuth({
+          action: "gbCabinetLink",
           phone: user.phone || "",
           nick: user.username || ""
-        }).then(function (linkRes) {
+        })).then(function (linkRes) {
           if (linkRes && linkRes.status === "success") {
-            GBStore.set({
-              link: linkRes.link || null,
-              subscription: linkRes.subscription || GBStore.get().subscription,
-              privilege: linkRes.privilege || GBStore.get().privilege
-            });
-            GBUI.render();
+            applyCabinet(linkRes);
             GBUI.toast(linkRes.link && linkRes.link.clientNick
               ? "Подписка: " + linkRes.link.clientNick
               : "Вход выполнен");
-          }
+          } else if (linkRes && linkRes.message) GBUI.toast(linkRes.message);
         });
       }
     }).catch(function (err) {
       GBStore.set({ bootError: String(err && err.message || err) });
       GBUI.toast("Не удалось загрузить кабинет");
+    });
+  }
+
+  function cabinetAuth(extra) {
+    var body = Object.assign({}, extra || {});
+    var init = rawInitData();
+    if (init) body.initData = init;
+    else {
+      var st = GBStore.get();
+      body.telegramId = (st.user && st.user.telegramId) || "";
+    }
+    return body;
+  }
+
+  function applyCabinet(res) {
+    if (!res || (res.status !== "success" && res.status !== "warn")) return;
+    var patch = { cabinet: res.status === "success" ? res : (GBStore.get().cabinet || null) };
+    if (res.link) patch.link = res.link;
+    if (res.dogs && res.dogs.length) {
+      var pets = (GBStore.get().pets || []).slice();
+      res.dogs.forEach(function (d, i) {
+        if (!d || !d.name) return;
+        if (pets[i]) pets[i] = Object.assign({}, pets[i], { name: d.name });
+        else pets.push({ id: "dog_" + d.slot, name: d.name });
+      });
+      patch.pets = pets;
+      if (!GBStore.get().activePetId && pets[0]) patch.activePetId = pets[0].id;
+    }
+    if (res.status === "warn") patch.stockWarn = res.message || "";
+    else patch.stockWarn = "";
+    GBStore.set(patch);
+    GBUI.render();
+  }
+
+  function refreshCabinet() {
+    return GBApi.postJson(cabinetAuth({ action: "gbCabinet" })).then(function (res) {
+      if (res && res.status === "success") applyCabinet(res);
+    }).catch(function () {});
+  }
+
+  function parseBasketLines(text) {
+    return String(text || "").split(/\n/).map(function (line) {
+      var raw = String(line || "").trim();
+      if (!raw) return null;
+      var m = raw.match(/^(.*?)(?:\s·\s|\s+)(\d+(?:[.,]\d+)?)\s*(г|гр|шт)?\s*$/i);
+      if (!m) return { name: raw, grams: "", unit: "г" };
+      return { name: m[1].trim(), grams: Number(String(m[2]).replace(",", ".")), unit: /шт/i.test(m[3] || "") ? "шт" : "г" };
+    }).filter(Boolean);
+  }
+
+  function saveCabinetOrder(extra) {
+    var basket = parseBasketLines((document.getElementById("orderBasket") || {}).value || "");
+    var body = cabinetAuth(Object.assign({
+      action: "gbCabinetSave",
+      orderId: (document.getElementById("orderId") || {}).value || "",
+      newDate: (document.getElementById("orderDate") || {}).value || "",
+      basketJson: JSON.stringify(basket),
+      confirmOnly: (document.getElementById("confirmOnly") || {}).checked ? "1" : "0"
+    }, extra || {}));
+    return GBApi.postJson(body).then(function (res) {
+      if (res && res.status === "warn") {
+        GBStore.set({ stockWarn: res.message || "" });
+        GBUI.render();
+        GBUI.toast(res.message || "Позиции сейчас нет");
+        return;
+      }
+      if (!res || res.status !== "success") {
+        GBUI.toast((res && res.message) || "Не сохранилось");
+        return;
+      }
+      applyCabinet(res);
+      GBUI.toast(res.message || (res.applied === false ? "менеджер свяжется с вами" : "Сохранено"));
     });
   }
 
@@ -213,7 +272,10 @@
       action: "gbTelegramEnter",
       initData: rawInitData()
     }).then(function (res) {
-      if (enterFromPayload(res)) return;
+      if (enterFromPayload(res)) {
+      refreshCabinet();
+      return;
+    }
       showBotLogin(res);
     }).catch(function () {
       showBotLogin({ message: "Не удалось войти" });
@@ -286,8 +348,9 @@
     ev.preventDefault();
     var phone = String((document.getElementById("linkPhone") || {}).value || "").trim();
     var nick = String((document.getElementById("linkNick") || {}).value || "").trim();
-    if (!phone && !nick) {
-      GBUI.toast("Укажите телефон или ник");
+    var publicId = String((document.getElementById("linkId") || {}).value || "").trim();
+    if (!phone && !nick && !publicId) {
+      GBUI.toast("Укажите код, ник или телефон");
       return;
     }
     var st = GBStore.get();
@@ -296,23 +359,18 @@
       btn.disabled = true;
       btn.textContent = "Ищем…";
     }
-    GBApi.get({
-      action: "gbLinkClient",
-      telegramId: (st.user && st.user.telegramId) || "",
+    GBApi.postJson(cabinetAuth({
+      action: "gbCabinetLink",
       phone: phone,
-      nick: nick
-    }).then(function (res) {
+      nick: nick,
+      publicId: publicId
+    })).then(function (res) {
       if (!res || res.status !== "success") {
         GBUI.toast((res && res.message) || "Клиент не найден");
         return;
       }
-      GBStore.set({
-        link: res.link || null,
-        subscription: res.subscription || st.subscription,
-        privilege: res.privilege || st.privilege,
-        user: Object.assign({}, st.user, { phone: phone || (st.user && st.user.phone) || "" })
-      });
-      GBUI.render();
+      applyCabinet(res);
+      GBStore.set({ user: Object.assign({}, st.user, { phone: phone || (st.user && st.user.phone) || "" }) });
       GBUI.toast(res.link && res.link.clientNick ? "Привязано: " + res.link.clientNick : "Привязка обновлена");
     }).finally(function () {
       if (btn) {
@@ -544,12 +602,49 @@
       }
       if (e.target.id === "lockGoLogin" || e.target.closest("#lockGoLogin")) {
         doLogout({ view: "login", silent: true });
+        return;
+      }
+      if (e.target.id === "pauseSub" || e.target.closest("#pauseSub")) {
+        GBApi.postJson(cabinetAuth({ action: "gbCabinetPause" })).then(function (res) {
+          if (!res || res.status !== "success") {
+            GBUI.toast((res && res.message) || "Пауза не записалась");
+            return;
+          }
+          applyCabinet(res);
+          GBUI.toast("Пауза записана");
+        });
+        return;
+      }
+      if (e.target.id === "keepMissing" || e.target.closest("#keepMissing")) {
+        saveCabinetOrder({ keepMissing: "1" });
       }
     });
 
     root.addEventListener("submit", function (e) {
       if (e.target && e.target.id === "petForm") savePetFromForm(e);
       if (e.target && e.target.id === "linkForm") linkByPhone(e);
+      if (e.target && e.target.id === "orderForm") {
+        e.preventDefault();
+        saveCabinetOrder();
+      }
+      if (e.target && e.target.id === "addrForm") {
+        e.preventDefault();
+        GBApi.postJson(cabinetAuth({
+          action: "gbCabinetSave",
+          street: (document.getElementById("addrStreet") || {}).value || "",
+          entrance: (document.getElementById("addrEntrance") || {}).value || "",
+          doorCode: (document.getElementById("addrDoor") || {}).value || "",
+          floor: (document.getElementById("addrFloor") || {}).value || "",
+          flat: (document.getElementById("addrFlat") || {}).value || ""
+        })).then(function (res) {
+          if (!res || res.status !== "success") {
+            GBUI.toast((res && res.message) || "Адрес не записался");
+            return;
+          }
+          applyCabinet(res);
+          GBUI.toast("Адрес сохранён");
+        });
+      }
     });
   }
 

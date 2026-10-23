@@ -26,6 +26,23 @@ import {
 } from "./klient-hook.js";
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
+import {
+  composeAddress_,
+  deliveryType_,
+  dogPair_,
+  exactClientHits_,
+  monthWindow_,
+  moveDecision_,
+  orderFingerprint_,
+  pairRole_,
+  parseAddress_,
+  pausePlan_,
+  payLabel_,
+  planPublicIds_,
+  stockDecision_,
+  subFingerprint_,
+  waitNote_
+} from "./cabinet-link.js";
 
 /**
  * Бойня C — Worker + D1.
@@ -1506,7 +1523,7 @@ function isWriteAction_(a) {
     return false;
   }
   // Goodboy writes
-  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets|gbTelegramEnter|gbBindTelegram|gbTelegramRegister)$/i.test(a)) return true;
+  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets|gbTelegramEnter|gbBindTelegram|gbTelegramRegister|gbCabinet|gbCabinetSave|gbCabinetPause|gbCabinetLink)$/i.test(a)) return true;
   return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|restore|undelete|report|log|partner|force|place|submit|apply)/i.test(
     a
   );
@@ -20117,11 +20134,12 @@ async function handleCutover_(a, params, env, ctx) {
         action: a
       });
     }
-    if (/^(gbTelegramEnter|gbBindTelegram|gbTelegramRegister)$/i.test(a)) {
+    if (/^(gbTelegramEnter|gbBindTelegram|gbTelegramRegister|gbCabinet|gbCabinetSave|gbCabinetPause|gbCabinetLink)$/i.test(a)) {
       let d1K = null;
       try {
-        if (env && env.DB) d1K = await mutateGbD1_(a, params, env);
-        else d1K = { status: "error", message: "no_d1" };
+        if (env && env.DB) {
+          d1K = /^gbCabinet/i.test(a) ? await handleGbCabinet_(a, params, env) : await mutateGbD1_(a, params, env);
+        } else d1K = { status: "error", message: "no_d1" };
       } catch (eK) {
         d1K = { status: "error", message: String((eK && eK.message) || eK) };
       }
@@ -25662,6 +25680,7 @@ async function upsertSubscription_(params, env) {
   if (isMoveEarly) {
     const plan = subscriptionMovePlan_(arr, params);
     if (plan.error) return { status: "error", message: plan.error, wrote: 0 };
+    try { await gbAssignPublicId_(env, plan.row); } catch (ePidMove) {}
     list.subscriptions = plan.subscriptions;
     list.count = plan.subscriptions.length;
     list.status = "success";
@@ -25683,6 +25702,7 @@ async function upsertSubscription_(params, env) {
       nick: plan.row.nick,
       label: plan.row.label,
       subId: plan.row.subId || "",
+      publicId: plan.row.publicId || "",
       sheet: plan.row.sheet,
       d1Verified: true
     };
@@ -25697,6 +25717,7 @@ async function upsertSubscription_(params, env) {
   const subId = plan.subId;
   const idx = plan.idx;
   const renamed = plan.renamed;
+  const prevRow = idx >= 0 ? Object.assign({}, arr[idx]) : null;
   const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
   if (row.wishes) {
     const peeledSave = peelServiceCoords_(row.wishes);
@@ -25716,6 +25737,10 @@ async function upsertSubscription_(params, env) {
   delete row.prevNick;
   delete row.prevLabel;
   delete row.rename;
+  delete row._skipDogPush;
+  delete row._skipAddrPush;
+  delete row.confirmOnly;
+  delete row.keepMissing;
   const oldNick = idx >= 0 && arr[idx] ? arr[idx].nick : "";
   const oldLabel = idx >= 0 && arr[idx] ? arr[idx].label : "";
   const identSave = renamed
@@ -25746,6 +25771,7 @@ async function upsertSubscription_(params, env) {
     row.calcFactCost = row.factCost;
   }
   sanitizeRaw26CalcFactCost_(row);
+  try { await gbAssignPublicId_(env, row); } catch (ePid) {}
   row._d1Detail = true;
   row._savedAt = Date.now();
   if (idx >= 0) arr[idx] = row;
@@ -25764,6 +25790,21 @@ async function upsertSubscription_(params, env) {
   list.count = collapsedSave.length;
   list.status = "success";
   await putSnap_(env, "listSubscriptions", list);
+  try {
+    if (!toBool_(params._skipDogPush) && params.dogName != null) {
+      const was = String((prevRow && prevRow.dogName) || "");
+      if (was !== String(row.dogName || "")) await gbPushDogs_(env, row, null, { skipSub: true });
+    }
+  } catch (eDogPush) {}
+  try {
+    if (!toBool_(params._skipAddrPush) && (params.address != null || params.doorCode != null)) {
+      const wasAddr = String((prevRow && prevRow.address) || "");
+      const wasDoor = String((prevRow && prevRow.doorCode) || "");
+      if (wasAddr !== String(row.address || "") || wasDoor !== String(row.doorCode || "")) {
+        await gbPushAddress_(env, row, { skipSub: true });
+      }
+    }
+  } catch (eAddrPush) {}
   if (renamed) {
     try {
       await renameSubscriptionNickSides_(env, plan.prevNick || oldNick, row.nick);
@@ -25777,6 +25818,7 @@ async function upsertSubscription_(params, env) {
     nick: row.nick,
     label: row.label,
     subId: row.subId || "",
+    publicId: row.publicId || "",
     sheet: row.sheet,
     deliveries: row.deliveries,
     statusText: row.status || row.stage || "",
@@ -33030,6 +33072,730 @@ async function gbKlientVerified_(params, env) {
   };
 }
 
+async function gbAssignPublicId_(env, row) {
+  if (!row) return "";
+  const map = (await getSnapRaw_(env, "clientPublicIds")) || { bySub: {}, byKey: {}, seq: {} };
+  const subId = String(row.subId || row.id || "");
+  const mk = normalizeMatchKey_(row.matchKey || row.match_key || row.nick || "");
+  const one = [{
+    subId: subId,
+    matchKey: mk,
+    sheet: row.sheet || row.segment || "",
+    nick: row.nick || "",
+    publicId: String(row.publicId || "")
+  }];
+  const planned = planPublicIds_(one, map);
+  const id = (planned.subscriptions[0] && planned.subscriptions[0].publicId) || "";
+  if (id) row.publicId = id;
+  try { await putSnap_(env, "clientPublicIds", planned.map); } catch (eMap) {}
+  return id;
+}
+
+async function gbSubs_(env) {
+  const snap = await getSnapRaw_(env, "listSubscriptions");
+  return (snap && (snap.subscriptions || snap.items || snap.list)) || [];
+}
+
+async function gbActor_(params, env) {
+  const initData = String((params && (params.initData || params.init_data)) || "").trim();
+  if (initData) {
+    const v = await gbKlientVerified_(params, env);
+    if (!v.ok) return { ok: false, status: "error", message: v.message, code: v.code };
+    return { ok: true, tid: v.tid };
+  }
+  const tid = String((params && params.telegramId) || "").trim();
+  if (!tid) return { ok: false, status: "error", message: "need_telegramId" };
+  return { ok: true, tid: tid };
+}
+
+function gbLinkOf_(pack, tid) {
+  const id = String(tid || "");
+  const links = (pack && pack.links) || [];
+  for (let i = 0; i < links.length; i++) {
+    if (String(links[i].telegramId || "") === id && links[i].status !== "unlinked") return links[i];
+  }
+  return null;
+}
+
+function gbSubForLink_(subs, link) {
+  if (!link) return null;
+  const sid = String(link.subId || "");
+  const mk = String(link.matchKey || "");
+  let hit = null;
+  for (let i = 0; i < (subs || []).length; i++) {
+    const s = subs[i] || {};
+    if (sid && String(s.subId || s.id || "") === sid) return s;
+    const smk = String(s.matchKey || normalizeMatchKey_(s.nick || s.client || ""));
+    if (mk && smk === mk) hit = s;
+  }
+  return hit;
+}
+
+async function gbOrderRows_(env, mk, client) {
+  if (!env || !env.DB || !mk) return [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?) ORDER BY date_iso"
+    )
+      .bind(mk, String(client || "").trim().toLowerCase())
+      .all();
+    return (q && q.results) || [];
+  } catch (eQ) {
+    return [];
+  }
+}
+
+async function gbClientRow_(env, mk) {
+  if (!env || !env.DB || !mk) return null;
+  try {
+    return await env.DB.prepare(
+      "SELECT nick, phone, address, dogs_json, note FROM clients WHERE match_key = ? LIMIT 1"
+    ).bind(mk).first();
+  } catch (eC) {
+    return null;
+  }
+}
+
+async function gbStockRows_(env) {
+  if (!env || !env.DB) return [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT name, dry_g, raw_kg FROM stock_items LIMIT 400"
+    ).all();
+    return (q && q.results) || [];
+  } catch (eS) {
+    return [];
+  }
+}
+
+function gbSameClient_(row, mk, nick) {
+  if (!row) return false;
+  const keys = [
+    String(row.match_key || ""),
+    String(row.matchKey || ""),
+    normalizeMatchKey_(row.nick || ""),
+    normalizeMatchKey_(row.client || "")
+  ];
+  if (mk && keys.indexOf(mk) >= 0) return true;
+  if (nick && String(row.nick || row.client || "").trim().toLowerCase() === String(nick).trim().toLowerCase()) return true;
+  return false;
+}
+
+async function gbPrintOthers_(env, mk, nick) {
+  let orders = [];
+  let subs = [];
+  try {
+    const q = await env.DB.prepare("SELECT id, match_key, client, status, updated_at FROM orders").all();
+    orders = ((q && q.results) || []).filter(function (r) { return !gbSameClient_(r, mk, nick); });
+  } catch (eO) {}
+  try {
+    const q2 = await env.DB.prepare("SELECT id, nick, sheet, status, match_key FROM subs").all();
+    subs = ((q2 && q2.results) || []).filter(function (r) { return !gbSameClient_(r, mk, nick); });
+  } catch (eS) {}
+  return { orders: orderFingerprint_(orders), subs: subFingerprint_(subs) };
+}
+
+async function gbBackupClient_(env, mk, nick) {
+  const orders = await gbOrderRows_(env, mk, nick);
+  const list = await getSnapRaw_(env, "listSubscriptions");
+  const prints = await gbPrintOthers_(env, mk, nick);
+  const key = "cabinetWriteBackup:" + mk + ":" + Date.now();
+  await putSnap_(env, key, {
+    matchKey: mk,
+    nick: nick || "",
+    orders: orders,
+    list: list,
+    prints: prints
+  });
+  return { key: key, orders: orders, list: list, prints: prints };
+}
+
+async function gbRestoreClient_(env, backup) {
+  if (!backup) return;
+  const rows = backup.orders || [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !row.id) continue;
+    try {
+      await env.DB.prepare(
+        "INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+          "ON CONFLICT(id) DO UPDATE SET date_iso=excluded.date_iso, day_name=excluded.day_name, client=excluded.client, " +
+          "match_key=excluded.match_key, address=excluded.address, note=excluded.note, phone=excluded.phone, " +
+          "basket_json=excluded.basket_json, segment=excluded.segment, source=excluded.source, status=excluded.status, " +
+          "updated_at=excluded.updated_at, meta_json=excluded.meta_json"
+      )
+        .bind(
+          row.id, row.date_iso || "", row.day_name || "", row.client || "", row.match_key || "",
+          row.address || "", row.note || "", row.phone || "", row.basket_json || "[]",
+          row.segment || "", row.source || "", row.status || "active", row.updated_at || "",
+          row.meta_json || "{}"
+        )
+        .run();
+    } catch (eR) {}
+  }
+  if (backup.list) {
+    try { await putSnap_(env, "listSubscriptions", backup.list); } catch (eL) {}
+  }
+}
+
+async function gbCheckPrints_(env, backup, mk, nick) {
+  const now = await gbPrintOthers_(env, mk, nick);
+  const prev = (backup && backup.prints) || { orders: "", subs: "" };
+  if (now.orders === prev.orders && now.subs === prev.subs) return { ok: true };
+  await gbRestoreClient_(env, backup);
+  return { ok: false, message: "сверка не сошлась, изменения возвращены" };
+}
+
+async function gbStaffNotify_(env, text) {
+  let ids = [];
+  try { ids = await notifyRecipientsWorker_(env, "date_nudge", [], {}); } catch (eN) { ids = []; }
+  if (!Array.isArray(ids)) ids = [];
+  try { ids = await appendNotifyGroup_(env, ids); } catch (eG) {}
+  const seen = Object.create(null);
+  for (let i = 0; i < (ids || []).length; i++) {
+    const id = String(ids[i] || "");
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    try { await telegramSendTextWorker_(env, id, text); } catch (eS) {}
+  }
+}
+
+function gbLines_(raw) {
+  return parseBasket_(raw).map(function (it) {
+    const name = String((it && (it.name || it.main)) || "").trim();
+    const grams = it && it.val != null ? it.val : (it && it.value);
+    return { name: name, grams: grams == null ? "" : grams, unit: (it && it.unit) || "г" };
+  }).filter(function (it) { return it.name; });
+}
+
+function gbTextLines_(lines) {
+  return (lines || []).map(function (it) {
+    const g = it.grams == null || it.grams === "" ? "" : " " + it.grams + " " + (it.unit || "г");
+    return it.name + g;
+  }).join(", ");
+}
+
+async function gbSaveExistingOrder_(env, row, patch) {
+  const meta = parseMeta_(row.meta_json);
+  patch = patch || {};
+  const basket = patch.basket != null ? patch.basket : parseBasket_(row.basket_json);
+  return saveOrder_({
+    client: row.client,
+    matchKey: row.match_key,
+    date: patch.date || row.date_iso,
+    day: row.day_name || "",
+    isEdit: "1",
+    oldDate: row.date_iso,
+    oldDay: row.day_name || "",
+    basket: JSON.stringify(basket),
+    address: patch.address != null ? patch.address : (row.address || ""),
+    note: patch.note != null ? patch.note : (row.note || ""),
+    phone: row.phone || "",
+    segment: row.segment || "",
+    source: row.source || "",
+    orderPrice: meta.orderPrice,
+    ppSlot: meta.ppSlot,
+    deliverySlot: meta.deliverySlot,
+    deliveriesN: meta.deliveriesN,
+    dogCount: meta.dogCount,
+    dogNames: patch.dogNames || meta.dogNames || null,
+    entrance: patch.entrance != null ? patch.entrance : meta.entrance,
+    doorCode: patch.doorCode != null ? patch.doorCode : meta.doorCode,
+    floor: patch.floor != null ? patch.floor : meta.floor,
+    flat: patch.flat != null ? patch.flat : meta.flat,
+    noCut: meta.noCut ? "1" : "",
+    cutRaw: meta.noCut ? "0" : "1"
+  }, env, false);
+}
+
+async function gbFutureOrders_(env, mk, nick, today, includeToday) {
+  const rows = await gbOrderRows_(env, mk, nick);
+  return rows.filter(function (r) {
+    const d = String(r.date_iso || "");
+    if (!d || !today) return false;
+    return includeToday ? d >= today : d > today;
+  });
+}
+
+async function gbPushAddress_(env, sub, opts) {
+  opts = opts || {};
+  const mk = normalizeMatchKey_((sub && (sub.matchKey || sub.nick)) || "");
+  const nick = String((sub && sub.nick) || "");
+  if (!mk) return;
+  const parts = parseAddress_(sub.address || "");
+  const street = sub.addrStreet || sub.street || parts.street;
+  const entrance = sub.entrance || sub.addrEntrance || parts.entrance;
+  const floor = sub.floor || sub.addrFloor || parts.floor;
+  const flat = sub.flat || sub.addrFlat || parts.flat;
+  const door = sub.doorCode != null ? String(sub.doorCode) : "";
+  const line = sub.address || composeAddress_(street, entrance, floor, flat);
+  const today = todayIsoMinskD1_();
+  const guard = opts.skipCheck ? null : await gbBackupClient_(env, mk, nick);
+  const future = await gbFutureOrders_(env, mk, nick, today, true);
+  for (let i = 0; i < future.length; i++) {
+    try {
+      await gbSaveExistingOrder_(env, future[i], {
+        address: line,
+        entrance: entrance,
+        doorCode: door,
+        floor: floor,
+        flat: flat
+      });
+    } catch (eO) {}
+  }
+  try {
+    await env.DB.prepare("UPDATE clients SET address = ?, updated_at = ? WHERE match_key = ?")
+      .bind(line || "", new Date().toISOString(), mk)
+      .run();
+  } catch (eC) {}
+  if (!opts.skipSub) {
+    try {
+      await upsertSubscription_({
+        action: "saveSubscription",
+        nick: nick,
+        label: sub.label || nick,
+        subId: sub.subId || "",
+        sheet: sub.sheet || sub.segment || "",
+        address: line,
+        doorCode: door,
+        addrStreet: street,
+        entrance: entrance,
+        floor: floor,
+        flat: flat,
+        _skipAddrPush: "1",
+        _skipDogPush: "1"
+      }, env);
+    } catch (eSub) {}
+  }
+  if (guard) {
+    const check = await gbCheckPrints_(env, guard, mk, nick);
+    if (!check.ok) throw new Error(check.message || "reconcile");
+  }
+}
+
+async function gbPushDogs_(env, sub, pair, opts) {
+  opts = opts || {};
+  const mk = normalizeMatchKey_((sub && (sub.matchKey || sub.nick)) || "");
+  const nick = String((sub && sub.nick) || "");
+  if (!mk || !pair) return;
+  const today = todayIsoMinskD1_();
+  const guard = opts.skipCheck ? null : await gbBackupClient_(env, mk, nick);
+  const future = await gbFutureOrders_(env, mk, nick, today, true);
+  for (let i = 0; i < future.length; i++) {
+    try {
+      await gbSaveExistingOrder_(env, future[i], { dogNames: pair.dogNames });
+    } catch (eO) {}
+  }
+  try {
+    await env.DB.prepare("UPDATE clients SET dogs_json = ?, updated_at = ? WHERE match_key = ?")
+      .bind(JSON.stringify((pair.dogs || []).map(function (d) { return { name: d.name, dog: d.slot }; })), new Date().toISOString(), mk)
+      .run();
+  } catch (eC) {}
+  if (!opts.skipSub) {
+    try {
+      await upsertSubscription_({
+        action: "saveSubscription",
+        nick: nick,
+        label: sub.label || nick,
+        subId: sub.subId || "",
+        sheet: sub.sheet || sub.segment || "",
+        dogName: pair.dogNames[1] || "",
+        dogNames: pair.dogNames,
+        _skipDogPush: "1",
+        _skipAddrPush: "1"
+      }, env);
+    } catch (eSub) {}
+  }
+  if (!opts.skipPets && sub._petTid) {
+    try {
+      const pack = await gbLoadPack_(env);
+      let n = 0;
+      (pair.dogs || []).forEach(function (d) {
+        const owned = pack.pets.filter(function (p) { return String(p.ownerTelegramId || "") === String(sub._petTid); });
+        if (owned[n]) owned[n].name = d.name;
+        n += 1;
+      });
+      await gbSavePack_(env, pack);
+    } catch (eP) {}
+  }
+  if (guard) {
+    const check = await gbCheckPrints_(env, guard, mk, nick);
+    if (!check.ok) throw new Error(check.message || "reconcile");
+  }
+}
+
+async function gbSyncPetDogs_(env, tid, pack) {
+  const link = gbLinkOf_(pack, tid);
+  if (!link) return;
+  const subs = await gbSubs_(env);
+  const sub = gbSubForLink_(subs, link);
+  if (!sub) return;
+  const pets = (pack.pets || []).filter(function (p) { return String(p.ownerTelegramId || "") === String(tid); });
+  const client = await gbClientRow_(env, link.matchKey || "");
+  let stored = [];
+  try { stored = JSON.parse((client && client.dogs_json) || "[]"); } catch (eJ) { stored = []; }
+  const base = dogPair_(Array.isArray(stored) ? stored : [], null, []);
+  const incoming = pets.map(function (p, i) { return { name: p.name, dog: i + 1 }; }).filter(function (d) { return d.name; });
+  const pair = dogPair_(incoming.length ? incoming : (Array.isArray(stored) ? stored : []), base.dogNames, []);
+  const mk = normalizeMatchKey_(sub.matchKey || sub.nick || "");
+  const backup = await gbBackupClient_(env, mk, sub.nick || "");
+  await gbPushDogs_(env, sub, pair, { skipPets: true });
+  const check = await gbCheckPrints_(env, backup, mk, sub.nick || "");
+  if (!check.ok) return;
+}
+
+function gbViewOrder_(row, sub) {
+  const meta = parseMeta_(row.meta_json);
+  const sheet = (sub && (sub.sheet || sub.segment)) || row.segment || "";
+  const view = {
+    sheet: sheet,
+    segment: row.segment || sheet,
+    slot: meta.deliverySlot || meta.ppSlot || "",
+    ppSlot: meta.ppSlot || "",
+    deliveriesN: meta.deliveriesN || (sub && sub.deliveries) || "",
+    paid: meta.paid || "",
+    orderPrice: meta.orderPrice
+  };
+  const pay = payLabel_(view);
+  const lines = gbLines_(row.basket_json);
+  return {
+    id: row.id,
+    date: row.date_iso || "",
+    day: row.day_name || "",
+    type: deliveryType_(view),
+    pair: pairRole_(view),
+    payText: pay.text,
+    role: pay.role,
+    lines: lines,
+    address: row.address || "",
+    dogs: dogPair_([], meta.dogNames || null, []).dogs
+  };
+}
+
+async function gbBuildCabinet_(env, pack, tid) {
+  const link = gbLinkOf_(pack, tid);
+  const subs = await gbSubs_(env);
+  const sub = gbSubForLink_(subs, link);
+  if (!link || !sub) {
+    return { status: "success", linked: false, deliveries: [], confirmMoves: false };
+  }
+  const mk = normalizeMatchKey_(sub.matchKey || link.matchKey || sub.nick || "");
+  const client = await gbClientRow_(env, mk);
+  let storedDogs = [];
+  try { storedDogs = JSON.parse((client && client.dogs_json) || "[]"); } catch (eD) { storedDogs = []; }
+  const orders = await gbOrderRows_(env, mk, sub.nick || link.clientNick || "");
+  const today = todayIsoMinskD1_();
+  const win = monthWindow_(today, orders.map(function (r) { return r.date_iso; }));
+  const shown = orders.filter(function (r) {
+    const d = String(r.date_iso || "");
+    return win.from && d >= win.from && d <= win.to;
+  });
+  let nearest = "";
+  shown.forEach(function (r) {
+    const d = String(r.date_iso || "");
+    if (d >= today && (!nearest || d < nearest)) nearest = d;
+  });
+  const deliveries = shown.map(function (r) {
+    const card = gbViewOrder_(r, sub);
+    card.nearest = card.date === nearest;
+    return card;
+  });
+  const pets = (pack.pets || []).filter(function (p) { return String(p.ownerTelegramId || "") === String(tid); });
+  const latest = shown[shown.length - 1] || orders[orders.length - 1] || {};
+  const meta = parseMeta_(latest.meta_json);
+  const pair = dogPair_(Array.isArray(storedDogs) ? storedDogs : [], meta.dogNames || sub.dogNames || null, pets);
+  const parts = parseAddress_((latest && latest.address) || sub.address || (client && client.address) || "");
+  return {
+    status: "success",
+    linked: true,
+    publicId: sub.publicId || "",
+    nick: sub.nick || link.clientNick || "",
+    sheet: sub.sheet || "",
+    phone: sub.phone || (client && client.phone) || "",
+    dogs: pair.dogs,
+    address: {
+      street: sub.addrStreet || parts.street,
+      entrance: sub.entrance || sub.addrEntrance || meta.entrance || parts.entrance,
+      doorCode: sub.doorCode || meta.doorCode || "",
+      floor: sub.floor || sub.addrFloor || meta.floor || parts.floor,
+      flat: sub.flat || sub.addrFlat || meta.flat || parts.flat,
+      line: (latest && latest.address) || sub.address || ""
+    },
+    deliveries: deliveries,
+    confirmMoves: false,
+    link: link
+  };
+}
+
+function gbConfirmOnly_(params, env) {
+  const sw = String((params && params.confirmOnly) || "").trim().toLowerCase();
+  if (sw === "1" || sw === "true" || sw === "on") return true;
+  const envSw = String((env && env.CABINET_CONFIRM_MOVES) || "").trim().toLowerCase();
+  return envSw === "1" || envSw === "on" || envSw === "true";
+}
+
+async function handleGbCabinet_(action, params, env) {
+  const a = String(action || "");
+  const actor = await gbActor_(params, env);
+  if (!actor.ok) return actor;
+  const pack = await gbLoadPack_(env);
+  if (/^gbCabinet$/i.test(a)) return gbBuildCabinet_(env, pack, actor.tid);
+  if (/^gbCabinetLink$/i.test(a)) {
+    const subs = await gbSubs_(env);
+    const found = exactClientHits_(subs, {
+      publicId: params && params.publicId,
+      nick: params && (params.nick || params.username),
+      phone: params && params.phone
+    });
+    if (found.status === "empty") return { status: "error", message: "Укажите код, ник или телефон" };
+    if (found.status === "none") return { status: "error", message: "Клиент не найден", code: "not_found" };
+    if (found.status === "many") {
+      return { status: "error", message: "Подходит несколько клиентов. Уточните код, ник или телефон.", code: "ambiguous" };
+    }
+    const hit = found.hits[0];
+    const mk = hit.matchKey || normalizeMatchKey_(hit.nick || "");
+    for (let i = 0; i < pack.links.length; i++) {
+      const l = pack.links[i];
+      const same = (hit.subId && String(l.subId || "") === String(hit.subId)) || (mk && l.matchKey === mk);
+      if (same && /^\d{5,15}$/.test(String(l.telegramId || "")) && String(l.telegramId) !== actor.tid) {
+        return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+      }
+    }
+    let user = null;
+    for (let u = 0; u < pack.users.length; u++) {
+      if (String(pack.users[u].telegramId) === actor.tid) user = pack.users[u];
+    }
+    if (!user) {
+      user = {
+        userId: gbUidWorker_("u"),
+        telegramId: actor.tid,
+        name: hit.nick || "",
+        phone: String((params && params.phone) || hit.phone || ""),
+        access: "full",
+        createdAt: new Date().toISOString()
+      };
+      pack.users.push(user);
+    } else {
+      user.access = "full";
+      if (params && params.phone) user.phone = String(params.phone);
+    }
+    const link = {
+      userId: user.userId,
+      telegramId: actor.tid,
+      matchKey: mk,
+      clientNick: hit.nick || hit.client || "",
+      subId: String(hit.subId || hit.id || ""),
+      publicId: hit.publicId || "",
+      segment: hit.sheet || hit.segment || "",
+      status: "linked",
+      verifyMethod: params && params.publicId ? "id" : (params && params.nick ? "nick" : "phone"),
+      phone: String((params && params.phone) || ""),
+      linkedAt: new Date().toISOString()
+    };
+    let li = -1;
+    for (let i = 0; i < pack.links.length; i++) {
+      if (String(pack.links[i].telegramId) === actor.tid) li = i;
+    }
+    if (li >= 0) pack.links[li] = Object.assign({}, pack.links[li], link);
+    else pack.links.push(link);
+    await gbSavePack_(env, pack);
+    const view = await gbBuildCabinet_(env, pack, actor.tid);
+    view.link = link;
+    view.d1Verified = true;
+    return view;
+  }
+  const link = gbLinkOf_(pack, actor.tid);
+  const subs = await gbSubs_(env);
+  const sub = gbSubForLink_(subs, link);
+  if (!link || !sub) return { status: "error", message: "Сначала привяжите клиента", code: "not_linked" };
+  const mk = normalizeMatchKey_(sub.matchKey || link.matchKey || sub.nick || "");
+  const nick = sub.nick || link.clientNick || "";
+  const today = todayIsoMinskD1_();
+  if (/^gbCabinetPause$/i.test(a)) {
+    const orders = await gbOrderRows_(env, mk, nick);
+    const plan = pausePlan_(today, orders.map(function (r) {
+      return { id: r.id, date: r.date_iso, status: r.status };
+    }));
+    const backup = await gbBackupClient_(env, mk, nick);
+    const removed = [];
+    for (let i = 0; i < orders.length; i++) {
+      if (plan.deleteIds.indexOf(orders[i].id) < 0) continue;
+      const gone = await deleteClient_({
+        client: orders[i].client || nick,
+        matchKey: orders[i].match_key || mk,
+        date: orders[i].date_iso,
+        day: orders[i].day_name || "",
+        id: orders[i].id,
+        orderId: orders[i].id,
+        _explicitDelete: "1",
+        _userDelete: "1"
+      }, env);
+      if (!gone || gone.status === "error") {
+        await gbRestoreClient_(env, backup);
+        return { status: "error", message: (gone && gone.message) || "не удалось снять заказ", backup: backup.key };
+      }
+      removed.push(orders[i].date_iso);
+    }
+    if (String(sub.sheet || "").toUpperCase() !== "АФК") {
+      const moved = await upsertSubscription_({
+        action: "moveSubscription",
+        nick: nick,
+        label: sub.label || nick,
+        subId: sub.subId || "",
+        fromSheet: sub.sheet || "ПП",
+        toSheet: "АФК",
+        sheet: sub.sheet || "ПП"
+      }, env);
+      if (!moved || moved.status !== "success") {
+        await gbRestoreClient_(env, backup);
+        return { status: "error", message: (moved && moved.message) || "не удалось перевести в АФК", backup: backup.key };
+      }
+    }
+    const check = await gbCheckPrints_(env, backup, mk, nick);
+    if (!check.ok) return { status: "error", message: check.message, backup: backup.key };
+    const who = nick + (sub.publicId ? " (" + sub.publicId + ")" : "");
+    await gbStaffNotify_(env, "Кабинет: " + who + "\nПауза\nБыло: " + (removed.length ? removed.join(", ") : "будущих заказов нет") + ", лист " + (sub.sheet || "") + "\nСтало: " + (removed.length ? "заказы сняты, " : "") + "лист АФК");
+    const view = await gbBuildCabinet_(env, pack, actor.tid);
+    view.paused = true;
+    view.backup = backup.key;
+    return view;
+  }
+  const orders = await gbOrderRows_(env, mk, nick);
+  let target = null;
+  const wantId = String((params && (params.orderId || params.id)) || "");
+  for (let i = 0; i < orders.length; i++) {
+    if (wantId && orders[i].id === wantId) target = orders[i];
+  }
+  if (!target) {
+    for (let i = 0; i < orders.length; i++) {
+      if (String(orders[i].date_iso || "") >= today && !target) target = orders[i];
+    }
+  }
+  const beforeLines = target ? gbTextLines_(gbLines_(target.basket_json)) : "";
+  const beforeDate = target ? String(target.date_iso || "") : "";
+  const beforeAddr = (target && target.address) || sub.address || "";
+  let lines = null;
+  if (params && params.basketJson) {
+    try { lines = JSON.parse(String(params.basketJson)); } catch (eB) { lines = null; }
+  } else if (params && Array.isArray(params.basket)) lines = params.basket;
+  if (lines) {
+    const prevNames = target ? gbLines_(target.basket_json).map(function (it) { return it.name; }) : [];
+    const nextNames = lines.map(function (it) { return it && (it.name || it.main); });
+    const stock = stockDecision_(nextNames, await gbStockRows_(env), prevNames);
+    const keep = String((params && params.keepMissing) || "") === "1";
+    if (!stock.ok && !keep) {
+      return { status: "warn", code: "no_stock", message: stock.message, missing: stock.missing };
+    }
+    params._missing = stock.ok ? [] : stock.missing;
+  }
+  const newDate = String((params && (params.newDate || params.date)) || "").slice(0, 10);
+  const dateMove = !!(target && newDate && newDate !== beforeDate);
+  if (dateMove) {
+    const decision = moveDecision_(today, beforeDate, gbConfirmOnly_(params, env));
+    if (!decision.apply) {
+      const who = nick + (sub.publicId ? " (" + sub.publicId + ")" : "");
+      await gbStaffNotify_(env, "Кабинет: " + who + "\n" + decision.staff + "\nБыло: " + beforeDate + "\nСтало: просит " + newDate);
+      return { status: "success", applied: false, message: decision.clientText, code: decision.reason };
+    }
+  }
+  const hasBasket = !!lines;
+  const hasAddress = !!(params && (params.street != null || params.address != null || params.doorCode != null || params.entrance != null));
+  if (!dateMove && !hasBasket && !hasAddress) return { status: "error", message: "нечего сохранять" };
+  const backup = await gbBackupClient_(env, mk, nick);
+  if (dateMove) {
+    const meta = parseMeta_(target.meta_json);
+    const moved = await moveClient_({
+      client: target.client || nick,
+      matchKey: target.match_key || mk,
+      oldDate: beforeDate,
+      oldDay: target.day_name || "",
+      newDate: newDate,
+      cutRaw: meta.noCut ? "0" : "1"
+    }, env);
+    if (!moved || moved.status !== "success") {
+      await gbRestoreClient_(env, backup);
+      return { status: "error", message: (moved && moved.message) || "не перенеслось", backup: backup.key };
+    }
+  }
+  if (hasBasket) {
+    if (dateMove) {
+      const again = await gbOrderRows_(env, mk, nick);
+      target = null;
+      for (let i = 0; i < again.length; i++) {
+        if (String(again[i].date_iso || "") === newDate) target = again[i];
+      }
+    }
+    if (!target) {
+      await gbRestoreClient_(env, backup);
+      return { status: "error", message: "нет заказа для состава", backup: backup.key };
+    }
+    const basket = lines.map(function (it) {
+      return {
+        name: String((it && (it.name || it.main)) || "").trim(),
+        val: Number(it && (it.grams != null ? it.grams : it.val)) || 0,
+        unit: (it && it.unit) || "г"
+      };
+    }).filter(function (it) { return it.name; });
+    const note = waitNote_(target.note || "", (params && params._missing) || []);
+    const saved = await gbSaveExistingOrder_(env, target, { basket: basket, note: note, date: dateMove ? newDate : target.date_iso });
+    if (!saved || saved.status !== "success") {
+      await gbRestoreClient_(env, backup);
+      return { status: "error", message: (saved && saved.message) || "состав не записался", backup: backup.key };
+    }
+    const slot = slotOfMeta_(parseMeta_(target.meta_json));
+    try {
+      await upsertSubscription_({
+        action: "saveSubscription",
+        nick: nick,
+        label: sub.label || nick,
+        subId: sub.subId || "",
+        sheet: sub.sheet || "",
+        basket: slot >= 2 ? undefined : basket,
+        basket2: slot >= 2 ? basket : undefined,
+        _skipAddrPush: "1",
+        _skipDogPush: "1"
+      }, env);
+    } catch (eBasket) {}
+  }
+  if (hasAddress) {
+    const street = params.street != null ? String(params.street) : (parseAddress_(params.address || sub.address || "").street);
+    const entrance = params.entrance != null ? String(params.entrance) : (sub.entrance || "");
+    const floor = params.floor != null ? String(params.floor) : (sub.floor || "");
+    const flat = params.flat != null ? String(params.flat) : (sub.flat || "");
+    const door = params.doorCode != null ? String(params.doorCode) : (sub.doorCode || "");
+    const line = composeAddress_(street, entrance, floor, flat);
+    await gbPushAddress_(env, Object.assign({}, sub, {
+      address: line,
+      addrStreet: street,
+      entrance: entrance,
+      floor: floor,
+      flat: flat,
+      doorCode: door
+    }), { skipSub: false, skipCheck: true });
+  }
+  const check = await gbCheckPrints_(env, backup, mk, nick);
+  if (!check.ok) return { status: "error", message: check.message, backup: backup.key };
+  const who = nick + (sub.publicId ? " (" + sub.publicId + ")" : "");
+  const bits = [];
+  if (hasBasket) bits.push("Состав\nБыло: " + (beforeLines || "—") + "\nСтало: " + gbTextLines_(lines));
+  if (dateMove) bits.push("Дата\nБыло: " + beforeDate + "\nСтало: " + newDate);
+  if (hasAddress) bits.push("Адрес\nБыло: " + (beforeAddr || "—") + "\nСтало: " + composeAddress_(params.street, params.entrance, params.floor, params.flat) + (params.doorCode ? ", код " + params.doorCode : ""));
+  if ((params && params._missing && params._missing.length)) bits.push("Ждёт позицию: " + params._missing.join(", "));
+  if (bits.length) await gbStaffNotify_(env, "Кабинет: " + who + "\n" + bits.join("\n"));
+  const view = await gbBuildCabinet_(env, await gbLoadPack_(env), actor.tid);
+  view.backup = backup.key;
+  view.applied = true;
+  return view;
+}
+
+function slotOfMeta_(meta) {
+  const n = Number(meta && meta.deliverySlot) || 0;
+  if (n >= 1) return n;
+  const m = String((meta && meta.ppSlot) || "").match(/^(\d+)\s*\/\s*(\d+)$/);
+  return m ? Number(m[1]) || 1 : 1;
+}
+
 function klientNeedPayload_(plan) {
   const code = (plan && plan.reason) || "need_login";
   const messages = {
@@ -33373,6 +34139,7 @@ async function mutateGbD1_(action, params, env) {
     if (pi >= 0) pack.pets[pi] = Object.assign({}, pack.pets[pi], row);
     else pack.pets.push(row);
     await gbSavePack_(env, pack);
+    try { await gbSyncPetDogs_(env, telegramId, pack); } catch (ePetDog) {}
     return { status: "success", pet: row, d1Verified: true };
   }
 
