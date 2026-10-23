@@ -1,6 +1,6 @@
 /* Goodboy — изолированный клиент. Конвейер Бойни не трогаем. */
 window.GB_CONFIG = {
-  version: "0.4.2",
+  version: "0.4.3",
   /**
    * live = webhook Apps Script (только gb* → листы GB_*; CRM read-only).
    * До Deploy Code.gs с gb* — fallback на demo (fallbackDemoOnUnknown).

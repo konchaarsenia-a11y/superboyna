@@ -271,7 +271,7 @@
             syncFull();
             if (status) {
               status.className = "form-status is-ok";
-              status.textContent = "Заявка отправлена. Мы напишем в течение часа.";
+              status.textContent = (res && res.message) || "Заявка принята";
             }
             return;
           }

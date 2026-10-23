@@ -375,6 +375,9 @@ h2 { font-size: 1.25rem; }
   color: var(--gb-muted);
   line-height: 1.35;
 }
+.gate-path[hidden] { display: none !important; }
+.gate-details { margin: 4px 0 12px; }
+.gate-details summary { cursor: pointer; color: var(--gb-muted); margin-bottom: 8px; }
 .gate-path--soft {
   border-color: rgba(237, 232, 223, 0.12);
   background: rgba(237, 232, 223, 0.03);

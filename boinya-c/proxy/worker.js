@@ -27,11 +27,18 @@ import {
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
+  clientCabinetView_,
+  clientLookup_,
   composeAddress_,
   deliveryType_,
   dogPair_,
-  exactClientHits_,
+  leadClientReply_,
+  leadMatch_,
+  leadStaffText_,
   monthWindow_,
+  nextLeadId_,
+  parseDogs_,
+  registerPlan_,
   moveDecision_,
   orderFingerprint_,
   pairRole_,
@@ -949,6 +956,7 @@ const AUTH_TAB_RULES = [
   },
   // Отложенное / ☰: чтение и запись — заказы/курьер (как раньше) или вкладка «Задачи ☰» (любой раздел)
   { re: /^(listDeferred)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen", "priceScreen"]) },
+  { re: /^listGoodboyLeads$/i, tabs: ["subsScreen", "subDetailScreen"] },
   { re: /^(saveDeferred|cancelDeferred)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen"]) },
   { re: /^setDeferredReminder$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.remind"]) },
   { re: /^(placeTransferTask|notifyMissedDelivery)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.xfer"]) },
@@ -1524,7 +1532,7 @@ function isWriteAction_(a) {
     return false;
   }
   // Goodboy writes
-  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets|gbTelegramEnter|gbBindTelegram|gbTelegramRegister|gbCabinet|gbCabinetSave|gbCabinetPause|gbCabinetLink)$/i.test(a)) return true;
+  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets|gbTelegramEnter|gbBindTelegram|gbTelegramRegister|gbCabinet|gbCabinetSave|gbCabinetPause|gbCabinetLink|gbCabinetRegister)$/i.test(a)) return true;
   return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|restore|undelete|report|log|partner|force|place|submit|apply)/i.test(
     a
   );
@@ -1682,6 +1690,7 @@ async function handleAction_(action, params, env, url, ctx) {
 
   const deny = authCheck_(a, actor, env);
   if (deny) return deny;
+  if (a === "listGoodboyLeads") return listGoodboyLeads_(env);
 
   const req = authRequirement_(a);
   if (req.level === "owner" || AUTH_ACTOR_AS_TID_RE.test(a)) {
@@ -20319,7 +20328,7 @@ async function handleCutover_(a, params, env, ctx) {
         action: a
       });
     }
-    if (/^(gbTelegramEnter|gbBindTelegram|gbTelegramRegister|gbCabinet|gbCabinetSave|gbCabinetPause|gbCabinetLink)$/i.test(a)) {
+    if (/^(gbTelegramEnter|gbBindTelegram|gbTelegramRegister|gbCabinet|gbCabinetSave|gbCabinetPause|gbCabinetLink|gbCabinetRegister)$/i.test(a)) {
       let d1K = null;
       try {
         if (env && env.DB) {
@@ -33173,7 +33182,7 @@ function gbBuildMeFromPack_(user, pack, subscription) {
       break;
     }
   }
-  return {
+  return clientCabinetView_({
     status: "success",
     user: {
       userId: user.userId,
@@ -33191,7 +33200,7 @@ function gbBuildMeFromPack_(user, pack, subscription) {
     privilege: subscription && String(subscription.segment || "").toUpperCase().indexOf("ПП") >= 0
       ? { active: true }
       : { active: false }
-  };
+  });
 }
 
 function gbSplitCabinet_(users, phone, nick, tid) {
@@ -33693,10 +33702,9 @@ async function gbBuildCabinet_(env, pack, tid) {
   const meta = parseMeta_(latest.meta_json);
   const pair = dogPair_(Array.isArray(storedDogs) ? storedDogs : [], meta.dogNames || sub.dogNames || null, pets);
   const parts = parseAddress_((latest && latest.address) || sub.address || (client && client.address) || "");
-  return {
+  return clientCabinetView_({
     status: "success",
     linked: true,
-    publicId: sub.publicId || "",
     nick: sub.nick || link.clientNick || "",
     sheet: sub.sheet || "",
     phone: sub.phone || (client && client.phone) || "",
@@ -33712,7 +33720,7 @@ async function gbBuildCabinet_(env, pack, tid) {
     deliveries: deliveries,
     confirmMoves: false,
     link: link
-  };
+  });
 }
 
 function gbConfirmOnly_(params, env) {
@@ -33722,75 +33730,117 @@ function gbConfirmOnly_(params, env) {
   return envSw === "1" || envSw === "on" || envSw === "true";
 }
 
+async function gbBindExactHit_(env, pack, actor, hit, phone, nick, name) {
+  const mk = hit.matchKey || normalizeMatchKey_(hit.nick || hit.client || "");
+  const subId = String(hit.subId || hit.id || "");
+  for (let i = 0; i < pack.links.length; i++) {
+    const l = pack.links[i];
+    const same = (subId && String(l.subId || "") === subId) || (mk && l.matchKey === mk);
+    if (same && /^\d{5,15}$/.test(String(l.telegramId || "")) && String(l.telegramId) !== actor.tid) {
+      return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+    }
+  }
+  let user = null;
+  for (let u = 0; u < pack.users.length; u++) {
+    if (String(pack.users[u].telegramId) === actor.tid) user = pack.users[u];
+  }
+  if (!user) {
+    user = {
+      userId: gbUidWorker_("u"),
+      telegramId: actor.tid,
+      name: String(name || hit.nick || hit.client || ""),
+      username: String(nick || "").replace(/^@/, ""),
+      phone: String(phone || hit.phone || ""),
+      access: "full",
+      createdAt: new Date().toISOString()
+    };
+    pack.users.push(user);
+  } else {
+    user.access = "full";
+    if (name) user.name = String(name);
+    if (phone) user.phone = String(phone);
+    if (nick) user.username = String(nick).replace(/^@/, "");
+  }
+  const link = {
+    userId: user.userId,
+    telegramId: actor.tid,
+    matchKey: mk,
+    clientNick: hit.nick || hit.client || "",
+    subId: subId,
+    publicId: hit.publicId || "",
+    segment: hit.sheet || hit.segment || "",
+    status: "linked",
+    verifyMethod: nick ? "nick" : "phone",
+    phone: String(phone || ""),
+    linkedAt: new Date().toISOString()
+  };
+  let li = -1;
+  for (let i = 0; i < pack.links.length; i++) {
+    if (String(pack.links[i].telegramId) === actor.tid) li = i;
+  }
+  if (li >= 0) pack.links[li] = Object.assign({}, pack.links[li], link);
+  else pack.links.push(link);
+  await gbSavePack_(env, pack);
+  const view = await gbBuildCabinet_(env, pack, actor.tid);
+  view.d1Verified = true;
+  view.page = "subscription";
+  view.user = {
+    telegramId: actor.tid,
+    name: user.name || "",
+    username: user.username || "",
+    phone: user.phone || "",
+    access: "full"
+  };
+  return view;
+}
+
 async function handleGbCabinet_(action, params, env) {
   const a = String(action || "");
   const actor = await gbActor_(params, env);
   if (!actor.ok) return actor;
   const pack = await gbLoadPack_(env);
   if (/^gbCabinet$/i.test(a)) return gbBuildCabinet_(env, pack, actor.tid);
-  if (/^gbCabinetLink$/i.test(a)) {
-    const subs = await gbSubs_(env);
-    const found = exactClientHits_(subs, {
-      publicId: params && params.publicId,
-      nick: params && (params.nick || params.username),
-      phone: params && params.phone
-    });
-    if (found.status === "empty") return { status: "error", message: "Укажите код, ник или телефон" };
-    if (found.status === "none") return { status: "error", message: "Клиент не найден", code: "not_found" };
-    if (found.status === "many") {
-      return { status: "error", message: "Подходит несколько клиентов. Уточните код, ник или телефон.", code: "ambiguous" };
-    }
-    const hit = found.hits[0];
-    const mk = hit.matchKey || normalizeMatchKey_(hit.nick || "");
-    for (let i = 0; i < pack.links.length; i++) {
-      const l = pack.links[i];
-      const same = (hit.subId && String(l.subId || "") === String(hit.subId)) || (mk && l.matchKey === mk);
-      if (same && /^\d{5,15}$/.test(String(l.telegramId || "")) && String(l.telegramId) !== actor.tid) {
-        return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+  if (/^gbCabinetRegister$/i.test(a)) {
+    const name = String((params && params.name) || "").trim();
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    const dogs = parseDogs_((params && (params.dogs || params.dogsJson)) || []);
+    if (!name) return { status: "error", message: "Укажите имя" };
+    if (!phone || gbPhoneDigitsWorker_(phone).length < 9) return { status: "error", message: "Укажите телефон" };
+    if (!nick) return { status: "error", message: "Укажите ник Instagram" };
+    if (!dogs.length) return { status: "error", message: "Укажите кличку, породу и вес" };
+    for (let di = 0; di < dogs.length; di++) {
+      if (!dogs[di].breed || !dogs[di].weight) {
+        return { status: "error", message: "Укажите кличку, породу и вес" };
       }
     }
-    let user = null;
-    for (let u = 0; u < pack.users.length; u++) {
-      if (String(pack.users[u].telegramId) === actor.tid) user = pack.users[u];
+    const found = clientLookup_(await gbSubs_(env), { nick: nick, phone: phone });
+    const plan = registerPlan_(found, dogs);
+    if (plan.action === "clarify" || plan.action === "error") {
+      return { status: "error", message: plan.message, code: plan.action === "clarify" ? "ambiguous" : "need_fields" };
     }
-    if (!user) {
-      user = {
-        userId: gbUidWorker_("u"),
-        telegramId: actor.tid,
-        name: hit.nick || "",
-        phone: String((params && params.phone) || hit.phone || ""),
-        access: "full",
-        createdAt: new Date().toISOString()
-      };
-      pack.users.push(user);
-    } else {
-      user.access = "full";
-      if (params && params.phone) user.phone = String(params.phone);
+    if (plan.action === "bind") {
+      return gbBindExactHit_(env, pack, actor, found.hits[0], phone, nick, name);
     }
-    const link = {
-      userId: user.userId,
-      telegramId: actor.tid,
-      matchKey: mk,
-      clientNick: hit.nick || hit.client || "",
-      subId: String(hit.subId || hit.id || ""),
-      publicId: hit.publicId || "",
-      segment: hit.sheet || hit.segment || "",
-      status: "linked",
-      verifyMethod: params && params.publicId ? "id" : (params && params.nick ? "nick" : "phone"),
-      phone: String((params && params.phone) || ""),
-      linkedAt: new Date().toISOString()
-    };
-    let li = -1;
-    for (let i = 0; i < pack.links.length; i++) {
-      if (String(pack.links[i].telegramId) === actor.tid) li = i;
+    return acceptCabinetLead_(env, {
+      name: name,
+      phone: phone,
+      nick: nick,
+      pet: dogs.map(function (d) { return d.name; }).join(", "),
+      dogs: dogs,
+      kind: "register"
+    });
+  }
+  if (/^gbCabinetLink$/i.test(a)) {
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    const found = clientLookup_(await gbSubs_(env), { nick: nick, phone: phone });
+    if (found.status === "empty") return { status: "error", message: "Укажите телефон или ник" };
+    if (found.status === "none") return { status: "error", message: "Клиент не найден", code: "not_found" };
+    if (found.status === "many") {
+      return { status: "error", message: "Подходит несколько клиентов. Уточните телефон или ник.", code: "ambiguous" };
     }
-    if (li >= 0) pack.links[li] = Object.assign({}, pack.links[li], link);
-    else pack.links.push(link);
-    await gbSavePack_(env, pack);
-    const view = await gbBuildCabinet_(env, pack, actor.tid);
-    view.link = link;
-    view.d1Verified = true;
-    return view;
+    return gbBindExactHit_(env, pack, actor, found.hits[0], phone, nick, (params && params.name) || "");
   }
   const link = gbLinkOf_(pack, actor.tid);
   const subs = await gbSubs_(env);
@@ -34565,52 +34615,103 @@ async function refreshGbSnapsFromGas_(action, params, env, live) {
 
 
 
-async function submitGoodboyTryD1_(params, env) {
-  const name = String((params && params.name) || "").trim();
-  const phone = String((params && params.phone) || "").trim();
-  const pet = String((params && params.pet) || "").trim();
-  const note = String((params && params.note) || "").trim();
-  const mode = String((params && params.mode) || "").trim();
-  if (!name || !phone || !pet) {
-    return { status: "error", message: "need_fields" };
-  }
-  const when = new Date().toISOString();
-  const source = mode === "full" ? "try-full" : "try-short";
+async function listGoodboyLeads_(env) {
+  const pack = (await getSnapRaw_(env, "goodboyLeads")) || { items: [] };
+  const items = (Array.isArray(pack.items) ? pack.items : []).map(function (row) {
+    const dogs = Array.isArray(row.dogs) ? row.dogs : [];
+    return {
+      id: row.id || "",
+      publicId: row.publicId || "",
+      when: row.when || "",
+      name: row.name || "",
+      phone: row.phone || "",
+      nick: row.nick || "",
+      pet: row.pet || "",
+      dogs: dogs,
+      note: row.note || "",
+      source: row.source || "",
+      kind: row.kind || "try",
+      status: row.status || "accepted"
+    };
+  });
+  return { status: "success", items: items };
+}
+
+async function acceptCabinetLead_(env, input) {
+  input = input || {};
+  const name = String(input.name || "").trim();
+  const phone = String(input.phone || "").trim();
+  const nick = String(input.nick || "").trim().replace(/^@/, "");
+  const note = String(input.note || "").trim();
+  const kind = input.kind === "register" ? "register" : "try";
+  let dogs = parseDogs_(input.dogs);
+  let pet = String(input.pet || "").trim();
+  if (!pet && dogs.length) pet = dogs.map(function (d) { return d.name; }).join(", ");
+  if (!dogs.length && pet) dogs = [{ name: pet, breed: "", weight: "", allergies: "" }];
+  if (!name || !phone || !pet) return { status: "error", message: "need_fields" };
+  const subs = await gbSubs_(env);
+  const lookup = clientLookup_(subs, { nick: nick, phone: phone });
+  let pack = (await getSnapRaw_(env, "goodboyLeads")) || { status: "success", items: [], seq: 0 };
+  const items = Array.isArray(pack.items) ? pack.items.slice() : [];
+  const dup = leadMatch_(items, { nick: nick, phone: phone });
+  const reply = leadClientReply_(kind);
+  if (dup || lookup.status === "one" || lookup.status === "many") return reply;
+  const before = await gbPrintOthers_(env, "", "");
+  const backupKey = "goodboyLeadBackup:" + Date.now();
+  try { await putSnap_(env, backupKey, pack); } catch (eCopy) {}
+  const issued = nextLeadId_(pack.seq);
   const row = {
     id: "try_" + Date.now().toString(36),
-    when: when,
+    publicId: issued.publicId,
+    when: new Date().toISOString(),
     name: name,
     phone: phone,
+    nick: nick,
     pet: pet,
+    dogs: dogs,
     note: note,
-    source: source
+    source: kind === "register" ? "register" : (String(input.mode || "") === "full" ? "try-full" : "try-short"),
+    kind: kind,
+    status: "accepted"
   };
-  let pack = (await getSnapRaw_(env, "goodboyLeads")) || { status: "success", items: [] };
-  pack.items = Array.isArray(pack.items) ? pack.items.slice() : [];
-  pack.items.unshift(row);
-  if (pack.items.length > 500) pack.items = pack.items.slice(0, 500);
-  pack.status = "success";
-  pack._d1TouchedAt = Date.now();
-  await putSnap_(env, "goodboyLeads", pack);
-  // TG команде — бот Бойни (тот же TELEGRAM_BOT_TOKEN)
+  items.unshift(row);
+  const nextPack = {
+    status: "success",
+    items: items.length > 500 ? items.slice(0, 500) : items,
+    seq: issued.seq,
+    _d1TouchedAt: Date.now()
+  };
+  await putSnap_(env, "goodboyLeads", nextPack);
+  const after = await gbPrintOthers_(env, "", "");
+  if (before.orders !== after.orders || before.subs !== after.subs) {
+    try { await putSnap_(env, "goodboyLeads", pack); } catch (eBack) {}
+    return { status: "error", message: "сверка не сошлась" };
+  }
   try {
-    // v71116013: ключ gb_lead (дефолт — владельцы) + общий чат из D1 или TELEGRAM_CHAT_ID
     const gbIds = await appendNotifyGroup_(env, await notifyRecipientsWorker_(env, "gb_lead"));
     if (gbIds.length && hasTelegramToken_(env)) {
-      const text =
-        "🐾 GOOD BOY · заявка с сайта (worker)\n" +
-        name +
-        " · " +
-        phone +
-        "\nПитомец: " +
-        pet +
-        (note ? "\n" + note.slice(0, 3200) : "");
+      const text = leadStaffText_(row);
       await Promise.all(gbIds.map(function (gid) {
         return telegramSendTextWorker_(env, gid, text, null).catch(function () { return null; });
       }));
     }
   } catch (eTg) {}
-  return { status: "ok", message: "saved", id: row.id, d1Verified: true, fromD1: true };
+  return reply;
+}
+
+async function submitGoodboyTryD1_(params, env) {
+  const dogs = parseDogs_(params && (params.dogs || params.dogsJson));
+  const pet = String((params && params.pet) || "").trim() || (dogs[0] && dogs[0].name) || "";
+  return acceptCabinetLead_(env, {
+    name: params && params.name,
+    phone: params && params.phone,
+    nick: params && (params.nick || params.username),
+    pet: pet,
+    dogs: dogs,
+    note: params && params.note,
+    mode: params && params.mode,
+    kind: "try"
+  });
 }
 
 

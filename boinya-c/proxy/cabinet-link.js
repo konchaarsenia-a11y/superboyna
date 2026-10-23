@@ -175,6 +175,125 @@ export function exactClientHits_(subs, query) {
   return { status: "one", hits: hits };
 }
 
+/** Вход клиента: точный телефон или ник. Код клиента не принимается. */
+export function clientLookup_(subs, query) {
+  query = query || {};
+  const nick = normNick_(query.nick);
+  const phone = String(query.phone || "").trim();
+  if (!nick && !phone) return { status: "empty", hits: [] };
+  const seen = Object.create(null);
+  const hits = [];
+  function add(found) {
+    (found && found.hits || []).forEach(function (s) {
+      const key = String(s.subId || s.id || s.matchKey || s.nick || "");
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      hits.push(s);
+    });
+  }
+  if (nick) add(exactClientHits_(subs, { nick: nick }));
+  if (phone) add(exactClientHits_(subs, { phone: phone }));
+  if (!hits.length) return { status: "none", hits: [] };
+  if (hits.length > 1) return { status: "many", hits: hits };
+  return { status: "one", hits: hits };
+}
+
+export function parseDogs_(raw) {
+  let list = raw;
+  if (typeof raw === "string") {
+    try { list = JSON.parse(raw); } catch (e) { list = []; }
+  }
+  if (!Array.isArray(list)) list = [];
+  const dogs = [];
+  for (let i = 0; i < list.length && dogs.length < 2; i++) {
+    const d = list[i] || {};
+    const name = String(d.name || d.nick || "").trim();
+    if (!name) continue;
+    dogs.push({
+      name: name,
+      breed: String(d.breed || "").trim(),
+      weight: String(d.weight != null ? d.weight : (d.weightKg != null ? d.weightKg : "")).trim(),
+      allergies: String(d.allergies || "").trim()
+    });
+  }
+  return dogs;
+}
+
+export function registerPlan_(lookup, dogs) {
+  lookup = lookup || {};
+  if (!dogs || !dogs.length) return { action: "error", message: "Укажите собаку" };
+  if (lookup.status === "empty") return { action: "error", message: "Укажите телефон или ник" };
+  if (lookup.status === "many") {
+    return { action: "clarify", message: "Подходит несколько клиентов. Уточните телефон или ник." };
+  }
+  if (lookup.status === "one") return { action: "bind" };
+  return { action: "lead" };
+}
+
+export function leadMatch_(leads, query) {
+  const nick = normNick_(query && query.nick);
+  const phone = String((query && query.phone) || "").trim();
+  const items = leads || [];
+  for (let i = 0; i < items.length; i++) {
+    const row = items[i] || {};
+    if (nick && normNick_(row.nick) === nick) return row;
+    if (phone && phonesEqual_(row.phone, phone)) return row;
+  }
+  return null;
+}
+
+export function nextLeadId_(seq) {
+  const n = (Number(seq) || 0) + 1;
+  return { seq: n, publicId: formatPublicId_("НК", n) };
+}
+
+/** Ответ клиенту. Внутренний ID сюда не попадает. */
+export function leadClientReply_(kind) {
+  if (kind === "register") {
+    return {
+      status: "accepted",
+      message: "Заявка принята, менеджер свяжется с вами",
+      showTry: true
+    };
+  }
+  return { status: "ok", message: "Заявка принята" };
+}
+
+export function leadStaffText_(row) {
+  row = row || {};
+  const dogs = (row.dogs || []).map(function (d) {
+    return [d.name, d.breed, d.weight ? String(d.weight) + " кг" : "", d.allergies ? "аллергии: " + d.allergies : ""]
+      .filter(Boolean)
+      .join(", ");
+  }).join("; ");
+  const who = [row.name, row.phone, row.nick ? "@" + String(row.nick).replace(/^@/, "") : ""].filter(Boolean).join(" · ");
+  const lines = [
+    "🐾 GOOD BOY · новый клиент",
+    row.publicId || "",
+    who,
+    dogs ? "Собаки: " + dogs : (row.pet ? "Питомец: " + row.pet : ""),
+    row.note ? String(row.note).slice(0, 500) : "",
+    "Источник: " + (row.kind === "register" ? "регистрация" : "хочу попробовать")
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+/** Убрать код клиента из ответа кабинета. */
+export function clientCabinetView_(view) {
+  if (!view || typeof view !== "object") return view;
+  const out = Object.assign({}, view);
+  delete out.publicId;
+  if (out.link && typeof out.link === "object") {
+    out.link = Object.assign({}, out.link);
+    delete out.link.publicId;
+  }
+  if (out.subscription && typeof out.subscription === "object") {
+    out.subscription = Object.assign({}, out.subscription);
+    delete out.subscription.publicId;
+  }
+  return out;
+}
+
 function slotOf_(row) {
   const n = Number(row && (row.slot != null ? row.slot : row.deliverySlot)) || 0;
   if (n >= 1) return n;

@@ -167,6 +167,25 @@
     });
   }
 
+  function draftTid() {
+    var st = GBStore.get();
+    if (st.user && st.user.telegramId) return String(st.user.telegramId);
+    return "web_" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function readDogs(form) {
+    var dogs = [];
+    [1, 2].forEach(function (n) {
+      var name = String((form.elements["dog" + n + "name"] || {}).value || "").trim();
+      var breed = String((form.elements["dog" + n + "breed"] || {}).value || "").trim();
+      var weight = String((form.elements["dog" + n + "weight"] || {}).value || "").trim();
+      var allergies = String((form.elements["dog" + n + "allergies"] || {}).value || "").trim();
+      if (!name && !breed && !weight && !allergies) return;
+      dogs.push({ name: name, breed: breed, weight: weight, allergies: allergies });
+    });
+    return dogs;
+  }
+
   function cabinetAuth(extra) {
     var body = Object.assign({}, extra || {});
     var init = rawInitData();
@@ -348,9 +367,8 @@
     ev.preventDefault();
     var phone = String((document.getElementById("linkPhone") || {}).value || "").trim();
     var nick = String((document.getElementById("linkNick") || {}).value || "").trim();
-    var publicId = String((document.getElementById("linkId") || {}).value || "").trim();
-    if (!phone && !nick && !publicId) {
-      GBUI.toast("Укажите код, ник или телефон");
+    if (!phone && !nick) {
+      GBUI.toast("Укажите ник или телефон");
       return;
     }
     var st = GBStore.get();
@@ -362,8 +380,7 @@
     GBApi.postJson(cabinetAuth({
       action: "gbCabinetLink",
       phone: phone,
-      nick: nick,
-      publicId: publicId
+      nick: nick
     })).then(function (res) {
       if (!res || res.status !== "success") {
         GBUI.toast((res && res.message) || "Клиент не найден");
@@ -418,8 +435,6 @@
         else if (path === "try") {
           global.location.href = "try.html";
           return;
-        } else if (path === "city") {
-          enterWithUser(GBAuth.guestUser("city"), { page: "map" });
         }
         return;
       }
@@ -467,11 +482,33 @@
               }
               return { ok: true, user: GBAuth.userFromApi(payload, { intent: "pp" }), bootstrap: payload };
             })
-          : Promise.resolve(GBAuth.loginUser({
-              phone: loginForm.phone.value,
-              nick: loginForm.nick.value,
-              intent: "pp"
-            }));
+          : (function () {
+              var tid = draftTid();
+              var body = cabinetAuth({
+                action: "gbCabinetLink",
+                phone: loginForm.phone.value,
+                nick: loginForm.nick.value
+              });
+              body.telegramId = tid;
+              return GBApi.postJson(body).then(function (payload) {
+              if (!payload || payload.status !== "success") {
+                return { ok: false, message: (payload && payload.message) || "Подписка не найдена" };
+              }
+              return {
+                ok: true,
+                user: {
+                  telegramId: (payload.user && payload.user.telegramId) || tid,
+                  name: (payload.user && payload.user.name) || payload.nick || "Подписчик",
+                  username: String(loginForm.nick.value || "").replace(/^@/, ""),
+                  phone: loginForm.phone.value,
+                  access: "full",
+                  hasSubscription: true,
+                  intent: "pp"
+                },
+                cabinet: payload
+              };
+            });
+            })();
         loginCall.catch(function () {
           return { ok: false, message: "Не удалось войти" };
         }).then(function (res) {
@@ -487,7 +524,9 @@
             needsLink: !!res.needsLink,
             bootstrap: res.bootstrap || null
           });
-          GBUI.toast(res.fromFallback ? "Вход (офлайн)" : "Вход выполнен");
+          if (res.cabinet) applyCabinet(res.cabinet);
+          else refreshCabinet();
+          GBUI.toast("Вход выполнен");
         }).finally(function () {
           if (btn) {
             btn.disabled = false;
@@ -502,63 +541,61 @@
       registerForm.addEventListener("submit", function (e) {
         e.preventDefault();
         var err = document.getElementById("gateRegisterError");
-        var hasSubEl = registerForm.querySelector('input[name="hasSub"]:checked');
-        if (!hasSubEl) {
+        var dogs = readDogs(registerForm);
+        var dogOk = dogs.length > 0;
+        for (var di = 0; di < dogs.length; di++) {
+          if (!dogs[di].name || !dogs[di].breed || !dogs[di].weight) dogOk = false;
+        }
+        if (!String(registerForm.name.value || "").trim() || !String(registerForm.phone.value || "").trim() || !String(registerForm.nick.value || "").trim() || !dogOk) {
           if (err) {
             err.hidden = false;
-            err.textContent = "Укажите, есть ли у вас подписка";
+            err.textContent = "Укажите имя, телефон, ник и собаку: кличка, порода, вес";
           }
           return;
         }
-        var hasSub = hasSubEl.value === "yes";
         var btn = registerForm.querySelector('button[type="submit"]');
         if (btn) {
           btn.disabled = true;
           btn.textContent = "Создаём…";
         }
-        var registerCall = rawInitData()
-          ? GBApi.postJson({
-              action: "gbTelegramRegister",
-              initData: rawInitData(),
-              name: registerForm.name.value,
-              phone: registerForm.phone.value,
-              nick: registerForm.nick.value,
-              hasSubscription: hasSub ? "1" : "0"
-            }).then(function (payload) {
-              if (!payload || payload.status !== "success" || !payload.user) {
-                return { ok: false, message: (payload && payload.message) || "Не удалось зарегистрироваться" };
-              }
-              return {
-                ok: true,
-                user: GBAuth.userFromApi(payload, { intent: hasSub ? "pp" : "limited" }),
-                needsLink: !!payload.needsLink,
-                bootstrap: payload
-              };
-            })
-          : Promise.resolve(GBAuth.registerUser({
-              name: registerForm.name.value,
-              phone: registerForm.phone.value,
-              nick: registerForm.nick.value,
-              hasSubscription: hasSub
-            }));
-        registerCall.catch(function () {
-          return { ok: false, message: "Не удалось зарегистрироваться" };
-        }).then(function (res) {
-          if (!res.ok) {
+        var registerBody = {
+          action: "gbCabinetRegister",
+          name: registerForm.name.value,
+          phone: registerForm.phone.value,
+          nick: registerForm.nick.value,
+          dogsJson: JSON.stringify(dogs)
+        };
+        if (rawInitData()) registerBody.initData = rawInitData();
+        else registerBody.telegramId = draftTid();
+        GBApi.postJson(registerBody).catch(function () {
+          return { status: "error", message: "Не удалось зарегистрироваться" };
+        }).then(function (payload) {
+          if (payload && payload.status === "accepted") {
+            showGate("accepted");
+            return;
+          }
+          if (!payload || payload.status !== "success") {
             if (err) {
               err.hidden = false;
-              err.textContent = res.message;
+              err.textContent = (payload && payload.message) || "Не удалось зарегистрироваться";
             }
             return;
           }
-          enterWithUser(res.user, {
-            page: hasSub ? "subscription" : "profile",
-            needsLink: rawInitData() ? false : hasSub && !!res.needsLink,
-            bootstrap: res.bootstrap || null
-          });
-          GBUI.toast(hasSub
-            ? (res.needsLink ? "Аккаунт создан — привяжите заказ" : "Аккаунт создан · подписка найдена")
-            : "Аккаунт создан · доступ ограничен");
+          var user = {
+            telegramId: (payload.user && payload.user.telegramId) || registerBody.telegramId || "",
+            name: registerForm.name.value,
+            username: String(registerForm.nick.value || "").replace(/^@/, ""),
+            phone: registerForm.phone.value,
+            access: "full",
+            hasSubscription: true,
+            intent: "pp"
+          };
+          if (rawInitData()) {
+            user = GBAuth.userFromApi({ user: payload.user || user }, { intent: "pp" });
+          }
+          enterWithUser(user, { page: "subscription" });
+          applyCabinet(payload);
+          GBUI.toast("Подписка найдена");
         }).finally(function () {
           if (btn) {
             btn.disabled = false;
