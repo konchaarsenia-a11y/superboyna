@@ -989,7 +989,8 @@
       matchKey: c.matchKey || logic().viewClientKey(c.name),
       day: view.resolvedDay || view.day,
       date: view.date,
-      calendarOnly: view.calendarOnly
+      calendarOnly: view.calendarOnly,
+      partnerOrderId: c.partnerOrderId || ""
     });
     var res = await api().apiGet(params, { timeoutMs: 30000, cacheTtlMs: 0 });
     var delChange = {

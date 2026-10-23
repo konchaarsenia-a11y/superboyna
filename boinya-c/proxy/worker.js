@@ -11657,6 +11657,98 @@ function partnerClientFromOrder_(order, day) {
   };
 }
 
+/** Какую открытую заявку снимает удаление человека в дне. Голая «Варка» никого не снимает. */
+function partnerDeleteTargets_(orders, client, dateIso, partnerOrderId) {
+  const want = String(partnerOrderId || "").trim();
+  const date = String(dateIso || "").slice(0, 10);
+  const key = partnerPointKey_(client || "");
+  const out = [];
+  const seen = Object.create(null);
+  (orders || []).forEach(function (o) {
+    if (!o || partnerOrderIsClosed_(o)) return;
+    const id = String(o.id || "");
+    if (!id || seen[id]) return;
+    if (want) {
+      if (id !== want) return;
+    } else {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || partnerOrderDate_(o) !== date) return;
+      const loc = partnerPointKey_(o.locationName || o.userName || "");
+      if (!key || key === "ВАРКА" || loc !== key) return;
+    }
+    seen[id] = 1;
+    out.push(o);
+  });
+  return out;
+}
+
+/** Ручная запись той же точки, пока заявка открыта, не создаёт вторую строку. */
+async function partnerPointCoveredByOpenOrder_(env, client, dateIso) {
+  const date = String(dateIso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || partnerNetworkOnly_(client)) return "";
+  let orders = [];
+  try {
+    orders = await openDatedPartnerOrders_(env);
+  } catch (ePt) {
+    orders = [];
+  }
+  const hit = partnerDeleteTargets_(orders, client, date, "");
+  return hit.length ? String(hit[0].id || "") : "";
+}
+
+/** Удаление в дне/месяце снимает заявку, из которой нарисована строка, и карточку очереди. */
+async function cancelPartnerOrdersForPeopleDelete_(env, opts) {
+  opts = opts || {};
+  if (!env) return [];
+  let pack = null;
+  try {
+    pack = await getSnapRaw_(env, "partnerOrders");
+  } catch (ePack) {
+    pack = null;
+  }
+  const orders = (pack && pack.orders) || [];
+  const targets = partnerDeleteTargets_(orders, opts.client, opts.dateIso, opts.partnerOrderId);
+  if (!targets.length || !pack) return [];
+  const ids = Object.create(null);
+  targets.forEach(function (o) {
+    ids[String(o.id)] = 1;
+  });
+  const now = new Date().toISOString();
+  pack.orders = orders.map(function (o) {
+    if (!o || !ids[String(o.id || "")]) return o;
+    return Object.assign({}, o, { status: "cancelled", statusAt: now, cancelledBy: "people-delete" });
+  });
+  pack._d1TouchedAt = Date.now();
+  await putSnap_(env, "partnerOrders", pack);
+  try {
+    let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+    let items = Array.isArray(list.items) ? list.items.slice() : [];
+    let touched = false;
+    items = items.map(function (it) {
+      if (!it) return it;
+      const pl = it.payload || {};
+      const isPartner =
+        String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+        String(pl.orderType || "") === "partner";
+      if (!isPartner || !ids[String(pl.partnerOrderId || "")]) return it;
+      touched = true;
+      return Object.assign({}, it, {
+        status: "done",
+        payload: Object.assign({}, pl, { orderStatus: "cancelled", needsSlot: false }),
+        updatedAt: now
+      });
+    });
+    if (touched) {
+      list.items = items;
+      list.openCount = items.filter(function (it) {
+        return String((it && it.status) || "open").toLowerCase() === "open";
+      }).length;
+      list.fromD1 = true;
+      await putSnap_(env, "listDeferred", list);
+    }
+  } catch (eDef) {}
+  return Object.keys(ids);
+}
+
 function partnerOrderListed_(list, order) {
   const id = String((order && order.id) || "");
   const key = partnerPointKey_((order && (order.locationName || order.userName)) || "");
@@ -12507,7 +12599,9 @@ async function saveOrder_(params, env, asBooking) {
 
   const matchKey = normalizeMatchKey_(params.matchKey || client);
   try {
-    const covered = await partnerGenericCoveredBySlot_(env, client, params.address, dateIso);
+    const covered =
+      (await partnerGenericCoveredBySlot_(env, client, params.address, dateIso)) ||
+      (await partnerPointCoveredByOpenOrder_(env, client, dateIso));
     if (covered) {
       return {
         status: "success",
@@ -13578,6 +13672,18 @@ async function deleteClientOneRecord_(params, env, ctx) {
   const ids = [];
   const days = [];
   const dates = [];
+  let partnerHit = false;
+  try {
+    const packHit = await getSnapRaw_(env, "partnerOrders");
+    partnerHit = partnerDeleteTargets_(
+      (packHit && packHit.orders) || [],
+      client,
+      dateIso,
+      params.partnerOrderId || params.po || ""
+    ).length > 0;
+  } catch (eHit) {
+    partnerHit = false;
+  }
   function addDelDate_(iso) {
     iso = String(iso || "").trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(iso) && dates.indexOf(iso) < 0) dates.push(iso);
@@ -13601,7 +13707,7 @@ async function deleteClientOneRecord_(params, env, ctx) {
         addDelDate_(row.date_iso);
         const dn = String(row.day_name || "");
         if (dn && days.indexOf(dn) < 0) days.push(dn);
-        if (!dn && row.date_iso) {
+        if (!dn && row.date_iso && !partnerHit) {
           try {
             await putDeleteTombstone_(env, "", matchKeyRaw || client);
             await putSnap_(env, "delTomb:CAL:" + String(row.date_iso) + ":" + mk, {
@@ -13624,7 +13730,7 @@ async function deleteClientOneRecord_(params, env, ctx) {
       await clearWriteGuard_(env, days[ti], matchKeyRaw || client);
       if (client) await clearWriteGuard_(env, days[ti], client);
     }
-    if (calendarOnly && dateIso) {
+    if (calendarOnly && dateIso && !partnerHit) {
       await putDeleteTombstone_(env, "", matchKeyRaw || client);
       await putSnap_(env, "delTomb:CAL:" + dateIso + ":" + mk, {
         day: "",
@@ -13639,6 +13745,16 @@ async function deleteClientOneRecord_(params, env, ctx) {
   }
   if (!skipHeavyInvalidate_(params) && days.length) {
     try { await invalidateDays_(env, days); } catch (eInv) {}
+  }
+  let partnerCancelled = [];
+  try {
+    partnerCancelled = await cancelPartnerOrdersForPeopleDelete_(env, {
+      client: client,
+      dateIso: dateIso,
+      partnerOrderId: params.partnerOrderId || params.po || ""
+    });
+  } catch (ePoDel) {
+    partnerCancelled = [];
   }
   // бейдж месяца и viewDate этой даты — даже на hot path и если строки уже не было
   for (let di = 0; di < dates.length; di++) {
@@ -13657,7 +13773,8 @@ async function deleteClientOneRecord_(params, env, ctx) {
       subscriptionUntouched: true,
       day: day,
       date: dateIso,
-      ids: ids
+      ids: ids,
+      partnerCancelled: partnerCancelled
     };
   }
   return {
@@ -13671,7 +13788,8 @@ async function deleteClientOneRecord_(params, env, ctx) {
     day: day,
     date: dateIso,
     ids: ids,
-    daysCleared: days
+    daysCleared: days,
+    partnerCancelled: partnerCancelled
   };
 }
 
