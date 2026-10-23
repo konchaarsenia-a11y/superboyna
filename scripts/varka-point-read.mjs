@@ -41,12 +41,25 @@ function basketBrief(raw) {
   try { arr = JSON.parse(raw || "[]"); } catch (e) { arr = []; }
   if (!Array.isArray(arr)) arr = [];
   return arr.map(function (it) {
-    if (!it) return "";
-    const name = it.name || it.title || it.product || it.item || "";
-    const g = it.grams != null ? it.grams : (it.qty != null ? it.qty : it.weight);
-    const unit = it.unit || (it.grams != null ? "г" : "");
-    return String(name) + (g != null && g !== "" ? " " + g + unit : "");
-  }).filter(Boolean);
+    if (!it || typeof it !== "object") return String(it || "");
+    return it;
+  });
+}
+
+function accountId() {
+  const fromEnv = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const raw = execFileSync("npx", ["--yes", "wrangler@4", "whoami"], {
+      encoding: "utf8",
+      env: process.env,
+      cwd: path.join(process.cwd(), "boinya-c/proxy")
+    });
+    const m = raw.match(/[0-9a-f]{32}/i);
+    return m ? m[0] : "";
+  } catch (e) {
+    return "";
+  }
 }
 
 function orderBrief(r) {
@@ -105,7 +118,9 @@ async function logs(account, token) {
     ["tsvir", "Цвирко"],
     ["shev", "Шевченко"],
     ["varka", "VARKA"],
-    ["save", "saveOrder"]
+    ["save", "saveOrder"],
+    ["date", "2026-10-27"],
+    ["addr", "Шевченко"]
   ];
   const out = [];
   for (const pair of filters) {
@@ -228,9 +243,38 @@ async function main() {
     return String(r.date_iso || "") === DATE || String(r.updated_at || "") >= "2026-10-23" || hit(r.client + " " + r.address);
   }).map(orderBrief);
 
-  const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const account = accountId();
   const token = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
-  const logReport = account && token ? await logs(account, token) : "no-token";
+  const logReport = account && token ? await logs(account, token) : { why: "no-token", hasAccount: !!account, hasToken: !!token };
+  let viewClients = [];
+  const viewRows = sh("SELECT payload FROM snap_cache WHERE cache_key = 'viewDate:" + DATE + "'");
+  if (viewRows[0]) {
+    try {
+      const view = JSON.parse(viewRows[0].payload || "{}");
+      const list = view.clients || view.people || view.rows || [];
+      viewClients = (Array.isArray(list) ? list : []).map(function (c) {
+        return { name: c.name || c.client || "", address: c.address || "", matchKey: c.matchKey || "", basket: c.basket || c.orderCount || "" };
+      });
+    } catch (eV) {
+      viewClients = [{ error: String(eV.message || eV) }];
+    }
+  }
+  let backup = null;
+  const bak = sh("SELECT payload FROM snap_cache WHERE cache_key = 'dupBackup:CAL:ВАРКА:2026-10-27'");
+  if (bak[0]) {
+    try {
+      const payload = JSON.parse(bak[0].payload || "{}");
+      backup = {
+        keys: Object.keys(payload),
+        id: payload.id || (payload.row && payload.row.id) || "",
+        client: payload.client || (payload.row && payload.row.client) || "",
+        address: payload.address || (payload.row && payload.row.address) || "",
+        sample: JSON.stringify(payload).slice(0, 500)
+      };
+    } catch (eB) {
+      backup = { error: String(eB.message || eB) };
+    }
+  }
 
   const report = {
     counts: counts,
@@ -244,7 +288,10 @@ async function main() {
     }),
     deferred: deferred,
     snaps: snaps,
-    logs: logReport
+    logs: logReport,
+    viewClients: viewClients,
+    backup: backup,
+    dayEvery: day.map(orderBrief)
   };
   fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 2));
   const pub = {
@@ -254,7 +301,10 @@ async function main() {
     keyOnDate: keyHit.filter(function (r) { return r.date === DATE; }),
     partnerOnDate: (report.partnerOrders || []).filter(function (o) { return o.date === DATE || hit(o.location); }),
     snaps: snaps,
-    logs: logReport
+    logs: logReport,
+    viewClients: viewClients,
+    backup: backup,
+    dayEvery: day.map(orderBrief)
   };
   console.log(JSON.stringify(pub, null, 2));
 }

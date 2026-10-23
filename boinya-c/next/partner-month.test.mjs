@@ -89,6 +89,7 @@ test("точки Варки не схлопываются в один handle", (
 });
 
 test("две точки Варки на одну дату не делят ключ", () => {
+  // varka-point-key-h1: живая строка 27.10 была CAL:ВАРКА:2026-10-27, адрес «Шевченко 1».
   function grabUntil(name, next) {
     const start = worker.indexOf("function " + name + "(");
     assert.ok(start >= 0, name);
