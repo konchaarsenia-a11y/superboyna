@@ -7,7 +7,8 @@ import {
   payMoveSql_,
   planFromRows_,
   printOf_,
-  restorePaySql_
+  restorePaySql_,
+  tallyRows_
 } from "./pp-pay-move.mjs";
 
 test("перенос пишет только пометки и второй прогон пустой", () => {
@@ -58,6 +59,9 @@ test("перенос пишет только пометки и второй пр
   const stay = planFromRows_([rows[0]]);
   assert.equal(stay.notify.length, 1);
   assert.match(noticeText_(stay.notify), /Рекс 2026-10-03 140 BYN/);
+  const tally = tallyRows_(rows);
+  assert.equal(tally.unpaidN, 1);
+  assert.equal(tally.unpaid[0].client, "Рекс");
   assert.match(backupSql_(), /ppPayMoveBackup:2026-10-23/);
   assert.match(backupSql_(), /ON CONFLICT\(cache_key\) DO NOTHING/);
   const finger = printOf_(
