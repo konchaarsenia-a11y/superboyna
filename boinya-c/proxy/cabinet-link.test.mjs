@@ -4,7 +4,15 @@ import {
   composeAddress_,
   deliveryType_,
   dogPair_,
+  clientCabinetView_,
+  clientLookup_,
   exactClientHits_,
+  leadClientReply_,
+  leadMatch_,
+  leadStaffText_,
+  nextLeadId_,
+  parseDogs_,
+  registerPlan_,
   moveDecision_,
   orderFingerprint_,
   pairRole_,
@@ -71,6 +79,50 @@ test("поиск точный и не выбирает из нескольких
     { nick: "same" }
   );
   assert.equal(many.status, "many");
+});
+
+test("клиент ищет по телефону или нику и не видит код", () => {
+  const subs = [
+    { subId: "1", nick: "anna", phone: "+375291112233", publicId: "ПП01" },
+    { subId: "2", nick: "ann", phone: "+375291110000", publicId: "ПП02" }
+  ];
+  assert.equal(clientLookup_(subs, { publicId: "ПП01" }).status, "empty");
+  assert.equal(clientLookup_(subs, { phone: "291112233", nick: "anna" }).status, "one");
+  assert.equal(clientLookup_(subs, { phone: "291112233", nick: "ann" }).status, "many");
+  assert.equal(clientLookup_(subs, { nick: "missing" }).status, "none");
+  const dogs = parseDogs_([
+    { name: "Бим", breed: "корги", weight: "12", allergies: "курица" },
+    { name: "", breed: "такса" },
+    { name: "Лада", breed: "такса", weightKg: "8", allergies: "" }
+  ]);
+  assert.equal(dogs.length, 2);
+  assert.equal(dogs[1].weight, "8");
+  assert.equal(registerPlan_({ status: "one" }, dogs).action, "bind");
+  assert.equal(registerPlan_({ status: "many" }, dogs).action, "clarify");
+  assert.equal(registerPlan_({ status: "none" }, dogs).action, "lead");
+  assert.equal(registerPlan_({ status: "none" }, []).action, "error");
+  const lead = { phone: "+375291112233", nick: "newdog", publicId: "НК01" };
+  assert.equal(leadMatch_([lead], { nick: "@newdog" }).publicId, "НК01");
+  assert.equal(leadMatch_([lead], { phone: "291110000" }), null);
+  assert.equal(nextLeadId_(0).publicId, "НК01");
+  assert.equal(nextLeadId_(21).seq, 22);
+  const reply = leadClientReply_("register");
+  assert.equal(reply.message, "Заявка принята, менеджер свяжется с вами");
+  assert.equal(reply.showTry, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(reply, "publicId"), false);
+  assert.equal(leadClientReply_("try").message, "Заявка принята");
+  assert.match(leadStaffText_({ publicId: "НК03", name: "Анна", phone: "+375", nick: "anna", kind: "try", dogs: dogs.slice(0, 1) }), /НК03/);
+  const view = clientCabinetView_({
+    publicId: "ПП01",
+    nick: "anna",
+    link: { publicId: "ПП01", clientNick: "anna" },
+    subscription: { publicId: "ПП01", segment: "ПП" }
+  });
+  assert.equal(view.publicId, undefined);
+  assert.equal(view.link.publicId, undefined);
+  assert.equal(view.subscription.publicId, undefined);
+  assert.equal(view.nick, "anna");
+  assert.equal(view.link.clientNick, "anna");
 });
 
 test("неоплата ПП1 переносится на ПП2 того же месяца", () => {

@@ -27,6 +27,8 @@
   var crumbDraft = null;
   var pick = { type: "pp", anketa: "", result: null, text: "", busy: false };
   var focusNick = "";
+  var leads = [];
+  var leadsLoading = false;
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -109,7 +111,8 @@
     if (acc) access = acc;
     var list = [];
     if (canSubs()) {
-      list.push({ id: "pp", label: "ПП" }, { id: "afk", label: "АФК" }, { id: "bp", label: "БП" }, { id: "survey", label: "Опросник" });
+      // cabinet-login-h1: заявки новых клиентов, внутренний ID только для команды
+      list.push({ id: "pp", label: "ПП" }, { id: "afk", label: "АФК" }, { id: "bp", label: "БП" }, { id: "survey", label: "Опросник" }, { id: "leads", label: "Заявки" });
     }
     access = prev || access;
     if (acc) access = acc;
@@ -899,9 +902,44 @@
     sh().main(html);
   }
 
+  function paintLeads() {
+    var html = segBar();
+    if (leadsLoading && !leads.length) html += '<p class="b-note">Загрузка…</p>';
+    else if (!leads.length) html += '<p class="b-note">Заявок пока нет. Новая регистрация без подписки и «Хочу попробовать» появляются здесь.</p>';
+    else {
+      leads.forEach(function (row) {
+        var dogs = (row.dogs || []).map(function (d) {
+          return [d.name, d.breed, d.weight ? String(d.weight) + " кг" : "", d.allergies].filter(Boolean).join(", ");
+        }).join(" · ");
+        var who = [row.name, row.phone, row.nick ? "@" + String(row.nick).replace(/^@/, "") : ""].filter(Boolean).join(" · ");
+        html += '<article class="b-card" style="margin-bottom:10px">' +
+          '<div class="b-row"><strong>' + esc(row.publicId || "—") + "</strong><span>" +
+          esc(row.kind === "register" ? "регистрация" : "хочу попробовать") + "</span></div>" +
+          '<p class="b-note">' + esc(who) + "</p>" +
+          (dogs || row.pet ? '<p class="b-note">' + esc(dogs || row.pet) + "</p>" : "") +
+          "</article>";
+      });
+    }
+    sh().dock("");
+    sh().main(html);
+  }
+
+  async function loadLeads() {
+    leadsLoading = true;
+    try {
+      var res = await api().apiGet({ action: "listGoodboyLeads" }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      leads = (res && res.items) || [];
+    } catch (e) {
+      leads = [];
+    } finally {
+      leadsLoading = false;
+    }
+  }
+
   function paint() {
     if (view === "card" && card) { paintCard(); return; }
     if (seg === "survey") { paintSurvey(); return; }
+    if (seg === "leads") { paintLeads(); return; }
     if (seg === "calc") { paintCalc(); return; }
     if (seg === "pick") { paintPick(); return; }
     paintList();
@@ -915,6 +953,7 @@
     seg = nextSeg;
     if ((seg === "pp" || seg === "afk" || seg === "bp") && canSubs() && view === "list" && !subs.length) subsLoading = true;
     if (seg === "survey" && canSubs() && !surveys.length) surveysLoading = true;
+    if (seg === "leads" && canSubs() && !leads.length) leadsLoading = true;
     paint();
     if ((seg === "pp" || seg === "afk" || seg === "bp") && canSubs() && view === "list") {
       loadPeople().catch(function () {});
@@ -930,6 +969,10 @@
     if (seg === "survey" && canSubs()) {
       try { await loadPeople(); await loadSurveys(); } catch (e) {}
       paint();
+    }
+    if (seg === "leads" && canSubs()) {
+      try { await loadLeads(); } catch (eL) {}
+      if (seg === "leads") paint();
     }
   }
 
@@ -2565,7 +2608,7 @@
     var a = document.activeElement;
     if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
     if (!document.querySelector("[data-act='cseg']") && !document.querySelector("[data-act='cl-refresh']")) return;
-    var job = seg === "survey" ? loadSurveys() : loadSubs(true);
+    var job = seg === "survey" ? loadSurveys() : (seg === "leads" ? loadLeads() : loadSubs(true));
     Promise.resolve(job).then(function () {
       if (view === "list") paint();
     }).catch(function () {});

@@ -16,6 +16,15 @@
     return PAGES.slice();
   }
 
+  function inBot() {
+    try {
+      var tg = global.Telegram && global.Telegram.WebApp;
+      return !!(tg && tg.initData);
+    } catch (e) {
+      return false;
+    }
+  }
+
   function currentAccess(st) {
     if (st && st.access) return st.access;
     var u = st && st.user;
@@ -156,11 +165,10 @@
 
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">Ваш аккаунт</h3>" +
-        "<div class=\"cabinet-kv\"><span>Код</span><strong>" + esc((st.cabinet && st.cabinet.publicId) || "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Имя</span><strong>" + esc(user.name || "Гость") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Telegram</span><strong>" + esc(user.username ? "@" + user.username : "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
-        "<button type=\"button\" class=\"btn btn-ghost\" id=\"gbLogout\" style=\"margin-top:14px;\">Выйти</button>" +
+        (inBot() ? "" : "<button type=\"button\" class=\"btn btn-ghost\" id=\"gbLogout\" style=\"margin-top:14px;\">Выйти</button>") +
       "</div>"
     );
   }
@@ -180,7 +188,7 @@
       return "<button type=\"button\" class=\"" + cls + "\" data-place=\"" + pl.id + "\" style=\"--x:" + pl.x + "%;--y:" + pl.y + "%\" aria-label=\"" + esc(pl.name) + "\"></button>";
     }).join("");
     var nearest = places.find(function (pl) { return pl.id === activeId; }) || places[0];
-    var cityBar = access === "city"
+    var cityBar = access === "city" && !inBot()
       ? "<div class=\"cabinet-access-banner cabinet-access-banner--row\">" +
           "<span>Только карта</span>" +
           "<button type=\"button\" class=\"btn\" id=\"gbLogout\" style=\"width:auto;padding:8px 12px;font-size:0.8rem;\">Войти</button>" +
@@ -255,9 +263,8 @@
     var warn = st.stockWarn ? "<p class=\"cabinet-hint\">" + esc(st.stockWarn) + "</p>" : "";
     return (
       "<div class=\"cabinet-block\">" +
-        "<div class=\"cabinet-kv\"><span>Код</span><strong>" + esc(cab.publicId || "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(cab.nick || (st.link && st.link.clientNick) || "—") + "</strong></div>" +
-        (cards || "<p class=\"cabinet-hint\">" + (linked ? "В этом месяце доставок нет." : "Привяжите клиента по коду, нику или телефону.") + "</p>") +
+        (cards || "<p class=\"cabinet-hint\">" + (linked ? "В этом месяце доставок нет." : "Привяжите клиента по нику или телефону.") + "</p>") +
       "</div>" +
       (linked && nearest
         ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Состав и дата</h3>" + warn +
@@ -290,7 +297,6 @@
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">Привязать</h3>" +
         "<form id=\"linkForm\" class=\"cabinet-form\">" +
-          "<div class=\"field\"><label>Код</label><input id=\"linkId\" name=\"publicId\" placeholder=\"ПП01\" autocomplete=\"off\" /></div>" +
           "<div class=\"field\"><label>Ник</label><input id=\"linkNick\" name=\"nick\" placeholder=\"@nick\" autocomplete=\"off\" /></div>" +
           "<div class=\"field\"><label>Телефон</label><input id=\"linkPhone\" name=\"phone\" placeholder=\"+375…\" inputmode=\"tel\" autocomplete=\"tel\" /></div>" +
           "<button type=\"submit\" class=\"btn\">Найти</button>" +
