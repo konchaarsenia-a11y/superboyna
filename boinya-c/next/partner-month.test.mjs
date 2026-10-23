@@ -64,6 +64,13 @@ test("точки Варки не схлопываются в один handle", (
   assert.match(slot, /status: "done"/);
   assert.equal(slot.includes('status: "open"'), false);
   assert.match(worker, /function closeDatedPartnerDeferredItems_/);
+  const netSrc = ["partnerPointKey_", "partnerAddressKey_", "partnerNetworkOnly_", "partnerNetworkRowDup_"].map(grab).join("\n");
+  const net = new Function(netSrc + "\nreturn { only: partnerNetworkOnly_, dup: partnerNetworkRowDup_ };")();
+  assert.equal(net.only("Варка"), true);
+  assert.equal(net.only("Varka Цвирко 100"), false);
+  assert.equal(net.dup({ name: "Варка", address: "Цвирко 100" }, { locationName: "Varka Цвирко 100", address: "Цвирко 100" }), true);
+  assert.equal(net.dup({ name: "Varka Шевченко 1", address: "Шевченко 1" }, { locationName: "Varka Цвирко 100" }), false);
+  assert.match(worker, /skipped: "partner_point_shown"/);
 });
 
 test("месяц читает заявки с датой и не пишет их заново", () => {
