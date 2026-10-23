@@ -88,6 +88,54 @@ test("точки Варки не схлопываются в один handle", (
   assert.match(worker, /calendarOnly && dateIso && !partnerHit/);
 });
 
+test("две точки Варки на одну дату не делят ключ", () => {
+  function grabUntil(name, next) {
+    const start = worker.indexOf("function " + name + "(");
+    assert.ok(start >= 0, name);
+    const end = worker.indexOf("function " + next + "(", start + 1);
+    assert.ok(end > start, next);
+    return worker.slice(start, end);
+  }
+  const src = [
+    grabUntil("normalizeMatchKey_", "matchKeyAliases_"),
+    grabUntil("partnerPointKey_", "partnerOrderSaveKey_"),
+    grabUntil("partnerOrderSaveKey_", "partnerSaveSibling_"),
+    grabUntil("partnerSaveSibling_", "partnerAddressKey_"),
+    "function segmentFromOrderParams_(params) { params = params || {}; const ot = String(params.orderType || params.segment || '').toLowerCase(); if (ot === 'partner' || ot.indexOf('парт') === 0) return 'ПАРТНЁР'; return ''; }"
+  ].join("\n");
+  const api = new Function(src + "\nreturn { norm: normalizeMatchKey_, key: partnerOrderSaveKey_, sib: partnerSaveSibling_ };")();
+  assert.equal(api.norm("Varka Цвирко 100"), "VARKA");
+  assert.equal(api.norm("Varka Шевченко 1"), "VARKA");
+  assert.equal(api.norm("Варка Цвирко"), "ВАРКА ЦВИРКО");
+  const tsv = api.key("Varka Цвирко 100", { orderType: "partner", address: "Цвирко 100" });
+  const shev = api.key("Varka Шевченко 1", { orderType: "partner", address: "Шевченко 1" });
+  assert.equal(tsv, "ВАРКА ЦВИРКО 100");
+  assert.equal(shev, "ВАРКА ШЕВЧЕНКО 1");
+  assert.notEqual(tsv, shev);
+  assert.equal(api.key("Варка", { orderType: "partner", address: "Цвирко 1" }), "ВАРКА ЦВИРКО 1");
+  assert.equal(api.key("Варка", { orderType: "partner", address: "Шевченко 1" }), "ВАРКА ШЕВЧЕНКО 1");
+  assert.equal(api.key("Варка", { orderType: "partner" }), "ВАРКА");
+  assert.equal(api.key("ЕВГЕНИЯ es_furman", { orderType: "pp" }), "");
+  const rows = [
+    { id: "Вторник:VARKA", client: "Varka Цвирко 100", match_key: "VARKA", address: "Цвирко 100", segment: "ПАРТНЁР", date_iso: "2026-10-27" },
+    { id: "Вторник:ВАРКА ШЕВЧЕНКО 1", client: "Varka Шевченко 1", match_key: "ВАРКА ШЕВЧЕНКО 1", address: "Шевченко 1", segment: "ПАРТНЁР", date_iso: "2026-10-27" }
+  ];
+  const kept = rows.filter((row) => api.sib(row, "Varka Цвирко 100", "Цвирко 100", tsv));
+  assert.deepEqual(kept.map((row) => row.id), ["Вторник:VARKA"]);
+  const bare = [
+    { id: "a", client: "Варка", match_key: "ВАРКА", address: "Цвирко 1", segment: "ПАРТНЁР" },
+    { id: "b", client: "Варка", match_key: "ВАРКА", address: "Шевченко 1", segment: "ПАРТНЁР" }
+  ];
+  const one = bare.filter((row) => api.sib(row, "Варка", "Шевченко 1", "ВАРКА ШЕВЧЕНКО 1"));
+  assert.deepEqual(one.map((row) => row.id), ["b"]);
+  const logic = require("./week-logic.js");
+  assert.equal(logic.viewClientKey("Varka Цвирко 100"), "ВАРКА ЦВИРКО 100");
+  assert.equal(logic.viewClientKey("Varka Шевченко 1"), "ВАРКА ШЕВЧЕНКО 1");
+  assert.notEqual(logic.viewClientKey("Varka Цвирко"), logic.viewClientKey("Varka Шевченко"));
+  assert.equal(logic.viewClientKey("Варка"), "ВАРКА");
+  assert.equal(logic.viewClientKey("ЕВГЕНИЯ es_furman"), "ESFURMAN");
+});
+
 test("месяц читает заявки с датой и не пишет их заново", () => {
   assert.match(worker, /function overlayPartnerDatesOnMonth_/);
   assert.match(worker, /function appendPartnerOrdersForDate_/);

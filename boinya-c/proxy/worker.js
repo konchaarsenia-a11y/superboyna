@@ -11797,6 +11797,51 @@ function partnerPointKey_(raw) {
     .replace(/\bVARKA\b/g, "ВАРКА");
 }
 
+/**
+ * varka-point-key-h1: ключ заказа точки, а не общий handle ВАРКА.
+ * «Varka Цвирко 100» и «Varka Шевченко 1» на одну дату — разные строки.
+ * Голая «Варка» без улицы остаётся ВАРКА.
+ */
+function partnerOrderSaveKey_(client, params) {
+  params = params || {};
+  const name = String(client || "").trim();
+  const addr = String(params.address || "").trim();
+  const seg = segmentFromOrderParams_(params);
+  const fromName = partnerPointKey_(name);
+  const fromBoth = addr ? partnerPointKey_(name + " " + addr) : "";
+  const explicit = partnerPointKey_(params.matchKey || "");
+  const partnerish =
+    seg === "ПАРТНЁР" ||
+    fromName === "ВАРКА" ||
+    fromName.indexOf("ВАРКА ") === 0 ||
+    explicit === "ВАРКА" ||
+    explicit.indexOf("ВАРКА ") === 0 ||
+    fromBoth.indexOf("ВАРКА ") === 0;
+  if (!partnerish) return "";
+  if (fromName.indexOf("ВАРКА ") === 0) return fromName;
+  if (explicit.indexOf("ВАРКА ") === 0) return explicit;
+  if (fromBoth.indexOf("ВАРКА ") === 0) return fromBoth;
+  if (fromName === "ВАРКА" || explicit === "ВАРКА") return "ВАРКА";
+  return "";
+}
+
+/** Чужая точка на ту же дату не брат этой записи и не снимается сохранением. */
+function partnerSaveSibling_(row, client, address, pointKey) {
+  if (!row || !pointKey || pointKey === "ВАРКА") return true;
+  const seg = String(row.segment || "").trim().toUpperCase();
+  if (seg && seg !== "ПАРТНЁР" && seg !== "PARTNER" && seg.indexOf("ПАРТ") !== 0) return false;
+  const rowPoint = partnerPointKey_(row.match_key || "");
+  const namePoint = partnerPointKey_(row.client || "");
+  const addrPoint = partnerPointKey_(String(row.client || "") + " " + String(row.address || ""));
+  if (rowPoint === pointKey || namePoint === pointKey || addrPoint === pointKey) return true;
+  const legacy = rowPoint === "ВАРКА" || namePoint === "ВАРКА";
+  if (!legacy) return false;
+  if (namePoint.indexOf("ВАРКА ") === 0 && namePoint !== pointKey) return false;
+  if (addrPoint.indexOf("ВАРКА ") === 0 && addrPoint !== pointKey) return false;
+  if (String(row.client || "").trim().toLowerCase() !== String(client || "").trim().toLowerCase()) return false;
+  return true;
+}
+
 function partnerAddressKey_(raw) {
   return String(raw || "")
     .replace(/\s+/g, " ")
@@ -12843,7 +12888,9 @@ async function saveOrder_(params, env, asBooking) {
     return { status: "error", message: "no_day_or_date" };
   }
 
-  const matchKey = normalizeMatchKey_(params.matchKey || client);
+  let matchKey = normalizeMatchKey_(params.matchKey || client);
+  const partnerKey = partnerOrderSaveKey_(client, params);
+  if (partnerKey) matchKey = partnerKey;
   try {
     const covered =
       (await partnerGenericCoveredBySlot_(env, client, params.address, dateIso)) ||
@@ -12945,12 +12992,31 @@ async function saveOrder_(params, env, asBooking) {
   // переименование при edit: снять старый nick (UI delete может не успеть)
   if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
     const editMk = normalizeMatchKey_(params.matchKey || editClient);
+    const editPoint = partnerOrderSaveKey_(editClient, params);
     try {
-      await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-      )
-        .bind(now, editMk, editClient.toLowerCase(), editClient.toLowerCase())
-        .run();
+      if (editPoint && editPoint !== "ВАРКА") {
+        const rq = await env.DB.prepare(
+          "SELECT id, client, match_key, address, segment FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+        )
+          .bind(editMk, editPoint, editClient.toLowerCase())
+          .all();
+        const drop = ((rq && rq.results) || []).filter(function (row) {
+          return partnerSaveSibling_(row, editClient, params.address, editPoint);
+        });
+        for (let ri = 0; ri < drop.length; ri++) {
+          await env.DB.prepare(
+            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(now, drop[ri].id)
+            .run();
+        }
+      } else {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+        )
+          .bind(now, editMk, editClient.toLowerCase(), editClient.toLowerCase())
+          .run();
+      }
     } catch (eRen) {}
   }
 
@@ -12958,11 +13024,16 @@ async function saveOrder_(params, env, asBooking) {
   let sameRecordIds = [];
   try {
     const sq = await env.DB.prepare(
-      "SELECT id, date_iso, day_name, client, match_key, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
+      "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
     )
       .bind(matchKey, client.toLowerCase())
       .all();
     siblingRows = (sq && sq.results) || [];
+    if (partnerKey && partnerKey !== "ВАРКА") {
+      siblingRows = siblingRows.filter(function (row) {
+        return partnerSaveSibling_(row, client, params.address, partnerKey);
+      });
+    }
   } catch (eSib) {}
   const pickedSave = pickOrderSaveTarget_(siblingRows, {
     day: day,

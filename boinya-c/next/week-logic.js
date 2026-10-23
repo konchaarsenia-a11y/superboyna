@@ -49,7 +49,16 @@
     return "";
   }
 
+  // varka-point-key-h1: «Varka Цвирко» и «Varka Шевченко» не сходятся в один VARKA.
+  function partnerPointMatchKey(raw) {
+    var s = String(raw || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
+    if (s.indexOf("ВАРКА ") === 0) return s;
+    return "";
+  }
+
   function viewClientKey(raw) {
+    var point = partnerPointMatchKey(raw);
+    if (point) return point;
     var s = String(raw || "").replace(/\s+/g, " ").trim();
     if (!s) return "";
     var at = s.match(/@([A-Za-z0-9._]{2,})/);
@@ -1299,6 +1308,7 @@
     orderTypeToSegment: orderTypeToSegment,
     resolveOrderType: resolveOrderType,
     viewClientKey: viewClientKey,
+    partnerPointMatchKey: partnerPointMatchKey,
     clientGaps: clientGaps,
     currentWeekKey: currentWeekKey,
     peopleToast: peopleToast,

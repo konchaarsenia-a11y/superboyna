@@ -1,0 +1,38 @@
+name: varka-point-read
+
+on:
+  pull_request:
+    paths:
+      - "scripts/varka-point-read.mjs"
+      - ".github/workflows/varka-point-read.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/varka-point-read.mjs"
+      - ".github/workflows/varka-point-read.yml"
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read Varka orders on 2026-10-27
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OUT: ${{ github.workspace }}/artifacts/varka-point
+        run: |
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/varka-point-read.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: varka-point-read
+          path: artifacts/varka-point/
+          if-no-files-found: warn
