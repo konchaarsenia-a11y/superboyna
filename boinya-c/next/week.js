@@ -130,6 +130,7 @@
     var price = "";
     if (c && c._pay != null && c._pay !== "") {
       if (Number(c._pay) > 0) price = String(c._pay).replace(".", ",") + " BYN";
+      else if (c._payNote) price = "0, " + c._payNote;
     } else if (c.orderPrice != null && c.orderPrice !== "") {
       price = String(c.orderPrice).replace(".", ",") + " BYN";
     }

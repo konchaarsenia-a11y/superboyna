@@ -74,13 +74,33 @@ test("karpusha 07.10: ПП2 без оплаты не входит в сумму 
   assert.equal(rows[0]._pay, 0);
 });
 
-test("ПП2 без отметки не забирает цену у отказа на ПП1", function () {
+test("неоплата ПП1 переносит сумму на ПП2 того же месяца один раз", function () {
   var rows = [
     { name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", _sumDate: "2026-10-03" },
     { name: "Рекс", segment: "ПП", ppSlot: "2/2", orderPrice: 80, paid: "", _sumDate: "2026-10-17" }
   ];
-  assert.equal(L.revenueSum(rows), null);
-  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-17" }), null);
+  assert.equal(L.revenueSum(rows), 80);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-03" }), null);
+  assert.equal(L.revenueSum(rows, { onlyDate: "2026-10-17" }), 80);
+  L.stampPpPay(rows);
+  assert.equal(rows[0]._pay, 0);
+  assert.equal(rows[0]._payNote, "перенесено на доставку 2");
+  assert.equal(rows[1]._pay, 80);
+  var flagged = [
+    { name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", payMoved: "pp2", payMovedAmount: 80, _sumDate: "2026-10-03" },
+    { name: "Рекс", segment: "ПП", ppSlot: "2/2", orderPrice: 80, payDue: 80, _sumDate: "2026-10-17" }
+  ];
+  assert.equal(L.revenueSum(flagged), 80);
+  L.stampPpPay(flagged);
+  assert.equal(flagged[0]._pay, 0);
+  assert.equal(flagged[1]._pay, 80);
+  var alone = [{ name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", payMoved: "pp2", _sumDate: "2026-10-03" }];
+  assert.equal(L.revenueSum(alone), null);
+  L.stampPpPay(alone);
+  assert.equal(alone[0]._pay, 0);
+  assert.equal(alone[0]._payNote, "перенесено на доставку 2");
+  var stay = [{ name: "Рекс", segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", _sumDate: "2026-10-03" }];
+  assert.equal(L.revenueSum(stay), 80);
 });
 
 test("оплата на ПП2: в сумму входит только эта доставка", function () {

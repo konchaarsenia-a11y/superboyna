@@ -193,6 +193,40 @@ test("чистые перешедших и партнёры: себес §3, ц�
   assert.match(eco.attribution, /кто привёл/);
 });
 
+test("неоплата ПП1 в статистике один раз на ПП2 того же месяца", () => {
+  const rows = [
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" },
+    { ck: "R", iso: "2026-10-17", src: "pp", slot: 2, paid: "", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" }
+  ];
+  const s = F.formulaRollup_(rows, { monthKey: "2026-10" });
+  eq(s.ppRevenue, 80, "один раз на второй");
+  eq(s.revenue, 80, "без двойного");
+  eq(s.N, 2, "обе доставки");
+  const stay = F.formulaRollup_([
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" }
+  ], { monthKey: "2026-10" });
+  eq(stay.ppRevenue, 80, "без ПП2 сумма на первой");
+  const later = F.formulaRollup_([
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" },
+    { ck: "R", iso: "2026-11-03", src: "pp", slot: 2, paid: "", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" }
+  ], { monthKey: "2026-10" });
+  eq(later.ppRevenue, 80, "ПП2 следующего месяца не забирает октябрь");
+  const flagged = F.formulaRollup_([
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, payMoved: "pp2", delivered: true, S: 1, G: 0, P: 0, sig: "r" },
+    { ck: "R", iso: "2026-10-17", src: "pp", slot: 2, paid: "", price: 80, payDue: 80, delivered: false, S: 1, G: 0, P: 0, sig: "r" }
+  ], { monthKey: "2026-10" });
+  eq(flagged.ppRevenue, 0, "ещё не отвезено");
+  eq(flagged.pending.ppRevenue, 80, "ожидается на второй");
+  const workerSrc = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
+  const start = workerSrc.indexOf("function statsKopeckD1_");
+  const end = workerSrc.indexOf("function statsOrderPriceD1_");
+  const sandbox = { Math, Number, String, Object, isFinite };
+  vm.runInNewContext(workerSrc.slice(start, end), sandbox);
+  const d1 = sandbox.statsFormulaRollupD1_(rows, { monthKey: "2026-10" });
+  eq(d1.ppRevenue, 80, "воркер: та же одна сумма");
+  eq(d1.revenue, 80, "воркер: без двойного");
+});
+
 test("сверка: меньше попадает в чистое, больше вычитается, коридор 5% и минимум 5", () => {
   const under = F.reconcile_(100, 80, true, "свет");
   eq(under.gap, 20, "меньше");

@@ -551,7 +551,54 @@
     return cycles;
   }
 
+  function ppRowCopy_(row, price) {
+    var copy = {};
+    var k;
+    for (k in row) {
+      if (Object.prototype.hasOwnProperty.call(row, k)) copy[k] = row[k];
+    }
+    copy.price = price;
+    return copy;
+  }
+
+  /* Неоплата ПП1 + ПП2 того же месяца: сумма один раз на ПП2.
+     payDue важнее. Нет второй в месяце — сумма остаётся на ПП1.
+     payMoved без второй в этом окне не считается здесь (она на ПП2). */
+  function ppMovedCarrier_(cycle) {
+    var due = null;
+    var i;
+    for (i = 0; i < cycle.length; i++) {
+      var d = Number(cycle[i].payDue);
+      if (isFinite(d) && d > 0) {
+        due = cycle[i];
+        break;
+      }
+    }
+    if (due) return { row: due, amount: Math.round(Number(due.payDue) * 100) / 100 };
+    var yes = false;
+    var first = null;
+    var second = null;
+    for (i = 0; i < cycle.length; i++) {
+      var row = cycle[i];
+      var paid = String(row.paid || "");
+      if (paid === "yes") yes = true;
+      var slot = ppSlot_(row);
+      if (!first && slot < 2 && paid === "no") first = row;
+      if (!second && slot >= 2) second = row;
+    }
+    if (yes || !first) return null;
+    var amount = num_(first.price);
+    if (!(amount > 0)) return null;
+    var fm = isoDay_(first.iso).slice(0, 7);
+    var sm = second ? isoDay_(second.iso).slice(0, 7) : "";
+    if (second && fm && fm === sm) return { row: second, amount: amount };
+    if (String(first.payMoved || "") === "pp2") return null;
+    return { row: first, amount: amount };
+  }
+
   function ppPayRow_(cycle) {
+    var moved = ppMovedCarrier_(cycle);
+    if (moved) return ppRowCopy_(moved.row, moved.amount);
     var yes = [];
     var open = [];
     var i;
@@ -627,6 +674,14 @@
         b.N += 1;
         if (sig) seen[mk][sig] = true;
       }
+      var movedPay = ppMovedCarrier_(cycle);
+      if (movedPay) {
+        var mrow = movedPay.row;
+        if (mrow.delivered && movedPay.amount > 0) {
+          var mmk = isoDay_(mrow.iso).slice(0, 7);
+          if (/^\d{4}-\d{2}$/.test(mmk)) bucket(mmk).revenue = kopeck_(bucket(mmk).revenue + movedPay.amount);
+        }
+      } else {
       var priced = {};
       for (ri = 0; ri < cycle.length; ri++) {
         var prow = cycle[ri];
@@ -641,6 +696,7 @@
       var pi;
       for (pi = 0; pi < pkeys.length; pi++) {
         bucket(pkeys[pi]).revenue = kopeck_(bucket(pkeys[pi]).revenue + num_(priced[pkeys[pi]].price));
+      }
       }
     }
     return by;
