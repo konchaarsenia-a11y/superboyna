@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Read-only: заказы Варки на 2026-10-27 и состав, если он ещё лежит в D1.
- * Ничего не пишет.
+ * Ничего не пишет. Повтор 2026-10-23 20:34 UTC: только диагностика дубля Цвирко.
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -174,7 +174,7 @@ async function main() {
     "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE date_iso = '" + DATE + "'"
   );
   const recent = sh(
-    "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE updated_at >= '2026-10-23T12:00:00'"
+    "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE updated_at >= '2026-10-23T19:40:00'"
   );
   const keys = sh(
     "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE match_key IN ('VARKA','ВАРКА') OR id LIKE '%VARKA%' OR id LIKE '%ВАРКА%'"
@@ -291,7 +291,8 @@ async function main() {
     logs: logReport,
     viewClients: viewClients,
     backup: backup,
-    dayEvery: day.map(orderBrief)
+    dayEvery: day.map(orderBrief),
+    sinceRekey: recent.map(orderBrief)
   };
   fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 2));
   const pub = {
@@ -304,7 +305,8 @@ async function main() {
     logs: logReport,
     viewClients: viewClients,
     backup: backup,
-    dayEvery: day.map(orderBrief)
+    dayEvery: day.map(orderBrief),
+    sinceRekey: recent.map(orderBrief)
   };
   console.log(JSON.stringify(pub, null, 2));
 }
