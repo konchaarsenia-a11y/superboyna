@@ -206,8 +206,9 @@
 
   function deleteParams(opts) {
     opts = opts || {};
+    var params;
     if (opts.calendarOnly && opts.date) {
-      return {
+      params = {
         action: "removeCalendarClient",
         client: opts.client,
         date: opts.date,
@@ -215,16 +216,18 @@
         _explicitDelete: "1",
         _userDelete: "1"
       };
+    } else {
+      params = {
+        action: "deleteClient",
+        client: opts.client,
+        day: opts.day || "",
+        _explicitDelete: "1",
+        _userDelete: "1"
+      };
+      if (opts.date) params.date = opts.date;
+      if (opts.matchKey) params.matchKey = opts.matchKey;
     }
-    var params = {
-      action: "deleteClient",
-      client: opts.client,
-      day: opts.day || "",
-      _explicitDelete: "1",
-      _userDelete: "1"
-    };
-    if (opts.date) params.date = opts.date;
-    if (opts.matchKey) params.matchKey = opts.matchKey;
+    if (opts.partnerOrderId) params.partnerOrderId = String(opts.partnerOrderId);
     return params;
   }
 

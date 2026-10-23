@@ -1,0 +1,269 @@
+name: varka-po-cancel
+# Снять две заявки Варки на 27.10: po_mvjkin1kgthq и po_mvjgt71nlc44.
+# Копия в snap dupBackup:varka-po-2026-10-27. Склад и чужие заказы не трогать.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/varka-po-cancel.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/varka-po-cancel.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Copy then cancel the two Varka orders
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/varka-po-cancel"
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/varka-po-cancel"
+          KEY = "dupBackup:varka-po-2026-10-27"
+          NOW = "2026-10-23T12:20:00.000Z"
+          DATE = "2026-10-27"
+          WANT = {
+              "po_mvjkin1kgthq": "цвирко",
+              "po_mvjgt71nlc44": "шевченко",
+          }
+          POINT = {
+              "po_mvjkin1kgthq": "ВАРКА ЦВИРКО 100",
+              "po_mvjgt71nlc44": "ВАРКА ШЕВЧЕНКО 1",
+          }
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              sql_path = root + "/" + name + ".sql"
+              open(sql_path, "w", encoding="utf-8").write(sql)
+              cmd = ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--file", sql_path]
+              subprocess.check_call(cmd, stdout=open(path, "w", encoding="utf-8"))
+              return path
+
+          def blocks(path):
+              data = json.loads(open(path, encoding="utf-8").read())
+              return data if isinstance(data, list) else [data]
+
+          def rows(path):
+              out = []
+              for block in blocks(path):
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          def changes(path):
+              n = 0
+              for block in blocks(path):
+                  meta = block.get("meta") if isinstance(block, dict) else None
+                  if isinstance(meta, dict):
+                      n += int(meta.get("changes") or 0)
+              return n
+
+          def q(s):
+              return str(s).replace("'", "''")
+
+          def point_key(raw):
+              s = " ".join(str(raw or "").split()).strip().upper().replace("Ё", "Е")
+              return s.replace("VARKA", "ВАРКА")
+
+          def load_snap(key, name):
+              got = rows(run("SELECT cache_key, payload FROM snap_cache WHERE cache_key = '%s'" % key, name))
+              if not got:
+                  raise SystemExit("refuse: snap missing " + key)
+              payload = got[0].get("payload")
+              if isinstance(payload, str):
+                  payload = json.loads(payload)
+              if not isinstance(payload, dict):
+                  raise SystemExit("refuse: snap not object " + key)
+              return payload
+
+          def put_snap(key, payload, name):
+              raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+              run(
+                  "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES ('%s', '%s', '%s') "
+                  "ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at"
+                  % (key, q(raw), NOW),
+                  name,
+              )
+
+          pack = load_snap("partnerOrders", "po-before")
+          orders = list(pack.get("orders") or [])
+          by_id = {}
+          for o in orders:
+              if isinstance(o, dict) and o.get("id"):
+                  by_id[str(o.get("id"))] = o
+          for oid, needle in WANT.items():
+              o = by_id.get(oid)
+              if not o:
+                  raise SystemExit("refuse: missing " + oid)
+              loc = str(o.get("locationName") or o.get("userName") or "").lower()
+              if needle not in loc:
+                  raise SystemExit("refuse: location %s %s" % (oid, loc))
+              if str(o.get("deliverDateIso") or "")[:10] != DATE:
+                  raise SystemExit("refuse: date %s %s" % (oid, o.get("deliverDateIso")))
+          before_status = {str(o.get("id")): o.get("status") for o in orders if isinstance(o, dict)}
+
+          deferred = load_snap("listDeferred", "df-before")
+          items = list(deferred.get("items") or [])
+          matched_df = []
+          for it in items:
+              if not isinstance(it, dict):
+                  continue
+              pl = it.get("payload") if isinstance(it.get("payload"), dict) else {}
+              po = str(pl.get("partnerOrderId") or "")
+              if po in WANT:
+                  matched_df.append(it)
+
+          order_rows = rows(run(
+              "SELECT id, client, status, date_iso, address FROM orders WHERE date_iso = '2026-10-27'",
+              "orders-before",
+          ))
+          drop_rows = []
+          for r in order_rows:
+              if str(r.get("status") or "") != "active":
+                  continue
+              if point_key(r.get("client")) in POINT.values():
+                  drop_rows.append(r)
+
+          backup_rows = rows(run("SELECT cache_key FROM snap_cache WHERE cache_key = '%s'" % KEY, "backup-exists"))
+          if not backup_rows:
+              copies = []
+              for oid in WANT:
+                  copies.append(json.loads(json.dumps(by_id[oid])))
+              backup = {
+                  "reason": "Arseniy delete of Varka Tsvirko and Shevchenko on 2026-10-27 did not stick",
+                  "at": NOW,
+                  "orders": copies,
+                  "deferred": matched_df,
+                  "orderRows": drop_rows,
+              }
+              put_snap(KEY, backup, "backup")
+
+          changed_po = 0
+          for o in orders:
+              if not isinstance(o, dict):
+                  continue
+              oid = str(o.get("id") or "")
+              if oid not in WANT:
+                  continue
+              st = str(o.get("status") or "").lower()
+              if st in ("cancelled", "canceled"):
+                  continue
+              o["status"] = "cancelled"
+              o["statusAt"] = NOW
+              o["cancelledBy"] = "varka-po-cancel"
+              changed_po += 1
+          pack["orders"] = orders
+          pack["_d1TouchedAt"] = 1761214800000
+          if changed_po:
+              put_snap("partnerOrders", pack, "po-write")
+
+          touched_df = 0
+          next_items = []
+          for it in items:
+              if not isinstance(it, dict):
+                  next_items.append(it)
+                  continue
+              pl = it.get("payload") if isinstance(it.get("payload"), dict) else {}
+              po = str(pl.get("partnerOrderId") or "")
+              if po not in WANT:
+                  next_items.append(it)
+                  continue
+              ost = str(pl.get("orderStatus") or "").lower()
+              if ost in ("cancelled", "canceled") and str(it.get("status") or "").lower() == "done":
+                  next_items.append(it)
+                  continue
+              pl = dict(pl)
+              pl["orderStatus"] = "cancelled"
+              pl["needsSlot"] = False
+              it = dict(it)
+              it["status"] = "done"
+              it["payload"] = pl
+              it["updatedAt"] = NOW
+              touched_df += 1
+              next_items.append(it)
+          if touched_df:
+              deferred["items"] = next_items
+              deferred["fromD1"] = True
+              deferred["openCount"] = len([it for it in next_items if str((it or {}).get("status") or "open").lower() == "open"])
+              put_snap("listDeferred", deferred, "df-write")
+
+          dropped = []
+          if drop_rows:
+              id_sql = ",".join("'" + q(r["id"]) + "'" for r in drop_rows)
+              run(
+                  "UPDATE orders SET status = 'deleted', updated_at = '%s' WHERE status = 'active' AND date_iso = '2026-10-27' AND id IN (%s)"
+                  % (NOW, id_sql),
+                  "orders-update",
+              )
+              n = changes(root + "/orders-update.json")
+              if n != len(drop_rows):
+                  raise SystemExit("refuse: order changes %s != %s" % (n, len(drop_rows)))
+              dropped = [r.get("id") for r in drop_rows]
+
+          run("DELETE FROM snap_cache WHERE cache_key = 'viewDate:2026-10-27'", "viewdate")
+
+          pack2 = load_snap("partnerOrders", "po-after")
+          after = {}
+          for o in pack2.get("orders") or []:
+              if isinstance(o, dict) and o.get("id"):
+                  after[str(o.get("id"))] = o.get("status")
+          for oid in WANT:
+              if str(after.get(oid) or "").lower() not in ("cancelled", "canceled"):
+                  raise SystemExit("refuse: still open " + oid)
+          for oid, st in before_status.items():
+              if oid in WANT:
+                  continue
+              if after.get(oid) != st:
+                  raise SystemExit("refuse: other partner order changed " + oid)
+          df2 = load_snap("listDeferred", "df-after")
+          still_q = []
+          for it in df2.get("items") or []:
+              if not isinstance(it, dict):
+                  continue
+              pl = it.get("payload") if isinstance(it.get("payload"), dict) else {}
+              po = str(pl.get("partnerOrderId") or "")
+              if po not in WANT:
+                  continue
+              ost = str(pl.get("orderStatus") or "").lower()
+              if ost not in ("cancelled", "canceled"):
+                  still_q.append(po)
+          if still_q:
+              raise SystemExit("refuse: queue still open %s" % still_q)
+          left = rows(run(
+              "SELECT id, client, status FROM orders WHERE status = 'active' AND date_iso = '2026-10-27'",
+              "orders-after",
+          ))
+          bad = [r.get("id") for r in left if point_key(r.get("client")) in POINT.values()]
+          if bad:
+              raise SystemExit("refuse: orders still active %s" % bad)
+          if not rows(run("SELECT cache_key FROM snap_cache WHERE cache_key = '%s'" % KEY, "backup-check")):
+              raise SystemExit("refuse: backup missing")
+          result = {
+              "cancelled": list(WANT.keys()),
+              "backup": KEY,
+              "partnerNewlyCancelled": changed_po,
+              "deferredTouched": touched_df,
+              "ordersSoftDeleted": dropped,
+              "activePointLeft": 0,
+          }
+          json.dump(result, open(root + "/result.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(json.dumps(result, ensure_ascii=False))
+          PY

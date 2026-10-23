@@ -71,6 +71,21 @@ test("точки Варки не схлопываются в один handle", (
   assert.equal(net.dup({ name: "Варка", address: "Цвирко 100" }, { locationName: "Varka Цвирко 100", address: "Цвирко 100" }), true);
   assert.equal(net.dup({ name: "Varka Шевченко 1", address: "Шевченко 1" }, { locationName: "Varka Цвирко 100" }), false);
   assert.match(worker, /skipped: "partner_point_shown"/);
+  const pickSrc = ["partnerOrderIsClosed_", "partnerOrderDate_", "partnerPointKey_", "partnerDeleteTargets_"].map(grab).join("\n");
+  const pick = new Function(pickSrc + "\nreturn partnerDeleteTargets_;")();
+  const sample = [
+    { id: "po_mvjkin1kgthq", status: "new", deliverDateIso: "2026-10-27", locationName: "Varka Цвирко 100" },
+    { id: "po_mvjgt71nlc44", status: "new", deliverDateIso: "2026-10-27", locationName: "Varka Шевченко 1" },
+    { id: "other", status: "new", deliverDateIso: "2026-10-27", locationName: "Varka Голодеда 15" },
+    { id: "gone", status: "cancelled", deliverDateIso: "2026-10-27", locationName: "Varka Цвирко 100" }
+  ];
+  assert.deepEqual(pick(sample, "Varka Цвирко 100", "2026-10-27", "").map(function (o) { return o.id; }), ["po_mvjkin1kgthq"]);
+  assert.deepEqual(pick(sample, "Varka Шевченко 1", "2026-10-28", "po_mvjgt71nlc44").map(function (o) { return o.id; }), ["po_mvjgt71nlc44"]);
+  assert.equal(pick(sample, "Варка", "2026-10-27", "").length, 0);
+  assert.equal(pick(sample, "zzz_test", "2026-10-27", "").length, 0);
+  assert.match(worker, /function cancelPartnerOrdersForPeopleDelete_/);
+  assert.match(worker, /function partnerPointCoveredByOpenOrder_/);
+  assert.match(worker, /calendarOnly && dateIso && !partnerHit/);
 });
 
 test("месяц читает заявки с датой и не пишет их заново", () => {
