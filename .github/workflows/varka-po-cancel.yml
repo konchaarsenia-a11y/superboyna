@@ -54,11 +54,23 @@ jobs:
               sql_path = root + "/" + name + ".sql"
               open(sql_path, "w", encoding="utf-8").write(sql)
               cmd = ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--file", sql_path]
-              subprocess.check_call(cmd, stdout=open(path, "w", encoding="utf-8"))
+              proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              out = proc.stdout.decode("utf-8", "replace")
+              err = proc.stderr.decode("utf-8", "replace")
+              open(path, "w", encoding="utf-8").write(out)
+              open(path + ".err", "w", encoding="utf-8").write(err)
+              if proc.returncode != 0 or not out.strip():
+                  raise SystemExit("wrangler %s rc=%s out=%s err=%s" % (name, proc.returncode, out[:400], err[-800:]))
               return path
 
           def blocks(path):
-              data = json.loads(open(path, encoding="utf-8").read())
+              text = open(path, encoding="utf-8").read()
+              i = 0
+              while i < len(text) and text[i] not in "[{":
+                  i += 1
+              if i >= len(text):
+                  raise SystemExit("no json in %s: %s" % (path, text[:400]))
+              data = json.loads(text[i:])
               return data if isinstance(data, list) else [data]
 
           def rows(path):
