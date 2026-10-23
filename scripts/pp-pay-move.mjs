@@ -185,6 +185,37 @@ function cell_(row, name) {
   return row[name] == null ? "" : row[name];
 }
 
+export function tallyRows_(rows) {
+  const paid = {};
+  const seg = {};
+  const unpaid = [];
+  (rows || []).forEach(function (r) {
+    const p = String(r.paid == null ? "" : r.paid);
+    paid[p] = (paid[p] || 0) + 1;
+    const s = String(r.segment || "");
+    seg[s] = (seg[s] || 0) + 1;
+    const low = p.toLowerCase();
+    if (low === "no" || low === "false" || low === "0") {
+      unpaid.push({
+        client: String(r.client || ""),
+        date: String(r.date_iso || ""),
+        segment: s,
+        ppSlot: r.ppSlot == null ? "" : String(r.ppSlot),
+        deliverySlot: r.deliverySlot == null ? "" : String(r.deliverySlot),
+        orderPrice: r.orderPrice == null ? "" : r.orderPrice,
+        match: String(r.match_key || "")
+      });
+    }
+  });
+  return {
+    paid: paid,
+    seg: seg,
+    unpaid: unpaid.slice(0, 40),
+    unpaidN: unpaid.length,
+    keys: rows && rows[0] ? Object.keys(rows[0]) : []
+  };
+}
+
 function movedStayed_(rows, plan) {
   const byId = {};
   (rows || []).forEach(function (r) { byId[r.id] = r; });
@@ -287,7 +318,8 @@ function main() {
       subs: subsBefore.length,
       ordersMatch: true,
       subsMatch: true,
-      notice: notice
+      notice: notice,
+      tally: tallyRows_(rows)
     };
     fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
     console.log(JSON.stringify(summary));
