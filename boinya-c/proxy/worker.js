@@ -17,6 +17,13 @@ import {
   botStartCommand_,
   botStartPack_
 } from "./bot-hook.js";
+import {
+  KLIENT_HOOK_PATH,
+  KLIENT_PAGES_BASE,
+  klientBindPlan_,
+  klientLoginPlan_,
+  klientStartPack_
+} from "./klient-hook.js";
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 
@@ -524,6 +531,7 @@ function authBotTokens_(env) {
     add(env.TELEGRAM_BOT_TOKEN);
     add(env.BOINYA_BOT_TOKEN);
     add(env.PARTNER_BOT_TOKEN);
+    add(env.CLIENT_BOT_TOKEN);
     String(env.TG_EXTRA_BOT_TOKENS || "").split(/[,;\s]+/).forEach(add);
   }
   return out;
@@ -1051,6 +1059,71 @@ async function serveVarkaApp_() {
   }
 }
 
+async function serveKlientCabinet_() {
+  try {
+    const upstream = await fetch(KLIENT_PAGES_BASE + "/app.html", {
+      cf: { cacheTtl: 30, cacheEverything: true }
+    });
+    if (!upstream.ok) {
+      return new Response("cabinet unavailable", {
+        status: 502,
+        headers: { ...CORS, "Cache-Control": "no-store, max-age=0" }
+      });
+    }
+    let html = await upstream.text();
+    if (!/<base\s/i.test(html)) {
+      html = html.replace(/<head([^>]*)>/i, '<head$1><base href="' + KLIENT_PAGES_BASE + '/">');
+    }
+    return new Response(html, {
+      status: 200,
+      headers: {
+        ...CORS,
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0"
+      }
+    });
+  } catch (e) {
+    return new Response("cabinet unavailable", {
+      status: 502,
+      headers: { ...CORS, "Cache-Control": "no-store, max-age=0" }
+    });
+  }
+}
+
+async function handleKlientTelegramWebhook_(request, env) {
+  const secret = String((env && env.CLIENT_WEBHOOK_SECRET) || "").trim();
+  const got = String(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "").trim();
+  if (!secret || !varkaSecretEq_(got, secret)) {
+    return new Response("forbidden", { status: 403, headers: { "X-Klient-Kind": "forbidden" } });
+  }
+  let body = {};
+  try { body = await request.json(); } catch (eBody) { body = {}; }
+  const msg = body && body.message;
+  const chat = msg && msg.chat;
+  const from = msg && msg.from;
+  const text = msg && msg.text;
+  if (!botPrivateChatOk_(chat, from) || !botStartCommand_(text)) {
+    return new Response("ok", { status: 200, headers: { "X-Klient-Kind": "ignore" } });
+  }
+  const token = String((env && env.CLIENT_BOT_TOKEN) || "").trim();
+  const pack = klientStartPack_(from && from.first_name);
+  if (token) {
+    try {
+      await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chat.id,
+          text: pack.text,
+          reply_markup: pack.markup,
+          disable_web_page_preview: true
+        })
+      });
+    } catch (eSend) {}
+  }
+  return new Response("ok", { status: 200, headers: { "X-Klient-Kind": "start" } });
+}
+
 export default {
   async scheduled(event, env, ctx) {
     var cron = String((event && event.cron) || "");
@@ -1094,6 +1167,12 @@ export default {
     if (request.method === "POST" && url.pathname === "/telegram/goodboy") {
       return handleGoodboyTelegramWebhook_(request, env, ctx);
     }
+    if (request.method === "POST" && url.pathname === KLIENT_HOOK_PATH) {
+      return handleKlientTelegramWebhook_(request, env);
+    }
+    if (request.method === "GET" && (url.pathname === "/k" || url.pathname === "/k/")) {
+      return serveKlientCabinet_();
+    }
     // Обход GitHub Pages: Menu Button → https://boinya-c.konchaarsenia.workers.dev/varka/
     if (
       request.method === "GET" &&
@@ -1114,7 +1193,8 @@ export default {
         cutover: "LIVE by default; ?sandbox=1 / ?cutover=0 → D1 only",
         d1: !!(env && env.DB),
         tip: "?action=getClients&day=Понедельник",
-        varka: "/varka/ (Pages HTML + assets, not jsDelivr)"
+        varka: "/varka/ (Pages HTML + assets, not jsDelivr)",
+        klient: "/k"
       });
     }
 
@@ -1426,7 +1506,7 @@ function isWriteAction_(a) {
     return false;
   }
   // Goodboy writes
-  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets)$/i.test(a)) return true;
+  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets|gbTelegramEnter|gbBindTelegram|gbTelegramRegister)$/i.test(a)) return true;
   return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|restore|undelete|report|log|partner|force|place|submit|apply)/i.test(
     a
   );
@@ -20037,6 +20117,21 @@ async function handleCutover_(a, params, env, ctx) {
         action: a
       });
     }
+    if (/^(gbTelegramEnter|gbBindTelegram|gbTelegramRegister)$/i.test(a)) {
+      let d1K = null;
+      try {
+        if (env && env.DB) d1K = await mutateGbD1_(a, params, env);
+        else d1K = { status: "error", message: "no_d1" };
+      } catch (eK) {
+        d1K = { status: "error", message: String((eK && eK.message) || eK) };
+      }
+      return Object.assign({}, d1K || { status: "error", message: "gb_write_failed" }, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        action: a
+      });
+    }
     // Goodboy GB_* — D1/snap правда → GAS зеркало (CRM read-only)
     if (
       isGbD1PrimaryCanon_(env) &&
@@ -32872,6 +32967,78 @@ function gbBuildMeFromPack_(user, pack, subscription) {
   };
 }
 
+function gbSplitCabinet_(users, phone, nick, tid) {
+  const want = String(nick || "").trim().replace(/^@/, "").toLowerCase();
+  const mine = [];
+  const free = [];
+  const foreign = [];
+  const list = users || [];
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i] || {};
+    const un = String(u.username || "").trim().replace(/^@/, "").toLowerCase();
+    const phoneHit = phone && gbPhonesMatchWorker_(u.phone, phone);
+    const nickHit = !!(want && un && un === want);
+    if (!phoneHit && !nickHit) continue;
+    const id = String(u.telegramId || "");
+    if (tid && id === String(tid)) mine.push(u);
+    else if (/^\d{5,15}$/.test(id)) foreign.push(u);
+    else free.push(u);
+  }
+  return { mine: mine, free: free, foreign: foreign };
+}
+
+async function gbCrmExactHits_(nick, phone, env) {
+  const wantNick = String(nick || "").trim().replace(/^@/, "").toLowerCase();
+  const snap = await getSnapRaw_(env, "listSubscriptions");
+  const subs = (snap && (snap.subscriptions || snap.items || snap.list)) || [];
+  const hits = [];
+  if (!Array.isArray(subs) || !subs.length) return hits;
+  for (let i = 0; i < subs.length; i++) {
+    const s = subs[i] || {};
+    const sn = String(s.client || s.nick || s.name || "").trim().replace(/^@/, "").toLowerCase();
+    const matchNick = !!(wantNick && sn && sn === wantNick);
+    const matchPhone = !!(phone && (gbPhonesMatchWorker_(s.phone, phone) || gbPhonesMatchWorker_(s.tel, phone)));
+    if (!matchNick && !matchPhone) continue;
+    hits.push({
+      matchKey: s.matchKey || normalizeMatchKey_(s.client || s.nick || ""),
+      clientNick: s.client || s.nick || "",
+      subId: s.id || s.subId || "",
+      segment: s.segment || s.type || ""
+    });
+  }
+  return hits;
+}
+
+async function gbKlientVerified_(params, env) {
+  const initData = String((params && (params.initData || params.init_data)) || "").trim();
+  const v = await verifyTgInitData_(initData, env);
+  if (!v || !v.ok || !v.user || !v.user.id) {
+    return { ok: false, message: "Не удалось проверить Telegram", code: (v && v.reason) || "bad_init" };
+  }
+  const clientToken = String((env && env.CLIENT_BOT_TOKEN) || "").trim();
+  const tokens = authBotTokens_(env);
+  const matched = tokens[v.botIndex] || "";
+  if (!clientToken || matched !== clientToken) {
+    return { ok: false, message: "Откройте кабинет из бота Goodboy", code: "not_client_bot" };
+  }
+  const user = v.user;
+  return {
+    ok: true,
+    tid: String(user.id),
+    username: String(user.username || "").trim().replace(/^@/, ""),
+    name: [user.first_name, user.last_name].filter(Boolean).join(" ").trim()
+  };
+}
+
+function klientNeedPayload_(plan) {
+  const code = (plan && plan.reason) || "need_login";
+  const messages = {
+    ambiguous: "Несколько совпадений — укажите телефон или ник",
+    taken: "Этот кабинет уже привязан к другому Telegram"
+  };
+  return { status: "need_login", code: code, klient: "needLogin", message: messages[code] || "" };
+}
+
 async function mutateGbD1_(action, params, env) {
   const a = String(action || "");
   if (/^gbEnsureSheets$/i.test(a)) {
@@ -32911,6 +33078,86 @@ async function mutateGbD1_(action, params, env) {
     if (idx >= 0) pack.users[idx] = base;
     else pack.users.push(base);
     return base;
+  }
+
+  function gbMoveTid_(fromId, toId, extras) {
+    const from = String(fromId || "");
+    const to = String(toId || "");
+    if (!from || !to || from === to) return null;
+    let idx = -1;
+    for (let i = 0; i < pack.users.length; i++) {
+      if (String(pack.users[i].telegramId) === from) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return null;
+    for (let j = 0; j < pack.users.length; j++) {
+      if (String(pack.users[j].telegramId) === to) return null;
+    }
+    const moved = Object.assign({}, pack.users[idx]);
+    moved.telegramId = to;
+    if (extras && extras.name) moved.name = String(extras.name).trim();
+    if (extras && extras.username) moved.username = String(extras.username).trim().replace(/^@/, "");
+    if (extras && extras.phone) moved.phone = String(extras.phone).trim();
+    moved.lastLoginAt = now;
+    pack.users[idx] = moved;
+    for (let p = 0; p < pack.pets.length; p++) {
+      if (String(pack.pets[p].ownerTelegramId || "") === from) pack.pets[p].ownerTelegramId = to;
+    }
+    for (let l = 0; l < pack.links.length; l++) {
+      if (String(pack.links[l].telegramId || "") === from) pack.links[l].telegramId = to;
+    }
+    return moved;
+  }
+
+  function gbPutLink_(user, hit, phone, method) {
+    const link = {
+      userId: user.userId,
+      telegramId: user.telegramId,
+      matchKey: hit.matchKey,
+      clientNick: hit.clientNick,
+      subId: hit.subId,
+      segment: hit.segment,
+      status: "linked",
+      verifyMethod: method || "nick",
+      phone: phone || "",
+      linkedAt: now
+    };
+    let li = -1;
+    for (let i = 0; i < pack.links.length; i++) {
+      if (String(pack.links[i].telegramId) === String(user.telegramId)) {
+        li = i;
+        break;
+      }
+    }
+    if (li >= 0) pack.links[li] = Object.assign({}, pack.links[li], link);
+    else pack.links.push(link);
+    return link;
+  }
+
+  function gbUserByCrmHit_(hit) {
+    const key = String((hit && hit.matchKey) || "");
+    const nick = String((hit && hit.clientNick) || "").trim().replace(/^@/, "").toLowerCase();
+    for (let i = 0; i < pack.links.length; i++) {
+      const link = pack.links[i] || {};
+      const sameKey = !!(key && String(link.matchKey || "") === key);
+      const sameNick = !!(nick && String(link.clientNick || "").trim().replace(/^@/, "").toLowerCase() === nick);
+      if (!sameKey && !sameNick) continue;
+      for (let u = 0; u < pack.users.length; u++) {
+        const row = pack.users[u];
+        if (String(row.telegramId) === String(link.telegramId || "") || String(row.userId || "") === String(link.userId || "")) {
+          return row;
+        }
+      }
+    }
+    return null;
+  }
+
+  function gbCrmTaken_(hit, tid) {
+    const owner = gbUserByCrmHit_(hit);
+    if (!owner) return false;
+    return /^\d{5,15}$/.test(String(owner.telegramId || "")) && String(owner.telegramId) !== String(tid);
   }
 
   if (/^gbMe$/i.test(a)) {
@@ -33127,6 +33374,180 @@ async function mutateGbD1_(action, params, env) {
     else pack.pets.push(row);
     await gbSavePack_(env, pack);
     return { status: "success", pet: row, d1Verified: true };
+  }
+
+  if (/^gbTelegramEnter$/i.test(a)) {
+    const v = await gbKlientVerified_(params, env);
+    if (!v.ok) return { status: "error", message: v.message, code: v.code };
+    const hits = v.username ? await gbCrmExactHits_(v.username, "", env) : [];
+    const plan = klientBindPlan_({
+      tid: v.tid,
+      username: v.username,
+      users: pack.users,
+      crmExactCount: hits.length
+    });
+    if (plan.action === "open") {
+      const user = upsertUser({ telegramId: v.tid, name: v.name, username: v.username });
+      await gbSavePack_(env, pack);
+      return Object.assign({}, gbBuildMeFromPack_(user, pack, null), { d1Verified: true, klient: "open" });
+    }
+    if (plan.action === "rebind") {
+      const user = gbMoveTid_(plan.fromId, v.tid, { name: v.name, username: v.username });
+      if (!user) return klientNeedPayload_({ reason: "ambiguous" });
+      await gbSavePack_(env, pack);
+      return Object.assign({}, gbBuildMeFromPack_(user, pack, null), { d1Verified: true, klient: "rebind" });
+    }
+    if (plan.action === "linkCrm" && hits.length === 1) {
+      if (gbCrmTaken_(hits[0], v.tid)) return klientNeedPayload_({ reason: "taken" });
+      const user = upsertUser({
+        telegramId: v.tid,
+        name: v.name || hits[0].clientNick,
+        username: v.username,
+        access: hits[0].segment ? "full" : "limited"
+      });
+      gbPutLink_(user, hits[0], "", "nick");
+      await gbSavePack_(env, pack);
+      const payload = gbBuildMeFromPack_(user, pack, null);
+      payload.d1Verified = true;
+      payload.klient = "linkCrm";
+      return payload;
+    }
+    return klientNeedPayload_(plan);
+  }
+
+  if (/^gbBindTelegram$/i.test(a)) {
+    const v = await gbKlientVerified_(params, env);
+    if (!v.ok) return { status: "error", message: v.message, code: v.code };
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    if (!phone && !nick) return { status: "error", message: "Укажите телефон или ник" };
+    const split = gbSplitCabinet_(pack.users, phone, nick, v.tid);
+    if (split.mine.length > 1 || (split.mine.length && (split.free.length || split.foreign.length))) {
+      return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
+    }
+    if (split.mine.length === 1) {
+      const user = upsertUser({
+        telegramId: v.tid,
+        phone: phone || undefined,
+        username: nick || v.username,
+        name: v.name
+      });
+      await gbSavePack_(env, pack);
+      const payload = gbBuildMeFromPack_(user, pack, null);
+      payload.loggedIn = true;
+      payload.d1Verified = true;
+      payload.klient = "open";
+      return payload;
+    }
+    const hits = await gbCrmExactHits_(nick, phone, env);
+    const plan = klientLoginPlan_({
+      freeCount: split.free.length,
+      foreignCount: split.foreign.length,
+      crmExactCount: hits.length
+    });
+    if (plan.reason === "taken") {
+      return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+    }
+    if (plan.action === "ambiguous") {
+      return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
+    }
+    if (plan.action === "rebind" && split.free.length === 1) {
+      const user = gbMoveTid_(String(split.free[0].telegramId), v.tid, {
+        name: v.name || split.free[0].name,
+        username: nick || v.username || split.free[0].username,
+        phone: phone || split.free[0].phone
+      });
+      if (!user) return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
+      await gbSavePack_(env, pack);
+      const payload = gbBuildMeFromPack_(user, pack, null);
+      payload.loggedIn = true;
+      payload.d1Verified = true;
+      payload.klient = "rebind";
+      return payload;
+    }
+    if (plan.action === "linkCrm" && hits.length === 1) {
+      if (gbCrmTaken_(hits[0], v.tid)) {
+        return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+      }
+      const user = upsertUser({
+        telegramId: v.tid,
+        name: v.name || hits[0].clientNick,
+        username: nick || v.username,
+        phone: phone || undefined,
+        access: hits[0].segment ? "full" : "limited"
+      });
+      gbPutLink_(user, hits[0], phone, nick ? "nick" : "phone");
+      await gbSavePack_(env, pack);
+      const payload = gbBuildMeFromPack_(user, pack, null);
+      payload.loggedIn = true;
+      payload.d1Verified = true;
+      payload.klient = "linkCrm";
+      return payload;
+    }
+    return { status: "error", message: "Кабинет не найден", code: "not_found" };
+  }
+
+  if (/^gbTelegramRegister$/i.test(a)) {
+    const v = await gbKlientVerified_(params, env);
+    if (!v.ok) return { status: "error", message: v.message, code: v.code };
+    const name = String((params && params.name) || "").trim();
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || v.username || "").trim().replace(/^@/, "");
+    const hasSub =
+      params &&
+      (params.hasSubscription === true ||
+        params.hasSubscription === "true" ||
+        params.hasSubscription === "1" ||
+        params.hasSubscription === "yes");
+    if (!name) return { status: "error", message: "Укажите имя" };
+    if (!phone || gbPhoneDigitsWorker_(phone).length < 9) return { status: "error", message: "Укажите телефон" };
+    const split = gbSplitCabinet_(pack.users, phone, nick, v.tid);
+    if (split.mine.length > 1 || (split.mine.length && (split.free.length || split.foreign.length))) {
+      return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
+    }
+    const hits = await gbCrmExactHits_(nick, phone, env);
+    const plan = klientLoginPlan_({
+      freeCount: split.free.length,
+      foreignCount: split.foreign.length,
+      crmExactCount: hits.length
+    });
+    if (plan.reason === "taken") {
+      return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+    }
+    if (plan.action === "ambiguous") {
+      return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
+    }
+    let user = null;
+    if (plan.action === "rebind" && split.free.length === 1) {
+      user = gbMoveTid_(String(split.free[0].telegramId), v.tid, { name: name, username: nick, phone: phone });
+      if (!user) return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
+    }
+    user = upsertUser({
+      telegramId: v.tid,
+      name: name,
+      username: nick,
+      phone: phone,
+      access: hasSub ? "full" : "limited"
+    });
+    let needsLink = !!hasSub;
+    if (hasSub && hits.length === 1) {
+      if (gbCrmTaken_(hits[0], v.tid)) {
+        return { status: "error", message: "Этот кабинет уже привязан к другому Telegram", code: "taken" };
+      }
+      gbPutLink_(user, hits[0], phone, nick ? "nick" : "phone");
+      user = upsertUser({
+        telegramId: v.tid,
+        access: hits[0].segment ? "full" : "limited"
+      });
+      needsLink = !hits[0].segment;
+    }
+    await gbSavePack_(env, pack);
+    const payload = gbBuildMeFromPack_(user, pack, null);
+    payload.needsLink = needsLink && !(payload.link && payload.link.status === "linked" && payload.link.segment);
+    payload.registered = true;
+    payload.d1Verified = true;
+    payload.klient = split.mine.length ? "open" : (plan.action === "rebind" ? "rebind" : "register");
+    return payload;
   }
 
   return { status: "error", message: "unsupported_gb_action" };

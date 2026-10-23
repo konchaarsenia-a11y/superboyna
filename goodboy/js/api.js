@@ -85,5 +85,21 @@
     });
   }
 
-  global.GBApi = { get: apiGet, post: apiPost };
+  function postJson(payload) {
+    if (useDemo()) {
+      return global.GBDemoApi.call(payload && payload.action, payload);
+    }
+    return fetch(global.GB_CONFIG.webhookUrl, {
+      method: "POST",
+      redirect: "follow",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload || {})
+    }).then(function (r) {
+      return r.json();
+    }).then(function (res) {
+      return maybeFallbackDemo(payload && payload.action, payload, res);
+    });
+  }
+
+  global.GBApi = { get: apiGet, post: apiPost, postJson: postJson };
 })(window);
