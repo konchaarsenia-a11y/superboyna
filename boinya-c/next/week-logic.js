@@ -529,7 +529,7 @@
     return { amount: amount, doubled: doubled, notes: notes };
   }
 
-  /* На строке ПП — только сумма, которая входит в месяц. Перенос пишет пометку. */
+  /* На строке ПП — только сумма, которая входит в месяц. Перенос пишет пометку. pp-unpaid-move-h1 */
   function stampPpPay(list) {
     var attr = attributePpRevenue(list);
     (list || []).forEach(function (c, i) {
