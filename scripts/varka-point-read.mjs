@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Read-only: заказы Варки на 2026-10-27 и состав, если он ещё лежит в D1.
- * Ничего не пишет.
+ * Ничего не пишет. Повтор 2026-10-23 20:34 UTC: только диагностика дубля Цвирко.
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -174,7 +174,7 @@ async function main() {
     "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE date_iso = '" + DATE + "'"
   );
   const recent = sh(
-    "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE updated_at >= '2026-10-23T12:00:00'"
+    "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE updated_at >= '2026-10-23T19:40:00'"
   );
   const keys = sh(
     "SELECT id, client, match_key, address, date_iso, day_name, segment, source, status, updated_at, note, basket_json, meta_json FROM orders WHERE match_key IN ('VARKA','ВАРКА') OR id LIKE '%VARKA%' OR id LIKE '%ВАРКА%'"
@@ -251,10 +251,28 @@ async function main() {
   if (viewRows[0]) {
     try {
       const view = JSON.parse(viewRows[0].payload || "{}");
-      const list = view.clients || view.people || view.rows || [];
-      viewClients = (Array.isArray(list) ? list : []).map(function (c) {
-        return { name: c.name || c.client || "", address: c.address || "", matchKey: c.matchKey || "", basket: c.basket || c.orderCount || "" };
-      });
+      const list = []
+        .concat(Array.isArray(view.month) ? view.month : [])
+        .concat(Array.isArray(view.week) ? view.week : [])
+        .concat(Array.isArray(view.clients) ? view.clients : []);
+      viewClients = {
+        keys: Object.keys(view),
+        n: list.length,
+        people: list.map(function (c) {
+          const basket = Array.isArray(c.basket) ? c.basket.map(function (it) {
+            return it && typeof it === "object" ? [it.name, it.sub, it.value].filter(function (x) { return x != null && x !== ""; }).join(" ") : String(it || "");
+          }) : [];
+          return {
+            name: c.name || c.client || "",
+            matchKey: c.matchKey || "",
+            address: c.address || "",
+            segment: c.segment || "",
+            partnerOrderId: c.partnerOrderId || "",
+            price: c.orderPrice != null ? c.orderPrice : "",
+            basket: basket
+          };
+        })
+      };
     } catch (eV) {
       viewClients = [{ error: String(eV.message || eV) }];
     }
@@ -291,7 +309,8 @@ async function main() {
     logs: logReport,
     viewClients: viewClients,
     backup: backup,
-    dayEvery: day.map(orderBrief)
+    dayEvery: day.map(orderBrief),
+    sinceRekey: recent.map(orderBrief)
   };
   fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 2));
   const pub = {
@@ -304,7 +323,8 @@ async function main() {
     logs: logReport,
     viewClients: viewClients,
     backup: backup,
-    dayEvery: day.map(orderBrief)
+    dayEvery: day.map(orderBrief),
+    sinceRekey: recent.map(orderBrief)
   };
   console.log(JSON.stringify(pub, null, 2));
 }
