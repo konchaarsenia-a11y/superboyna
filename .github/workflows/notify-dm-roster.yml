@@ -2,6 +2,10 @@ name: notify-dm-roster
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/notify-dm-roster.yml"
+      - "scripts/notify-dm-roster.mjs"
 
 jobs:
   roster:
