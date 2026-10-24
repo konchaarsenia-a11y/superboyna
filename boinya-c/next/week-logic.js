@@ -49,7 +49,7 @@
     return "";
   }
 
-  // varka-point-key-h1: «Varka Цвирко» и «Varka Шевченко» не сходятся в один VARKA. Адрес точки входит в ключ. live v71125408.
+  // varka-point-key-h1: «Varka Цвирко» и «Varka Шевченко» не сходятся в один VARKA. Адрес точки входит в ключ. live v71125409.
   function partnerPointMatchKey(raw) {
     var s = String(raw || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
     if (s.indexOf("ВАРКА ") === 0) return s;

@@ -14,9 +14,11 @@ import {
   botProbeFrom_,
   botPrivateChatOk_,
   botRoleLabel_,
+  botStaffButtonInDm_,
   botStartCommand_,
   botStartPack_
 } from "./bot-hook.js";
+import { notifyDedupeIds_, notifyGroupChatOn_ } from "./notify-group.js";
 import {
   KLIENT_HOOK_PATH,
   KLIENT_PAGES_BASE,
@@ -382,6 +384,7 @@ async function notifyRecipientsWorker_(env, key, baseIds, opts) {
 }
 
 function notifyChatEnabledWorker_(env) {
+  if (!notifyGroupChatOn_(env)) return false;
   const v = String((env && env.NOTIFY_CHAT_ENABLED) || "").trim().toLowerCase();
   return !(v === "0" || v === "off" || v === "false" || v === "no");
 }
@@ -401,7 +404,7 @@ async function notifyGroupChatId_(env) {
 }
 
 async function appendNotifyGroup_(env, ids) {
-  const list = Array.isArray(ids) ? ids.map(function (id) { return String(id || "").trim(); }).filter(Boolean) : [];
+  const list = notifyDedupeIds_(ids);
   const chat = await notifyGroupChatId_(env);
   if (chat && list.indexOf(chat) < 0) list.push(chat);
   return list;
@@ -1150,11 +1153,38 @@ async function handleKlientTelegramWebhook_(request, env) {
   return new Response("ok", { status: 200, headers: { "X-Klient-Kind": "start" } });
 }
 
+/** Один раз владельцу, без повторов. Текст фиксированный. */
+async function notifyDmProbeOnce_(env) {
+  if (!env || !env.DB) return;
+  const now = new Date().toISOString();
+  let claimed = false;
+  try {
+    const res = await env.DB.prepare(
+      "INSERT INTO meta (key, value, updated_at) VALUES ('notify_dm_probe_v1', '1', ?) ON CONFLICT(key) DO NOTHING"
+    ).bind(now).run();
+    claimed = !!(res && res.meta && Number(res.meta.changes) === 1);
+  } catch (eLock) {
+    return;
+  }
+  if (!claimed) return;
+  let ok = false;
+  try {
+    const sent = await telegramSendTextWorker_(env, "650923866", "проверка канала", null);
+    ok = !!(sent && sent.ok);
+  } catch (eSend) {
+    ok = false;
+  }
+  try { await stageNSetMeta_(env, "notify_dm_probe_ok", ok ? "1" : "0"); } catch (eOk) {}
+}
+
 export default {
   async scheduled(event, env, ctx) {
     var cron = String((event && event.cron) || "");
     if (cron === "* * * * *") {
-      ctx.waitUntil(stageNTick_(env, event && event.scheduledTime));
+      ctx.waitUntil((async function () {
+        try { await notifyDmProbeOnce_(env); } catch (eProbe) {}
+        await stageNTick_(env, event && event.scheduledTime);
+      })());
       return;
     }
     ctx.waitUntil(stageBMaterializeTomorrow_(env));
@@ -2070,6 +2100,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       ordersCanon: ordersCanonLabel_(env),
       telegramCanon: hasTelegramToken_(env) ? "worker" : "sheets-fallback",
       hasTelegramToken: hasTelegramToken_(env),
+      notifyGroup: notifyChatEnabledWorker_(env) ? "on" : "off",
       partnerCanon: partnerCanonLabel_(env),
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: isWeekCloseD1Native_(env) ? "d1-only" : "sheets",
@@ -36272,6 +36303,7 @@ async function stageGApplyUpdate_(env, update, opts) {
   }
   const cq = update && update.callback_query;
   if (cq && cq.data) {
+    const inDm = botStaffButtonInDm_(cq);
     const known = botCallbackKind_(cq.data);
     if (known === "svsent" || known === "ppafk" || known === "defdone") {
       const handled = await stageNCallback_(env, cq, send);
@@ -36279,7 +36311,7 @@ async function stageGApplyUpdate_(env, update, opts) {
     }
     const extra = await botCallbackApply_(env, cq, send);
     if (extra) return extra;
-    if (send && !known) {
+    if (send && !known && !inDm) {
       try { await telegramAnswerCallbackWorker_(env, cq.id, "Неизвестная кнопка"); } catch (eU) {}
     }
     return { kind: "ignored", sent: false, reply: "" };

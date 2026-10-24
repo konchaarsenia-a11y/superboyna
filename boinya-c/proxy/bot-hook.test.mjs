@@ -5,6 +5,7 @@ import {
   botAccessAsk_,
   botCallbackKind_,
   botGroupMemberAction_,
+  botStaffButtonInDm_,
   botInboundMedia_,
   botProbeFrom_,
   botPrivateChatOk_,
@@ -80,6 +81,29 @@ test("callback kinds leave the partner button alone", function () {
   assert.equal(botCallbackKind_("defdone:d1"), "defdone");
   assert.equal(botCallbackKind_("vrc:paid"), "vrc");
   assert.equal(botCallbackKind_("nope"), "");
+});
+
+test("staff buttons work in a private chat", function () {
+  const cq = {
+    data: "costpub",
+    from: { id: 111222333 },
+    message: { chat: { id: 111222333, type: "private" } }
+  };
+  assert.equal(botStaffButtonInDm_(cq), true);
+  assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "defdone:d1" })), true);
+  assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "mtrack:tok" })), true);
+  assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "ppafk:tok" })), true);
+  assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "svsent:abc" })), true);
+  assert.equal(botStaffButtonInDm_({
+    data: "costpub",
+    from: { id: 111222333 },
+    message: { chat: { id: -100, type: "supergroup" } }
+  }), false);
+  assert.equal(botStaffButtonInDm_({
+    data: "vrc:paid",
+    from: { id: 111222333 },
+    message: { chat: { id: 111222333, type: "private" } }
+  }), false);
 });
 
 test("commands and probe", function () {

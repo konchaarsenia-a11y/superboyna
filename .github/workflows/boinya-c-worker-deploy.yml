@@ -130,4 +130,4 @@ jobs:
           fi
       - name: Smoke ping
         run: |
-          curl -fsSL --max-time 30 "https://boinya-c.konchaarsenia.workers.dev/?action=ping&cutover=1" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('live') is True and d.get('d1') is True, d; print('ping OK', d.get('deployMarker'))"
+          curl -fsSL --max-time 30 "https://boinya-c.konchaarsenia.workers.dev/?action=ping&cutover=1" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('live') is True and d.get('d1') is True and d.get('notifyGroup')=='off', d; print('ping OK', d.get('deployMarker'), d.get('notifyGroup'))"

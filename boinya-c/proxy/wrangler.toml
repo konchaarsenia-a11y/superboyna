@@ -33,6 +33,7 @@ PARTNER_OWNER_USERNAMES = "one_more_person_228"
 # После Deploy Code.gs (skipWarehouseClose): раскомментируй /
 # WAREHOUSE_CLOSE_CANON = "d1-compute"
 
+# NOTIFY_GROUP_CHAT не задан: чат «снабжение gb» выключен, напоминания идут в личку. Включить: on.
 # Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN
 #   ↑ ОБЯЗАТЕЛЕН для проверки initData Mini App и Login Widget (вход с компьютера). Нет токена → authMode=legacy_no_token.
 # TELEGRAM_BOT_USERNAME = "..."  # необязательно: виджет / t.me. Пусто → Worker берёт getMe по TELEGRAM_BOT_TOKEN.
