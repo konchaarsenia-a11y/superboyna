@@ -1833,6 +1833,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .order-form input {
   appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid rgba(237,232,223,0.16);
   background: rgba(255,255,255,0.04);
   color: var(--gb-cream);
@@ -1844,6 +1848,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .order-form textarea {
   appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid rgba(237,232,223,0.16);
   background: rgba(255,255,255,0.04);
   color: var(--gb-cream);
@@ -2014,6 +2022,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .phone-toast b { color: #e0b87a; }
 .phone-toast span { color: rgba(237,232,223,0.7); }
+/* gb-phone-toast-h1: демо-тост без реальной доставки. На телефоне не перекрывает текст. */
+@media (max-width: 768px) {
+  .phone-toast {
+    display: none;
+  }
+}
 .phone-hint { color: var(--gb-muted); }
 
 
@@ -2740,7 +2754,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding-bottom: clamp(48px, 10vw, 80px);
 }
 .try-form-wrap {
+  box-sizing: border-box;
+  width: 100%;
   max-width: 36rem;
+  min-width: 0;
   margin: 0 auto;
   padding: 22px 20px 20px;
   border-radius: 28px;
@@ -2916,9 +2933,27 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .try-row-3 {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+.try-row-3 > *,
+.try-q,
+.try-q-answer,
+.try-form,
+.order-form label {
+  min-width: 0;
+  max-width: 100%;
+}
+.try-q-title,
+.try-q-sub,
+.try-switch-text {
+  overflow-wrap: anywhere;
 }
 @media (min-width: 560px) {
-  .try-row-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .try-row-3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 414px) {
+  .try-row-3 { grid-template-columns: minmax(0, 1fr); }
 }
 .try-choices {
   display: grid;
@@ -2964,6 +2999,22 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   text-decoration: none;
 }
 .try-back a:hover { color: var(--gb-cream); }
+.try-back--top { margin: 0 0 14px; text-align: left; }
+.try-back-btn {
+  appearance: none;
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gb-orange-2);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.try-back-btn:hover { color: var(--gb-cream); }
 
 /* —— О проекте —— */
 .about-hero .sub-lead { max-width: 36rem; }

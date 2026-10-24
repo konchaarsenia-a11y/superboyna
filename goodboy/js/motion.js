@@ -432,15 +432,21 @@
     });
 
     if (toast && !reduced()) {
-      var toastOn = false;
-      global.setTimeout(function () {
-        toast.classList.add("is-on");
-        toastOn = true;
-      }, 1800);
-      global.setInterval(function () {
-        toastOn = !toastOn;
-        toast.classList.toggle("is-on", toastOn);
-      }, 5200);
+      var phoneToastNarrow = false;
+      try {
+        phoneToastNarrow = !!(global.matchMedia && global.matchMedia("(max-width: 768px)").matches);
+      } catch (eToast) {}
+      if (!phoneToastNarrow) {
+        var toastOn = false;
+        global.setTimeout(function () {
+          toast.classList.add("is-on");
+          toastOn = true;
+        }, 1800);
+        global.setInterval(function () {
+          toastOn = !toastOn;
+          toast.classList.toggle("is-on", toastOn);
+        }, 5200);
+      }
     }
   }
 

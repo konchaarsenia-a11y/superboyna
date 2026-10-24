@@ -269,7 +269,14 @@
 
   function enterFromPayload(res) {
     if (!res || res.status !== "success" || !res.user) return false;
-    var user = GBAuth.userFromApi(res, { intent: "pp" });
+    var lead = String(res.user.access || "") === "lead";
+    var user = GBAuth.userFromApi(res, { intent: lead ? "try" : "pp", access: lead ? "lead" : "" });
+    if (lead) {
+      user.access = "lead";
+      user.intent = "try";
+      user.isGuest = true;
+      user.hasSubscription = false;
+    }
     applyBootstrap(res, { user: user });
     showCabinet();
     return true;
@@ -292,7 +299,7 @@
       initData: rawInitData()
     }).then(function (res) {
       if (enterFromPayload(res)) {
-      refreshCabinet();
+      if (String(res.user.access || "") !== "lead") refreshCabinet();
       return;
     }
       showBotLogin(res);
@@ -309,6 +316,20 @@
     var session = GBAuth.resolveSession();
     if (!session.user) {
       showGate("welcome");
+      return;
+    }
+    if (session.user.access === "lead" || session.user.intent === "try") {
+      GBStore.set({
+        user: session.user,
+        access: "lead",
+        intent: "try",
+        page: "profile",
+        demo: false,
+        subscription: null,
+        link: null
+      });
+      showCabinet();
+      if (global.GBUI) GBUI.render();
       return;
     }
     showCabinet();

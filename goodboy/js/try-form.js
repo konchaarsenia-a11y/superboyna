@@ -73,25 +73,80 @@
       phone: data.phone || "",
       pet: data.pet || "",
       note: data.note || "",
-      mode: data.mode || "short"
+      mode: data.mode || "short",
+      dogsJson: data.dogsJson || "",
+      initData: data.initData || ""
     };
     return fetch(url, {
       method: "POST",
       redirect: "follow",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload)
-    }).then(function () {
-      return { status: "ok" };
-    }).catch(function () {
-      return { status: "ok" };
+    }).then(function (res) {
+      return res.json();
     });
   }
 
   function sendLead(data) {
-    if (data.mode === "full" || (data.note && data.note.length > 900)) {
+    if (data.initData || data.mode === "full" || (data.note && data.note.length > 900)) {
       return sendLeadPost(data);
     }
     return sendLeadJsonp(data);
+  }
+
+  function readInitData() {
+    try {
+      var tg = global.Telegram && global.Telegram.WebApp;
+      return tg && tg.initData ? String(tg.initData) : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function saveGuestSession(data) {
+    var key = (global.GB_CONFIG && global.GB_CONFIG.storageKey) || "goodboy_v1";
+    var prev = {};
+    try { prev = JSON.parse(global.localStorage.getItem(key) || "{}"); } catch (e) { prev = {}; }
+    var tid = prev.user && prev.user.telegramId ? String(prev.user.telegramId) : "";
+    if (!tid) {
+      try {
+        var tgUser = global.Telegram && global.Telegram.WebApp && global.Telegram.WebApp.initDataUnsafe && global.Telegram.WebApp.initDataUnsafe.user;
+        if (tgUser && tgUser.id) tid = String(tgUser.id);
+      } catch (eTg) {}
+    }
+    if (!tid) tid = "web_" + Math.random().toString(36).slice(2, 10);
+    var dogs = data.dogs && data.dogs.length ? data.dogs : [{ name: data.pet || "" }];
+    var pets = dogs.filter(function (d) { return d && d.name; }).map(function (d, i) {
+      return {
+        id: "pet_lead_" + i,
+        name: d.name,
+        breed: d.breed || "",
+        weightKg: d.weight || d.weightKg || "",
+        allergies: d.allergies || ""
+      };
+    });
+    var user = {
+      telegramId: tid,
+      name: data.name || "",
+      username: "",
+      phone: data.phone || "",
+      access: "lead",
+      intent: "try",
+      isGuest: true,
+      hasSubscription: false
+    };
+    global.localStorage.setItem(key, JSON.stringify({
+      user: user,
+      pets: pets,
+      activePetId: pets[0] ? pets[0].id : null,
+      subscription: null,
+      partners: [],
+      privilege: null,
+      link: null,
+      intent: "try",
+      access: "lead",
+      demo: false
+    }));
   }
 
   function line(n, title, text) {
@@ -233,15 +288,32 @@
       syncFull();
     }
 
+    var backBtns = document.querySelectorAll("[data-try-back]");
+    for (var b = 0; b < backBtns.length; b++) {
+      backBtns[b].addEventListener("click", function () {
+        if (global.history && global.history.length > 1) global.history.back();
+        else global.location.href = "app.html";
+      });
+    }
+
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var full = !!(toggle && toggle.checked);
+      var dogs = [{
+        name: full ? (val(form, "q1_pet") || val(form, "pet")) : val(form, "pet"),
+        breed: full ? val(form, "q2_breed") : "",
+        weight: full ? val(form, "q2_weight") : "",
+        allergies: full ? val(form, "q6_allergies") : ""
+      }];
       var data = {
         phone: val(form, "phone"),
         name: full ? (val(form, "q1_name") || val(form, "name")) : val(form, "name"),
-        pet: full ? (val(form, "q1_pet") || val(form, "pet")) : val(form, "pet"),
+        pet: dogs[0].name,
         mode: full ? "full" : "short",
-        note: full ? packNote(form) : ""
+        note: full ? packNote(form) : "",
+        dogs: dogs,
+        dogsJson: JSON.stringify(dogs),
+        initData: readInitData()
       };
 
       if (!data.name || !data.phone || !data.pet) {
@@ -265,14 +337,9 @@
 
       sendLead(data)
         .then(function (res) {
-          if (res && res.status === "ok") {
-            form.reset();
-            clearQuestionSkips(form);
-            syncFull();
-            if (status) {
-              status.className = "form-status is-ok";
-              status.textContent = (res && res.message) || "Заявка принята";
-            }
+          if (res && (res.status === "ok" || res.status === "success" || res.status === "accepted")) {
+            saveGuestSession(data);
+            global.location.href = "app.html";
             return;
           }
           throw new Error((res && res.message) || "fail");

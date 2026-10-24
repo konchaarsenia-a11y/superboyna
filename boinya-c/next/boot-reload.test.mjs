@@ -1,3 +1,4 @@
+// gb-phone-toast-h1 / gb-try-guest-h1 / gb-cabinet-desk-h1: toast, guest cabinet, desktop layout. Touches next so next-undef runs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
