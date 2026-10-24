@@ -16722,11 +16722,26 @@ function notifyRecipients_(key, baseIds, opts) {
   return notifyResolveCore_(key, notifyPeopleRows_(), owners, baseIds || [], opts || {});
 }
 
-/** Общий чат (TELEGRAM_CHAT_ID) — дублирование по-старому; единый выключатель NOTIFY_CHAT_ENABLED (по умолчанию вкл). */
+/** Общий чат (TELEGRAM_CHAT_ID) выключен. Код оставлен. Включить: Script Property NOTIFY_GROUP_CHAT=on. */
 function notifyChatEnabled_() {
+  var g = "";
+  try { g = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_GROUP_CHAT") || "").trim().toLowerCase(); } catch (eG) {}
+  if (!(g === "1" || g === "on" || g === "true" || g === "yes")) return false;
   var v = "";
   try { v = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_CHAT_ENABLED") || "").trim().toLowerCase(); } catch (e) {}
   return !(v === "0" || v === "off" || v === "false" || v === "no");
+}
+
+function notifyDedupeIds_(ids) {
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < (ids || []).length; i++) {
+    var s = String(ids[i] || "").trim();
+    if (!s || seen[s]) continue;
+    seen[s] = true;
+    out.push(s);
+  }
+  return out;
 }
 
 function notifyChatId_() {
@@ -16740,7 +16755,7 @@ function notifyChatId_() {
 
 /** Получатели + общий чат (если включён и не совпадает с уже выбранными / автором). */
 function notifyRecipientsWithChat_(key, baseIds, opts) {
-  var ids = notifyRecipients_(key, baseIds, opts);
+  var ids = notifyDedupeIds_(notifyRecipients_(key, baseIds, opts));
   var chat = notifyChatId_();
   var ex = String((opts && opts.exclude) || "").trim();
   if (chat && ids.indexOf(chat) < 0 && chat !== ex) ids.push(chat);

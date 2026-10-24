@@ -58,6 +58,16 @@ export function botCallbackKind_(data) {
   return "";
 }
 
+/** «Обновить прайс», дефицит, опрос, «В АФК» и трек в личке того же бота. */
+export function botStaffButtonInDm_(cq) {
+  const kind = botCallbackKind_(cq && cq.data);
+  if (!kind || kind === "vrc") return false;
+  const chat = cq && cq.message && cq.message.chat;
+  const from = (cq && cq.from) || {};
+  if (!chat || (chat.type && chat.type !== "private")) return false;
+  return botPrivateChatOk_(chat, from);
+}
+
 export function botInboundMedia_(msg) {
   if (!msg) return false;
   if (msg.photo || msg.document || msg.sticker) return true;
