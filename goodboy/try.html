@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=154" />
+  <link rel="stylesheet" href="css/site-v070.css?v=156" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -115,6 +115,9 @@
 
     <section class="site-section try-form-section" id="form">
       <div class="inner try-form-wrap">
+        <p class="try-back try-back--top">
+          <button type="button" class="try-back-btn" data-try-back>← Назад</button>
+        </p>
         <form class="order-form try-form" id="tryForm" novalidate>
           <label class="try-short-only">
             <span>Ваше имя</span>
@@ -271,7 +274,7 @@
           <p class="form-status" id="tryFormStatus" hidden></p>
         </form>
         <p class="try-back">
-          <a href="subscription.html">← Назад к подписке</a>
+          <button type="button" class="try-back-btn" data-try-back>← Назад</button>
         </p>
       </div>
     </section>
@@ -285,8 +288,8 @@
 
   <script src="js/config.js?v=105"></script>
   <script src="js/boot-loader.js?v=105"></script>
-  <script src="js/motion.js?v=151"></script>
-  <script src="js/try-form.js?v=106"></script>
+  <script src="js/motion.js?v=156"></script>
+  <script src="js/try-form.js?v=107"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();

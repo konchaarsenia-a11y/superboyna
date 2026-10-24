@@ -69,8 +69,23 @@
     }
   }
 
+  function syncDeskMode() {
+    var tg = isTelegram();
+    document.body.classList.toggle("gb-in-telegram", tg);
+    var wide = false;
+    try {
+      wide = !!(global.matchMedia && global.matchMedia("(min-width: 900px)").matches);
+    } catch (e) {}
+    document.body.classList.toggle("gb-desk", !tg && wide);
+  }
+
   function boot(opts) {
     opts = opts || {};
+    syncDeskMode();
+    if (!boot._deskBound) {
+      boot._deskBound = true;
+      global.addEventListener("resize", syncDeskMode);
+    }
     var mini = opts.forceMiniapp || wantMiniapp();
     if (mini) {
       document.body.classList.add("is-miniapp", "mode-app");
@@ -119,6 +134,7 @@
     openAppMode: openAppMode,
     closeAppMode: closeAppMode,
     wireSite: wireSite,
-    wantMiniapp: wantMiniapp
+    wantMiniapp: wantMiniapp,
+    syncDeskMode: syncDeskMode
   };
 })(window);

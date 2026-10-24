@@ -12,6 +12,7 @@
   /** Какие вкладки видны при уровне доступа */
   function allowedPages(access) {
     if (access === "city") return ["map"];
+    if (access === "lead") return ["profile"];
     if (access === "limited") return ["profile", "map"];
     return PAGES.slice();
   }
@@ -30,6 +31,7 @@
     var u = st && st.user;
     if (!u) return "full";
     if (u.access) return u.access;
+    if (u.access === "lead" || u.intent === "try") return "lead";
     if (u.isGuest || u.intent === "city") return "city";
     if (u.hasSubscription === false || u.intent === "limited") return "limited";
     return "full";
@@ -82,6 +84,22 @@
     return pet || DEMO_PET;
   }
 
+  function deskGrid(left, right) {
+    return "<div class=\"cabinet-desk-grid\"><div class=\"cabinet-desk-col\">" + left +
+      "</div><div class=\"cabinet-desk-col\">" + right + "</div></div>";
+  }
+
+  function dogCardsHtml(dogs) {
+    return (dogs || []).filter(function (d) { return d && d.name; }).map(function (d) {
+      var subLine = [d.breed, d.weightKg ? d.weightKg + " кг" : ""].filter(Boolean).join(" · ");
+      return "<div class=\"cabinet-pet-hero\">" +
+        "<div class=\"ps-avatar cabinet-pet-avatar\">" + esc(petInitial(d.name)) + "</div>" +
+        "<div class=\"cabinet-pet-copy\"><h2>" + esc(d.name) + "</h2>" +
+        (subLine ? "<p>" + esc(subLine) + "</p>" : "") +
+        "</div></div>";
+    }).join("");
+  }
+
   function petInitial(name) {
     var n = String(name || "").trim();
     return n ? n.charAt(0).toUpperCase() : "?";
@@ -111,8 +129,26 @@
     var limitBanner = access === "limited"
       ? "<div class=\"cabinet-access-banner\">Ограниченный доступ · <a href=\"try.html\">оформить подписку</a></div>"
       : "";
+    if (access === "lead") {
+      var dogs = (st.pets || []).filter(function (d) { return d && d.name; });
+      var dogCards = dogCardsHtml(dogs);
+      return "<div class=\"cabinet-access-banner\">Заявка принята, менеджер свяжется с вами</div>" +
+        deskGrid(
+          "<div class=\"cabinet-block\">" +
+            "<h3 class=\"cabinet-block-title\">Собаки</h3>" +
+            (dogCards || "<p class=\"cabinet-hint\">Кличка не указана</p>") +
+          "</div>",
+          "<div class=\"cabinet-block\">" +
+            "<h3 class=\"cabinet-block-title\">Ваш аккаунт</h3>" +
+            "<div class=\"cabinet-kv\"><span>Имя</span><strong>" + esc(user.name || "") + "</strong></div>" +
+            "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
+            "<button type=\"button\" class=\"btn btn-ghost\" id=\"lockGoLogin\" style=\"margin-top:14px;\">У меня есть подписка — войти</button>" +
+          "</div>"
+        );
+    }
     return (
       limitBanner +
+      deskGrid(
       "<div class=\"cabinet-block\">" +
         (hasPet
           ? "<div class=\"cabinet-pet-hero\">" +
@@ -146,8 +182,7 @@
           "<b>Подсказка недели</b>" +
           "<span>После прогулки&nbsp;— 2&nbsp;шт сушёного лёгкого, не&nbsp;натощак.</span>" +
         "</div>" +
-      "</div>" +
-
+      "</div>",
       "<details class=\"cabinet-details\" id=\"petEditDetails\"" + (hasPet ? "" : " open") + ">" +
         "<summary>Редактировать питомца</summary>" +
         "<form id=\"petForm\" class=\"cabinet-form\">" +
@@ -170,6 +205,7 @@
         "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
         (inBot() ? "" : "<button type=\"button\" class=\"btn btn-ghost\" id=\"gbLogout\" style=\"margin-top:14px;\">Выйти</button>") +
       "</div>"
+      )
     );
   }
 
@@ -201,11 +237,12 @@
           return "<button type=\"button\" class=\"cabinet-chip" + (filter === f.id ? " is-on" : "") + "\" data-map-filter=\"" + f.id + "\">" + esc(f.label) + "</button>";
         }).join("") +
       "</div>" +
+      deskGrid(
       "<div class=\"cabinet-map-wrap\">" +
         "<div class=\"ps-map cabinet-map\" id=\"cabinetMap\">" + pins +
           "<div class=\"ps-map-label\">" + esc(nearest ? "рядом " + nearest.dist : "Минск") + "</div>" +
         "</div>" +
-      "</div>" +
+      "</div>",
       "<div class=\"cabinet-place-list\">" +
         places.map(function (pl) {
           return (
@@ -216,6 +253,7 @@
           );
         }).join("") +
       "</div>"
+      )
     );
   }
 
@@ -261,13 +299,17 @@
     }).join("");
     var editLines = nearest && nearest.lines ? nearest.lines.map(lineText).join("\n") : "";
     var warn = st.stockWarn ? "<p class=\"cabinet-hint\">" + esc(st.stockWarn) + "</p>" : "";
-    return (
-      "<div class=\"cabinet-block\">" +
-        "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(cab.nick || (st.link && st.link.clientNick) || "—") + "</strong></div>" +
-        (cards || "<p class=\"cabinet-hint\">" + (linked ? "В этом месяце доставок нет." : "Привяжите клиента по нику или телефону.") + "</p>") +
+    var dogBlock = dogCardsHtml(cab.dogs || []);
+    var dogsHtml = dogBlock
+      ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Собаки</h3>" + dogBlock + "</div>"
+      : "";
+    var left = "<div class=\"cabinet-block\">" +
+      "<h3 class=\"cabinet-block-title\">Следующая доставка</h3>" +
+      "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(cab.nick || (st.link && st.link.clientNick) || "—") + "</strong></div>" +
+      (cards || "<p class=\"cabinet-hint\">" + (linked ? "В этом месяце доставок нет." : "Привяжите клиента по нику или телефону.") + "</p>") +
       "</div>" +
       (linked && nearest
-        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Состав и дата</h3>" + warn +
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Состав</h3>" + warn +
             "<form id=\"orderForm\" class=\"cabinet-form\">" +
               "<input type=\"hidden\" id=\"orderId\" value=\"" + esc(nearest.id || "") + "\" />" +
               "<div class=\"field\"><label>Состав, строка = название и граммы</label><textarea id=\"orderBasket\" rows=\"4\">" + esc(editLines) + "</textarea></div>" +
@@ -275,8 +317,11 @@
               "<label class=\"cabinet-hint\"><input id=\"confirmOnly\" type=\"checkbox\" /> Только после подтверждения</label>" +
               "<button type=\"submit\" class=\"btn\">Сохранить заказ</button>" +
               (st.stockWarn ? "<button type=\"button\" class=\"btn btn-ghost\" id=\"keepMissing\" style=\"margin-top:8px;\">Оставить своё изменение</button>" : "") +
-            "</form></div>" +
-          "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Адрес</h3>" +
+            "</form></div>"
+        : "");
+    var right = dogsHtml +
+      (linked && nearest
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Адрес</h3>" +
             "<form id=\"addrForm\" class=\"cabinet-form\">" +
               "<div class=\"field\"><label>Улица и дом</label><input id=\"addrStreet\" value=\"" + esc(addr.street || "") + "\" /></div>" +
               "<div class=\"field-row\">" +
@@ -290,9 +335,14 @@
               "<button type=\"submit\" class=\"btn\">Сохранить адрес</button>" +
             "</form></div>"
         : "") +
-      (linked
-        ? "<div class=\"cabinet-block\"><button type=\"button\" class=\"btn btn-ghost\" id=\"pauseSub\">Пауза</button>" +
-            "<p class=\"cabinet-hint\">Будущий заказ снимется, подписка уйдёт в АФК.</p></div>"
+      (linked || (nearest && nearest.payText)
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Оплата</h3>" +
+            (nearest && nearest.payText ? "<p class=\"cabinet-pay\">" + esc(nearest.payText) + "</p>" : "") +
+            (linked
+              ? "<button type=\"button\" class=\"btn btn-ghost\" id=\"pauseSub\">Пауза</button>" +
+                "<p class=\"cabinet-hint\">Будущий заказ снимется, подписка уйдёт в АФК.</p>"
+              : "") +
+          "</div>"
         : "") +
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">Привязать</h3>" +
@@ -301,8 +351,8 @@
           "<div class=\"field\"><label>Телефон</label><input id=\"linkPhone\" name=\"phone\" placeholder=\"+375…\" inputmode=\"tel\" autocomplete=\"tel\" /></div>" +
           "<button type=\"submit\" class=\"btn\">Найти</button>" +
         "</form>" +
-      "</div>"
-    );
+      "</div>";
+    return deskGrid(left, right);
   }
 
   function renderPartnersPage(st) {
@@ -321,7 +371,7 @@
     var code = pr.eligible && pr.code ? pr.code : "";
     var partnerName = (partners[0] && partners[0].name) || "VARKA";
 
-    return (
+    return deskGrid(
       "<div class=\"cabinet-block\">" +
         "<div class=\"privilege-card\" id=\"privilegeCard\">" +
           "<p class=\"badge\">" + esc(pr.title || "Скидка VARKA") + "</p>" +
@@ -332,8 +382,7 @@
             : "<p class=\"hint\">Нужна активная подписка ПП — привяжите заказ во вкладке «Подписка».</p>") +
         "</div>" +
         "<div class=\"ps-tip\"><b>Как пользоваться</b><span>Покажите карточку в&nbsp;кабинете&nbsp;— скидка на&nbsp;кассе.</span></div>" +
-      "</div>" +
-
+      "</div>",
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">Партнёры рядом</h3>" +
         "<div class=\"cabinet-partner-list\">" +
@@ -354,7 +403,7 @@
     var app = document.getElementById("cabinet");
     if (nav) {
       nav.classList.toggle("is-city-only", access === "city");
-      nav.classList.toggle("is-limited", access === "limited");
+      nav.classList.toggle("is-limited", access === "limited" || access === "lead");
       document.querySelectorAll(".cabinet-nav [data-page]").forEach(function (btn) {
         var page = btn.getAttribute("data-page");
         var ok = allow.indexOf(page) >= 0;
@@ -362,12 +411,13 @@
         btn.style.display = ok ? "" : "none";
       });
       if (access === "city") nav.style.gridTemplateColumns = "1fr";
+      else if (access === "lead") nav.style.gridTemplateColumns = "1fr";
       else if (access === "limited") nav.style.gridTemplateColumns = "1fr 1fr";
       else nav.style.gridTemplateColumns = "repeat(4, 1fr)";
     }
     if (app) {
       app.classList.toggle("access-city", access === "city");
-      app.classList.toggle("access-limited", access === "limited");
+      app.classList.toggle("access-limited", access === "limited" || access === "lead");
       app.classList.toggle("access-full", access === "full");
     }
   }

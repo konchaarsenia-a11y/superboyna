@@ -34500,7 +34500,7 @@ async function mutateGbD1_(action, params, env) {
     if (split.mine.length > 1 || (split.mine.length && (split.free.length || split.foreign.length))) {
       return { status: "error", message: "Несколько совпадений — укажите телефон или ник", code: "ambiguous" };
     }
-    if (split.mine.length === 1) {
+    if (split.mine.length === 1 && String(split.mine[0].access || "") !== "lead") {
       const user = upsertUser({
         telegramId: v.tid,
         phone: phone || undefined,
@@ -34770,10 +34770,60 @@ async function acceptCabinetLead_(env, input) {
   return reply;
 }
 
+async function rememberTryGuest_(params, env) {
+  const initData = String((params && (params.initData || params.init_data)) || "").trim();
+  if (!initData || !env) return;
+  const v = await gbKlientVerified_(params, env);
+  if (!v.ok || !v.tid) return;
+  const pack = await gbLoadPack_(env);
+  const tid = String(v.tid);
+  const link = gbLinkOf_(pack, tid);
+  if (link && link.status !== "unlinked") return;
+  const now = new Date().toISOString();
+  let idx = -1;
+  for (let i = 0; i < pack.users.length; i++) {
+    if (String(pack.users[i].telegramId) === tid) idx = i;
+  }
+  const prev = idx >= 0 ? pack.users[idx] : null;
+  if (prev && prev.access && prev.access !== "lead" && prev.access !== "limited") return;
+  const user = {
+    userId: (prev && prev.userId) || gbUidWorker_("u"),
+    telegramId: tid,
+    name: String((params && params.name) || (prev && prev.name) || v.name || "").trim(),
+    phone: String((params && params.phone) || (prev && prev.phone) || "").trim(),
+    username: String((prev && prev.username) || v.username || "").replace(/^@/, ""),
+    access: "lead",
+    createdAt: (prev && prev.createdAt) || now,
+    lastLoginAt: now
+  };
+  if (idx >= 0) pack.users[idx] = user;
+  else pack.users.push(user);
+  const dogs = parseDogs_((params && (params.dogs || params.dogsJson)) || []);
+  const petName = String((params && params.pet) || "").trim() || (dogs[0] && dogs[0].name) || "";
+  const list = dogs.length ? dogs : (petName ? [{ name: petName }] : []);
+  pack.pets = (pack.pets || []).filter(function (p) {
+    return String(p.ownerTelegramId || "") !== tid;
+  });
+  list.forEach(function (d, i) {
+    if (!d || !String(d.name || "").trim()) return;
+    pack.pets.push({
+      id: "leadpet_" + tid + "_" + i,
+      ownerTelegramId: tid,
+      name: String(d.name || "").trim(),
+      breed: String(d.breed || "").trim(),
+      weightKg: d.weight != null && d.weight !== "" ? d.weight : (d.weightKg != null ? d.weightKg : ""),
+      allergies: String(d.allergies || "").trim(),
+      notes: "",
+      updatedAt: now
+    });
+  });
+  await gbSavePack_(env, pack);
+}
+
 async function submitGoodboyTryD1_(params, env) {
   const dogs = parseDogs_(params && (params.dogs || params.dogsJson));
   const pet = String((params && params.pet) || "").trim() || (dogs[0] && dogs[0].name) || "";
-  return acceptCabinetLead_(env, {
+  const reply = await acceptCabinetLead_(env, {
     name: params && params.name,
     phone: params && params.phone,
     nick: params && (params.nick || params.username),
@@ -34783,6 +34833,10 @@ async function submitGoodboyTryD1_(params, env) {
     mode: params && params.mode,
     kind: "try"
   });
+  if (reply && (reply.status === "ok" || reply.status === "accepted" || reply.status === "success")) {
+    try { await rememberTryGuest_(params, env); } catch (eGuest) {}
+  }
+  return reply;
 }
 
 
