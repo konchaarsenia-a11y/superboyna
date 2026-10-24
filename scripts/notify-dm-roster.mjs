@@ -1,9 +1,33 @@
 import fs from "node:fs";
 import { notifyDmRoster_ } from "../boinya-c/proxy/notify-group.js";
 
+function parseLoose(raw) {
+  const start = raw.indexOf("[") >= 0 ? raw.indexOf("[") : raw.indexOf("{");
+  if (start < 0) throw new Error("no json");
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < raw.length; i++) {
+    const c = raw[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === "\"") inStr = false;
+      continue;
+    }
+    if (c === "\"") inStr = true;
+    else if (c === "[" || c === "{") depth++;
+    else if (c === "]" || c === "}") {
+      depth--;
+      if (depth === 0) return JSON.parse(raw.slice(start, i + 1));
+    }
+  }
+  return JSON.parse(raw.slice(start));
+}
+
 function packs(file) {
   const raw = fs.readFileSync(file, "utf8");
-  const data = JSON.parse(raw);
+  const data = parseLoose(raw);
   const list = Array.isArray(data) ? data : [data];
   const rows = [];
   list.forEach(function (pack) {
