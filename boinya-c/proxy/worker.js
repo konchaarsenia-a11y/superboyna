@@ -30,6 +30,11 @@ import {
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
+  cabinetTestLink_,
+  cabinetTestMatch_,
+  cabinetTestView_,
+  gbMergeTestClient_,
+  gbStripTestClient_,
   clientCabinetView_,
   clientLookup_,
   composeAddress_,
@@ -33259,17 +33264,19 @@ async function gbLoadPack_(env) {
   const users = (await getSnapRaw_(env, "gbUsers")) || { status: "success", users: [] };
   const links = (await getSnapRaw_(env, "gbLinks")) || { status: "success", links: [] };
   const pets = (await getSnapRaw_(env, "gbPets")) || { status: "success", pets: [] };
-  return {
+  const extra = await getSnapRaw_(env, "gbTestClient");
+  return gbMergeTestClient_({
     users: Array.isArray(users.users) ? users.users.slice() : [],
     links: Array.isArray(links.links) ? links.links.slice() : [],
     pets: Array.isArray(pets.pets) ? pets.pets.slice() : []
-  };
+  }, extra);
 }
 
 async function gbSavePack_(env, pack) {
-  await putSnap_(env, "gbUsers", { status: "success", users: pack.users || [], _d1TouchedAt: Date.now() });
-  await putSnap_(env, "gbLinks", { status: "success", links: pack.links || [], _d1TouchedAt: Date.now() });
-  await putSnap_(env, "gbPets", { status: "success", pets: pack.pets || [], _d1TouchedAt: Date.now() });
+  const clean = gbStripTestClient_(pack);
+  await putSnap_(env, "gbUsers", { status: "success", users: clean.users || [], _d1TouchedAt: Date.now() });
+  await putSnap_(env, "gbLinks", { status: "success", links: clean.links || [], _d1TouchedAt: Date.now() });
+  await putSnap_(env, "gbPets", { status: "success", pets: clean.pets || [], _d1TouchedAt: Date.now() });
 }
 
 async function gbFindCrmFromD1_(nick, phone, env) {
@@ -33754,7 +33761,7 @@ async function gbPushDogs_(env, sub, pair, opts) {
 
 async function gbSyncPetDogs_(env, tid, pack) {
   const link = gbLinkOf_(pack, tid);
-  if (!link) return;
+  if (!link || cabinetTestLink_(link)) return;
   const subs = await gbSubs_(env);
   const sub = gbSubForLink_(subs, link);
   if (!sub) return;
@@ -33802,7 +33809,30 @@ function gbViewOrder_(row, sub) {
   };
 }
 
+function gbTestPackUser_(pack, tid) {
+  const id = String(tid || "");
+  const users = (pack && pack.users) || [];
+  for (let i = 0; i < users.length; i++) {
+    if (String(users[i].telegramId || "") === id) return users[i];
+  }
+  return null;
+}
+
+function gbTestReadonly_(pack, tid) {
+  const link = gbLinkOf_(pack, tid);
+  if (!cabinetTestLink_(link)) return null;
+  return cabinetTestView_({
+    link: link,
+    pets: (pack && pack.pets) || [],
+    today: todayIsoMinskD1_(),
+    tid: tid,
+    user: gbTestPackUser_(pack, tid) || {}
+  });
+}
+
 async function gbBuildCabinet_(env, pack, tid) {
+  const testView = gbTestReadonly_(pack, tid);
+  if (testView) return testView;
   const link = gbLinkOf_(pack, tid);
   const subs = await gbSubs_(env);
   const sub = gbSubForLink_(subs, link);
@@ -33967,6 +33997,24 @@ async function handleGbCabinet_(action, params, env) {
   if (/^gbCabinetLink$/i.test(a)) {
     const phone = String((params && params.phone) || "").trim();
     const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    const testHit = cabinetTestMatch_(pack, { nick: nick, phone: phone });
+    if (testHit.status === "many") {
+      return { status: "error", message: "Подходит несколько клиентов. Уточните телефон или ник.", code: "ambiguous" };
+    }
+    if (testHit.status === "one") {
+      const hit = testHit.hits[0];
+      const owner = hit.user;
+      const view = cabinetTestView_({
+        link: hit.link || {},
+        pets: pack.pets || [],
+        today: todayIsoMinskD1_(),
+        tid: owner && owner.telegramId,
+        user: owner || {}
+      });
+      view.d1Verified = true;
+      view.page = "subscription";
+      return view;
+    }
     const found = clientLookup_(await gbSubs_(env), { nick: nick, phone: phone });
     if (found.status === "empty") return { status: "error", message: "Укажите телефон или ник" };
     if (found.status === "none") return { status: "error", message: "Клиент не найден", code: "not_found" };
@@ -33976,6 +34024,13 @@ async function handleGbCabinet_(action, params, env) {
     return gbBindExactHit_(env, pack, actor, found.hits[0], phone, nick, (params && params.name) || "");
   }
   const link = gbLinkOf_(pack, actor.tid);
+  if (cabinetTestLink_(link)) {
+    const view = gbTestReadonly_(pack, actor.tid);
+    view.applied = false;
+    view.paused = false;
+    view.message = "Тестовый кабинет: заказы, маршруты и уведомления не меняются";
+    return view;
+  }
   const subs = await gbSubs_(env);
   const sub = gbSubForLink_(subs, link);
   if (!link || !sub) return { status: "error", message: "Сначала привяжите клиента", code: "not_linked" };
@@ -34299,6 +34354,11 @@ async function mutateGbD1_(action, params, env) {
   if (/^gbMe$/i.test(a)) {
     const tid = String((params && params.telegramId) || "").trim();
     if (!tid) return { status: "error", message: "need_telegramId" };
+    if (cabinetTestLink_(gbLinkOf_(pack, tid))) {
+      const testUser = gbTestPackUser_(pack, tid);
+      if (!testUser) return { status: "error", message: "cold_or_not_found" };
+      return Object.assign({}, gbBuildMeFromPack_(testUser, pack, null), { d1Verified: true, test: true });
+    }
     if (!pack.users.length) return { status: "error", message: "cold_gb" };
     const user = upsertUser({
       telegramId: tid,
@@ -34407,6 +34467,13 @@ async function mutateGbD1_(action, params, env) {
     }
     if (!existing) return { status: "error", message: "cold_or_not_found" };
     telegramId = String(existing.telegramId);
+    if (cabinetTestLink_(gbLinkOf_(pack, telegramId))) {
+      const payload = gbBuildMeFromPack_(existing, pack, null);
+      payload.loggedIn = true;
+      payload.d1Verified = true;
+      payload.test = true;
+      return payload;
+    }
     const user = upsertUser({
       telegramId: telegramId,
       phone: phone || existing.phone,
@@ -34524,6 +34591,10 @@ async function mutateGbD1_(action, params, env) {
       crmExactCount: hits.length
     });
     if (plan.action === "open") {
+      if (cabinetTestLink_(gbLinkOf_(pack, v.tid))) {
+        const testUser = gbTestPackUser_(pack, v.tid);
+        return Object.assign({}, gbBuildMeFromPack_(testUser, pack, null), { d1Verified: true, klient: "open", test: true });
+      }
       const user = upsertUser({ telegramId: v.tid, name: v.name, username: v.username });
       await gbSavePack_(env, pack);
       return Object.assign({}, gbBuildMeFromPack_(user, pack, null), { d1Verified: true, klient: "open" });

@@ -3,16 +3,12 @@ name: afk-pp-split
 on:
   pull_request:
     paths:
-      - .github/workflows/afk-pp-split.yml
       - boinya-c/proxy/afk-guard.js
       - boinya-c/proxy/afk-guard.test.mjs
-      - boinya-c/proxy/worker.js
   push:
     branches: [main]
     paths:
-      - .github/workflows/afk-pp-split.yml
       - boinya-c/proxy/afk-guard.js
-      - boinya-c/proxy/worker.js
   workflow_dispatch:
 
 permissions:

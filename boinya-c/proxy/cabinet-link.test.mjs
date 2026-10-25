@@ -4,6 +4,12 @@ import {
   composeAddress_,
   deliveryType_,
   dogPair_,
+  cabinetTestLink_,
+  cabinetTestMatch_,
+  cabinetTestView_,
+  gbMergeTestClient_,
+  gbStripTestClient_,
+  planGbTestClient_,
   clientCabinetView_,
   clientLookup_,
   exactClientHits_,
@@ -227,6 +233,106 @@ test("собаки кабинета и заказа — одна пара", () =
   assert.equal(pair.dogNames[2], "Лана");
   const fromPet = dogPair_([], null, [{ name: "Бим" }, { name: "Лана" }]);
   assert.equal(fromPet.dogs.length, 2);
+});
+
+test("тестовый кабинет находится только по точному нику", () => {
+  const pack = {
+    users: [
+      { userId: "u_arseniy_test", telegramId: "650923866", username: "arseniyhotko", name: "Арсений Хотько", phone: "", test: true },
+      { userId: "u_real", telegramId: "111", username: "arseniyhotko_real", phone: "+375291110000" }
+    ],
+    links: [
+      { userId: "u_arseniy_test", telegramId: "650923866", matchKey: "TEST:ARSENIY", test: true, status: "linked" },
+      { userId: "u_real", telegramId: "111", matchKey: "REAL", status: "linked" }
+    ]
+  };
+  assert.equal(cabinetTestMatch_(pack, { nick: "@arseniyhotko" }).hits[0].user.userId, "u_arseniy_test");
+  assert.equal(cabinetTestMatch_(pack, { nick: "arseniy" }).status, "none");
+  assert.equal(cabinetTestMatch_(pack, { nick: "arseniyhotko_real" }).status, "none");
+  assert.equal(cabinetTestMatch_(pack, { nick: "arseniyhotko", phone: "+375291112233" }).status, "one");
+  assert.equal(cabinetTestMatch_(pack, { phone: "+375291110000" }).status, "none");
+  assert.equal(cabinetTestMatch_(pack, {}).status, "empty");
+  assert.equal(cabinetTestLink_(pack.links[0]), true);
+  assert.equal(cabinetTestLink_(pack.links[1]), false);
+});
+
+test("тестовая доставка видна в кабинете и не берётся из заказа", () => {
+  const view = cabinetTestView_({
+    today: "2026-10-26",
+    tid: "650923866",
+    user: { userId: "u_arseniy_test", telegramId: "650923866", username: "arseniyhotko", name: "Арсений Хотько", phone: "+375000000000" },
+    pets: [{ id: "pet_arseniy_test", ownerTelegramId: "650923866", name: "Тест", breed: "тест", weightKg: 1 }],
+    link: {
+      userId: "u_arseniy_test",
+      telegramId: "650923866",
+      matchKey: "TEST:ARSENIY",
+      clientNick: "Арсений Хотько",
+      test: true,
+      address: "Тест, не маршрут",
+      deliveries: [
+        { id: "old", date: "2026-10-01", lines: [{ name: "Старое", grams: 1 }] },
+        { id: "test_arseniy_del_2026-11-02", date: "2026-11-02", day: "Понедельник", lines: [{ name: "Тестовая позиция", grams: 100, unit: "г" }], address: "Тест, не маршрут" }
+      ]
+    }
+  });
+  assert.equal(view.linked, true);
+  assert.equal(view.test, true);
+  assert.equal(view.sheet, "ТЕСТ");
+  assert.equal(view.phone, "");
+  assert.equal(view.user.phone, "");
+  assert.equal(view.publicId, undefined);
+  assert.equal(view.link.publicId, undefined);
+  assert.equal(view.dogs.length, 1);
+  assert.equal(view.dogs[0].name, "Тест");
+  assert.equal(view.deliveries.length, 1);
+  assert.equal(view.deliveries[0].date, "2026-11-02");
+  assert.equal(view.deliveries[0].type, "ТЕСТ");
+  assert.equal(view.deliveries[0].nearest, true);
+  assert.equal(view.deliveries[0].payText, "");
+  assert.equal(view.address.line, "Тест, не маршрут");
+});
+
+test("план теста не трогает чужие строки и не пишет телефон", () => {
+  const other = { userId: "u_other", telegramId: "111", username: "real_client", phone: "+375291110000", name: "Анна" };
+  const otherLink = { userId: "u_other", telegramId: "111", matchKey: "REAL", status: "linked", phone: "+375291110000" };
+  const otherPet = { id: "pet_other", ownerTelegramId: "111", name: "Рекс" };
+  const plan = planGbTestClient_({ users: [other], links: [otherLink], pets: [otherPet] }, { now: "2026-10-26T00:00:00.000Z" });
+  assert.equal(plan.action, "write");
+  assert.equal(plan.loginNick, "arseniyhotko");
+  assert.equal(plan.userId, "u_arseniy_test");
+  assert.equal(plan.users.length, 2);
+  assert.deepEqual(plan.users[0], other);
+  assert.equal(plan.users[1].phone, "");
+  assert.equal(plan.users[1].test, true);
+  assert.deepEqual(plan.links[0], otherLink);
+  assert.equal(plan.links[1].matchKey, "TEST:ARSENIY");
+  assert.equal(plan.pets[1].name, "Тест");
+  assert.equal(plan.links[1].deliveries[0].date, "2026-11-02");
+  const again = planGbTestClient_({ users: plan.users, links: plan.links, pets: plan.pets }, { now: "2026-10-26T00:00:00.000Z" });
+  assert.equal(again.reason, "update");
+  assert.equal(again.users.length, 2);
+  assert.equal(planGbTestClient_({
+    users: [{ userId: "u_real", telegramId: "650923866", username: "arseniyhotko", phone: "+375291110000" }]
+  }, {}).reason, "tid_real");
+  const fallback = planGbTestClient_({ users: [], links: [], pets: [] }, { arseniyhotko: 1 });
+  assert.equal(fallback.loginNick, "arseniyhotko_test");
+  assert.equal(plan.extra.user.phone, "");
+  assert.equal(plan.extra.link.deliveries[0].date, "2026-11-02");
+  const merged = gbMergeTestClient_({ users: [other], links: [otherLink], pets: [otherPet] }, plan.extra);
+  assert.equal(merged.users.length, 2);
+  assert.deepEqual(merged.users[0], other);
+  const twice = gbMergeTestClient_(merged, plan.extra);
+  assert.equal(twice.users.length, 2);
+  const blocked = gbMergeTestClient_({
+    users: [{ userId: "u_real", telegramId: "650923866", username: "arseniyhotko" }],
+    links: [],
+    pets: []
+  }, plan.extra);
+  assert.equal(blocked.users.length, 1);
+  const stripped = gbStripTestClient_(twice);
+  assert.deepEqual(stripped.users, [other]);
+  assert.deepEqual(stripped.links, [otherLink]);
+  assert.deepEqual(stripped.pets, [otherPet]);
 });
 
 test("отпечаток заказа не включает состав", () => {
