@@ -3,8 +3,8 @@
  * Общие снимки, заказы, подписки и чужие строки не переписываются.
  * В лог попадают только id теста и имя копии.
  */
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,24 +63,20 @@ function rowsOf(text) {
 }
 
 function d1(sql) {
-  const file = join(dir, "q.sql");
-  writeFileSync(file, sql, "utf8");
-  let out = "";
-  try {
-    out = execFileSync(
-      "npx",
-      ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--file", file],
-      { cwd: proxyDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
-    );
-  } catch (err) {
-    const line = String((err && err.stderr) || "")
+  const run = spawnSync(
+    "npx",
+    ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql],
+    { cwd: proxyDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: process.env }
+  );
+  if (run.status !== 0) {
+    const line = String(run.stderr || run.stdout || "")
       .split("\n")
       .map(function (row) { return row.trim(); })
       .filter(function (row) { return row && !/INSERT|SELECT|payload|cache_key/i.test(row); })[0] || "d1_fail";
     console.log(line.slice(0, 180));
     throw new Error("d1_fail");
   }
-  return rowsOf(out);
+  return rowsOf(run.stdout);
 }
 
 function sqlStr(value) {
@@ -134,6 +130,14 @@ snaps.forEach(function (row) {
   byKey[row.cache_key] = snap(row);
   touched[row.cache_key] = String(row.updated_at || "");
 });
+console.log(
+  "seen=" +
+    snaps
+      .map(function (row) {
+        return row.cache_key + ":" + String(row.payload == null ? "" : row.payload).length;
+      })
+      .join(",")
+);
 const counts = d1(
   "SELECT " +
     "(SELECT COUNT(*) FROM clients WHERE lower(replace(trim(nick), '@', '')) = 'arseniyhotko') AS c_hotko, " +
