@@ -75,12 +75,19 @@
     return null;
   }
 
+  function shownCount(it) {
+    if (!it) return null;
+    var n = logic().slotDateCount ? logic().slotDateCount(it) : null;
+    if (n == null && String(it.day || "") !== "Будущая неделя" && isFinite(Number(it.count))) n = Number(it.count);
+    return n;
+  }
+
   function dayStrip() {
     var html = '<div class="b-days">';
     logic().WEEK.forEach(function (name) {
       if (name === "Будущая неделя") return;
       var it = countOf(name);
-      var num = it ? Number(it.count) : null;
+      var num = shownCount(it);
       var cls = "b-day";
       if (view.day === name && view.seg === "week") cls += " b-day--on";
       var loadMark = logic().dayLoadMark ? logic().dayLoadMark(num) : "";
@@ -97,7 +104,10 @@
     var fut = view.day === "Будущая неделя" ? " b-chip--on" : "";
     html += '<div class="b-row" style="margin-top:8px">' +
       '<button type="button" class="b-chip' + fut + '" data-act="wday" data-day="Будущая неделя">Будущая неделя</button></div>';
-    if ((view.counts || []).some(function (it) { return Number(it && it.count) >= logic().FULL_FROM; })) {
+    if ((view.counts || []).some(function (it) {
+      var n = shownCount(it);
+      return n != null && Number(n) >= logic().FULL_FROM;
+    })) {
       html += '<p class="b-note"><span style="color:var(--b-warn)">●</span> полный от ' + logic().FULL_FROM + "</p>";
     }
     return html;
@@ -1031,10 +1041,16 @@
       if (logic().resolveOrderType(c) === "bp" && !String(c.ppPartner || "").trim()) c.ppPartner = "Другое";
     });
     var nHere = 0;
+    var itHere = null;
     (view.counts || []).forEach(function (it) {
-      if (it && view.day && it.day === view.day) nHere = Number(it.count) || 0;
+      if (it && view.day && it.day === view.day) itHere = it;
     });
-    if (!nHere && view.date) nHere = await countOnIso(view.date);
+    var slotIso = itHere ? isoFromDmy(itHere.date || itHere.dateIso) : "";
+    var viewIso = isoFromDmy(view.date);
+    var sameDate = !viewIso || !slotIso || viewIso === slotIso;
+    var shown = sameDate ? shownCount(itHere) : null;
+    if (shown != null) nHere = shown;
+    else if (view.date) nHere = await countOnIso(view.date);
     var fullDraft = logic().fullDayPrompt(nHere);
     if (fullDraft) {
       var addDraft = await sh().confirm({ title: "Полный день", text: fullDraft, ok: "Добавить", cancel: "Отмена" });

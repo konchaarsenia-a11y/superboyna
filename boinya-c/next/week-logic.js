@@ -841,6 +841,14 @@
     return "ok";
   }
 
+  function slotDateCount(it) {
+    if (!it) return null;
+    if (it.onDate != null && it.onDate !== "" && isFinite(Number(it.onDate))) return Number(it.onDate);
+    if (String(it.day || "") === "Будущая неделя") return null;
+    if (isFinite(Number(it.count))) return Number(it.count);
+    return null;
+  }
+
   function fullDayPrompt(count) {
     var n = Number(count);
     if (!isFinite(n) || n < FULL_FROM) return "";
@@ -1293,6 +1301,7 @@
     WEEK: WEEK,
     FULL_FROM: FULL_FROM,
     dayLoadMark: dayLoadMark,
+    slotDateCount: slotDateCount,
     fullDayPrompt: fullDayPrompt,
     countFromMonth: countFromMonth,
     monthPeopleReady: monthPeopleReady,

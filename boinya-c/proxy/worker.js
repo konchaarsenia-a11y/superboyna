@@ -3,6 +3,7 @@ import {
   weekCloseCalendarNicks_,
   weekCloseNickDiff_,
   weekCloseSlotAction_,
+  weekSlotCountOnDate_,
   weekSlotCountsFromOrders_
 } from "./week-close-d1.js";
 import {
@@ -9575,7 +9576,16 @@ async function rebuildWeekCounts_(env) {
     if (!date) date = prevDates[d] || "";
     const iso = dmyToIso_(date);
     if (iso) dateToDay[iso] = d;
-    items.push({ day: d, short: DAY_SHORT[d] || d, count: c, date: date });
+    let onDate = c;
+    if (d === "Будущая неделя" && iso) {
+      const onRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+      )
+        .bind(iso)
+        .first();
+      onDate = Number(onRow && onRow.c) || 0;
+    }
+    items.push({ day: d, short: DAY_SHORT[d] || d, count: c, onDate: onDate, date: date });
   }
   const body = { status: "success", items: items, total: total, sandbox: true, source: "d1" };
   await putSnap_(env, "weekDayCounts", body);
@@ -9591,7 +9601,10 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
   } catch (e0) {
     counts = null;
   }
-  if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
+  const futureMissingDate = ((counts && counts.items) || []).some(function (it) {
+    return it && String(it.day || "") === "Будущая неделя" && (it.onDate == null || it.onDate === "");
+  });
+  if (!counts || !Array.isArray(counts.items) || !counts.items.length || futureMissingDate) {
     try {
       counts = await rebuildWeekCounts_(env);
     } catch (e1) {
@@ -9601,9 +9614,11 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
   const weekMap = Object.create(null);
   ((counts && counts.items) || []).forEach(function (it) {
     if (!it) return;
-    const iso = dmyToIso_(it.date);
+    const iso = dmyToIso_(it.date) || dmyToIso_(it.dateIso);
     if (!iso) return;
-    weekMap[iso] = { count: Number(it.count) || 0, day: String(it.day || "") };
+    const n = weekSlotCountOnDate_(it);
+    if (n == null) return;
+    weekMap[iso] = { count: n, day: String(it.day || "") };
   });
   if (!Object.keys(weekMap).length) return overlayPartnerDatesOnMonth_(env, body);
 
@@ -9650,6 +9665,22 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
     if (bodyMonth && String(iso).slice(0, 7) !== bodyMonth) return;
     const wCount = weekMap[iso].count;
     const segs = segByIso[iso] || { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+    if (String(weekMap[iso].day || "") === "Будущая неделя") {
+      const truth = Math.max(wCount, segmentCountSum_(segs));
+      if (!byIso[iso]) {
+        byIso[iso] = {
+          dateIso: iso,
+          count: truth,
+          segments: segs,
+          fromWeekSheet: true
+        };
+      } else {
+        byIso[iso].count = truth;
+        if (segmentCountSum_(segs)) byIso[iso].segments = segs;
+        byIso[iso].fromWeekSheet = true;
+      }
+      return;
+    }
     if (!byIso[iso]) {
       byIso[iso] = {
         dateIso: iso,
