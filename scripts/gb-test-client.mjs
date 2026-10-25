@@ -13,8 +13,47 @@ import { planGbTestClient_ } from "../boinya-c/proxy/cabinet-link.js";
 const proxyDir = fileURLToPath(new URL("../boinya-c/proxy/", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "gb-test-"));
 
+function balancedJson(raw, start) {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw.charAt(i);
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === "\"") inStr = false;
+      continue;
+    }
+    if (ch === "\"") {
+      inStr = true;
+      continue;
+    }
+    if (ch === "[" || ch === "{") depth += 1;
+    else if (ch === "]" || ch === "}") {
+      depth -= 1;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return "";
+}
+
+function extractJson(text) {
+  const raw = String(text || "");
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw.charAt(i);
+    if (ch !== "[" && ch !== "{") continue;
+    const slice = balancedJson(raw, i);
+    if (!slice) continue;
+    try {
+      return JSON.parse(slice);
+    } catch (e) {}
+  }
+  throw new Error("d1: no json");
+}
+
 function rowsOf(text) {
-  const data = JSON.parse(text);
+  const data = extractJson(text);
   const blocks = Array.isArray(data) ? data : [data];
   const out = [];
   blocks.forEach(function (block) {
@@ -26,11 +65,21 @@ function rowsOf(text) {
 function d1(sql) {
   const file = join(dir, "q.sql");
   writeFileSync(file, sql, "utf8");
-  const out = execFileSync(
-    "npx",
-    ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--file", file],
-    { cwd: proxyDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
-  );
+  let out = "";
+  try {
+    out = execFileSync(
+      "npx",
+      ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--file", file],
+      { cwd: proxyDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
+    );
+  } catch (err) {
+    const line = String((err && err.stderr) || "")
+      .split("\n")
+      .map(function (row) { return row.trim(); })
+      .filter(function (row) { return row && !/INSERT|SELECT|payload|cache_key/i.test(row); })[0] || "d1_fail";
+    console.log(line.slice(0, 180));
+    throw new Error("d1_fail");
+  }
   return rowsOf(out);
 }
 
