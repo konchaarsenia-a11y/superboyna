@@ -284,9 +284,17 @@
     return " nx-day-load--" + mark;
   }
 
+  function slotShown(it) {
+    var L = root.BoinyaWeekLogic;
+    if (L && L.slotDateCount) return L.slotDateCount(it);
+    if (!it || String(it.day || "") === "Будущая неделя") return null;
+    return isFinite(Number(it.count)) ? Number(it.count) : null;
+  }
+
   function dayMeta(dayName) {
     var it = weekItem(dayName);
-    var num = it && isFinite(Number(it.count)) ? Number(it.count) : null;
+    var shown = it ? slotShown(it) : null;
+    var num = shown == null ? null : shown;
     var dateIso = it ? isoFromAny(it.date) : "";
     var dom = dateIso ? Number(dateIso.slice(8, 10)) : "";
     var mon = dateIso ? MONTHS[Number(dateIso.slice(5, 7)) - 1] : "";
@@ -332,8 +340,9 @@
         '<span class="num">' + (m.num == null ? "" : esc(String(m.num))) + "</span></button>";
     });
     var fut = weekItem("Будущая неделя");
-    var futN = fut && isFinite(Number(fut.count)) ? String(fut.count) : "";
-    html += '<button type="button" class="sheet-act' + dayLoadCls(fut && fut.count) + '" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
+    var futShown = fut ? slotShown(fut) : null;
+    var futN = futShown == null ? "" : String(futShown);
+    html += '<button type="button" class="sheet-act' + dayLoadCls(futShown) + '" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
     html += '<button type="button" class="sheet-act" data-act="cal">Другая дата</button>';
     html += '<p class="b-note">Полный день от ' + FULL_FROM + " человек</p>";
     return html;
@@ -355,7 +364,10 @@
   }
 
   function numFullHint() {
-    return (week.items || []).some(function (it) { return Number(it && it.count) >= FULL_FROM; });
+    return (week.items || []).some(function (it) {
+      var n = slotShown(it);
+      return n != null && Number(n) >= FULL_FROM;
+    });
   }
 
   function itemGroup(it) {
@@ -941,8 +953,9 @@
       var it = weekItem(day);
       if (it) {
         var itIso = isoFromAny(it.date);
-        if (day === "Будущая неделя" || !iso || !itIso || itIso === iso) {
-          if (isFinite(Number(it.count))) return Number(it.count);
+        if (!iso || !itIso || itIso === iso) {
+          var nSlot = slotShown(it);
+          if (nSlot != null && isFinite(Number(nSlot))) return Number(nSlot);
         }
       }
     }

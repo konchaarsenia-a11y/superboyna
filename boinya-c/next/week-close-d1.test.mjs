@@ -13,6 +13,7 @@ import {
   weekCloseNickDiff_,
   weekCloseSlotAction_,
   weekCloseFinishAllowed_,
+  weekSlotCountOnDate_,
   weekSlotCountsFromOrders_
 } from "../proxy/week-close-d1.js";
 
@@ -142,6 +143,7 @@ test("замок на той же неделе не останавливает �
   const slot = weekSlotCountsFromOrders_(after, "2026-10-19");
   assert.equal(slot.find(function (it) { return it.day === "Понедельник"; }).count, 1);
   assert.equal(slot.find(function (it) { return it.day === "Будущая неделя"; }).count, 1);
+  assert.equal(slot.find(function (it) { return it.day === "Будущая неделя"; }).onDate, 0);
   assert.deepEqual(weekCloseCountsEqual_(weekCloseClientCounts_(orders), weekCloseClientCounts_(after)), []);
 });
 
@@ -163,6 +165,34 @@ test("повтор не создаёт вторую строку того же �
   const wed = after.filter(function (o) { return o.day === "Среда"; });
   assert.equal(wed.length, 1);
   assert.equal(after.length, 2);
+});
+
+test("полный день будущей недели считает только понедельник", function () {
+  const orders = [
+    { date: "2026-10-26", status: "active", client: "a" },
+    { date: "2026-10-26", status: "active", client: "b" },
+    { date: "2026-10-26", status: "deleted", client: "gone" },
+    { date: "2026-10-27", status: "active", client: "c" },
+    { date: "2026-10-30", status: "active", client: "e" },
+    { date: "2026-11-02", status: "active", client: "f" },
+    { date: "2026-10-19", status: "active", client: "thisweek" }
+  ];
+  const slot = weekSlotCountsFromOrders_(orders, "2026-10-19");
+  const fut = slot.find(function (it) { return it.day === "Будущая неделя"; });
+  const mon = slot.find(function (it) { return it.day === "Понедельник"; });
+  assert.equal(fut.dateIso, "2026-10-26");
+  assert.equal(fut.onDate, 2);
+  assert.equal(fut.count, 4);
+  assert.equal(weekSlotCountOnDate_(fut), 2);
+  assert.equal(mon.onDate, 1);
+  assert.equal(mon.count, 1);
+  assert.equal(weekSlotCountOnDate_({ day: "Будущая неделя", count: 15 }), null);
+  const src = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
+  const start = src.indexOf("async function overlayWeekSheetCountsOnMonth_(");
+  const end = src.indexOf("function minkTodayIso_(", start);
+  const body = src.slice(start, end);
+  assert.ok(body.includes("weekSlotCountOnDate_"));
+  assert.ok(body.indexOf('=== "Будущая неделя"') < body.indexOf("Math.max(d1c, wCount, d1n)"));
 });
 
 test("позднюю дату слота не тянет назад", function () {

@@ -1,0 +1,126 @@
+name: full-day-count
+# Только чтение: живые заказы 26.10–01.11. Данные не меняет.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/full-day-count.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Count live rows by date
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p /tmp/full-day
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = "/tmp/full-day"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+
+          run(
+              "SELECT date_iso, COALESCE(status,'') AS status, COUNT(*) AS rows, "
+              "COUNT(DISTINCT match_key) AS people FROM orders "
+              "WHERE date_iso >= '2026-10-26' AND date_iso <= '2026-11-01' "
+              "GROUP BY date_iso, status ORDER BY date_iso, status",
+              "by-status"
+          )
+          run(
+              "SELECT date_iso, COALESCE(day_name,'') AS day_name, COALESCE(segment,'') AS segment, "
+              "COALESCE(source,'') AS source, COUNT(*) AS rows, COUNT(DISTINCT match_key) AS people "
+              "FROM orders WHERE status = 'active' AND date_iso >= '2026-10-26' AND date_iso <= '2026-11-01' "
+              "GROUP BY date_iso, day_name, segment, source ORDER BY date_iso, day_name, segment",
+              "active-split"
+          )
+          run(
+              "SELECT COALESCE(date_iso,'') AS date_iso, COALESCE(status,'') AS status, "
+              "COUNT(*) AS rows, COUNT(DISTINCT match_key) AS people FROM orders "
+              "WHERE day_name = 'Будущая неделя' GROUP BY date_iso, status ORDER BY date_iso, status",
+              "future-label"
+          )
+          run(
+              "SELECT COUNT(*) AS dup_groups FROM ("
+              "SELECT match_key FROM orders WHERE status = 'active' AND date_iso = '2026-10-26' "
+              "AND match_key != '' GROUP BY match_key HAVING COUNT(*) > 1)",
+              "dup26"
+          )
+          run(
+              "SELECT cache_key, payload FROM snap_cache WHERE cache_key = 'weekDayCounts'",
+              "snap"
+          )
+          print("ok")
+          PY
+          node <<'JS'
+          const fs = require("fs");
+          function rows(name) {
+            const data = JSON.parse(fs.readFileSync("/tmp/full-day/" + name, "utf8"));
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          const by = rows("by-status.json");
+          let activeRows = 0;
+          let activePeople = 0;
+          const on26 = { rows: 0, people: 0 };
+          by.forEach((r) => {
+            const line = r.date_iso + " " + (r.status || "-") + " rows=" + r.rows + " people=" + r.people;
+            console.log("date " + line);
+            if (r.status === "active") {
+              activeRows += Number(r.rows) || 0;
+              if (r.date_iso === "2026-10-26") {
+                on26.rows = Number(r.rows) || 0;
+                on26.people = Number(r.people) || 0;
+              }
+            }
+          });
+          console.log("active-range-rows " + activeRows);
+          console.log("active-2026-10-26 rows=" + on26.rows + " people=" + on26.people);
+          rows("active-split.json").forEach((r) => {
+            console.log(
+              "split " + r.date_iso + " day=" + (r.day_name || "-") +
+              " seg=" + (r.segment || "-") + " src=" + (r.source || "-") +
+              " rows=" + r.rows + " people=" + r.people
+            );
+          });
+          rows("future-label.json").forEach((r) => {
+            console.log(
+              "label " + (r.date_iso || "-") + " " + (r.status || "-") +
+              " rows=" + r.rows + " people=" + r.people
+            );
+          });
+          const dup = rows("dup26.json")[0] || {};
+          console.log("dup-groups-2026-10-26 " + (dup.dup_groups || 0));
+          const snap = rows("snap.json")[0] || {};
+          let payload = null;
+          try { payload = JSON.parse(snap.payload || "null"); } catch (e) { payload = null; }
+          ((payload && payload.items) || []).forEach((it) => {
+            console.log(
+              "slot " + (it.day || "") + " date=" + (it.date || "") +
+              " count=" + it.count + " onDate=" + (it.onDate == null ? "" : it.onDate)
+            );
+          });
+          JS
+          rm -rf /tmp/full-day
