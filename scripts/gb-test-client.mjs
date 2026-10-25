@@ -88,12 +88,22 @@ function sqlStr(value) {
 }
 
 function snap(row) {
-  if (!row || !row.payload) return {};
+  if (!row || row.payload == null || row.payload === "") return {};
+  let value = row.payload;
+  if (typeof value === "object") return value;
   try {
-    return JSON.parse(row.payload);
+    value = JSON.parse(value);
   } catch (e) {
     return {};
   }
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch (e2) {
+      return {};
+    }
+  }
+  return value && typeof value === "object" ? value : {};
 }
 
 function listOf(body, key) {
@@ -130,7 +140,7 @@ const counts = d1(
     "(SELECT COUNT(*) FROM clients WHERE lower(replace(trim(nick), '@', '')) = 'arseniyhotko_test') AS c_test, " +
     "(SELECT COUNT(*) FROM subs WHERE lower(replace(trim(nick), '@', '')) = 'arseniyhotko') AS s_hotko, " +
     "(SELECT COUNT(*) FROM subs WHERE lower(replace(trim(nick), '@', '')) = 'arseniyhotko_test') AS s_test, " +
-    "(SELECT COUNT(*) FROM orders WHERE match_key = 'TEST:ARSENIY' OR lower(trim(client)) IN ('arseniyhotko','arseniyhotko_test','арсений хотько')) AS o_hit"
+    "(SELECT COUNT(*) FROM orders WHERE match_key = 'TEST:ARSENIY' OR lower(trim(client)) IN ('arseniyhotko','arseniyhotko_test')) AS o_hit"
 );
 const count = counts[0] || {};
 const now = new Date().toISOString();
@@ -172,32 +182,39 @@ d1(
     sqlStr("gbTestClient") + ", " + sqlStr(extra) + ", " + sqlStr(now) +
     ") ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at"
 );
-const after = d1(
-  "SELECT cache_key, updated_at, CASE WHEN cache_key = 'gbTestClient' OR cache_key LIKE 'gbTestBackup:arseniy:%' THEN payload ELSE '' END AS payload " +
-    "FROM snap_cache WHERE cache_key IN ('gbUsers','gbLinks','gbPets','gbTestClient') OR cache_key LIKE " + sqlStr(backup + ":%")
+const afterMeta = d1(
+  "SELECT cache_key, updated_at, length(payload) AS n FROM snap_cache " +
+    "WHERE cache_key IN ('gbUsers','gbLinks','gbPets','gbTestClient') OR cache_key LIKE " + sqlStr(backup + ":%")
 );
 const afterTouch = Object.create(null);
-const afterBody = Object.create(null);
-after.forEach(function (row) {
+const afterLen = Object.create(null);
+afterMeta.forEach(function (row) {
   afterTouch[row.cache_key] = String(row.updated_at || "");
-  if (row.payload) afterBody[row.cache_key] = snap(row);
+  afterLen[row.cache_key] = Number(row.n || 0);
 });
+const afterClient = d1("SELECT payload FROM snap_cache WHERE cache_key = 'gbTestClient'");
+const saved = snap(afterClient[0] || {});
 const sharedSame = ["gbUsers", "gbLinks", "gbPets"].every(function (key) {
   return afterTouch[key] === touched[key];
 });
-const copies = ["gbUsers", "gbLinks", "gbPets"].filter(function (key) { return !!afterBody[backup + ":" + key]; });
-const saved = afterBody.gbTestClient || {};
+const copies = ["gbUsers", "gbLinks", "gbPets"].filter(function (key) { return afterLen[backup + ":" + key] > 0; });
 const ordersAfter = d1(
-  "SELECT COUNT(*) AS n FROM orders WHERE match_key = 'TEST:ARSENIY' OR lower(trim(client)) IN ('arseniyhotko','arseniyhotko_test','арсений хотько')"
+  "SELECT COUNT(*) AS n FROM orders WHERE match_key = 'TEST:ARSENIY' OR lower(trim(client)) IN ('arseniyhotko','arseniyhotko_test')"
 );
-const ordersN = Number((ordersAfter[0] && ordersAfter[0].n) || 0);
+const ordersBefore = Number(count.o_hit || 0);
+const ordersN = Number((ordersAfter[0] && (ordersAfter[0].n != null ? ordersAfter[0].n : ordersAfter[0].N)) || 0);
 const missingCopy = ["gbUsers", "gbLinks", "gbPets"].filter(function (key) {
-  return touched[key] != null && !afterBody[backup + ":" + key];
+  return touched[key] != null && !(afterLen[backup + ":" + key] > 0);
 });
-if (missingCopy.length || !sharedSame || !saved.user || saved.user.userId !== plan.userId || ordersN !== Number(count.o_hit || 0)) {
+if (missingCopy.length || !sharedSame || !saved.user || saved.user.userId !== plan.userId || ordersN !== ordersBefore) {
   console.log("abort=verify");
   console.log("backup=" + backup);
   console.log("sharedSame=" + (sharedSame ? "1" : "0"));
+  console.log("missing=" + missingCopy.join(","));
+  console.log("hasUser=" + (saved.user ? "1" : "0"));
+  console.log("copies=" + copies.join(","));
+  console.log("ordersBefore=" + ordersBefore);
+  console.log("ordersAfter=" + ordersN);
   rmSync(dir, { recursive: true, force: true });
   process.exit(1);
 }
