@@ -75,7 +75,7 @@ jobs:
           node <<'JS'
           const fs = require("fs");
           function rows(name) {
-            const data = JSON.parse(fs.readFileSync("/tmp/full-day/" + name + ".json", "utf8"));
+            const data = JSON.parse(fs.readFileSync("/tmp/full-day/" + name, "utf8"));
             const blocks = Array.isArray(data) ? data : [data];
             const out = [];
             blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
