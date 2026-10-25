@@ -759,3 +759,305 @@ export function monthWindow_(today, dates) {
   const end = month + "-31";
   return { from: month + "-01", to: end, nearest: future[0] };
 }
+
+/** Тестовый кабинет: не заказ, не подписка, не маршрут. */
+export function cabinetTestLink_(link) {
+  if (!link || typeof link !== "object") return false;
+  if (link.test === true || link.test === 1 || link.test === "1" || link.test === "true") return true;
+  return String(link.matchKey || "").indexOf("TEST:") === 0;
+}
+
+function cabinetTestUser_(user) {
+  if (!user || typeof user !== "object") return false;
+  return user.test === true || user.test === 1 || user.test === "1" || user.test === "true";
+}
+
+/** Точный ник или телефон тестового кабинета. Подстрока и чужой клиент не подходят. */
+export function cabinetTestMatch_(pack, query) {
+  const nick = normNick_(query && query.nick);
+  const phone = String((query && query.phone) || "").trim();
+  if (!nick && !phone) return { status: "empty", hits: [] };
+  const users = (pack && pack.users) || [];
+  const links = (pack && pack.links) || [];
+  const hits = [];
+  const seen = Object.create(null);
+  users.forEach(function (user) {
+    if (!user) return;
+    let link = null;
+    for (let i = 0; i < links.length; i++) {
+      const row = links[i];
+      if (!row) continue;
+      if (
+        String(row.telegramId || "") === String(user.telegramId || "") ||
+        (user.userId && String(row.userId || "") === String(user.userId))
+      ) {
+        link = row;
+        break;
+      }
+    }
+    if (link && !cabinetTestLink_(link)) return;
+    if (!link && !cabinetTestUser_(user)) return;
+    if (!cabinetTestLink_(link) && !cabinetTestUser_(user)) return;
+    const un = normNick_(user.username);
+    const nickHit = !!(nick && un && un === nick);
+    const phoneHit = !!(phone && phonesEqual_(user.phone, phone));
+    if (nick && phone) {
+      if (!nickHit || (String(user.phone || "").trim() && !phoneHit)) return;
+    } else if (!nickHit && !phoneHit) return;
+    const key = String(user.userId || user.telegramId || "");
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    hits.push({ user: user, link: link });
+  });
+  if (!hits.length) return { status: "none", hits: [] };
+  if (hits.length > 1) return { status: "many", hits: hits };
+  return { status: "one", hits: hits };
+}
+
+/** Карточка кабинета из снимка. Заказы и лист подписок не читаются. */
+export function cabinetTestView_(opts) {
+  opts = opts || {};
+  const link = opts.link || {};
+  const today = String(opts.today || "").slice(0, 10);
+  const tid = String(opts.tid || link.telegramId || "");
+  const owned = (opts.pets || []).filter(function (pet) {
+    if (!pet) return false;
+    if (tid && String(pet.ownerTelegramId || "") === tid) return true;
+    return !!(link.userId && String(pet.ownerUserId || "") === String(link.userId));
+  });
+  const raw = Array.isArray(link.deliveries) ? link.deliveries : [];
+  const win = monthWindow_(today, raw.map(function (row) { return row && row.date; }));
+  let nearest = "";
+  raw.forEach(function (row) {
+    const date = String((row && row.date) || "").slice(0, 10);
+    if (!date || (today && date < today)) return;
+    if (!nearest || date < nearest) nearest = date;
+  });
+  const dogs = owned.map(function (pet, i) {
+    const name = String(pet.name || "").trim();
+    if (!name) return null;
+    return {
+      slot: i + 1,
+      name: name,
+      breed: String(pet.breed || "").trim(),
+      weightKg: pet.weightKg != null && pet.weightKg !== "" ? pet.weightKg : ""
+    };
+  }).filter(Boolean);
+  const deliveries = raw.map(function (row) {
+    const date = String((row && row.date) || "").slice(0, 10);
+    if (!date) return null;
+    if (win.from && (date < win.from || date > win.to)) return null;
+    const lines = (row.lines || []).map(function (it) {
+      const name = String((it && it.name) || "").trim();
+      if (!name) return null;
+      return { name: name, grams: it.grams == null ? "" : it.grams, unit: (it && it.unit) || "г" };
+    }).filter(Boolean);
+    return {
+      id: String(row.id || ""),
+      date: date,
+      day: String(row.day || ""),
+      type: "ТЕСТ",
+      pair: "",
+      payText: "",
+      role: "",
+      lines: lines,
+      address: String(row.address || link.address || ""),
+      dogs: dogs.map(function (dog) { return { slot: dog.slot, name: dog.name }; }),
+      nearest: date === nearest
+    };
+  }).filter(Boolean);
+  const parts = parseAddress_(link.address || "");
+  const user = opts.user || {};
+  return clientCabinetView_({
+    status: "success",
+    linked: true,
+    test: true,
+    nick: link.clientNick || user.name || "",
+    sheet: "ТЕСТ",
+    phone: "",
+    dogs: dogs,
+    address: {
+      street: parts.street || String(link.address || ""),
+      entrance: "",
+      doorCode: "",
+      floor: "",
+      flat: "",
+      line: String(link.address || "")
+    },
+    deliveries: deliveries,
+    confirmMoves: false,
+    link: {
+      userId: link.userId || user.userId || "",
+      telegramId: String(link.telegramId || tid),
+      matchKey: link.matchKey || "",
+      clientNick: link.clientNick || "",
+      subId: link.subId || "",
+      segment: "ТЕСТ",
+      status: "linked",
+      test: true,
+      sheet: "ТЕСТ"
+    },
+    user: {
+      userId: user.userId || link.userId || "",
+      telegramId: String(user.telegramId || tid),
+      name: user.name || link.clientNick || "",
+      username: user.username || "",
+      phone: "",
+      access: user.access || "full"
+    }
+  });
+}
+
+const GB_TEST_TID_ = "650923866";
+const GB_TEST_USER_ = "u_arseniy_test";
+const GB_TEST_MATCH_ = "TEST:ARSENIY";
+const GB_TEST_PET_ = "pet_arseniy_test";
+
+function gbTestAbort_(reason) {
+  return { action: "abort", reason: reason };
+}
+
+/** Снимок кабинета: чужие строки остаются, заказы и подписки не входят в план. */
+export function planGbTestClient_(pack, crm) {
+  pack = pack || {};
+  crm = crm || {};
+  const users = (pack.users || []).map(function (row) { return Object.assign({}, row); });
+  const links = (pack.links || []).map(function (row) { return Object.assign({}, row); });
+  const pets = (pack.pets || []).map(function (row) { return Object.assign({}, row); });
+  const byTid = users.filter(function (row) { return String(row.telegramId || "") === GB_TEST_TID_; });
+  if (byTid.length > 1) return gbTestAbort_("tid_many");
+  if (byTid.length === 1 && (String(byTid[0].userId || "") !== GB_TEST_USER_ || !cabinetTestUser_(byTid[0]))) {
+    return gbTestAbort_("tid_real");
+  }
+  const byId = users.filter(function (row) { return String(row.userId || "") === GB_TEST_USER_; });
+  if (byId.length > 1) return gbTestAbort_("userid_many");
+  if (byId.length === 1 && String(byId[0].telegramId || "") !== GB_TEST_TID_) return gbTestAbort_("userid_other");
+  const ourLinks = links.filter(function (row) {
+    return String(row.telegramId || "") === GB_TEST_TID_ || String(row.userId || "") === GB_TEST_USER_ || String(row.matchKey || "") === GB_TEST_MATCH_;
+  });
+  if (ourLinks.length > 1) return gbTestAbort_("link_many");
+  if (ourLinks.some(function (row) { return !cabinetTestLink_(row); })) return gbTestAbort_("link_real");
+  const petRow = pets.filter(function (row) { return String(row.id || "") === GB_TEST_PET_; });
+  if (petRow.length > 1) return gbTestAbort_("pet_many");
+  if (petRow.length === 1 && String(petRow[0].ownerTelegramId || "") !== GB_TEST_TID_) return gbTestAbort_("pet_other");
+  function crmHit(nick) { return Number(crm[nick] || 0) > 0; }
+  function userHit(nick) {
+    return users.some(function (row) {
+      return normNick_(row.username) === nick && String(row.userId || "") !== GB_TEST_USER_;
+    });
+  }
+  let login = "arseniyhotko";
+  if (crmHit(login) || userHit(login)) {
+    login = "arseniyhotko_test";
+    if (crmHit(login) || userHit(login)) return gbTestAbort_("login_busy");
+  }
+  const prev = byTid[0] || byId[0] || {};
+  const prevLink = ourLinks[0] || {};
+  const now = String(crm.now || new Date().toISOString());
+  const user = {
+    userId: GB_TEST_USER_,
+    telegramId: GB_TEST_TID_,
+    name: "Арсений Хотько",
+    username: login,
+    phone: "",
+    access: "full",
+    test: true,
+    createdAt: prev.createdAt || now
+  };
+  const link = {
+    userId: GB_TEST_USER_,
+    telegramId: GB_TEST_TID_,
+    matchKey: GB_TEST_MATCH_,
+    clientNick: "Арсений Хотько",
+    subId: "test_arseniy",
+    segment: "ТЕСТ",
+    sheet: "ТЕСТ",
+    status: "linked",
+    test: true,
+    verifyMethod: "nick",
+    phone: "",
+    address: "Тест, не маршрут",
+    linkedAt: prevLink.linkedAt || now,
+    deliveries: [{
+      id: "test_arseniy_del_2026-11-02",
+      date: "2026-11-02",
+      day: "Понедельник",
+      address: "Тест, не маршрут",
+      lines: [{ name: "Тестовая позиция", grams: 100, unit: "г" }]
+    }]
+  };
+  const pet = {
+    id: GB_TEST_PET_,
+    ownerTelegramId: GB_TEST_TID_,
+    ownerUserId: GB_TEST_USER_,
+    name: "Тест",
+    breed: "тест",
+    weightKg: 1,
+    allergies: "",
+    notes: "тестовая собака, не в маршрутах",
+    activity: "тест",
+    test: true,
+    updatedAt: now
+  };
+  function put(list, pred, row) {
+    const idx = list.findIndex(pred);
+    if (idx >= 0) list[idx] = row;
+    else list.push(row);
+  }
+  put(users, function (row) { return String(row.userId || "") === GB_TEST_USER_ || String(row.telegramId || "") === GB_TEST_TID_; }, user);
+  put(links, function (row) {
+    return String(row.userId || "") === GB_TEST_USER_ || String(row.telegramId || "") === GB_TEST_TID_ || String(row.matchKey || "") === GB_TEST_MATCH_;
+  }, link);
+  put(pets, function (row) { return String(row.id || "") === GB_TEST_PET_; }, pet);
+  return {
+    action: "write",
+    reason: prev.userId ? "update" : "insert",
+    loginNick: login,
+    userId: GB_TEST_USER_,
+    telegramId: GB_TEST_TID_,
+    users: users,
+    links: links,
+    pets: pets,
+    extra: { status: "success", test: true, user: user, link: link, pet: pet }
+  };
+}
+
+/** Подмешать тестового клиента к чтению. Чужой Telegram с тем же id не затирается. */
+export function gbMergeTestClient_(pack, extra) {
+  const src = pack || { users: [], links: [], pets: [] };
+  const users = (src.users || []).slice();
+  const links = (src.links || []).slice();
+  const pets = (src.pets || []).slice();
+  const row = extra && extra.user;
+  const link = extra && extra.link;
+  const pet = extra && extra.pet;
+  if (!row || !cabinetTestUser_(row) || !link || !cabinetTestLink_(link)) {
+    return { users: users, links: links, pets: pets };
+  }
+  const tid = String(row.telegramId || "");
+  const blocked = users.some(function (user) {
+    return String(user.telegramId || "") === tid && String(user.userId || "") !== String(row.userId || "");
+  }) || links.some(function (item) {
+    return String(item.telegramId || "") === tid && !cabinetTestLink_(item);
+  });
+  if (blocked) return { users: users, links: links, pets: pets };
+  function put(list, pred, item) {
+    const idx = list.findIndex(pred);
+    if (idx >= 0) list[idx] = item;
+    else list.push(item);
+  }
+  put(users, function (user) { return String(user.userId || "") === String(row.userId || ""); }, row);
+  put(links, function (item) { return String(item.matchKey || "") === String(link.matchKey || ""); }, link);
+  if (pet && pet.id) put(pets, function (item) { return String(item.id || "") === String(pet.id || ""); }, pet);
+  return { users: users, links: links, pets: pets };
+}
+
+/** Перед записью общего снимка убрать только строки этого теста. */
+export function gbStripTestClient_(pack) {
+  const src = pack || {};
+  return {
+    users: (src.users || []).filter(function (row) { return String(row.userId || "") !== GB_TEST_USER_; }),
+    links: (src.links || []).filter(function (row) { return String(row.matchKey || "") !== GB_TEST_MATCH_; }),
+    pets: (src.pets || []).filter(function (row) { return String(row.id || "") !== GB_TEST_PET_; })
+  };
+}
