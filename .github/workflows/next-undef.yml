@@ -10,6 +10,7 @@ on:
       - "scripts/check-worker-build.mjs"
       - "scripts/next-lint/**"
       - ".github/workflows/next-undef.yml"
+      - "goodboy/**"
   push:
     branches: [main]
     paths:
@@ -20,6 +21,7 @@ on:
       - "scripts/check-worker-build.mjs"
       - "scripts/next-lint/**"
       - ".github/workflows/next-undef.yml"
+      - "goodboy/**"
 
 jobs:
   undef:

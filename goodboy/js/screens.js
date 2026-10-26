@@ -48,19 +48,15 @@
     diet: "Без курицы"
   };
 
-  var DEMO_PLACES = [
-    { id: "p1", cat: "play", name: "Площадка у Свислочи", meta: "Dog-friendly · вода · тень", dist: "1.2 км", x: 28, y: 36, hot: false },
-    { id: "p2", cat: "vet", name: "Ветклиника «Хвост»", meta: "Открыто до 21:00", dist: "0.8 км", x: 58, y: 48, hot: true },
-    { id: "p3", cat: "cafe", name: "VARKA · Карского 23", meta: "Кофейня · лакомства на витрине", dist: "1.5 км", x: 72, y: 28, hot: false },
-    { id: "p4", cat: "groom", name: "Груминг SoftPaw", meta: "−10% по карточке GOOD BOY", dist: "2.1 км", x: 40, y: 68, hot: false }
-  ];
-
   var MAP_FILTERS = [
     { id: "all", label: "Все" },
-    { id: "play", label: "Площадки" },
+    { id: "cafe", label: "Кафе" },
+    { id: "shop", label: "Зоомагазины" },
     { id: "vet", label: "Вет" },
     { id: "groom", label: "Груминг" },
-    { id: "cafe", label: "Кафе" }
+    { id: "play", label: "Площадки" },
+    { id: "park", label: "Парки" },
+    { id: "partner", label: "Партнёры" }
   ];
 
   function toast(msg) {
@@ -212,18 +208,6 @@
   function renderMapPage(st) {
     var access = currentAccess(st);
     var filter = st.mapFilter || "all";
-    var activeId = st.mapPlaceId || "p2";
-    var places = DEMO_PLACES.filter(function (pl) {
-      return filter === "all" || pl.cat === filter;
-    });
-    if (!places.some(function (pl) { return pl.id === activeId; })) {
-      activeId = places[0] ? places[0].id : "";
-    }
-    var pins = places.map(function (pl) {
-      var cls = "ps-pin" + (pl.hot ? " ps-pin--hot" : "") + (pl.id === activeId ? " is-active" : "");
-      return "<button type=\"button\" class=\"" + cls + "\" data-place=\"" + pl.id + "\" style=\"--x:" + pl.x + "%;--y:" + pl.y + "%\" aria-label=\"" + esc(pl.name) + "\"></button>";
-    }).join("");
-    var nearest = places.find(function (pl) { return pl.id === activeId; }) || places[0];
     var cityBar = access === "city" && !inBot()
       ? "<div class=\"cabinet-access-banner cabinet-access-banner--row\">" +
           "<span>Только карта</span>" +
@@ -234,25 +218,15 @@
       cityBar +
       "<div class=\"cabinet-filters\" role=\"tablist\" aria-label=\"Фильтр мест\">" +
         MAP_FILTERS.map(function (f) {
-          return "<button type=\"button\" class=\"cabinet-chip" + (filter === f.id ? " is-on" : "") + "\" data-map-filter=\"" + f.id + "\">" + esc(f.label) + "</button>";
+          return "<button type=\"button\" class=\"cabinet-chip" + (filter === f.id ? " is-on" : "") + "\" data-map-filter=\"" + f.id + "\" role=\"tab\" aria-selected=\"" + (filter === f.id ? "true" : "false") + "\">" + esc(f.label) + "</button>";
         }).join("") +
       "</div>" +
       deskGrid(
       "<div class=\"cabinet-map-wrap\">" +
-        "<div class=\"ps-map cabinet-map\" id=\"cabinetMap\">" + pins +
-          "<div class=\"ps-map-label\">" + esc(nearest ? "рядом " + nearest.dist : "Минск") + "</div>" +
-        "</div>" +
+        "<div class=\"cabinet-map\" id=\"cabinetMap\" role=\"application\" aria-label=\"Карта Минска\"></div>" +
       "</div>",
-      "<div class=\"cabinet-place-list\">" +
-        places.map(function (pl) {
-          return (
-            "<button type=\"button\" class=\"cabinet-place" + (pl.id === activeId ? " is-active" : "") + "\" data-place=\"" + pl.id + "\">" +
-              "<div><strong>" + esc(pl.name) + "</strong><span>" + esc(pl.meta) + "</span></div>" +
-              "<em>" + esc(pl.dist) + "</em>" +
-            "</button>"
-          );
-        }).join("") +
-      "</div>"
+      "<article class=\"cabinet-place-card\" id=\"cabinetPlaceCard\"><p class=\"cabinet-hint\">Открываем места…</p></article>" +
+      "<div class=\"cabinet-place-list\" id=\"cabinetPlaceList\"></div>"
       )
     );
   }
@@ -479,7 +453,7 @@
     var meta = document.getElementById("topMeta");
     if (meta) {
       var label = (st.user && st.user.name) ? st.user.name : "Гость";
-      meta.textContent = label.length > 12 ? label.slice(0, 11) + "…" : label;
+      meta.textContent = label;
       meta.title = (st.user && st.user.name) || "Аккаунт";
     }
 
@@ -515,6 +489,7 @@
     if (details && detailsOpen) details.open = true;
 
     applyPageState(page);
+    if (page === "map" && global.GBMap && global.GBMap.mount) global.GBMap.mount();
   }
 
   global.GBUI = {

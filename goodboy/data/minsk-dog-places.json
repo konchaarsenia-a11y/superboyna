@@ -1,0 +1,5468 @@
+{
+  "source": "OpenStreetMap",
+  "retrieved": "2026-10-26",
+  "overpass": "https://overpass-api.de/api/interpreter",
+  "nominatim": "https://nominatim.openstreetmap.org",
+  "bbox": [
+    53.825,
+    27.4,
+    53.975,
+    27.7
+  ],
+  "counts": {
+    "cafe": 2,
+    "groom": 22,
+    "play": 72,
+    "shop": 364,
+    "vet": 71
+  },
+  "partnerCount": 12,
+  "placeCount": 531,
+  "places": [
+    {
+      "id": "node-10594164008",
+      "osm": "https://www.openstreetmap.org/node/10594164008",
+      "cat": "cafe",
+      "name": "Апостраф",
+      "named": true,
+      "address": "вуліца Алібегава 28, Мінск",
+      "lat": 53.872204,
+      "lon": 27.477532
+    },
+    {
+      "id": "node-12198414754",
+      "osm": "https://www.openstreetmap.org/node/12198414754",
+      "cat": "cafe",
+      "name": "Варка",
+      "named": true,
+      "address": "",
+      "lat": 53.843616,
+      "lon": 27.504744
+    },
+    {
+      "id": "node-13025625454",
+      "osm": "https://www.openstreetmap.org/node/13025625454",
+      "cat": "groom",
+      "name": "Artemon",
+      "named": true,
+      "address": "Нававіленская вуліца 51, Мінск",
+      "lat": 53.937236,
+      "lon": 27.531426
+    },
+    {
+      "id": "node-11710804649",
+      "osm": "https://www.openstreetmap.org/node/11710804649",
+      "cat": "groom",
+      "name": "BULLDOG",
+      "named": true,
+      "address": "",
+      "lat": 53.893035,
+      "lon": 27.425687
+    },
+    {
+      "id": "node-13144931723",
+      "osm": "https://www.openstreetmap.org/node/13144931723",
+      "cat": "groom",
+      "name": "Bimgrooming.by",
+      "named": true,
+      "address": "вуліца Ціміразева 28",
+      "lat": 53.914369,
+      "lon": 27.523887
+    },
+    {
+      "id": "node-13958271600",
+      "osm": "https://www.openstreetmap.org/node/13958271600",
+      "cat": "groom",
+      "name": "Grom Home",
+      "named": true,
+      "address": "праспект Незалежнасці 164",
+      "lat": 53.943728,
+      "lon": 27.686337
+    },
+    {
+      "id": "node-12252421803",
+      "osm": "https://www.openstreetmap.org/node/12252421803",
+      "cat": "groom",
+      "name": "Groom it",
+      "named": true,
+      "address": "Казіміраўская вуліца 21",
+      "lat": 53.916354,
+      "lon": 27.422646
+    },
+    {
+      "id": "node-11030535320",
+      "osm": "https://www.openstreetmap.org/node/11030535320",
+      "cat": "groom",
+      "name": "GroomRoom",
+      "named": true,
+      "address": "вуліца Лейтэнанта Кіжаватава 3А",
+      "lat": 53.86493,
+      "lon": 27.531648
+    },
+    {
+      "id": "node-10618531894",
+      "osm": "https://www.openstreetmap.org/node/10618531894",
+      "cat": "groom",
+      "name": "HiDoggy!",
+      "named": true,
+      "address": "",
+      "lat": 53.90478,
+      "lon": 27.61937
+    },
+    {
+      "id": "node-14106316518",
+      "osm": "https://www.openstreetmap.org/node/14106316518",
+      "cat": "groom",
+      "name": "Mommy Dog",
+      "named": true,
+      "address": "Сасновая вуліца 2",
+      "lat": 53.970159,
+      "lon": 27.623244
+    },
+    {
+      "id": "node-11241203161",
+      "osm": "https://www.openstreetmap.org/node/11241203161",
+      "cat": "groom",
+      "name": "Ri Tora Groom",
+      "named": true,
+      "address": "вуліца Скрыганава 2Б",
+      "lat": 53.908692,
+      "lon": 27.518843
+    },
+    {
+      "id": "node-13369295487",
+      "osm": "https://www.openstreetmap.org/node/13369295487",
+      "cat": "groom",
+      "name": "StudioPets",
+      "named": true,
+      "address": "вуліца Макаёнка 12А, Мінск",
+      "lat": 53.921633,
+      "lon": 27.625352
+    },
+    {
+      "id": "node-10214496910",
+      "osm": "https://www.openstreetmap.org/node/10214496910",
+      "cat": "groom",
+      "name": "Али Иванович",
+      "named": true,
+      "address": "вуліца Лапаціна 17, Копішча",
+      "lat": 53.95319,
+      "lon": 27.676644
+    },
+    {
+      "id": "node-5679784362",
+      "osm": "https://www.openstreetmap.org/node/5679784362",
+      "cat": "groom",
+      "name": "Ваш пушистик",
+      "named": true,
+      "address": "",
+      "lat": 53.836225,
+      "lon": 27.589381
+    },
+    {
+      "id": "node-12947293717",
+      "osm": "https://www.openstreetmap.org/node/12947293717",
+      "cat": "groom",
+      "name": "Грум",
+      "named": true,
+      "address": "вуліца Ігара Лучанка 7, Мінск",
+      "lat": 53.868539,
+      "lon": 27.540099
+    },
+    {
+      "id": "node-12185697311",
+      "osm": "https://www.openstreetmap.org/node/12185697311",
+      "cat": "groom",
+      "name": "Груминг",
+      "named": true,
+      "address": "вуліца Міхаіла Савіцкага 12",
+      "lat": 53.867167,
+      "lon": 27.530548
+    },
+    {
+      "id": "node-13369295489",
+      "osm": "https://www.openstreetmap.org/node/13369295489",
+      "cat": "groom",
+      "name": "Груминг",
+      "named": false,
+      "address": "вуліца Макаёнка 12А, Мінск",
+      "lat": 53.921658,
+      "lon": 27.625036
+    },
+    {
+      "id": "node-13026657400",
+      "osm": "https://www.openstreetmap.org/node/13026657400",
+      "cat": "groom",
+      "name": "Гуру-грум",
+      "named": true,
+      "address": "",
+      "lat": 53.956759,
+      "lon": 27.6206
+    },
+    {
+      "id": "node-13076489958",
+      "osm": "https://www.openstreetmap.org/node/13076489958",
+      "cat": "groom",
+      "name": "Леонар",
+      "named": true,
+      "address": "",
+      "lat": 53.869512,
+      "lon": 27.550102
+    },
+    {
+      "id": "node-7640268257",
+      "osm": "https://www.openstreetmap.org/node/7640268257",
+      "cat": "groom",
+      "name": "Манифик",
+      "named": true,
+      "address": "праспект Пераможцаў 127",
+      "lat": 53.939921,
+      "lon": 27.467771
+    },
+    {
+      "id": "node-13409376937",
+      "osm": "https://www.openstreetmap.org/node/13409376937",
+      "cat": "groom",
+      "name": "Стиляга",
+      "named": true,
+      "address": "Нававіленская вуліца 51, Мінск",
+      "lat": 53.936845,
+      "lon": 27.53103
+    },
+    {
+      "id": "node-6776681888",
+      "osm": "https://www.openstreetmap.org/node/6776681888",
+      "cat": "groom",
+      "name": "Стрижка собак",
+      "named": true,
+      "address": "",
+      "lat": 53.934999,
+      "lon": 27.565477
+    },
+    {
+      "id": "node-8176131618",
+      "osm": "https://www.openstreetmap.org/node/8176131618",
+      "cat": "groom",
+      "name": "Стрижка собак и кошек «Grooming-kerrystar»",
+      "named": true,
+      "address": "вуліца Жылуновіча, 23",
+      "lat": 53.873663,
+      "lon": 27.629953
+    },
+    {
+      "id": "node-12252423605",
+      "osm": "https://www.openstreetmap.org/node/12252423605",
+      "cat": "groom",
+      "name": "Чистый волк",
+      "named": true,
+      "address": "вуліца Пляханава 68 к4",
+      "lat": 53.861315,
+      "lon": 27.595188
+    },
+    {
+      "id": "node-11793706788",
+      "osm": "https://www.openstreetmap.org/node/11793706788",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.864483,
+      "lon": 27.534784
+    },
+    {
+      "id": "node-12238805905",
+      "osm": "https://www.openstreetmap.org/node/12238805905",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.884549,
+      "lon": 27.600036
+    },
+    {
+      "id": "node-12438519108",
+      "osm": "https://www.openstreetmap.org/node/12438519108",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.920268,
+      "lon": 27.554635
+    },
+    {
+      "id": "node-13822375598",
+      "osm": "https://www.openstreetmap.org/node/13822375598",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.859627,
+      "lon": 27.551591
+    },
+    {
+      "id": "node-1722587032",
+      "osm": "https://www.openstreetmap.org/node/1722587032",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.91283,
+      "lon": 27.51146
+    },
+    {
+      "id": "node-7683568550",
+      "osm": "https://www.openstreetmap.org/node/7683568550",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.910238,
+      "lon": 27.445993
+    },
+    {
+      "id": "node-7762557747",
+      "osm": "https://www.openstreetmap.org/node/7762557747",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.893144,
+      "lon": 27.426568
+    },
+    {
+      "id": "node-8765508508",
+      "osm": "https://www.openstreetmap.org/node/8765508508",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.891097,
+      "lon": 27.431617
+    },
+    {
+      "id": "way-1018326688",
+      "osm": "https://www.openstreetmap.org/way/1018326688",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.888395,
+      "lon": 27.447902
+    },
+    {
+      "id": "way-1054937203",
+      "osm": "https://www.openstreetmap.org/way/1054937203",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.86826,
+      "lon": 27.543041
+    },
+    {
+      "id": "way-1077506880",
+      "osm": "https://www.openstreetmap.org/way/1077506880",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.845161,
+      "lon": 27.605706
+    },
+    {
+      "id": "way-1149093719",
+      "osm": "https://www.openstreetmap.org/way/1149093719",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.929084,
+      "lon": 27.53706
+    },
+    {
+      "id": "way-1182437611",
+      "osm": "https://www.openstreetmap.org/way/1182437611",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.868179,
+      "lon": 27.531917
+    },
+    {
+      "id": "way-1198472848",
+      "osm": "https://www.openstreetmap.org/way/1198472848",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.834239,
+      "lon": 27.584349
+    },
+    {
+      "id": "way-1200656813",
+      "osm": "https://www.openstreetmap.org/way/1200656813",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.840516,
+      "lon": 27.563068
+    },
+    {
+      "id": "way-1221724140",
+      "osm": "https://www.openstreetmap.org/way/1221724140",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.963537,
+      "lon": 27.66508
+    },
+    {
+      "id": "way-131111066",
+      "osm": "https://www.openstreetmap.org/way/131111066",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.860486,
+      "lon": 27.588259
+    },
+    {
+      "id": "way-1313480440",
+      "osm": "https://www.openstreetmap.org/way/1313480440",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.852804,
+      "lon": 27.484807
+    },
+    {
+      "id": "way-1315307803",
+      "osm": "https://www.openstreetmap.org/way/1315307803",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.93264,
+      "lon": 27.68046
+    },
+    {
+      "id": "way-1351695881",
+      "osm": "https://www.openstreetmap.org/way/1351695881",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.855486,
+      "lon": 27.475389
+    },
+    {
+      "id": "way-1365977018",
+      "osm": "https://www.openstreetmap.org/way/1365977018",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.924989,
+      "lon": 27.476029
+    },
+    {
+      "id": "way-1378014270",
+      "osm": "https://www.openstreetmap.org/way/1378014270",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.868655,
+      "lon": 27.612779
+    },
+    {
+      "id": "way-1387407947",
+      "osm": "https://www.openstreetmap.org/way/1387407947",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.900779,
+      "lon": 27.480269
+    },
+    {
+      "id": "way-1387407949",
+      "osm": "https://www.openstreetmap.org/way/1387407949",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.893296,
+      "lon": 27.478085
+    },
+    {
+      "id": "way-1387407951",
+      "osm": "https://www.openstreetmap.org/way/1387407951",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.904391,
+      "lon": 27.505782
+    },
+    {
+      "id": "way-1441947162",
+      "osm": "https://www.openstreetmap.org/way/1441947162",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.934295,
+      "lon": 27.462801
+    },
+    {
+      "id": "way-1510460278",
+      "osm": "https://www.openstreetmap.org/way/1510460278",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.961356,
+      "lon": 27.656897
+    },
+    {
+      "id": "way-1510915748",
+      "osm": "https://www.openstreetmap.org/way/1510915748",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.836523,
+      "lon": 27.602385
+    },
+    {
+      "id": "way-1537489933",
+      "osm": "https://www.openstreetmap.org/way/1537489933",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.94774,
+      "lon": 27.622
+    },
+    {
+      "id": "way-1537489939",
+      "osm": "https://www.openstreetmap.org/way/1537489939",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.944831,
+      "lon": 27.632055
+    },
+    {
+      "id": "way-219041828",
+      "osm": "https://www.openstreetmap.org/way/219041828",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.934546,
+      "lon": 27.571793
+    },
+    {
+      "id": "way-223846553",
+      "osm": "https://www.openstreetmap.org/way/223846553",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.934854,
+      "lon": 27.692946
+    },
+    {
+      "id": "way-248115635",
+      "osm": "https://www.openstreetmap.org/way/248115635",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.916797,
+      "lon": 27.445672
+    },
+    {
+      "id": "way-265059109",
+      "osm": "https://www.openstreetmap.org/way/265059109",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.915049,
+      "lon": 27.463453
+    },
+    {
+      "id": "way-321288045",
+      "osm": "https://www.openstreetmap.org/way/321288045",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.909958,
+      "lon": 27.539452
+    },
+    {
+      "id": "way-353433765",
+      "osm": "https://www.openstreetmap.org/way/353433765",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.851406,
+      "lon": 27.486287
+    },
+    {
+      "id": "way-373606262",
+      "osm": "https://www.openstreetmap.org/way/373606262",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.892711,
+      "lon": 27.575544
+    },
+    {
+      "id": "way-414991578",
+      "osm": "https://www.openstreetmap.org/way/414991578",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.847538,
+      "lon": 27.642472
+    },
+    {
+      "id": "way-416764968",
+      "osm": "https://www.openstreetmap.org/way/416764968",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.892189,
+      "lon": 27.689219
+    },
+    {
+      "id": "way-418299609",
+      "osm": "https://www.openstreetmap.org/way/418299609",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.896186,
+      "lon": 27.510711
+    },
+    {
+      "id": "way-425855423",
+      "osm": "https://www.openstreetmap.org/way/425855423",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.840788,
+      "lon": 27.617939
+    },
+    {
+      "id": "way-425996230",
+      "osm": "https://www.openstreetmap.org/way/425996230",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.855332,
+      "lon": 27.62217
+    },
+    {
+      "id": "way-430232408",
+      "osm": "https://www.openstreetmap.org/way/430232408",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.928634,
+      "lon": 27.508365
+    },
+    {
+      "id": "way-435382380",
+      "osm": "https://www.openstreetmap.org/way/435382380",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.9402,
+      "lon": 27.60059
+    },
+    {
+      "id": "way-447248676",
+      "osm": "https://www.openstreetmap.org/way/447248676",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.921048,
+      "lon": 27.604626
+    },
+    {
+      "id": "way-452292636",
+      "osm": "https://www.openstreetmap.org/way/452292636",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.877031,
+      "lon": 27.480711
+    },
+    {
+      "id": "way-463277675",
+      "osm": "https://www.openstreetmap.org/way/463277675",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.927127,
+      "lon": 27.4785
+    },
+    {
+      "id": "way-550918367",
+      "osm": "https://www.openstreetmap.org/way/550918367",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.934337,
+      "lon": 27.594773
+    },
+    {
+      "id": "way-553066586",
+      "osm": "https://www.openstreetmap.org/way/553066586",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.844008,
+      "lon": 27.649095
+    },
+    {
+      "id": "way-553066588",
+      "osm": "https://www.openstreetmap.org/way/553066588",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.845741,
+      "lon": 27.655623
+    },
+    {
+      "id": "way-553066601",
+      "osm": "https://www.openstreetmap.org/way/553066601",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.843234,
+      "lon": 27.656626
+    },
+    {
+      "id": "way-553066604",
+      "osm": "https://www.openstreetmap.org/way/553066604",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.846486,
+      "lon": 27.650352
+    },
+    {
+      "id": "way-553066605",
+      "osm": "https://www.openstreetmap.org/way/553066605",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.840191,
+      "lon": 27.642034
+    },
+    {
+      "id": "way-553066609",
+      "osm": "https://www.openstreetmap.org/way/553066609",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.843641,
+      "lon": 27.641686
+    },
+    {
+      "id": "way-553066611",
+      "osm": "https://www.openstreetmap.org/way/553066611",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.842,
+      "lon": 27.652641
+    },
+    {
+      "id": "way-556467207",
+      "osm": "https://www.openstreetmap.org/way/556467207",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.850419,
+      "lon": 27.595423
+    },
+    {
+      "id": "way-608104090",
+      "osm": "https://www.openstreetmap.org/way/608104090",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.880443,
+      "lon": 27.429118
+    },
+    {
+      "id": "way-621566459",
+      "osm": "https://www.openstreetmap.org/way/621566459",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.928189,
+      "lon": 27.562269
+    },
+    {
+      "id": "way-627350963",
+      "osm": "https://www.openstreetmap.org/way/627350963",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.960292,
+      "lon": 27.623668
+    },
+    {
+      "id": "way-727443639",
+      "osm": "https://www.openstreetmap.org/way/727443639",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.945397,
+      "lon": 27.669729
+    },
+    {
+      "id": "way-727443640",
+      "osm": "https://www.openstreetmap.org/way/727443640",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.945217,
+      "lon": 27.670217
+    },
+    {
+      "id": "way-770566601",
+      "osm": "https://www.openstreetmap.org/way/770566601",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.877277,
+      "lon": 27.450984
+    },
+    {
+      "id": "way-778244671",
+      "osm": "https://www.openstreetmap.org/way/778244671",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.861785,
+      "lon": 27.560462
+    },
+    {
+      "id": "way-792506420",
+      "osm": "https://www.openstreetmap.org/way/792506420",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.904345,
+      "lon": 27.430699
+    },
+    {
+      "id": "way-802556243",
+      "osm": "https://www.openstreetmap.org/way/802556243",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.909824,
+      "lon": 27.478463
+    },
+    {
+      "id": "way-845597640",
+      "osm": "https://www.openstreetmap.org/way/845597640",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.957265,
+      "lon": 27.6617
+    },
+    {
+      "id": "way-895177623",
+      "osm": "https://www.openstreetmap.org/way/895177623",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.854528,
+      "lon": 27.539506
+    },
+    {
+      "id": "way-927229590",
+      "osm": "https://www.openstreetmap.org/way/927229590",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "вуліца Сямёнава, Мінск",
+      "lat": 53.86898,
+      "lon": 27.576069
+    },
+    {
+      "id": "way-947935844",
+      "osm": "https://www.openstreetmap.org/way/947935844",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.891113,
+      "lon": 27.431623
+    },
+    {
+      "id": "way-947935845",
+      "osm": "https://www.openstreetmap.org/way/947935845",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.893193,
+      "lon": 27.426576
+    },
+    {
+      "id": "way-981235346",
+      "osm": "https://www.openstreetmap.org/way/981235346",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.95844,
+      "lon": 27.664906
+    },
+    {
+      "id": "way-995998828",
+      "osm": "https://www.openstreetmap.org/way/995998828",
+      "cat": "play",
+      "name": "Собачья площадка",
+      "named": false,
+      "address": "",
+      "lat": 53.961967,
+      "lon": 27.66486
+    },
+    {
+      "id": "node-12285298816",
+      "osm": "https://www.openstreetmap.org/node/12285298816",
+      "cat": "shop",
+      "name": "Belpets",
+      "named": true,
+      "address": "",
+      "lat": 53.96076,
+      "lon": 27.661418
+    },
+    {
+      "id": "node-7701867986",
+      "osm": "https://www.openstreetmap.org/node/7701867986",
+      "cat": "shop",
+      "name": "Dog and Cat",
+      "named": true,
+      "address": "Авіяцыйная вуліца 10, Копішча",
+      "lat": 53.960864,
+      "lon": 27.662771
+    },
+    {
+      "id": "node-12174829745",
+      "osm": "https://www.openstreetmap.org/node/12174829745",
+      "cat": "shop",
+      "name": "Garfild",
+      "named": true,
+      "address": "вуліца Прытыцкага 101a, Мінск",
+      "lat": 53.906732,
+      "lon": 27.435602
+    },
+    {
+      "id": "node-11649726463",
+      "osm": "https://www.openstreetmap.org/node/11649726463",
+      "cat": "shop",
+      "name": "Gavrik.by",
+      "named": true,
+      "address": "вуліца Лейтэнанта Кіжаватава 1Б",
+      "lat": 53.866774,
+      "lon": 27.528928
+    },
+    {
+      "id": "node-3799074673",
+      "osm": "https://www.openstreetmap.org/node/3799074673",
+      "cat": "shop",
+      "name": "Lolo",
+      "named": true,
+      "address": "Дзянісаўская вуліца 8",
+      "lat": 53.87157,
+      "lon": 27.573255
+    },
+    {
+      "id": "node-9953300433",
+      "osm": "https://www.openstreetmap.org/node/9953300433",
+      "cat": "shop",
+      "name": "Lolo  - ветеринарная аптека",
+      "named": true,
+      "address": "",
+      "lat": 53.848721,
+      "lon": 27.478912
+    },
+    {
+      "id": "node-8727544441",
+      "osm": "https://www.openstreetmap.org/node/8727544441",
+      "cat": "shop",
+      "name": "My lovely pets",
+      "named": true,
+      "address": "",
+      "lat": 53.912453,
+      "lon": 27.526972
+    },
+    {
+      "id": "node-13165299719",
+      "osm": "https://www.openstreetmap.org/node/13165299719",
+      "cat": "shop",
+      "name": "Pets-store.by",
+      "named": true,
+      "address": "вуліца Ціміразева 10",
+      "lat": 53.913601,
+      "lon": 27.524845
+    },
+    {
+      "id": "node-13481793902",
+      "osm": "https://www.openstreetmap.org/node/13481793902",
+      "cat": "shop",
+      "name": "Pets-store.by",
+      "named": true,
+      "address": "Нававіленская вуліца 53, Мінск",
+      "lat": 53.937424,
+      "lon": 27.530829
+    },
+    {
+      "id": "node-8013244632",
+      "osm": "https://www.openstreetmap.org/node/8013244632",
+      "cat": "shop",
+      "name": "Pets.by",
+      "named": true,
+      "address": "",
+      "lat": 53.889778,
+      "lon": 27.415707
+    },
+    {
+      "id": "node-5104759945",
+      "osm": "https://www.openstreetmap.org/node/5104759945",
+      "cat": "shop",
+      "name": "Royal canin",
+      "named": true,
+      "address": "вуліца Прытыцкага 2/3, Мінск",
+      "lat": 53.910617,
+      "lon": 27.504831
+    },
+    {
+      "id": "node-7842429134",
+      "osm": "https://www.openstreetmap.org/node/7842429134",
+      "cat": "shop",
+      "name": "ZOO маркет",
+      "named": true,
+      "address": "",
+      "lat": 53.935717,
+      "lon": 27.604046
+    },
+    {
+      "id": "node-10286911677",
+      "osm": "https://www.openstreetmap.org/node/10286911677",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "вуліца Каліноўскага 55, Мінск",
+      "lat": 53.94721,
+      "lon": 27.628416
+    },
+    {
+      "id": "node-13819241679",
+      "osm": "https://www.openstreetmap.org/node/13819241679",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "праспект Дзяржынскага 126",
+      "lat": 53.847128,
+      "lon": 27.471706
+    },
+    {
+      "id": "node-14078534017",
+      "osm": "https://www.openstreetmap.org/node/14078534017",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "Лагойскі тракт 21 к1, Мінск",
+      "lat": 53.947389,
+      "lon": 27.612786
+    },
+    {
+      "id": "node-4349481994",
+      "osm": "https://www.openstreetmap.org/node/4349481994",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "вуліца Ротмістрава, Мінск",
+      "lat": 53.843735,
+      "lon": 27.696037
+    },
+    {
+      "id": "node-4672401923",
+      "osm": "https://www.openstreetmap.org/node/4672401923",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "вуліца Раманаўская Слабада 10Б",
+      "lat": 53.902897,
+      "lon": 27.546751
+    },
+    {
+      "id": "node-6164211089",
+      "osm": "https://www.openstreetmap.org/node/6164211089",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "Магілёўская вуліца 12",
+      "lat": 53.884523,
+      "lon": 27.543139
+    },
+    {
+      "id": "node-7760355903",
+      "osm": "https://www.openstreetmap.org/node/7760355903",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "",
+      "lat": 53.919786,
+      "lon": 27.577904
+    },
+    {
+      "id": "node-7809998103",
+      "osm": "https://www.openstreetmap.org/node/7809998103",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "",
+      "lat": 53.881579,
+      "lon": 27.67944
+    },
+    {
+      "id": "node-9950923644",
+      "osm": "https://www.openstreetmap.org/node/9950923644",
+      "cat": "shop",
+      "name": "ZOObazar",
+      "named": true,
+      "address": "",
+      "lat": 53.861588,
+      "lon": 27.638712
+    },
+    {
+      "id": "node-4209959615",
+      "osm": "https://www.openstreetmap.org/node/4209959615",
+      "cat": "shop",
+      "name": "ZOOМаркет",
+      "named": true,
+      "address": "Ігуменскі тракт, Мінск",
+      "lat": 53.844801,
+      "lon": 27.568793
+    },
+    {
+      "id": "node-5061627623",
+      "osm": "https://www.openstreetmap.org/node/5061627623",
+      "cat": "shop",
+      "name": "ZOOМаркет",
+      "named": true,
+      "address": "вуліца Мірашнічэнкі 55, Мінск",
+      "lat": 53.961077,
+      "lon": 27.616026
+    },
+    {
+      "id": "node-6813787959",
+      "osm": "https://www.openstreetmap.org/node/6813787959",
+      "cat": "shop",
+      "name": "ZOOМаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.939929,
+      "lon": 27.598853
+    },
+    {
+      "id": "node-4120351891",
+      "osm": "https://www.openstreetmap.org/node/4120351891",
+      "cat": "shop",
+      "name": "ZOOмагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.845542,
+      "lon": 27.484796
+    },
+    {
+      "id": "node-10957607133",
+      "osm": "https://www.openstreetmap.org/node/10957607133",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.923807,
+      "lon": 27.555516
+    },
+    {
+      "id": "node-10957607137",
+      "osm": "https://www.openstreetmap.org/node/10957607137",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.861239,
+      "lon": 27.638466
+    },
+    {
+      "id": "node-10957607141",
+      "osm": "https://www.openstreetmap.org/node/10957607141",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.929334,
+      "lon": 27.581061
+    },
+    {
+      "id": "node-10957607142",
+      "osm": "https://www.openstreetmap.org/node/10957607142",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.839412,
+      "lon": 27.640802
+    },
+    {
+      "id": "node-11449605919",
+      "osm": "https://www.openstreetmap.org/node/11449605919",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.835248,
+      "lon": 27.504525
+    },
+    {
+      "id": "node-2612030537",
+      "osm": "https://www.openstreetmap.org/node/2612030537",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Бурдзейнага 8, Мінск",
+      "lat": 53.905492,
+      "lon": 27.453473
+    },
+    {
+      "id": "node-2627096875",
+      "osm": "https://www.openstreetmap.org/node/2627096875",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.8435,
+      "lon": 27.504657
+    },
+    {
+      "id": "node-3258007642",
+      "osm": "https://www.openstreetmap.org/node/3258007642",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "Партызанскі праспект 85",
+      "lat": 53.87472,
+      "lon": 27.631836
+    },
+    {
+      "id": "node-3260096453",
+      "osm": "https://www.openstreetmap.org/node/3260096453",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Гамарніка 2, Мінск",
+      "lat": 53.956935,
+      "lon": 27.620813
+    },
+    {
+      "id": "node-3811308499",
+      "osm": "https://www.openstreetmap.org/node/3811308499",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.928999,
+      "lon": 27.625647
+    },
+    {
+      "id": "node-4296931889",
+      "osm": "https://www.openstreetmap.org/node/4296931889",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.933048,
+      "lon": 27.50331
+    },
+    {
+      "id": "node-4474218334",
+      "osm": "https://www.openstreetmap.org/node/4474218334",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Янкоўскага 44, Мінск",
+      "lat": 53.880643,
+      "lon": 27.454153
+    },
+    {
+      "id": "node-4479713110",
+      "osm": "https://www.openstreetmap.org/node/4479713110",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.834794,
+      "lon": 27.582521
+    },
+    {
+      "id": "node-4585612679",
+      "osm": "https://www.openstreetmap.org/node/4585612679",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Дуніна-Марцінкевіча 10, Мінск",
+      "lat": 53.906131,
+      "lon": 27.495276
+    },
+    {
+      "id": "node-4585612681",
+      "osm": "https://www.openstreetmap.org/node/4585612681",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Прытыцкага 42, Мінск",
+      "lat": 53.90933,
+      "lon": 27.486446
+    },
+    {
+      "id": "node-4601724260",
+      "osm": "https://www.openstreetmap.org/node/4601724260",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Кунцаўшчына",
+      "lat": 53.90789,
+      "lon": 27.436929
+    },
+    {
+      "id": "node-5027874312",
+      "osm": "https://www.openstreetmap.org/node/5027874312",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.932631,
+      "lon": 27.651774
+    },
+    {
+      "id": "node-5151091521",
+      "osm": "https://www.openstreetmap.org/node/5151091521",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.877655,
+      "lon": 27.543906
+    },
+    {
+      "id": "node-5161683421",
+      "osm": "https://www.openstreetmap.org/node/5161683421",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.910005,
+      "lon": 27.536691
+    },
+    {
+      "id": "node-5469424928",
+      "osm": "https://www.openstreetmap.org/node/5469424928",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.877021,
+      "lon": 27.555541
+    },
+    {
+      "id": "node-5870261988",
+      "osm": "https://www.openstreetmap.org/node/5870261988",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.886293,
+      "lon": 27.516214
+    },
+    {
+      "id": "node-6030193139",
+      "osm": "https://www.openstreetmap.org/node/6030193139",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.908254,
+      "lon": 27.514187
+    },
+    {
+      "id": "node-8375083003",
+      "osm": "https://www.openstreetmap.org/node/8375083003",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.926523,
+      "lon": 27.440232
+    },
+    {
+      "id": "node-8375083007",
+      "osm": "https://www.openstreetmap.org/node/8375083007",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.93979,
+      "lon": 27.467601
+    },
+    {
+      "id": "node-8375083009",
+      "osm": "https://www.openstreetmap.org/node/8375083009",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.906849,
+      "lon": 27.480714
+    },
+    {
+      "id": "node-8375083011",
+      "osm": "https://www.openstreetmap.org/node/8375083011",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.950698,
+      "lon": 27.693802
+    },
+    {
+      "id": "node-8375083013",
+      "osm": "https://www.openstreetmap.org/node/8375083013",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.943844,
+      "lon": 27.686427
+    },
+    {
+      "id": "node-8375083016",
+      "osm": "https://www.openstreetmap.org/node/8375083016",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.855928,
+      "lon": 27.611901
+    },
+    {
+      "id": "node-8375111926",
+      "osm": "https://www.openstreetmap.org/node/8375111926",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.835222,
+      "lon": 27.52849
+    },
+    {
+      "id": "node-8375111929",
+      "osm": "https://www.openstreetmap.org/node/8375111929",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.935881,
+      "lon": 27.688505
+    },
+    {
+      "id": "node-8375111930",
+      "osm": "https://www.openstreetmap.org/node/8375111930",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.888509,
+      "lon": 27.422368
+    },
+    {
+      "id": "node-8375111934",
+      "osm": "https://www.openstreetmap.org/node/8375111934",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "вуліца Сяргея Ясеніна 36",
+      "lat": 53.85121,
+      "lon": 27.454622
+    },
+    {
+      "id": "node-8375111936",
+      "osm": "https://www.openstreetmap.org/node/8375111936",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.869123,
+      "lon": 27.651142
+    },
+    {
+      "id": "node-8375111940",
+      "osm": "https://www.openstreetmap.org/node/8375111940",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "Партызанскі праспект 23",
+      "lat": 53.883329,
+      "lon": 27.593802
+    },
+    {
+      "id": "node-8375111941",
+      "osm": "https://www.openstreetmap.org/node/8375111941",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.873694,
+      "lon": 27.631436
+    },
+    {
+      "id": "node-8375111951",
+      "osm": "https://www.openstreetmap.org/node/8375111951",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "праспект Дзяржынскага 92",
+      "lat": 53.866251,
+      "lon": 27.486538
+    },
+    {
+      "id": "node-8375111954",
+      "osm": "https://www.openstreetmap.org/node/8375111954",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.866982,
+      "lon": 27.693196
+    },
+    {
+      "id": "node-8375111955",
+      "osm": "https://www.openstreetmap.org/node/8375111955",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.861519,
+      "lon": 27.604802
+    },
+    {
+      "id": "node-8375111956",
+      "osm": "https://www.openstreetmap.org/node/8375111956",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "праспект Ракасоўскага 150В",
+      "lat": 53.85562,
+      "lon": 27.609975
+    },
+    {
+      "id": "node-8375111958",
+      "osm": "https://www.openstreetmap.org/node/8375111958",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "Сухараўская вуліца 6, Мінск",
+      "lat": 53.883711,
+      "lon": 27.439034
+    },
+    {
+      "id": "node-8375111959",
+      "osm": "https://www.openstreetmap.org/node/8375111959",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.875333,
+      "lon": 27.498084
+    },
+    {
+      "id": "node-8375111968",
+      "osm": "https://www.openstreetmap.org/node/8375111968",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.968898,
+      "lon": 27.543293
+    },
+    {
+      "id": "node-8375111969",
+      "osm": "https://www.openstreetmap.org/node/8375111969",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.859504,
+      "lon": 27.463924
+    },
+    {
+      "id": "node-9860899633",
+      "osm": "https://www.openstreetmap.org/node/9860899633",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.860931,
+      "lon": 27.637825
+    },
+    {
+      "id": "way-591250729",
+      "osm": "https://www.openstreetmap.org/way/591250729",
+      "cat": "shop",
+      "name": "ZOOмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.918908,
+      "lon": 27.578718
+    },
+    {
+      "id": "node-3622856922",
+      "osm": "https://www.openstreetmap.org/node/3622856922",
+      "cat": "shop",
+      "name": "Zoo Магазин",
+      "named": true,
+      "address": "",
+      "lat": 53.906785,
+      "lon": 27.480715
+    },
+    {
+      "id": "node-10056760917",
+      "osm": "https://www.openstreetmap.org/node/10056760917",
+      "cat": "shop",
+      "name": "Zoo Маркет",
+      "named": true,
+      "address": "",
+      "lat": 53.910454,
+      "lon": 27.504587
+    },
+    {
+      "id": "node-6907917858",
+      "osm": "https://www.openstreetmap.org/node/6907917858",
+      "cat": "shop",
+      "name": "Zoo маркет",
+      "named": true,
+      "address": "",
+      "lat": 53.93267,
+      "lon": 27.651914
+    },
+    {
+      "id": "node-10905682447",
+      "osm": "https://www.openstreetmap.org/node/10905682447",
+      "cat": "shop",
+      "name": "Zoo-24.by",
+      "named": true,
+      "address": "вуліца Касманаўтаў 29",
+      "lat": 53.849429,
+      "lon": 27.457092
+    },
+    {
+      "id": "node-12365073858",
+      "osm": "https://www.openstreetmap.org/node/12365073858",
+      "cat": "shop",
+      "name": "ZooBazar",
+      "named": true,
+      "address": "вуліца Пляханава 89",
+      "lat": 53.8618,
+      "lon": 27.60406
+    },
+    {
+      "id": "node-12956350082",
+      "osm": "https://www.openstreetmap.org/node/12956350082",
+      "cat": "shop",
+      "name": "ZooBazar",
+      "named": true,
+      "address": "Татарская вуліца 2",
+      "lat": 53.915183,
+      "lon": 27.522755
+    },
+    {
+      "id": "node-9496017835",
+      "osm": "https://www.openstreetmap.org/node/9496017835",
+      "cat": "shop",
+      "name": "ZooBazar",
+      "named": true,
+      "address": "",
+      "lat": 53.958515,
+      "lon": 27.605767
+    },
+    {
+      "id": "node-4215269494",
+      "osm": "https://www.openstreetmap.org/node/4215269494",
+      "cat": "shop",
+      "name": "ZooHelp",
+      "named": true,
+      "address": "",
+      "lat": 53.887163,
+      "lon": 27.616459
+    },
+    {
+      "id": "node-3946175967",
+      "osm": "https://www.openstreetmap.org/node/3946175967",
+      "cat": "shop",
+      "name": "ZooTerra",
+      "named": true,
+      "address": "",
+      "lat": 53.858452,
+      "lon": 27.476079
+    },
+    {
+      "id": "node-13125089783",
+      "osm": "https://www.openstreetmap.org/node/13125089783",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "праспект Міру 3",
+      "lat": 53.866751,
+      "lon": 27.549026
+    },
+    {
+      "id": "node-13155985268",
+      "osm": "https://www.openstreetmap.org/node/13155985268",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "Партызанскі праспект 48",
+      "lat": 53.874874,
+      "lon": 27.624789
+    },
+    {
+      "id": "node-13732641856",
+      "osm": "https://www.openstreetmap.org/node/13732641856",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "",
+      "lat": 53.861626,
+      "lon": 27.549561
+    },
+    {
+      "id": "node-1685841669",
+      "osm": "https://www.openstreetmap.org/node/1685841669",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "вуліца Адзінцова 22В, Мінск",
+      "lat": 53.900509,
+      "lon": 27.446033
+    },
+    {
+      "id": "node-3675432478",
+      "osm": "https://www.openstreetmap.org/node/3675432478",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "праспект Незалежнасці 168 к1, Мінск",
+      "lat": 53.944557,
+      "lon": 27.689429
+    },
+    {
+      "id": "node-5144826921",
+      "osm": "https://www.openstreetmap.org/node/5144826921",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "",
+      "lat": 53.905906,
+      "lon": 27.439334
+    },
+    {
+      "id": "node-5255414921",
+      "osm": "https://www.openstreetmap.org/node/5255414921",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "Маскоўская вуліца 22",
+      "lat": 53.886376,
+      "lon": 27.536965
+    },
+    {
+      "id": "node-5382518189",
+      "osm": "https://www.openstreetmap.org/node/5382518189",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "вуліца Міхася Лынькова 5А, Мінск",
+      "lat": 53.92686,
+      "lon": 27.499802
+    },
+    {
+      "id": "node-7812354172",
+      "osm": "https://www.openstreetmap.org/node/7812354172",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "",
+      "lat": 53.925757,
+      "lon": 27.51822
+    },
+    {
+      "id": "node-9709487229",
+      "osm": "https://www.openstreetmap.org/node/9709487229",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "вуліца Маякоўскага 115, Мінск",
+      "lat": 53.863396,
+      "lon": 27.572653
+    },
+    {
+      "id": "node-9709487296",
+      "osm": "https://www.openstreetmap.org/node/9709487296",
+      "cat": "shop",
+      "name": "Zoobazar",
+      "named": true,
+      "address": "",
+      "lat": 53.860498,
+      "lon": 27.571541
+    },
+    {
+      "id": "node-13173831098",
+      "osm": "https://www.openstreetmap.org/node/13173831098",
+      "cat": "shop",
+      "name": "Zoolan.by",
+      "named": true,
+      "address": "вуліца Яна Райніса 2А",
+      "lat": 53.873425,
+      "lon": 27.612624
+    },
+    {
+      "id": "node-12262910231",
+      "osm": "https://www.openstreetmap.org/node/12262910231",
+      "cat": "shop",
+      "name": "Zoolapki",
+      "named": true,
+      "address": "Авіяцыйная вуліца 17, Копішча",
+      "lat": 53.959297,
+      "lon": 27.662763
+    },
+    {
+      "id": "node-6796917152",
+      "osm": "https://www.openstreetmap.org/node/6796917152",
+      "cat": "shop",
+      "name": "ZooГород",
+      "named": true,
+      "address": "",
+      "lat": 53.957107,
+      "lon": 27.605948
+    },
+    {
+      "id": "node-4163506691",
+      "osm": "https://www.openstreetmap.org/node/4163506691",
+      "cat": "shop",
+      "name": "Zooмагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.848906,
+      "lon": 27.48379
+    },
+    {
+      "id": "node-10763608620",
+      "osm": "https://www.openstreetmap.org/node/10763608620",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "вуліца Сяргея Ясеніна 6",
+      "lat": 53.849364,
+      "lon": 27.471302
+    },
+    {
+      "id": "node-10957607130",
+      "osm": "https://www.openstreetmap.org/node/10957607130",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.917556,
+      "lon": 27.429208
+    },
+    {
+      "id": "node-10957607131",
+      "osm": "https://www.openstreetmap.org/node/10957607131",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.876798,
+      "lon": 27.517909
+    },
+    {
+      "id": "node-10957607132",
+      "osm": "https://www.openstreetmap.org/node/10957607132",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.902461,
+      "lon": 27.548558
+    },
+    {
+      "id": "node-10957607134",
+      "osm": "https://www.openstreetmap.org/node/10957607134",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.938177,
+      "lon": 27.488134
+    },
+    {
+      "id": "node-10957607135",
+      "osm": "https://www.openstreetmap.org/node/10957607135",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.90893,
+      "lon": 27.470096
+    },
+    {
+      "id": "node-10957607136",
+      "osm": "https://www.openstreetmap.org/node/10957607136",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.911018,
+      "lon": 27.415236
+    },
+    {
+      "id": "node-10957607138",
+      "osm": "https://www.openstreetmap.org/node/10957607138",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.873521,
+      "lon": 27.416187
+    },
+    {
+      "id": "node-10957607139",
+      "osm": "https://www.openstreetmap.org/node/10957607139",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.851821,
+      "lon": 27.545941
+    },
+    {
+      "id": "node-10957607140",
+      "osm": "https://www.openstreetmap.org/node/10957607140",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.906157,
+      "lon": 27.436992
+    },
+    {
+      "id": "node-10957607143",
+      "osm": "https://www.openstreetmap.org/node/10957607143",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.938541,
+      "lon": 27.593281
+    },
+    {
+      "id": "node-10957607144",
+      "osm": "https://www.openstreetmap.org/node/10957607144",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.835361,
+      "lon": 27.606407
+    },
+    {
+      "id": "node-10957607145",
+      "osm": "https://www.openstreetmap.org/node/10957607145",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.848941,
+      "lon": 27.698974
+    },
+    {
+      "id": "node-10957607146",
+      "osm": "https://www.openstreetmap.org/node/10957607146",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.964815,
+      "lon": 27.536523
+    },
+    {
+      "id": "node-10957635328",
+      "osm": "https://www.openstreetmap.org/node/10957635328",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.849554,
+      "lon": 27.433575
+    },
+    {
+      "id": "node-12200904320",
+      "osm": "https://www.openstreetmap.org/node/12200904320",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "вуліца Талстога 1",
+      "lat": 53.88949,
+      "lon": 27.544874
+    },
+    {
+      "id": "node-12782114902",
+      "osm": "https://www.openstreetmap.org/node/12782114902",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "Уральская вуліца 7",
+      "lat": 53.90158,
+      "lon": 27.613895
+    },
+    {
+      "id": "node-13014294648",
+      "osm": "https://www.openstreetmap.org/node/13014294648",
+      "cat": "shop",
+      "name": "Zooмаркет",
+      "named": true,
+      "address": "Нававіленская вуліца 27, Мінск",
+      "lat": 53.934251,
+      "lon": 27.535464
+    },
+    {
+      "id": "node-10240121047",
+      "osm": "https://www.openstreetmap.org/node/10240121047",
+      "cat": "shop",
+      "name": "Zooтоварищ",
+      "named": true,
+      "address": "",
+      "lat": 53.942958,
+      "lon": 27.588948
+    },
+    {
+      "id": "node-5957478086",
+      "osm": "https://www.openstreetmap.org/node/5957478086",
+      "cat": "shop",
+      "name": "petmarket.by",
+      "named": true,
+      "address": "",
+      "lat": 53.848663,
+      "lon": 27.478889
+    },
+    {
+      "id": "node-13027882658",
+      "osm": "https://www.openstreetmap.org/node/13027882658",
+      "cat": "shop",
+      "name": "vetrina",
+      "named": true,
+      "address": "вуліца Ігара Лучанка 2",
+      "lat": 53.869228,
+      "lon": 27.536088
+    },
+    {
+      "id": "node-11233983332",
+      "osm": "https://www.openstreetmap.org/node/11233983332",
+      "cat": "shop",
+      "name": "zoobazar",
+      "named": true,
+      "address": "вуліца Леаніда Левіна 8",
+      "lat": 53.866322,
+      "lon": 27.529699
+    },
+    {
+      "id": "node-9215706862",
+      "osm": "https://www.openstreetmap.org/node/9215706862",
+      "cat": "shop",
+      "name": "zoobazar",
+      "named": true,
+      "address": "",
+      "lat": 53.878143,
+      "lon": 27.548633
+    },
+    {
+      "id": "node-8698089163",
+      "osm": "https://www.openstreetmap.org/node/8698089163",
+      "cat": "shop",
+      "name": "Аквасалон Aquahvost",
+      "named": true,
+      "address": "вуліца Кальцова 39 к2, Мінск",
+      "lat": 53.952046,
+      "lon": 27.607098
+    },
+    {
+      "id": "node-3212111012",
+      "osm": "https://www.openstreetmap.org/node/3212111012",
+      "cat": "shop",
+      "name": "Бегемот",
+      "named": true,
+      "address": "",
+      "lat": 53.935276,
+      "lon": 27.651894
+    },
+    {
+      "id": "node-5906483230",
+      "osm": "https://www.openstreetmap.org/node/5906483230",
+      "cat": "shop",
+      "name": "Белзооветснабпром",
+      "named": true,
+      "address": "",
+      "lat": 53.905405,
+      "lon": 27.546498
+    },
+    {
+      "id": "node-3857369993",
+      "osm": "https://www.openstreetmap.org/node/3857369993",
+      "cat": "shop",
+      "name": "Вет аптека «Стрелка»",
+      "named": true,
+      "address": "",
+      "lat": 53.936663,
+      "lon": 27.688224
+    },
+    {
+      "id": "node-4195786387",
+      "osm": "https://www.openstreetmap.org/node/4195786387",
+      "cat": "shop",
+      "name": "Ветаптека",
+      "named": true,
+      "address": "",
+      "lat": 53.887433,
+      "lon": 27.61665
+    },
+    {
+      "id": "node-9246759813",
+      "osm": "https://www.openstreetmap.org/node/9246759813",
+      "cat": "shop",
+      "name": "Ветаптека",
+      "named": true,
+      "address": "",
+      "lat": 53.862857,
+      "lon": 27.603651
+    },
+    {
+      "id": "node-3268800463",
+      "osm": "https://www.openstreetmap.org/node/3268800463",
+      "cat": "shop",
+      "name": "Ветеринарная Аптека",
+      "named": true,
+      "address": "",
+      "lat": 53.946717,
+      "lon": 27.689513
+    },
+    {
+      "id": "node-10198455677",
+      "osm": "https://www.openstreetmap.org/node/10198455677",
+      "cat": "shop",
+      "name": "Ветеринарная аптека",
+      "named": true,
+      "address": "",
+      "lat": 53.879527,
+      "lon": 27.56761
+    },
+    {
+      "id": "node-7842429136",
+      "osm": "https://www.openstreetmap.org/node/7842429136",
+      "cat": "shop",
+      "name": "Ветеринарная аптека «СТРЕЛКА»",
+      "named": true,
+      "address": "",
+      "lat": 53.939301,
+      "lon": 27.598013
+    },
+    {
+      "id": "node-5473746111",
+      "osm": "https://www.openstreetmap.org/node/5473746111",
+      "cat": "shop",
+      "name": "Ветеринарная аптека №1",
+      "named": true,
+      "address": "",
+      "lat": 53.880801,
+      "lon": 27.482305
+    },
+    {
+      "id": "node-13781669674",
+      "osm": "https://www.openstreetmap.org/node/13781669674",
+      "cat": "shop",
+      "name": "Ветшоп",
+      "named": true,
+      "address": "",
+      "lat": 53.882958,
+      "lon": 27.61462
+    },
+    {
+      "id": "node-3500672273",
+      "osm": "https://www.openstreetmap.org/node/3500672273",
+      "cat": "shop",
+      "name": "ВитаКорм",
+      "named": true,
+      "address": "вуліца Веры Харужай 32А, Мінск",
+      "lat": 53.923734,
+      "lon": 27.562291
+    },
+    {
+      "id": "node-12705542580",
+      "osm": "https://www.openstreetmap.org/node/12705542580",
+      "cat": "shop",
+      "name": "Гарфилд",
+      "named": true,
+      "address": "праспект Дзяржынскага 119, Мінск",
+      "lat": 53.850239,
+      "lon": 27.47623
+    },
+    {
+      "id": "node-14073263795",
+      "osm": "https://www.openstreetmap.org/node/14073263795",
+      "cat": "shop",
+      "name": "Гарфилд",
+      "named": true,
+      "address": "праспект Незалежнасці 126, Мінск",
+      "lat": 53.933925,
+      "lon": 27.650212
+    },
+    {
+      "id": "node-14078337003",
+      "osm": "https://www.openstreetmap.org/node/14078337003",
+      "cat": "shop",
+      "name": "Гарфилд",
+      "named": true,
+      "address": "Лагойскі тракт 15 к1, Мінск",
+      "lat": 53.942916,
+      "lon": 27.608357
+    },
+    {
+      "id": "node-3874260668",
+      "osm": "https://www.openstreetmap.org/node/3874260668",
+      "cat": "shop",
+      "name": "Гарфилд",
+      "named": true,
+      "address": "",
+      "lat": 53.911337,
+      "lon": 27.579155
+    },
+    {
+      "id": "node-9076597361",
+      "osm": "https://www.openstreetmap.org/node/9076597361",
+      "cat": "shop",
+      "name": "Гарфилд",
+      "named": true,
+      "address": "",
+      "lat": 53.944857,
+      "lon": 27.689326
+    },
+    {
+      "id": "node-13776509679",
+      "osm": "https://www.openstreetmap.org/node/13776509679",
+      "cat": "shop",
+      "name": "ГиперZOO",
+      "named": true,
+      "address": "",
+      "lat": 53.924536,
+      "lon": 27.638187
+    },
+    {
+      "id": "node-10706428739",
+      "osm": "https://www.openstreetmap.org/node/10706428739",
+      "cat": "shop",
+      "name": "ГиперZoo",
+      "named": true,
+      "address": "праспект Дзяржынскага 119",
+      "lat": 53.852254,
+      "lon": 27.477061
+    },
+    {
+      "id": "node-12837593403",
+      "osm": "https://www.openstreetmap.org/node/12837593403",
+      "cat": "shop",
+      "name": "Гостиница для животных Мамина Лапка",
+      "named": true,
+      "address": "вуліца Міхася Лынькова 85 к6",
+      "lat": 53.925552,
+      "lon": 27.473138
+    },
+    {
+      "id": "node-7249808195",
+      "osm": "https://www.openstreetmap.org/node/7249808195",
+      "cat": "shop",
+      "name": "Два Какаду",
+      "named": true,
+      "address": "вуліца Цікоцкага 46-1-112, Мінск",
+      "lat": 53.952607,
+      "lon": 27.637827
+    },
+    {
+      "id": "node-6570297497",
+      "osm": "https://www.openstreetmap.org/node/6570297497",
+      "cat": "shop",
+      "name": "Диора",
+      "named": true,
+      "address": "",
+      "lat": 53.897021,
+      "lon": 27.429734
+    },
+    {
+      "id": "node-5240927843",
+      "osm": "https://www.openstreetmap.org/node/5240927843",
+      "cat": "shop",
+      "name": "Доггидог",
+      "named": true,
+      "address": "",
+      "lat": 53.935666,
+      "lon": 27.546091
+    },
+    {
+      "id": "node-13125105472",
+      "osm": "https://www.openstreetmap.org/node/13125105472",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.866142,
+      "lon": 27.549051
+    },
+    {
+      "id": "node-13128146847",
+      "osm": "https://www.openstreetmap.org/node/13128146847",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.88922,
+      "lon": 27.519903
+    },
+    {
+      "id": "node-1394524342",
+      "osm": "https://www.openstreetmap.org/node/1394524342",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.875488,
+      "lon": 27.498078
+    },
+    {
+      "id": "node-1641721713",
+      "osm": "https://www.openstreetmap.org/node/1641721713",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "праспект Ракасоўскага 2",
+      "lat": 53.874959,
+      "lon": 27.595625
+    },
+    {
+      "id": "node-2599786370",
+      "osm": "https://www.openstreetmap.org/node/2599786370",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "вуліца Сяргея Ясеніна 38",
+      "lat": 53.852122,
+      "lon": 27.451935
+    },
+    {
+      "id": "node-3351855385",
+      "osm": "https://www.openstreetmap.org/node/3351855385",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.944136,
+      "lon": 27.688051
+    },
+    {
+      "id": "node-3679822065",
+      "osm": "https://www.openstreetmap.org/node/3679822065",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.927775,
+      "lon": 27.43234
+    },
+    {
+      "id": "node-3887404697",
+      "osm": "https://www.openstreetmap.org/node/3887404697",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.859501,
+      "lon": 27.674152
+    },
+    {
+      "id": "node-3949233023",
+      "osm": "https://www.openstreetmap.org/node/3949233023",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.937858,
+      "lon": 27.488585
+    },
+    {
+      "id": "node-4142019985",
+      "osm": "https://www.openstreetmap.org/node/4142019985",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "вуліца Варанянскага, Мінск",
+      "lat": 53.878384,
+      "lon": 27.546862
+    },
+    {
+      "id": "node-4964490574",
+      "osm": "https://www.openstreetmap.org/node/4964490574",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.849158,
+      "lon": 27.699845
+    },
+    {
+      "id": "node-6361079585",
+      "osm": "https://www.openstreetmap.org/node/6361079585",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.917187,
+      "lon": 27.429927
+    },
+    {
+      "id": "node-6623211205",
+      "osm": "https://www.openstreetmap.org/node/6623211205",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "Каменнагорская вуліца 3, Мінск",
+      "lat": 53.911537,
+      "lon": 27.415106
+    },
+    {
+      "id": "node-9503397762",
+      "osm": "https://www.openstreetmap.org/node/9503397762",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.909113,
+      "lon": 27.433443
+    },
+    {
+      "id": "way-388985465",
+      "osm": "https://www.openstreetmap.org/way/388985465",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.92583,
+      "lon": 27.517257
+    },
+    {
+      "id": "way-964927578",
+      "osm": "https://www.openstreetmap.org/way/964927578",
+      "cat": "shop",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.876165,
+      "lon": 27.466455
+    },
+    {
+      "id": "node-3951759753",
+      "osm": "https://www.openstreetmap.org/node/3951759753",
+      "cat": "shop",
+      "name": "Доктор Вет №17",
+      "named": true,
+      "address": "",
+      "lat": 53.887047,
+      "lon": 27.423334
+    },
+    {
+      "id": "node-3948435570",
+      "osm": "https://www.openstreetmap.org/node/3948435570",
+      "cat": "shop",
+      "name": "Доктор Вет. Зооаптека",
+      "named": true,
+      "address": "",
+      "lat": 53.84277,
+      "lon": 27.529242
+    },
+    {
+      "id": "way-991774840",
+      "osm": "https://www.openstreetmap.org/way/991774840",
+      "cat": "shop",
+      "name": "ДокторВет",
+      "named": true,
+      "address": "",
+      "lat": 53.849381,
+      "lon": 27.43436
+    },
+    {
+      "id": "node-445452298",
+      "osm": "https://www.openstreetmap.org/node/445452298",
+      "cat": "shop",
+      "name": "Дружок",
+      "named": true,
+      "address": "",
+      "lat": 53.910572,
+      "lon": 27.564176
+    },
+    {
+      "id": "node-12261118769",
+      "osm": "https://www.openstreetmap.org/node/12261118769",
+      "cat": "shop",
+      "name": "Еврокорм",
+      "named": true,
+      "address": "",
+      "lat": 53.891513,
+      "lon": 27.527113
+    },
+    {
+      "id": "node-2102126290",
+      "osm": "https://www.openstreetmap.org/node/2102126290",
+      "cat": "shop",
+      "name": "ЗОО магазин",
+      "named": true,
+      "address": "",
+      "lat": 53.911991,
+      "lon": 27.678428
+    },
+    {
+      "id": "node-5026623747",
+      "osm": "https://www.openstreetmap.org/node/5026623747",
+      "cat": "shop",
+      "name": "ЗООпомощь",
+      "named": true,
+      "address": "",
+      "lat": 53.864874,
+      "lon": 27.668558
+    },
+    {
+      "id": "node-4181470890",
+      "osm": "https://www.openstreetmap.org/node/4181470890",
+      "cat": "shop",
+      "name": "Зоамагазін",
+      "named": true,
+      "address": "вуліца Сурганава 40, Мінск",
+      "lat": 53.92725,
+      "lon": 27.591789
+    },
+    {
+      "id": "node-4500021199",
+      "osm": "https://www.openstreetmap.org/node/4500021199",
+      "cat": "shop",
+      "name": "Золотая Акула",
+      "named": true,
+      "address": "",
+      "lat": 53.877639,
+      "lon": 27.544476
+    },
+    {
+      "id": "node-4109376189",
+      "osm": "https://www.openstreetmap.org/node/4109376189",
+      "cat": "shop",
+      "name": "Золотая рыбка",
+      "named": true,
+      "address": "",
+      "lat": 53.930345,
+      "lon": 27.598118
+    },
+    {
+      "id": "way-561816572",
+      "osm": "https://www.openstreetmap.org/way/561816572",
+      "cat": "shop",
+      "name": "Зоо маркет",
+      "named": true,
+      "address": "",
+      "lat": 53.918918,
+      "lon": 27.580055
+    },
+    {
+      "id": "node-959694499",
+      "osm": "https://www.openstreetmap.org/node/959694499",
+      "cat": "shop",
+      "name": "Зоо товары",
+      "named": true,
+      "address": "",
+      "lat": 53.873851,
+      "lon": 27.631483
+    },
+    {
+      "id": "node-6182280739",
+      "osm": "https://www.openstreetmap.org/node/6182280739",
+      "cat": "shop",
+      "name": "Зоо-маркет",
+      "named": true,
+      "address": "вуліца Міхася Лынькова 19 к2",
+      "lat": 53.927561,
+      "lon": 27.489724
+    },
+    {
+      "id": "node-10127525561",
+      "osm": "https://www.openstreetmap.org/node/10127525561",
+      "cat": "shop",
+      "name": "ЗооБазар",
+      "named": true,
+      "address": "вуліца Судмаліса 1В",
+      "lat": 53.889928,
+      "lon": 27.585774
+    },
+    {
+      "id": "node-1595465108",
+      "osm": "https://www.openstreetmap.org/node/1595465108",
+      "cat": "shop",
+      "name": "ЗооМАГ",
+      "named": true,
+      "address": "",
+      "lat": 53.874353,
+      "lon": 27.629288
+    },
+    {
+      "id": "node-10004148345",
+      "osm": "https://www.openstreetmap.org/node/10004148345",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Францыска Скарыны 9, Мінск",
+      "lat": 53.927535,
+      "lon": 27.656625
+    },
+    {
+      "id": "node-12200904322",
+      "osm": "https://www.openstreetmap.org/node/12200904322",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Жукоўскага 1",
+      "lat": 53.885019,
+      "lon": 27.552609
+    },
+    {
+      "id": "node-12568536048",
+      "osm": "https://www.openstreetmap.org/node/12568536048",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.885355,
+      "lon": 27.516871
+    },
+    {
+      "id": "node-12947293718",
+      "osm": "https://www.openstreetmap.org/node/12947293718",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Ігара Лучанка 5, Мінск",
+      "lat": 53.868885,
+      "lon": 27.539205
+    },
+    {
+      "id": "node-3142308951",
+      "osm": "https://www.openstreetmap.org/node/3142308951",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.869935,
+      "lon": 27.56923
+    },
+    {
+      "id": "node-4256034889",
+      "osm": "https://www.openstreetmap.org/node/4256034889",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.855658,
+      "lon": 27.510906
+    },
+    {
+      "id": "node-4728224674",
+      "osm": "https://www.openstreetmap.org/node/4728224674",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.865034,
+      "lon": 27.467543
+    },
+    {
+      "id": "node-5320618185",
+      "osm": "https://www.openstreetmap.org/node/5320618185",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.93666,
+      "lon": 27.59714
+    },
+    {
+      "id": "node-5692402437",
+      "osm": "https://www.openstreetmap.org/node/5692402437",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.93855,
+      "lon": 27.595558
+    },
+    {
+      "id": "node-6329309853",
+      "osm": "https://www.openstreetmap.org/node/6329309853",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.85022,
+      "lon": 27.484528
+    },
+    {
+      "id": "node-6749704966",
+      "osm": "https://www.openstreetmap.org/node/6749704966",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Убарэвіча 62, Мінск",
+      "lat": 53.842093,
+      "lon": 27.651153
+    },
+    {
+      "id": "node-7139366622",
+      "osm": "https://www.openstreetmap.org/node/7139366622",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "Каменнагорская вуліца 8, Мінск",
+      "lat": 53.912001,
+      "lon": 27.4166
+    },
+    {
+      "id": "node-7760352368",
+      "osm": "https://www.openstreetmap.org/node/7760352368",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.916956,
+      "lon": 27.416945
+    },
+    {
+      "id": "node-7760352370",
+      "osm": "https://www.openstreetmap.org/node/7760352370",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.907091,
+      "lon": 27.492111
+    },
+    {
+      "id": "node-7760352373",
+      "osm": "https://www.openstreetmap.org/node/7760352373",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.931474,
+      "lon": 27.653975
+    },
+    {
+      "id": "node-7760352374",
+      "osm": "https://www.openstreetmap.org/node/7760352374",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.846508,
+      "lon": 27.569954
+    },
+    {
+      "id": "node-7760352382",
+      "osm": "https://www.openstreetmap.org/node/7760352382",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.94614,
+      "lon": 27.688135
+    },
+    {
+      "id": "node-7760352384",
+      "osm": "https://www.openstreetmap.org/node/7760352384",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "праспект Пушкіна 37",
+      "lat": 53.907059,
+      "lon": 27.494724
+    },
+    {
+      "id": "node-7760355889",
+      "osm": "https://www.openstreetmap.org/node/7760355889",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.928593,
+      "lon": 27.582888
+    },
+    {
+      "id": "node-7760355890",
+      "osm": "https://www.openstreetmap.org/node/7760355890",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.927681,
+      "lon": 27.546066
+    },
+    {
+      "id": "node-7760355891",
+      "osm": "https://www.openstreetmap.org/node/7760355891",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.926018,
+      "lon": 27.444923
+    },
+    {
+      "id": "node-7760355894",
+      "osm": "https://www.openstreetmap.org/node/7760355894",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.938223,
+      "lon": 27.465884
+    },
+    {
+      "id": "node-7760355896",
+      "osm": "https://www.openstreetmap.org/node/7760355896",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "Сухараўская вуліца 16, Мінск",
+      "lat": 53.885806,
+      "lon": 27.438588
+    },
+    {
+      "id": "node-7760355902",
+      "osm": "https://www.openstreetmap.org/node/7760355902",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.836653,
+      "lon": 27.653237
+    },
+    {
+      "id": "node-7760355905",
+      "osm": "https://www.openstreetmap.org/node/7760355905",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.91058,
+      "lon": 27.505291
+    },
+    {
+      "id": "node-7760355907",
+      "osm": "https://www.openstreetmap.org/node/7760355907",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "Налібоцкая вуліца 39",
+      "lat": 53.92897,
+      "lon": 27.425273
+    },
+    {
+      "id": "node-7760355908",
+      "osm": "https://www.openstreetmap.org/node/7760355908",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.867757,
+      "lon": 27.464782
+    },
+    {
+      "id": "node-7760355909",
+      "osm": "https://www.openstreetmap.org/node/7760355909",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.84027,
+      "lon": 27.63724
+    },
+    {
+      "id": "node-7760355910",
+      "osm": "https://www.openstreetmap.org/node/7760355910",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.864502,
+      "lon": 27.44837
+    },
+    {
+      "id": "node-7760355912",
+      "osm": "https://www.openstreetmap.org/node/7760355912",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.861513,
+      "lon": 27.476594
+    },
+    {
+      "id": "node-7760355913",
+      "osm": "https://www.openstreetmap.org/node/7760355913",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.868242,
+      "lon": 27.483874
+    },
+    {
+      "id": "node-7760355916",
+      "osm": "https://www.openstreetmap.org/node/7760355916",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Касманаўтаў 28",
+      "lat": 53.85018,
+      "lon": 27.455814
+    },
+    {
+      "id": "node-7760410786",
+      "osm": "https://www.openstreetmap.org/node/7760410786",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.8533,
+      "lon": 27.466973
+    },
+    {
+      "id": "node-7760410787",
+      "osm": "https://www.openstreetmap.org/node/7760410787",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Крупскай 6 к1, Мінск",
+      "lat": 53.858821,
+      "lon": 27.626968
+    },
+    {
+      "id": "node-7760410788",
+      "osm": "https://www.openstreetmap.org/node/7760410788",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.871628,
+      "lon": 27.568597
+    },
+    {
+      "id": "node-7760410791",
+      "osm": "https://www.openstreetmap.org/node/7760410791",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.87789,
+      "lon": 27.482222
+    },
+    {
+      "id": "node-7760410792",
+      "osm": "https://www.openstreetmap.org/node/7760410792",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.883576,
+      "lon": 27.44764
+    },
+    {
+      "id": "node-7760410793",
+      "osm": "https://www.openstreetmap.org/node/7760410793",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.919296,
+      "lon": 27.577593
+    },
+    {
+      "id": "node-7760410794",
+      "osm": "https://www.openstreetmap.org/node/7760410794",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.938936,
+      "lon": 27.604001
+    },
+    {
+      "id": "node-7760410795",
+      "osm": "https://www.openstreetmap.org/node/7760410795",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.930192,
+      "lon": 27.59613
+    },
+    {
+      "id": "node-7760410796",
+      "osm": "https://www.openstreetmap.org/node/7760410796",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.861499,
+      "lon": 27.604733
+    },
+    {
+      "id": "node-7760410797",
+      "osm": "https://www.openstreetmap.org/node/7760410797",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.899782,
+      "lon": 27.434015
+    },
+    {
+      "id": "node-7883698612",
+      "osm": "https://www.openstreetmap.org/node/7883698612",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.926508,
+      "lon": 27.593984
+    },
+    {
+      "id": "node-7883698615",
+      "osm": "https://www.openstreetmap.org/node/7883698615",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.838979,
+      "lon": 27.581914
+    },
+    {
+      "id": "node-7883707955",
+      "osm": "https://www.openstreetmap.org/node/7883707955",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.908012,
+      "lon": 27.484693
+    },
+    {
+      "id": "node-7883745395",
+      "osm": "https://www.openstreetmap.org/node/7883745395",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.932964,
+      "lon": 27.503258
+    },
+    {
+      "id": "node-8013244637",
+      "osm": "https://www.openstreetmap.org/node/8013244637",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.928819,
+      "lon": 27.586842
+    },
+    {
+      "id": "node-8073795017",
+      "osm": "https://www.openstreetmap.org/node/8073795017",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.927636,
+      "lon": 27.545035
+    },
+    {
+      "id": "node-8073795117",
+      "osm": "https://www.openstreetmap.org/node/8073795117",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.929254,
+      "lon": 27.58794
+    },
+    {
+      "id": "node-8077649591",
+      "osm": "https://www.openstreetmap.org/node/8077649591",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.91972,
+      "lon": 27.576352
+    },
+    {
+      "id": "node-8412650821",
+      "osm": "https://www.openstreetmap.org/node/8412650821",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Маякоўскага",
+      "lat": 53.879522,
+      "lon": 27.567643
+    },
+    {
+      "id": "node-8556352622",
+      "osm": "https://www.openstreetmap.org/node/8556352622",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.886838,
+      "lon": 27.428243
+    },
+    {
+      "id": "node-8749178062",
+      "osm": "https://www.openstreetmap.org/node/8749178062",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.898397,
+      "lon": 27.524512
+    },
+    {
+      "id": "node-8749178063",
+      "osm": "https://www.openstreetmap.org/node/8749178063",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.931404,
+      "lon": 27.695702
+    },
+    {
+      "id": "node-8749178064",
+      "osm": "https://www.openstreetmap.org/node/8749178064",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.906809,
+      "lon": 27.452511
+    },
+    {
+      "id": "node-8788336221",
+      "osm": "https://www.openstreetmap.org/node/8788336221",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.905087,
+      "lon": 27.455258
+    },
+    {
+      "id": "node-8939074856",
+      "osm": "https://www.openstreetmap.org/node/8939074856",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.939482,
+      "lon": 27.597471
+    },
+    {
+      "id": "node-8939074878",
+      "osm": "https://www.openstreetmap.org/node/8939074878",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.894509,
+      "lon": 27.481654
+    },
+    {
+      "id": "node-8939074882",
+      "osm": "https://www.openstreetmap.org/node/8939074882",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.917486,
+      "lon": 27.42935
+    },
+    {
+      "id": "node-9246759814",
+      "osm": "https://www.openstreetmap.org/node/9246759814",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "вуліца Пляханава 89",
+      "lat": 53.861879,
+      "lon": 27.604955
+    },
+    {
+      "id": "way-1317968769",
+      "osm": "https://www.openstreetmap.org/way/1317968769",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.952062,
+      "lon": 27.664803
+    },
+    {
+      "id": "way-1466175869",
+      "osm": "https://www.openstreetmap.org/way/1466175869",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.963562,
+      "lon": 27.624236
+    },
+    {
+      "id": "way-1466175870",
+      "osm": "https://www.openstreetmap.org/way/1466175870",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.964048,
+      "lon": 27.625606
+    },
+    {
+      "id": "way-591250721",
+      "osm": "https://www.openstreetmap.org/way/591250721",
+      "cat": "shop",
+      "name": "Зообазар",
+      "named": true,
+      "address": "",
+      "lat": 53.9194,
+      "lon": 27.579441
+    },
+    {
+      "id": "node-2621545796",
+      "osm": "https://www.openstreetmap.org/node/2621545796",
+      "cat": "shop",
+      "name": "Зооландия",
+      "named": true,
+      "address": "",
+      "lat": 53.842442,
+      "lon": 27.493557
+    },
+    {
+      "id": "node-10134049247",
+      "osm": "https://www.openstreetmap.org/node/10134049247",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.870584,
+      "lon": 27.550147
+    },
+    {
+      "id": "node-10671336193",
+      "osm": "https://www.openstreetmap.org/node/10671336193",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.892635,
+      "lon": 27.507636
+    },
+    {
+      "id": "node-10701354410",
+      "osm": "https://www.openstreetmap.org/node/10701354410",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.93358,
+      "lon": 27.618144
+    },
+    {
+      "id": "node-10789956441",
+      "osm": "https://www.openstreetmap.org/node/10789956441",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.854422,
+      "lon": 27.479125
+    },
+    {
+      "id": "node-11799938640",
+      "osm": "https://www.openstreetmap.org/node/11799938640",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.901382,
+      "lon": 27.602195
+    },
+    {
+      "id": "node-12147753552",
+      "osm": "https://www.openstreetmap.org/node/12147753552",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "Партызанскі праспект 13",
+      "lat": 53.885052,
+      "lon": 27.588106
+    },
+    {
+      "id": "node-13132859168",
+      "osm": "https://www.openstreetmap.org/node/13132859168",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "вуліца Пляханава 40",
+      "lat": 53.865068,
+      "lon": 27.608705
+    },
+    {
+      "id": "node-13173831100",
+      "osm": "https://www.openstreetmap.org/node/13173831100",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "вуліца Яна Райніса 17",
+      "lat": 53.873641,
+      "lon": 27.614528
+    },
+    {
+      "id": "node-13232220120",
+      "osm": "https://www.openstreetmap.org/node/13232220120",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "вуліца Алега Кашавога 24",
+      "lat": 53.885232,
+      "lon": 27.604623
+    },
+    {
+      "id": "node-1489420455",
+      "osm": "https://www.openstreetmap.org/node/1489420455",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.888179,
+      "lon": 27.423014
+    },
+    {
+      "id": "node-2614739025",
+      "osm": "https://www.openstreetmap.org/node/2614739025",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.903484,
+      "lon": 27.454792
+    },
+    {
+      "id": "node-2614739027",
+      "osm": "https://www.openstreetmap.org/node/2614739027",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.904587,
+      "lon": 27.457807
+    },
+    {
+      "id": "node-2620202444",
+      "osm": "https://www.openstreetmap.org/node/2620202444",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.842813,
+      "lon": 27.57112
+    },
+    {
+      "id": "node-2622267291",
+      "osm": "https://www.openstreetmap.org/node/2622267291",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.838999,
+      "lon": 27.568462
+    },
+    {
+      "id": "node-2626939618",
+      "osm": "https://www.openstreetmap.org/node/2626939618",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.84552,
+      "lon": 27.643874
+    },
+    {
+      "id": "node-2627520514",
+      "osm": "https://www.openstreetmap.org/node/2627520514",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.835354,
+      "lon": 27.627599
+    },
+    {
+      "id": "node-2983316030",
+      "osm": "https://www.openstreetmap.org/node/2983316030",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.918184,
+      "lon": 27.448313
+    },
+    {
+      "id": "node-3213399436",
+      "osm": "https://www.openstreetmap.org/node/3213399436",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.93914,
+      "lon": 27.650754
+    },
+    {
+      "id": "node-3247433401",
+      "osm": "https://www.openstreetmap.org/node/3247433401",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.934968,
+      "lon": 27.689069
+    },
+    {
+      "id": "node-3635415772",
+      "osm": "https://www.openstreetmap.org/node/3635415772",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.931298,
+      "lon": 27.508452
+    },
+    {
+      "id": "node-3790024093",
+      "osm": "https://www.openstreetmap.org/node/3790024093",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.846699,
+      "lon": 27.534807
+    },
+    {
+      "id": "node-3811258358",
+      "osm": "https://www.openstreetmap.org/node/3811258358",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "праспект Незалежнасці 131 к1, Мінск",
+      "lat": 53.93289,
+      "lon": 27.64347
+    },
+    {
+      "id": "node-4211137794",
+      "osm": "https://www.openstreetmap.org/node/4211137794",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.880834,
+      "lon": 27.551591
+    },
+    {
+      "id": "node-4269790494",
+      "osm": "https://www.openstreetmap.org/node/4269790494",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.862211,
+      "lon": 27.571186
+    },
+    {
+      "id": "node-4398870005",
+      "osm": "https://www.openstreetmap.org/node/4398870005",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.934089,
+      "lon": 27.580868
+    },
+    {
+      "id": "node-4405048591",
+      "osm": "https://www.openstreetmap.org/node/4405048591",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.861109,
+      "lon": 27.444537
+    },
+    {
+      "id": "node-4419250190",
+      "osm": "https://www.openstreetmap.org/node/4419250190",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.84009,
+      "lon": 27.569299
+    },
+    {
+      "id": "node-4575260246",
+      "osm": "https://www.openstreetmap.org/node/4575260246",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "вуліца Прытыцкага 2/3, Мінск",
+      "lat": 53.910559,
+      "lon": 27.504908
+    },
+    {
+      "id": "node-4668986690",
+      "osm": "https://www.openstreetmap.org/node/4668986690",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.870495,
+      "lon": 27.605112
+    },
+    {
+      "id": "node-4735877121",
+      "osm": "https://www.openstreetmap.org/node/4735877121",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.907915,
+      "lon": 27.623869
+    },
+    {
+      "id": "node-4890678253",
+      "osm": "https://www.openstreetmap.org/node/4890678253",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "вуліца Янкі Маўра 24, Мінск",
+      "lat": 53.900065,
+      "lon": 27.489586
+    },
+    {
+      "id": "node-5165344523",
+      "osm": "https://www.openstreetmap.org/node/5165344523",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.86814,
+      "lon": 27.484462
+    },
+    {
+      "id": "node-5216399713",
+      "osm": "https://www.openstreetmap.org/node/5216399713",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.926913,
+      "lon": 27.430659
+    },
+    {
+      "id": "node-5331336721",
+      "osm": "https://www.openstreetmap.org/node/5331336721",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.940719,
+      "lon": 27.596006
+    },
+    {
+      "id": "node-5333489224",
+      "osm": "https://www.openstreetmap.org/node/5333489224",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.900089,
+      "lon": 27.576234
+    },
+    {
+      "id": "node-5347947275",
+      "osm": "https://www.openstreetmap.org/node/5347947275",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.906634,
+      "lon": 27.583876
+    },
+    {
+      "id": "node-5477933413",
+      "osm": "https://www.openstreetmap.org/node/5477933413",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "вуліца Несцерава, Мінск",
+      "lat": 53.887258,
+      "lon": 27.691096
+    },
+    {
+      "id": "node-6238301758",
+      "osm": "https://www.openstreetmap.org/node/6238301758",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.901397,
+      "lon": 27.476762
+    },
+    {
+      "id": "node-6522637206",
+      "osm": "https://www.openstreetmap.org/node/6522637206",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.934119,
+      "lon": 27.56549
+    },
+    {
+      "id": "node-9208220218",
+      "osm": "https://www.openstreetmap.org/node/9208220218",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": true,
+      "address": "",
+      "lat": 53.84678,
+      "lon": 27.495626
+    },
+    {
+      "id": "node-9239888418",
+      "osm": "https://www.openstreetmap.org/node/9239888418",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.904733,
+      "lon": 27.642409
+    },
+    {
+      "id": "node-9379060461",
+      "osm": "https://www.openstreetmap.org/node/9379060461",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.921002,
+      "lon": 27.63474
+    },
+    {
+      "id": "way-547303818",
+      "osm": "https://www.openstreetmap.org/way/547303818",
+      "cat": "shop",
+      "name": "Зоомагазин",
+      "named": false,
+      "address": "",
+      "lat": 53.859474,
+      "lon": 27.463925
+    },
+    {
+      "id": "node-4665227893",
+      "osm": "https://www.openstreetmap.org/node/4665227893",
+      "cat": "shop",
+      "name": "Зоомагазин zhora.by",
+      "named": true,
+      "address": "Уманская вуліца 54, Мінск",
+      "lat": 53.876808,
+      "lon": 27.683591
+    },
+    {
+      "id": "node-3016103127",
+      "osm": "https://www.openstreetmap.org/node/3016103127",
+      "cat": "shop",
+      "name": "Зоомагазин «Зоо Терра» (2 этаж)",
+      "named": true,
+      "address": "",
+      "lat": 53.849188,
+      "lon": 27.698522
+    },
+    {
+      "id": "node-4936251821",
+      "osm": "https://www.openstreetmap.org/node/4936251821",
+      "cat": "shop",
+      "name": "Зоомагазин «Лапа»",
+      "named": true,
+      "address": "вуліца Максіма Гарэцкага 73, Мінск",
+      "lat": 53.891308,
+      "lon": 27.438199
+    },
+    {
+      "id": "node-4459663391",
+      "osm": "https://www.openstreetmap.org/node/4459663391",
+      "cat": "shop",
+      "name": "Зоомагазин «Миска»",
+      "named": true,
+      "address": "вуліца Лермантава 41, Мінск",
+      "lat": 53.892626,
+      "lon": 27.513314
+    },
+    {
+      "id": "node-5880846485",
+      "osm": "https://www.openstreetmap.org/node/5880846485",
+      "cat": "shop",
+      "name": "Зоомама",
+      "named": true,
+      "address": "",
+      "lat": 53.92963,
+      "lon": 27.654917
+    },
+    {
+      "id": "node-10940388517",
+      "osm": "https://www.openstreetmap.org/node/10940388517",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "вуліца Прытыцкага 4, Мінск",
+      "lat": 53.911596,
+      "lon": 27.502675
+    },
+    {
+      "id": "node-1509391745",
+      "osm": "https://www.openstreetmap.org/node/1509391745",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.906975,
+      "lon": 27.492041
+    },
+    {
+      "id": "node-3400540130",
+      "osm": "https://www.openstreetmap.org/node/3400540130",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "праспект Дзяржынскага 119, Мінск",
+      "lat": 53.850814,
+      "lon": 27.476461
+    },
+    {
+      "id": "node-6789623130",
+      "osm": "https://www.openstreetmap.org/node/6789623130",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.953039,
+      "lon": 27.60051
+    },
+    {
+      "id": "node-8375083010",
+      "osm": "https://www.openstreetmap.org/node/8375083010",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "вуліца Данілы Сердзіча 48А, Мінск",
+      "lat": 53.920159,
+      "lon": 27.492937
+    },
+    {
+      "id": "node-8375083014",
+      "osm": "https://www.openstreetmap.org/node/8375083014",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.865392,
+      "lon": 27.467647
+    },
+    {
+      "id": "node-8375111924",
+      "osm": "https://www.openstreetmap.org/node/8375111924",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.920958,
+      "lon": 27.580056
+    },
+    {
+      "id": "node-8375111925",
+      "osm": "https://www.openstreetmap.org/node/8375111925",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.919124,
+      "lon": 27.580058
+    },
+    {
+      "id": "node-8375111928",
+      "osm": "https://www.openstreetmap.org/node/8375111928",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.86302,
+      "lon": 27.567831
+    },
+    {
+      "id": "node-8375111933",
+      "osm": "https://www.openstreetmap.org/node/8375111933",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.861871,
+      "lon": 27.480505
+    },
+    {
+      "id": "node-8375111935",
+      "osm": "https://www.openstreetmap.org/node/8375111935",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.86136,
+      "lon": 27.44477
+    },
+    {
+      "id": "node-8375111939",
+      "osm": "https://www.openstreetmap.org/node/8375111939",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.883903,
+      "lon": 27.685071
+    },
+    {
+      "id": "node-8375111942",
+      "osm": "https://www.openstreetmap.org/node/8375111942",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.907645,
+      "lon": 27.484604
+    },
+    {
+      "id": "node-8375111957",
+      "osm": "https://www.openstreetmap.org/node/8375111957",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.870558,
+      "lon": 27.605137
+    },
+    {
+      "id": "node-8487855805",
+      "osm": "https://www.openstreetmap.org/node/8487855805",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "Каменнагорская вуліца 66, Мінск",
+      "lat": 53.925003,
+      "lon": 27.421482
+    },
+    {
+      "id": "node-9391858229",
+      "osm": "https://www.openstreetmap.org/node/9391858229",
+      "cat": "shop",
+      "name": "Зоомаркет",
+      "named": true,
+      "address": "",
+      "lat": 53.900131,
+      "lon": 27.441233
+    },
+    {
+      "id": "node-4226262396",
+      "osm": "https://www.openstreetmap.org/node/4226262396",
+      "cat": "shop",
+      "name": "Зоомир",
+      "named": true,
+      "address": "",
+      "lat": 53.925216,
+      "lon": 27.556351
+    },
+    {
+      "id": "node-4383833808",
+      "osm": "https://www.openstreetmap.org/node/4383833808",
+      "cat": "shop",
+      "name": "Зоомир",
+      "named": true,
+      "address": "",
+      "lat": 53.918629,
+      "lon": 27.565817
+    },
+    {
+      "id": "node-7126014200",
+      "osm": "https://www.openstreetmap.org/node/7126014200",
+      "cat": "shop",
+      "name": "Зоомир",
+      "named": true,
+      "address": "праспект Пушкіна 24А, Мінск",
+      "lat": 53.902069,
+      "lon": 27.49725
+    },
+    {
+      "id": "node-1256912875",
+      "osm": "https://www.openstreetmap.org/node/1256912875",
+      "cat": "shop",
+      "name": "Зоотовары",
+      "named": true,
+      "address": "",
+      "lat": 53.91092,
+      "lon": 27.497777
+    },
+    {
+      "id": "node-4241048276",
+      "osm": "https://www.openstreetmap.org/node/4241048276",
+      "cat": "shop",
+      "name": "Зоотовары",
+      "named": true,
+      "address": "праспект Дзяржынскага 11, Мінск",
+      "lat": 53.887973,
+      "lon": 27.520389
+    },
+    {
+      "id": "node-4585619721",
+      "osm": "https://www.openstreetmap.org/node/4585619721",
+      "cat": "shop",
+      "name": "Зоотовары",
+      "named": true,
+      "address": "вуліца Жудро 33",
+      "lat": 53.917098,
+      "lon": 27.479039
+    },
+    {
+      "id": "node-5358404386",
+      "osm": "https://www.openstreetmap.org/node/5358404386",
+      "cat": "shop",
+      "name": "Зоотовары",
+      "named": true,
+      "address": "праспект Пушкіна 77",
+      "lat": 53.919543,
+      "lon": 27.496144
+    },
+    {
+      "id": "node-6130392114",
+      "osm": "https://www.openstreetmap.org/node/6130392114",
+      "cat": "shop",
+      "name": "Зоотовары",
+      "named": true,
+      "address": "бульвар Шаўчэнкі 11, Мінск",
+      "lat": 53.927268,
+      "lon": 27.555663
+    },
+    {
+      "id": "node-8496920075",
+      "osm": "https://www.openstreetmap.org/node/8496920075",
+      "cat": "shop",
+      "name": "Зоотовары",
+      "named": true,
+      "address": "праспект Машэрава 51, Мінск",
+      "lat": 53.911356,
+      "lon": 27.529087
+    },
+    {
+      "id": "node-7566560623",
+      "osm": "https://www.openstreetmap.org/node/7566560623",
+      "cat": "shop",
+      "name": "Ко.Риф.Фан",
+      "named": true,
+      "address": "вуліца Рафіева 64, Мінск",
+      "lat": 53.862737,
+      "lon": 27.441643
+    },
+    {
+      "id": "node-3265978803",
+      "osm": "https://www.openstreetmap.org/node/3265978803",
+      "cat": "shop",
+      "name": "Кот-Батон",
+      "named": true,
+      "address": "",
+      "lat": 53.951827,
+      "lon": 27.681921
+    },
+    {
+      "id": "node-5239252001",
+      "osm": "https://www.openstreetmap.org/node/5239252001",
+      "cat": "shop",
+      "name": "Котики собачки",
+      "named": true,
+      "address": "",
+      "lat": 53.876949,
+      "lon": 27.518068
+    },
+    {
+      "id": "node-13160851463",
+      "osm": "https://www.openstreetmap.org/node/13160851463",
+      "cat": "shop",
+      "name": "КотикиСобачки",
+      "named": true,
+      "address": "",
+      "lat": 53.963869,
+      "lon": 27.535759
+    },
+    {
+      "id": "node-9978520318",
+      "osm": "https://www.openstreetmap.org/node/9978520318",
+      "cat": "shop",
+      "name": "Котобаза",
+      "named": true,
+      "address": "праспект Дзяржынскага 131",
+      "lat": 53.844156,
+      "lon": 27.475803
+    },
+    {
+      "id": "node-2335289617",
+      "osm": "https://www.openstreetmap.org/node/2335289617",
+      "cat": "shop",
+      "name": "ЛапУсик",
+      "named": true,
+      "address": "",
+      "lat": 53.914234,
+      "lon": 27.428656
+    },
+    {
+      "id": "node-13713434220",
+      "osm": "https://www.openstreetmap.org/node/13713434220",
+      "cat": "shop",
+      "name": "Лепшы Сябар",
+      "named": true,
+      "address": "Ложынская вуліца 14",
+      "lat": 53.949411,
+      "lon": 27.682484
+    },
+    {
+      "id": "node-14179866108",
+      "osm": "https://www.openstreetmap.org/node/14179866108",
+      "cat": "shop",
+      "name": "Лепшы сябар",
+      "named": true,
+      "address": "вуліца Ціміразева 9",
+      "lat": 53.908323,
+      "lon": 27.52963
+    },
+    {
+      "id": "node-9860899713",
+      "osm": "https://www.openstreetmap.org/node/9860899713",
+      "cat": "shop",
+      "name": "Лепшы сябар",
+      "named": true,
+      "address": "",
+      "lat": 53.862806,
+      "lon": 27.632466
+    },
+    {
+      "id": "node-12505288385",
+      "osm": "https://www.openstreetmap.org/node/12505288385",
+      "cat": "shop",
+      "name": "Любимчик",
+      "named": true,
+      "address": "вуліца Станіслава Манюшкі 14",
+      "lat": 53.843154,
+      "lon": 27.576799
+    },
+    {
+      "id": "node-5763300254",
+      "osm": "https://www.openstreetmap.org/node/5763300254",
+      "cat": "shop",
+      "name": "Любимчик",
+      "named": true,
+      "address": "вуліца Міхася Лынькова 35",
+      "lat": 53.928374,
+      "lon": 27.477975
+    },
+    {
+      "id": "node-6915100986",
+      "osm": "https://www.openstreetmap.org/node/6915100986",
+      "cat": "shop",
+      "name": "Любимчик",
+      "named": true,
+      "address": "Лагойскі тракт 15 к2, Мінск",
+      "lat": 53.943599,
+      "lon": 27.609056
+    },
+    {
+      "id": "node-5363853124",
+      "osm": "https://www.openstreetmap.org/node/5363853124",
+      "cat": "shop",
+      "name": "Любимый Питомец",
+      "named": true,
+      "address": "",
+      "lat": 53.94295,
+      "lon": 27.589288
+    },
+    {
+      "id": "node-11886474770",
+      "osm": "https://www.openstreetmap.org/node/11886474770",
+      "cat": "shop",
+      "name": "Магазин 3 в 1",
+      "named": true,
+      "address": "вуліца Жудро 53",
+      "lat": 53.918939,
+      "lon": 27.478843
+    },
+    {
+      "id": "node-13699026607",
+      "osm": "https://www.openstreetmap.org/node/13699026607",
+      "cat": "shop",
+      "name": "Мир питомца",
+      "named": true,
+      "address": "",
+      "lat": 53.894357,
+      "lon": 27.521722
+    },
+    {
+      "id": "node-6254264685",
+      "osm": "https://www.openstreetmap.org/node/6254264685",
+      "cat": "shop",
+      "name": "Мир питомца",
+      "named": true,
+      "address": "",
+      "lat": 53.87114,
+      "lon": 27.554805
+    },
+    {
+      "id": "way-545301640",
+      "osm": "https://www.openstreetmap.org/way/545301640",
+      "cat": "shop",
+      "name": "Мокрый нос",
+      "named": true,
+      "address": "",
+      "lat": 53.883177,
+      "lon": 27.681299
+    },
+    {
+      "id": "node-6665821967",
+      "osm": "https://www.openstreetmap.org/node/6665821967",
+      "cat": "shop",
+      "name": "Мохнач",
+      "named": true,
+      "address": "вуліца Якубава 64-2, Мінск",
+      "lat": 53.862567,
+      "lon": 27.589822
+    },
+    {
+      "id": "node-6669600356",
+      "osm": "https://www.openstreetmap.org/node/6669600356",
+      "cat": "shop",
+      "name": "Мохнач",
+      "named": true,
+      "address": "вуліца Іосіфа Жыновіча 7, Мінск",
+      "lat": 53.920439,
+      "lon": 27.44821
+    },
+    {
+      "id": "node-8511651970",
+      "osm": "https://www.openstreetmap.org/node/8511651970",
+      "cat": "shop",
+      "name": "Мохнач",
+      "named": true,
+      "address": "вуліца Сяргея Ясеніна 27, Мінск",
+      "lat": 53.851069,
+      "lon": 27.452453
+    },
+    {
+      "id": "node-3807247444",
+      "osm": "https://www.openstreetmap.org/node/3807247444",
+      "cat": "shop",
+      "name": "Мурена",
+      "named": true,
+      "address": "праспект Ракасоўскага 145, Мінск",
+      "lat": 53.855188,
+      "lon": 27.612668
+    },
+    {
+      "id": "node-5322232032",
+      "osm": "https://www.openstreetmap.org/node/5322232032",
+      "cat": "shop",
+      "name": "Мяу",
+      "named": true,
+      "address": "",
+      "lat": 53.940717,
+      "lon": 27.466836
+    },
+    {
+      "id": "node-10806742993",
+      "osm": "https://www.openstreetmap.org/node/10806742993",
+      "cat": "shop",
+      "name": "Окриксо",
+      "named": true,
+      "address": "",
+      "lat": 53.879237,
+      "lon": 27.48403
+    },
+    {
+      "id": "node-1108920409",
+      "osm": "https://www.openstreetmap.org/node/1108920409",
+      "cat": "shop",
+      "name": "Парадогз",
+      "named": true,
+      "address": "",
+      "lat": 53.940581,
+      "lon": 27.597765
+    },
+    {
+      "id": "node-3143389960",
+      "osm": "https://www.openstreetmap.org/node/3143389960",
+      "cat": "shop",
+      "name": "Парикмахерская для животных «4 лапы»",
+      "named": true,
+      "address": "Валгаградская вуліца 11, Мінск",
+      "lat": 53.93247,
+      "lon": 27.622123
+    },
+    {
+      "id": "node-4104179561",
+      "osm": "https://www.openstreetmap.org/node/4104179561",
+      "cat": "shop",
+      "name": "Пеликан",
+      "named": true,
+      "address": "",
+      "lat": 53.928368,
+      "lon": 27.545045
+    },
+    {
+      "id": "node-4944653509",
+      "osm": "https://www.openstreetmap.org/node/4944653509",
+      "cat": "shop",
+      "name": "Планета ZOO",
+      "named": true,
+      "address": "",
+      "lat": 53.958884,
+      "lon": 27.606529
+    },
+    {
+      "id": "node-1116539696",
+      "osm": "https://www.openstreetmap.org/node/1116539696",
+      "cat": "shop",
+      "name": "Планета Zoo",
+      "named": true,
+      "address": "",
+      "lat": 53.900069,
+      "lon": 27.434112
+    },
+    {
+      "id": "node-4597069815",
+      "osm": "https://www.openstreetmap.org/node/4597069815",
+      "cat": "shop",
+      "name": "Пулька",
+      "named": true,
+      "address": "",
+      "lat": 53.938353,
+      "lon": 27.68399
+    },
+    {
+      "id": "node-4699593190",
+      "osm": "https://www.openstreetmap.org/node/4699593190",
+      "cat": "shop",
+      "name": "РусканБел - Роял Канин",
+      "named": true,
+      "address": "ТЛЦ Шчомысліца 24",
+      "lat": 53.82671,
+      "lon": 27.434255
+    },
+    {
+      "id": "node-3285697950",
+      "osm": "https://www.openstreetmap.org/node/3285697950",
+      "cat": "shop",
+      "name": "Салон-бутик для собак «Милорд»",
+      "named": true,
+      "address": "праспект Машэрава 9",
+      "lat": 53.915673,
+      "lon": 27.572036
+    },
+    {
+      "id": "node-10905682458",
+      "osm": "https://www.openstreetmap.org/node/10905682458",
+      "cat": "shop",
+      "name": "Стрелка",
+      "named": true,
+      "address": "Слабадская вуліца 131",
+      "lat": 53.845827,
+      "lon": 27.455632
+    },
+    {
+      "id": "node-3143649660",
+      "osm": "https://www.openstreetmap.org/node/3143649660",
+      "cat": "shop",
+      "name": "Стрелка",
+      "named": true,
+      "address": "вуліца Чкалава 16",
+      "lat": 53.879356,
+      "lon": 27.534709
+    },
+    {
+      "id": "node-3208647134",
+      "osm": "https://www.openstreetmap.org/node/3208647134",
+      "cat": "shop",
+      "name": "Стрелка",
+      "named": true,
+      "address": "вуліца Каліноўскага 55, Мінск",
+      "lat": 53.947558,
+      "lon": 27.628844
+    },
+    {
+      "id": "node-3212074657",
+      "osm": "https://www.openstreetmap.org/node/3212074657",
+      "cat": "shop",
+      "name": "Стрелка",
+      "named": true,
+      "address": "",
+      "lat": 53.921128,
+      "lon": 27.579963
+    },
+    {
+      "id": "node-7221061310",
+      "osm": "https://www.openstreetmap.org/node/7221061310",
+      "cat": "shop",
+      "name": "Стрелка",
+      "named": true,
+      "address": "вуліца Талбухіна 4, Мінск",
+      "lat": 53.928079,
+      "lon": 27.612947
+    },
+    {
+      "id": "node-8496971862",
+      "osm": "https://www.openstreetmap.org/node/8496971862",
+      "cat": "shop",
+      "name": "Стрелка",
+      "named": true,
+      "address": "Старавіленскі тракт 28/1, Мінск",
+      "lat": 53.928294,
+      "lon": 27.544626
+    },
+    {
+      "id": "node-2983052502",
+      "osm": "https://www.openstreetmap.org/node/2983052502",
+      "cat": "shop",
+      "name": "Студия груминга «Инфанта»",
+      "named": true,
+      "address": "",
+      "lat": 53.917659,
+      "lon": 27.459053
+    },
+    {
+      "id": "node-6895256288",
+      "osm": "https://www.openstreetmap.org/node/6895256288",
+      "cat": "shop",
+      "name": "Сытый друг",
+      "named": true,
+      "address": "",
+      "lat": 53.909796,
+      "lon": 27.683389
+    },
+    {
+      "id": "node-12000524397",
+      "osm": "https://www.openstreetmap.org/node/12000524397",
+      "cat": "shop",
+      "name": "Сытый кот",
+      "named": true,
+      "address": "вуліца Альшэўскага 13",
+      "lat": 53.914327,
+      "lon": 27.503796
+    },
+    {
+      "id": "node-12993629154",
+      "osm": "https://www.openstreetmap.org/node/12993629154",
+      "cat": "shop",
+      "name": "Сытый кот",
+      "named": true,
+      "address": "",
+      "lat": 53.852225,
+      "lon": 27.493156
+    },
+    {
+      "id": "node-13144365625",
+      "osm": "https://www.openstreetmap.org/node/13144365625",
+      "cat": "shop",
+      "name": "Сытый кот",
+      "named": true,
+      "address": "Іллянская вуліца 4",
+      "lat": 53.933009,
+      "lon": 27.473559
+    },
+    {
+      "id": "node-14213883272",
+      "osm": "https://www.openstreetmap.org/node/14213883272",
+      "cat": "shop",
+      "name": "Сытый кот",
+      "named": true,
+      "address": "вуліца Якубава 58, Мінск",
+      "lat": 53.861869,
+      "lon": 27.588682
+    },
+    {
+      "id": "node-6285011736",
+      "osm": "https://www.openstreetmap.org/node/6285011736",
+      "cat": "shop",
+      "name": "Тишкин Дом",
+      "named": true,
+      "address": "",
+      "lat": 53.958639,
+      "lon": 27.606542
+    },
+    {
+      "id": "node-6423199138",
+      "osm": "https://www.openstreetmap.org/node/6423199138",
+      "cat": "shop",
+      "name": "Тишкин дом",
+      "named": true,
+      "address": "",
+      "lat": 53.851329,
+      "lon": 27.544533
+    },
+    {
+      "id": "node-7069071110",
+      "osm": "https://www.openstreetmap.org/node/7069071110",
+      "cat": "shop",
+      "name": "Тишкин дом",
+      "named": true,
+      "address": "",
+      "lat": 53.8738,
+      "lon": 27.442335
+    },
+    {
+      "id": "node-2621450027",
+      "osm": "https://www.openstreetmap.org/node/2621450027",
+      "cat": "shop",
+      "name": "Товары для животных",
+      "named": true,
+      "address": "вуліца Адзінцова 20, Мінск",
+      "lat": 53.900521,
+      "lon": 27.44672
+    },
+    {
+      "id": "node-4763592957",
+      "osm": "https://www.openstreetmap.org/node/4763592957",
+      "cat": "shop",
+      "name": "Товары для животных",
+      "named": true,
+      "address": "вуліца Пляханава 89",
+      "lat": 53.861828,
+      "lon": 27.604181
+    },
+    {
+      "id": "node-5491541422",
+      "osm": "https://www.openstreetmap.org/node/5491541422",
+      "cat": "shop",
+      "name": "Товары для животных",
+      "named": true,
+      "address": "",
+      "lat": 53.911051,
+      "lon": 27.594789
+    },
+    {
+      "id": "node-4227938889",
+      "osm": "https://www.openstreetmap.org/node/4227938889",
+      "cat": "shop",
+      "name": "Три кота",
+      "named": true,
+      "address": "",
+      "lat": 53.946901,
+      "lon": 27.628592
+    },
+    {
+      "id": "node-13760427221",
+      "osm": "https://www.openstreetmap.org/node/13760427221",
+      "cat": "shop",
+      "name": "Хвосты и лапки",
+      "named": true,
+      "address": "праспект Пушкіна 50",
+      "lat": 53.916485,
+      "lon": 27.495816
+    },
+    {
+      "id": "node-13274030768",
+      "osm": "https://www.openstreetmap.org/node/13274030768",
+      "cat": "shop",
+      "name": "Холка",
+      "named": true,
+      "address": "",
+      "lat": 53.869059,
+      "lon": 27.543455
+    },
+    {
+      "id": "node-4653490694",
+      "osm": "https://www.openstreetmap.org/node/4653490694",
+      "cat": "shop",
+      "name": "Хот-Дог",
+      "named": true,
+      "address": "",
+      "lat": 53.876319,
+      "lon": 27.448613
+    },
+    {
+      "id": "node-5473746110",
+      "osm": "https://www.openstreetmap.org/node/5473746110",
+      "cat": "shop",
+      "name": "ЭкоЭнималФуд",
+      "named": true,
+      "address": "",
+      "lat": 53.881315,
+      "lon": 27.482249
+    },
+    {
+      "id": "node-11619128083",
+      "osm": "https://www.openstreetmap.org/node/11619128083",
+      "cat": "shop",
+      "name": "магазин товаров для животных",
+      "named": true,
+      "address": "вуліца Юрыя Семянякі 15, Мінск",
+      "lat": 53.875804,
+      "lon": 27.457394
+    },
+    {
+      "id": "node-13232220125",
+      "osm": "https://www.openstreetmap.org/node/13232220125",
+      "cat": "vet",
+      "name": "Vet House",
+      "named": true,
+      "address": "вуліца Шчарбакова 32",
+      "lat": 53.888797,
+      "lon": 27.604878
+    },
+    {
+      "id": "node-1858499185",
+      "osm": "https://www.openstreetmap.org/node/1858499185",
+      "cat": "vet",
+      "name": "Zoo Market",
+      "named": true,
+      "address": "",
+      "lat": 53.919672,
+      "lon": 27.57784
+    },
+    {
+      "id": "node-11124753897",
+      "osm": "https://www.openstreetmap.org/node/11124753897",
+      "cat": "vet",
+      "name": "А-Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.952524,
+      "lon": 27.633582
+    },
+    {
+      "id": "node-6979031280",
+      "osm": "https://www.openstreetmap.org/node/6979031280",
+      "cat": "vet",
+      "name": "Айболит",
+      "named": true,
+      "address": "вуліца Калеснікава 18, Мінск",
+      "lat": 53.919217,
+      "lon": 27.438634
+    },
+    {
+      "id": "node-5500537821",
+      "osm": "https://www.openstreetmap.org/node/5500537821",
+      "cat": "vet",
+      "name": "Айдавет",
+      "named": true,
+      "address": "вуліца Алібегава 12Б, Мінск",
+      "lat": 53.872282,
+      "lon": 27.480626
+    },
+    {
+      "id": "node-4398879908",
+      "osm": "https://www.openstreetmap.org/node/4398879908",
+      "cat": "vet",
+      "name": "Альфа-Вет",
+      "named": true,
+      "address": "праспект Незалежнасці 177, Мінск",
+      "lat": 53.945917,
+      "lon": 27.682693
+    },
+    {
+      "id": "node-8118844594",
+      "osm": "https://www.openstreetmap.org/node/8118844594",
+      "cat": "vet",
+      "name": "Альфа-Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.909233,
+      "lon": 27.60871
+    },
+    {
+      "id": "node-13942275167",
+      "osm": "https://www.openstreetmap.org/node/13942275167",
+      "cat": "vet",
+      "name": "Альфа-вет",
+      "named": true,
+      "address": "",
+      "lat": 53.866572,
+      "lon": 27.526568
+    },
+    {
+      "id": "node-5283748321",
+      "osm": "https://www.openstreetmap.org/node/5283748321",
+      "cat": "vet",
+      "name": "Альфа-вет",
+      "named": true,
+      "address": "вуліца Лілі Карастаянавай 2А, Мінск",
+      "lat": 53.929105,
+      "lon": 27.566665
+    },
+    {
+      "id": "node-4503926885",
+      "osm": "https://www.openstreetmap.org/node/4503926885",
+      "cat": "vet",
+      "name": "Белая медведица",
+      "named": true,
+      "address": "",
+      "lat": 53.892797,
+      "lon": 27.494394
+    },
+    {
+      "id": "node-4992129824",
+      "osm": "https://www.openstreetmap.org/node/4992129824",
+      "cat": "vet",
+      "name": "Вет Мир",
+      "named": true,
+      "address": "",
+      "lat": 53.905111,
+      "lon": 27.442979
+    },
+    {
+      "id": "node-8771576018",
+      "osm": "https://www.openstreetmap.org/node/8771576018",
+      "cat": "vet",
+      "name": "Вет Мир",
+      "named": true,
+      "address": "",
+      "lat": 53.854265,
+      "lon": 27.433177
+    },
+    {
+      "id": "node-5164961659",
+      "osm": "https://www.openstreetmap.org/node/5164961659",
+      "cat": "vet",
+      "name": "Вет Сити",
+      "named": true,
+      "address": "4-ы завулак Кальцова 51, Мінск",
+      "lat": 53.95301,
+      "lon": 27.60017
+    },
+    {
+      "id": "node-1190162819",
+      "osm": "https://www.openstreetmap.org/node/1190162819",
+      "cat": "vet",
+      "name": "Вет. станция Ленинского р-на г.Минска",
+      "named": true,
+      "address": "",
+      "lat": 53.87025,
+      "lon": 27.580186
+    },
+    {
+      "id": "node-4370962504",
+      "osm": "https://www.openstreetmap.org/node/4370962504",
+      "cat": "vet",
+      "name": "ВетМедЦентр",
+      "named": true,
+      "address": "",
+      "lat": 53.93716,
+      "lon": 27.596746
+    },
+    {
+      "id": "node-8919507017",
+      "osm": "https://www.openstreetmap.org/node/8919507017",
+      "cat": "vet",
+      "name": "ВетПрофи",
+      "named": true,
+      "address": "вуліца Мельнікайтэ 8",
+      "lat": 53.908655,
+      "lon": 27.543926
+    },
+    {
+      "id": "node-12000524390",
+      "osm": "https://www.openstreetmap.org/node/12000524390",
+      "cat": "vet",
+      "name": "ВетСити",
+      "named": true,
+      "address": "",
+      "lat": 53.918606,
+      "lon": 27.501071
+    },
+    {
+      "id": "node-6594398985",
+      "osm": "https://www.openstreetmap.org/node/6594398985",
+      "cat": "vet",
+      "name": "ВетСпектр",
+      "named": true,
+      "address": "праспект Ракасоўскага 113",
+      "lat": 53.85764,
+      "lon": 27.61545
+    },
+    {
+      "id": "node-4506440930",
+      "osm": "https://www.openstreetmap.org/node/4506440930",
+      "cat": "vet",
+      "name": "Ветаптека",
+      "named": true,
+      "address": "",
+      "lat": 53.901836,
+      "lon": 27.547396
+    },
+    {
+      "id": "node-4795409599",
+      "osm": "https://www.openstreetmap.org/node/4795409599",
+      "cat": "vet",
+      "name": "Ветеринарная аптека",
+      "named": true,
+      "address": "",
+      "lat": 53.90521,
+      "lon": 27.528824
+    },
+    {
+      "id": "node-5088313789",
+      "osm": "https://www.openstreetmap.org/node/5088313789",
+      "cat": "vet",
+      "name": "Ветеринарная аптека «Доктор Вет»",
+      "named": true,
+      "address": "",
+      "lat": 53.84522,
+      "lon": 27.533727
+    },
+    {
+      "id": "node-5664858173",
+      "osm": "https://www.openstreetmap.org/node/5664858173",
+      "cat": "vet",
+      "name": "Ветеринарная клиника 9 Шанс",
+      "named": true,
+      "address": "",
+      "lat": 53.915654,
+      "lon": 27.513085
+    },
+    {
+      "id": "node-6339793186",
+      "osm": "https://www.openstreetmap.org/node/6339793186",
+      "cat": "vet",
+      "name": "Ветеринарная клиника «Девять жизней»",
+      "named": true,
+      "address": "",
+      "lat": 53.843034,
+      "lon": 27.538518
+    },
+    {
+      "id": "node-6388093675",
+      "osm": "https://www.openstreetmap.org/node/6388093675",
+      "cat": "vet",
+      "name": "Ветеринарная клиника «Питомец»",
+      "named": true,
+      "address": "вуліца Чыгладзэ 41",
+      "lat": 53.925853,
+      "lon": 27.491887
+    },
+    {
+      "id": "node-13144487077",
+      "osm": "https://www.openstreetmap.org/node/13144487077",
+      "cat": "vet",
+      "name": "Ветеринарная клиника доктора Полоза",
+      "named": true,
+      "address": "вуліца Кузьмы Мініна 20, Мінск",
+      "lat": 53.871835,
+      "lon": 27.508868
+    },
+    {
+      "id": "node-4215297891",
+      "osm": "https://www.openstreetmap.org/node/4215297891",
+      "cat": "vet",
+      "name": "Ветеринарная станция",
+      "named": true,
+      "address": "вуліца Будзённага 25, Мінск",
+      "lat": 53.88653,
+      "lon": 27.617138
+    },
+    {
+      "id": "node-4358541723",
+      "osm": "https://www.openstreetmap.org/node/4358541723",
+      "cat": "vet",
+      "name": "Ветеринарная станция Заводского района г. Минска",
+      "named": true,
+      "address": "вуліца Машынабудаўнікоў 6, Мінск",
+      "lat": 53.854497,
+      "lon": 27.640179
+    },
+    {
+      "id": "node-5460279074",
+      "osm": "https://www.openstreetmap.org/node/5460279074",
+      "cat": "vet",
+      "name": "Ветеринарная станция Московского района",
+      "named": true,
+      "address": "вуліца Гурскага 42, Мінск",
+      "lat": 53.88092,
+      "lon": 27.482212
+    },
+    {
+      "id": "node-4964279171",
+      "osm": "https://www.openstreetmap.org/node/4964279171",
+      "cat": "vet",
+      "name": "Ветеринарная станция Октябрьского района г.Минска",
+      "named": true,
+      "address": "",
+      "lat": 53.8467,
+      "lon": 27.500884
+    },
+    {
+      "id": "node-3260110261",
+      "osm": "https://www.openstreetmap.org/node/3260110261",
+      "cat": "vet",
+      "name": "Ветеринарная станция Первомайского района",
+      "named": true,
+      "address": "вуліца Сядых 38А, Мінск",
+      "lat": 53.949004,
+      "lon": 27.628529
+    },
+    {
+      "id": "node-6184172785",
+      "osm": "https://www.openstreetmap.org/node/6184172785",
+      "cat": "vet",
+      "name": "Ветеринарная станция Советского района",
+      "named": true,
+      "address": "",
+      "lat": 53.944155,
+      "lon": 27.595921
+    },
+    {
+      "id": "node-5460279075",
+      "osm": "https://www.openstreetmap.org/node/5460279075",
+      "cat": "vet",
+      "name": "Ветеринарная станция Фрунзенского района",
+      "named": true,
+      "address": "вуліца Гурскага 42, Мінск",
+      "lat": 53.880866,
+      "lon": 27.482007
+    },
+    {
+      "id": "node-838853783",
+      "osm": "https://www.openstreetmap.org/node/838853783",
+      "cat": "vet",
+      "name": "Ветеринарная станция Центрального района",
+      "named": true,
+      "address": "Аршанская вуліца 33, Мінск",
+      "lat": 53.933062,
+      "lon": 27.548085
+    },
+    {
+      "id": "node-3947836177",
+      "osm": "https://www.openstreetmap.org/node/3947836177",
+      "cat": "vet",
+      "name": "Ветеринарный магазин",
+      "named": true,
+      "address": "",
+      "lat": 53.837931,
+      "lon": 27.575599
+    },
+    {
+      "id": "node-9897495291",
+      "osm": "https://www.openstreetmap.org/node/9897495291",
+      "cat": "vet",
+      "name": "Ветеринарный реабилитационный центр «Рехабилис»",
+      "named": true,
+      "address": "Лагойская вуліца 20, Валярʼянава",
+      "lat": 53.968506,
+      "lon": 27.6487
+    },
+    {
+      "id": "node-12015084336",
+      "osm": "https://www.openstreetmap.org/node/12015084336",
+      "cat": "vet",
+      "name": "Ветеринарный центр доктора Базылевского",
+      "named": true,
+      "address": "",
+      "lat": 53.848949,
+      "lon": 27.600789
+    },
+    {
+      "id": "node-9155984382",
+      "osm": "https://www.openstreetmap.org/node/9155984382",
+      "cat": "vet",
+      "name": "Ветеринарный центр доктора Базылевского А. А.",
+      "named": true,
+      "address": "",
+      "lat": 53.873792,
+      "lon": 27.502153
+    },
+    {
+      "id": "node-4417998103",
+      "osm": "https://www.openstreetmap.org/node/4417998103",
+      "cat": "vet",
+      "name": "Ветклиника",
+      "named": false,
+      "address": "вуліца Прушынскіх 74, Мінск",
+      "lat": 53.837387,
+      "lon": 27.566037
+    },
+    {
+      "id": "node-9064092777",
+      "osm": "https://www.openstreetmap.org/node/9064092777",
+      "cat": "vet",
+      "name": "Ветклиника",
+      "named": false,
+      "address": "",
+      "lat": 53.880435,
+      "lon": 27.4304
+    },
+    {
+      "id": "node-5873240916",
+      "osm": "https://www.openstreetmap.org/node/5873240916",
+      "cat": "vet",
+      "name": "Ветклиника доктора Саватеева",
+      "named": true,
+      "address": "вуліца Гараўца 24, Мінск",
+      "lat": 53.871088,
+      "lon": 27.606019
+    },
+    {
+      "id": "way-25391425",
+      "osm": "https://www.openstreetmap.org/way/25391425",
+      "cat": "vet",
+      "name": "Главное Хвост",
+      "named": true,
+      "address": "вуліца Казінца 46А, Мінск",
+      "lat": 53.858275,
+      "lon": 27.51612
+    },
+    {
+      "id": "node-6388911375",
+      "osm": "https://www.openstreetmap.org/node/6388911375",
+      "cat": "vet",
+      "name": "Главное хвост",
+      "named": true,
+      "address": "Кальварыйская вуліца 33",
+      "lat": 53.907059,
+      "lon": 27.516309
+    },
+    {
+      "id": "node-4426878219",
+      "osm": "https://www.openstreetmap.org/node/4426878219",
+      "cat": "vet",
+      "name": "Дай лапу",
+      "named": true,
+      "address": "вуліца Жудро 71А",
+      "lat": 53.923333,
+      "lon": 27.481632
+    },
+    {
+      "id": "node-12681237301",
+      "osm": "https://www.openstreetmap.org/node/12681237301",
+      "cat": "vet",
+      "name": "Джо Стар",
+      "named": true,
+      "address": "вуліца Корш-Сабліна 9/2н",
+      "lat": 53.93612,
+      "lon": 27.590905
+    },
+    {
+      "id": "node-2058552455",
+      "osm": "https://www.openstreetmap.org/node/2058552455",
+      "cat": "vet",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "Падшыпнікавы праезд 9, Мінск",
+      "lat": 53.865007,
+      "lon": 27.627555
+    },
+    {
+      "id": "node-2558277628",
+      "osm": "https://www.openstreetmap.org/node/2558277628",
+      "cat": "vet",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "вуліца Скрыпнікава 39, Мінск",
+      "lat": 53.896756,
+      "lon": 27.422331
+    },
+    {
+      "id": "node-3283053443",
+      "osm": "https://www.openstreetmap.org/node/3283053443",
+      "cat": "vet",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.937074,
+      "lon": 27.673566
+    },
+    {
+      "id": "node-9502600776",
+      "osm": "https://www.openstreetmap.org/node/9502600776",
+      "cat": "vet",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.870545,
+      "lon": 27.551807
+    },
+    {
+      "id": "node-9548055117",
+      "osm": "https://www.openstreetmap.org/node/9548055117",
+      "cat": "vet",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "",
+      "lat": 53.93842,
+      "lon": 27.686226
+    },
+    {
+      "id": "way-25327132",
+      "osm": "https://www.openstreetmap.org/way/25327132",
+      "cat": "vet",
+      "name": "Доктор Вет",
+      "named": true,
+      "address": "Арлоўская вуліца 20А",
+      "lat": 53.932395,
+      "lon": 27.559363
+    },
+    {
+      "id": "node-9187840976",
+      "osm": "https://www.openstreetmap.org/node/9187840976",
+      "cat": "vet",
+      "name": "Доктор Сет",
+      "named": true,
+      "address": "",
+      "lat": 53.862169,
+      "lon": 27.477428
+    },
+    {
+      "id": "node-12125343819",
+      "osm": "https://www.openstreetmap.org/node/12125343819",
+      "cat": "vet",
+      "name": "Здоровый питомец",
+      "named": true,
+      "address": "вуліца Серафімовіча 13",
+      "lat": 53.888839,
+      "lon": 27.587905
+    },
+    {
+      "id": "node-2309765722",
+      "osm": "https://www.openstreetmap.org/node/2309765722",
+      "cat": "vet",
+      "name": "Зеленые Вет-линии",
+      "named": true,
+      "address": "",
+      "lat": 53.892719,
+      "lon": 27.559442
+    },
+    {
+      "id": "node-9296329712",
+      "osm": "https://www.openstreetmap.org/node/9296329712",
+      "cat": "vet",
+      "name": "ЗеленыеВетЛинии",
+      "named": true,
+      "address": "",
+      "lat": 53.862376,
+      "lon": 27.446261
+    },
+    {
+      "id": "node-4320088019",
+      "osm": "https://www.openstreetmap.org/node/4320088019",
+      "cat": "vet",
+      "name": "Зоокрама",
+      "named": true,
+      "address": "",
+      "lat": 53.883008,
+      "lon": 27.592551
+    },
+    {
+      "id": "node-12248972080",
+      "osm": "https://www.openstreetmap.org/node/12248972080",
+      "cat": "vet",
+      "name": "Компаньон",
+      "named": true,
+      "address": "вуліца Янкі Маўра 47/20",
+      "lat": 53.888838,
+      "lon": 27.48695
+    },
+    {
+      "id": "node-13883863340",
+      "osm": "https://www.openstreetmap.org/node/13883863340",
+      "cat": "vet",
+      "name": "Лекар-Вет",
+      "named": true,
+      "address": "Авіяцыйная вуліца 43, Копішча",
+      "lat": 53.962712,
+      "lon": 27.659598
+    },
+    {
+      "id": "way-25392385",
+      "osm": "https://www.openstreetmap.org/way/25392385",
+      "cat": "vet",
+      "name": "Минская областная ветеринарная лаборатория",
+      "named": true,
+      "address": "вуліца Казінца 92 к2",
+      "lat": 53.848227,
+      "lon": 27.505323
+    },
+    {
+      "id": "node-12531380494",
+      "osm": "https://www.openstreetmap.org/node/12531380494",
+      "cat": "vet",
+      "name": "Минская участковая ветеринарная лечебница",
+      "named": true,
+      "address": "вуліца Дзекабрыстаў 33, Мінск",
+      "lat": 53.883389,
+      "lon": 27.510483
+    },
+    {
+      "id": "node-8724076148",
+      "osm": "https://www.openstreetmap.org/node/8724076148",
+      "cat": "vet",
+      "name": "Неовет Плюс",
+      "named": true,
+      "address": "Усходняя вуліца 131, Мінск",
+      "lat": 53.939831,
+      "lon": 27.598276
+    },
+    {
+      "id": "node-5012701921",
+      "osm": "https://www.openstreetmap.org/node/5012701921",
+      "cat": "vet",
+      "name": "Петс Хэлс",
+      "named": true,
+      "address": "вуліца Змітрака Бядулі 13",
+      "lat": 53.902709,
+      "lon": 27.585013
+    },
+    {
+      "id": "node-5944428985",
+      "osm": "https://www.openstreetmap.org/node/5944428985",
+      "cat": "vet",
+      "name": "Районная Ветеринарная Клиника",
+      "named": true,
+      "address": "",
+      "lat": 53.967616,
+      "lon": 27.598312
+    },
+    {
+      "id": "node-8190951993",
+      "osm": "https://www.openstreetmap.org/node/8190951993",
+      "cat": "vet",
+      "name": "Сас энимал сервис",
+      "named": true,
+      "address": "вуліца Казлова 27А, Мінск",
+      "lat": 53.907127,
+      "lon": 27.596689
+    },
+    {
+      "id": "node-3208648039",
+      "osm": "https://www.openstreetmap.org/node/3208648039",
+      "cat": "vet",
+      "name": "Стрелка",
+      "named": true,
+      "address": "вуліца Каліноўскага 55",
+      "lat": 53.947506,
+      "lon": 27.62904
+    },
+    {
+      "id": "node-8193444767",
+      "osm": "https://www.openstreetmap.org/node/8193444767",
+      "cat": "vet",
+      "name": "Стрелка",
+      "named": true,
+      "address": "вуліца Максіма Гарэцкага 43, Мінск",
+      "lat": 53.884842,
+      "lon": 27.443309
+    },
+    {
+      "id": "node-4139163292",
+      "osm": "https://www.openstreetmap.org/node/4139163292",
+      "cat": "vet",
+      "name": "Умная ветеринария",
+      "named": true,
+      "address": "Слабадская вуліца 138, Мінск",
+      "lat": 53.844139,
+      "lon": 27.462633
+    },
+    {
+      "id": "node-8411138918",
+      "osm": "https://www.openstreetmap.org/node/8411138918",
+      "cat": "vet",
+      "name": "Умная ветеринария",
+      "named": true,
+      "address": "",
+      "lat": 53.872218,
+      "lon": 27.468825
+    },
+    {
+      "id": "node-5460299265",
+      "osm": "https://www.openstreetmap.org/node/5460299265",
+      "cat": "vet",
+      "name": "Фауна города",
+      "named": true,
+      "address": "вуліца Гурскага 42, Мінск",
+      "lat": 53.88078,
+      "lon": 27.482212
+    },
+    {
+      "id": "node-4705638889",
+      "osm": "https://www.openstreetmap.org/node/4705638889",
+      "cat": "vet",
+      "name": "Центр ветеринарной ортопедии и травмотологии",
+      "named": true,
+      "address": "",
+      "lat": 53.871064,
+      "lon": 27.412386
+    },
+    {
+      "id": "node-5702820167",
+      "osm": "https://www.openstreetmap.org/node/5702820167",
+      "cat": "vet",
+      "name": "Эскулап",
+      "named": true,
+      "address": "",
+      "lat": 53.917099,
+      "lon": 27.635022
+    },
+    {
+      "id": "node-5900889473",
+      "osm": "https://www.openstreetmap.org/node/5900889473",
+      "cat": "vet",
+      "name": "Эскулап",
+      "named": true,
+      "address": "",
+      "lat": 53.917445,
+      "lon": 27.523504
+    }
+  ],
+  "partners": [
+    {
+      "id": "pt_varka_repina_4",
+      "osm": "https://www.openstreetmap.org/way/309110988",
+      "cat": "partner",
+      "name": "Varka Репина 4",
+      "named": true,
+      "address": "Репина 4",
+      "lat": 53.912633,
+      "lon": 27.527284,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_avia_17",
+      "osm": "https://www.openstreetmap.org/way/994019740",
+      "cat": "partner",
+      "name": "Varka Авиационная 17",
+      "named": true,
+      "address": "Авиационная 17",
+      "lat": 53.959448,
+      "lon": 27.662501,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_karskogo_23",
+      "osm": "https://www.openstreetmap.org/way/660027666",
+      "cat": "partner",
+      "name": "Varka Карского 23",
+      "named": true,
+      "address": "Карского 23",
+      "lat": 53.875658,
+      "lon": 27.442092,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_golodeda_15",
+      "osm": "https://www.openstreetmap.org/way/25427493",
+      "cat": "partner",
+      "name": "Varka Голодеда 15",
+      "named": true,
+      "address": "Голодеда 15",
+      "lat": 53.83937,
+      "lon": 27.640614,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_rokoss_80",
+      "osm": "https://www.openstreetmap.org/way/25430200",
+      "cat": "partner",
+      "name": "Varka Рокоссовского 80",
+      "named": true,
+      "address": "Рокоссовского 80",
+      "lat": 53.863098,
+      "lon": 27.603877,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_rokoss_150b",
+      "osm": "https://www.openstreetmap.org/way/110062679",
+      "cat": "partner",
+      "name": "Varka Рокоссовского 150Б",
+      "named": true,
+      "address": "Рокоссовского 150Б",
+      "lat": 53.854795,
+      "lon": 27.61047,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_kazintsa_120",
+      "osm": "https://www.openstreetmap.org/way/35995649",
+      "cat": "partner",
+      "name": "Varka Казинца 120",
+      "named": true,
+      "address": "Казинца 120",
+      "lat": 53.842709,
+      "lon": 27.504085,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_matus_70",
+      "osm": "https://www.openstreetmap.org/way/153790047",
+      "cat": "partner",
+      "name": "Varka Матусевича 70",
+      "named": true,
+      "address": "Матусевича 70",
+      "lat": 53.918398,
+      "lon": 27.452495,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_tsvirko_100",
+      "osm": "https://www.openstreetmap.org/way/1351220716",
+      "cat": "partner",
+      "name": "Varka Цвирко 100",
+      "named": true,
+      "address": "Цвирко 100",
+      "lat": 53.964455,
+      "lon": 27.568063,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_skrip_1",
+      "osm": "https://www.openstreetmap.org/way/25439738",
+      "cat": "partner",
+      "name": "Varka Скрипникова 1",
+      "named": true,
+      "address": "Скрипникова 1",
+      "lat": 53.888097,
+      "lon": 27.421354,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_shevchenko_1",
+      "osm": "https://www.openstreetmap.org/way/25433513",
+      "cat": "partner",
+      "name": "Varka Шевченко 1",
+      "named": true,
+      "address": "Шевченко 1",
+      "lat": 53.923948,
+      "lon": 27.555461,
+      "partner": true
+    },
+    {
+      "id": "pt_varka_mayakovskogo_14",
+      "osm": "https://www.openstreetmap.org/way/25431920",
+      "cat": "partner",
+      "name": "Varka Маяковского 14",
+      "named": true,
+      "address": "Маяковского 14",
+      "lat": 53.881785,
+      "lon": 27.567388,
+      "partner": true
+    }
+  ],
+  "note": "Места: Overpass, bbox Минска, теги leisure=dog_park, amenity=veterinary, shop=pet, shop=pet_grooming, dog=yes. Парки без dog=yes не включены. Партнёры: адреса точек Varka из кода, координаты Nominatim. SoftPaw и Pet Walk без адреса в коде на карту не попали."
+}
