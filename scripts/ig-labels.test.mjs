@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { alignRetailItems, HEART_KEY, LIVER_KEY, parseFirstJson } from "./ig-price-align.mjs";
+import { setRumenXs, RUMEN_KEY, RUMEN_PRICE } from "./rumen-xs-price.mjs";
 
 const engine = {
   prettyProductName(name) { return "PRETTY:" + name; },
@@ -65,14 +66,20 @@ assert.equal(api.retailLineCost("РУБЕЦ Т", "Кусочки", 100).cost, 13
 assert.equal(api.retailLineCost("ПОЧКИ", "Кусочки", 100).cost, 11);
 assert.equal(api.retailLineCost("БАРАНЬЯ ПЕЧЕНЬ", "Мелкое", 100).cost, 19);
 assert.equal(api.retailLineCost("БАРАНЬЯ ПЕЧЕНЬ", "Полоски", 100).cost, 12);
+assert.equal(api.humanFraction("РУБЕЦ Т", "Очень мелкое"), "ORIG:Очень мелкое");
+assert.equal(api.retailLineCost("РУБЕЦ Т", "Очень мелкое", 100).cost, 15);
+assert.equal(api.retailLineCost("РУБЕЦ Т", "Очень мелкое", 100).per, 15);
+assert.equal(api.retailLineCost("РУБЕЦ Т", "ОЧ МЕЛК", 50).cost, 7.5);
+assert.equal(api.retailLineCost("РУБЕЦ Т", "Мелкое", 100).cost, 12);
 assert.equal(api.retailLineCost("КРОШКА ЛЁГКОГО", "", 100).cost, 12);
 assert.equal(api.retailLineCost("УХО К", "ПОЛОВИНКА", 1).per, 12);
 const basket = api.calcRetailBasketTotal([
   { name: "ЛЁГКОЕ", sub: "Целое", val: 100 },
   { name: "СЕРДЦЕ", sub: "Кусочки", val: 100 },
-  { name: "КРОШКА ЛЁГКОГО", sub: "", val: 20, cat: "crumb" }
+  { name: "КРОШКА ЛЁГКОГО", sub: "", val: 20, cat: "crumb" },
+  { name: "РУБЕЦ Т", sub: "Очень мелкое", val: 100 }
 ]);
-assert.equal(basket.goods, 9 + 9 + 13);
+assert.equal(basket.goods, 9 + 9 + 13 + 15);
 assert.ok(api.catalogFractionsForUi_("dressura", "СЕРДЦЕ").includes("Кусочки"));
 assert.equal(api.catalogFractionsForUi_("dressura", "РУБЕЦ Т").includes("Кусочки"), false);
 assert.equal(ig.relabelText("БЫЧИЙ КОРЕНЬ", "огромные"), "рогалик");
@@ -85,8 +92,11 @@ const sizes = ig.relabelSizes("БЫЧИЙ КОРЕНЬ", [
 assert.equal(sizes.length, 1);
 assert.equal(sizes[0].text, "рогалик");
 assert.equal(sizes[0].dry, 3);
-ig.rememberPrices([{ key: HEART_KEY, price: 15 }]);
+ig.rememberPrices([{ key: HEART_KEY, price: 15 }, { key: RUMEN_KEY, price: 18 }]);
 assert.equal(api.retailLineCost("СЕРДЦЕ", "Кусочки", 100).cost, 15);
+assert.equal(api.retailLineCost("РУБЕЦ Т", "Очень мелкое", 100).cost, 18);
+ig.rememberPrices([]);
+assert.equal(api.retailLineCost("РУБЕЦ Т", "Очень мелкое", 100).cost, 15);
 
 const items = [
   { key: "КРОШКА ЛЁГКОГО", kind: "per100", price: 11 },
@@ -114,6 +124,58 @@ assert.match(gas, /function igRetailAlignGs_/);
 assert.match(gas, /Ушко кролика/);
 assert.doesNotMatch(engineSrc, /Ушко кролика/);
 assert.match(worker, /КРОШК\/i\.test\(String\(name \|\| ""\)\)/);
+assert.match(gas, /"РУБЕЦ Т\|Очень мелкое": \{ per100: 15 \}/);
+assert.match(engineSrc, /"РУБЕЦ Т\|Очень мелкое": \{ per100: 14 \}/);
+assert.doesNotMatch(engineSrc, /"РУБЕЦ Т\|Очень мелкое": \{ per100: 15 \}/);
+const showcase = worker.slice(
+  worker.indexOf("function applyRetailShowcasePatchD1_"),
+  worker.indexOf("function retailItemsFromMapD1_")
+);
+assert.doesNotMatch(showcase, /Очень мелкое/);
+const wsrc = worker.slice(worker.indexOf("function igNormD1_("), worker.indexOf("function igShownProductD1_("));
+const wctx = {};
+vm.createContext(wctx);
+vm.runInContext(wsrc, wctx);
+assert.equal(wctx.igRetailAlignD1_(null, "РУБЕЦ Т", "Очень мелкое", 100).cost, 15);
+assert.equal(wctx.igRetailAlignD1_(null, "РУБЕЦ Т", "ОЧ МЕЛК", 100).per, 15);
+assert.equal(wctx.igRetailAlignD1_({ "РУБЕЦ Т|Очень мелкое": { per100: 18 } }, "РУБЕЦ Т", "Очень мелкое", 100).cost, 18);
+assert.equal(wctx.igRetailAlignD1_(null, "РУБЕЦ Т", "Мелкое", 100), null);
+assert.equal(wctx.igRetailAlignD1_(null, "РУБЕЦ Т", "Кусочки", 100).cost, 13);
+assert.equal(wctx.igRetailAlignD1_(null, "КРОШКА РУБЕЦ", "Очень мелкое", 100), null);
+const per = Number(gas.match(/"РУБЕЦ Т\|Очень мелкое": \{ per100: (\d+) \}/)[1]);
+assert.equal(per, 15);
+const gsrc = "function getRetailPriceLiveMap_(){return LIVE;}\nvar LIVE = {};\nvar RETAIL_PRICE_BYN_ = {\"РУБЕЦ Т|Очень мелкое\":{per100:" + per + "}};\n" +
+  gas.slice(gas.indexOf("function igNormGs_("), gas.indexOf("function retailLineCost_("));
+const gctx = {};
+vm.createContext(gctx);
+vm.runInContext(gsrc, gctx);
+gctx.LIVE = {};
+assert.equal(gctx.igRetailAlignGs_("РУБЕЦ Т", "Очень мелкое", 100).cost, 15);
+gctx.LIVE = { "РУБЕЦ Т|Очень мелкое": { per100: 20 } };
+assert.equal(gctx.igRetailAlignGs_("РУБЕЦ Т", "Очень мелкое", 100).cost, 20);
+gctx.LIVE = {};
+assert.equal(gctx.igRetailAlignGs_("РУБЕЦ Т", "Мелкое", 100), null);
+
+const baseItems = [
+  { key: "КРОШКА РУБЕЦ", kind: "per100", price: 12 },
+  { key: "РУБЕЦ Т|Мелкое", kind: "per100", price: 14 },
+  { key: "РУБЕЦ Т|Ломтики", kind: "per100", price: 12 },
+  { key: "КАБАЧОК", kind: "per100", price: 0 }
+];
+const added = setRumenXs(baseItems);
+assert.deepEqual(added.changed, [RUMEN_KEY]);
+assert.equal(added.items.length, baseItems.length + 1);
+assert.equal(added.items.find((it) => it.key === RUMEN_KEY).price, RUMEN_PRICE);
+assert.equal(added.items.find((it) => it.key === "КРОШКА РУБЕЦ").price, 12);
+assert.equal(added.items.find((it) => it.key === "РУБЕЦ Т|Мелкое").price, 14);
+assert.equal(added.items.filter((it) => it.key === "КАБАЧОК").length, 1);
+const again = setRumenXs(added.items);
+assert.equal(again.changed.length, 0);
+assert.equal(again.items.length, added.items.length);
+const from14 = setRumenXs(baseItems.concat([{ key: RUMEN_KEY, kind: "per100", price: 14 }]));
+assert.deepEqual(from14.changed, [RUMEN_KEY]);
+assert.equal(from14.items.find((it) => it.key === RUMEN_KEY).price, 15);
+assert.equal(from14.items.length, baseItems.length + 1);
 
 const parsed = parseFirstJson("npm warn\n[{\"results\":[{\"n\":3}]}]\nextra");
 assert.equal(parsed[0].results[0].n, 3);

@@ -21246,7 +21246,7 @@ var RETAIL_PRICE_BYN_ = {
   "РУБЕЦ Т|Большое": { per100: 11 },
   "РУБЕЦ Т|Среднее": { per100: 13 },
   "РУБЕЦ Т|Мелкое": { per100: 14 },
-  "РУБЕЦ Т|Очень мелкое": { per100: 14 },
+  "РУБЕЦ Т|Очень мелкое": { per100: 15 },
   "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
@@ -21914,6 +21914,9 @@ function igRetailAlignGs_(name, sub, val) {
   } else if (p === "liver-lamb" && !igVerySmallGs_(fu) && /^МЕЛК/.test(fu) && fu.indexOf("КУБИК") < 0) {
     key = "БАРАНЬЯ ПЕЧЕНЬ|Мелкое";
     fallback = 19;
+  } else if (p === "rumen" && igVerySmallGs_(fu)) {
+    key = "РУБЕЦ Т|Очень мелкое";
+    fallback = 15;
   }
   if (fallback == null) return null;
   var per = igPer100Gs_(key, fallback);
