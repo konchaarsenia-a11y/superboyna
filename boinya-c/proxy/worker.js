@@ -10016,6 +10016,8 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       else if (/ОБЫЧН/.test(fu) || /^КРОШК/.test(fu)) word = "";
       else word = f.toLowerCase();
     }
+    const igWord = igFractionWordD1_(main, f);
+    if (igWord) word = igWord;
     const frac = String(it.frac || "").trim().toLowerCase();
     const extra = frac === "s" ? "мелкая" : frac === "m" ? "средняя" : frac === "l" ? "крупная" : "";
     if (extra && word && extra !== word) return word + " " + extra;
@@ -10290,6 +10292,8 @@ function collapseCuttingAliasDups_(items) {
           else if (c === "l") text = "крупная";
         }
         if (!text) return;
+        const rel = igRelabelTextD1_(first.name, text);
+        if (rel) text = rel;
         sizeMap[text] = (sizeMap[text] || 0) + (Number(s.dry) || 0);
         anySize = true;
       });
@@ -27084,7 +27088,168 @@ function retailBasePer100D1_(map, n) {
   return null;
 }
 
+function igNormD1_(s) {
+  return String(s || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+}
+
+function igProductD1_(main) {
+  const n = igNormD1_(main);
+  if (!n || /КРОШК/.test(n)) return "";
+  if (/БАРАНЬ/.test(n) && /ПЕЧЕН/.test(n)) return "liver-lamb";
+  if (/БАРАНЬ/.test(n) && /ЛЕГК/.test(n)) return "lung-lamb";
+  if (/ЛЕГК/.test(n)) return "lung";
+  if (/СЕРДЦ/.test(n)) return "heart";
+  if (/РУБЕЦ/.test(n)) return "rumen";
+  if (/ПОЧК/.test(n)) return "kidney";
+  if (/ИНДЕЙ/.test(n)) return "turkey";
+  if (/БЫЧИЙ КОРЕН/.test(n)) return "root";
+  if (/ТРАХЕ/.test(n)) return "trachea";
+  if (/СТАНОВ/.test(n)) return "sinew";
+  if (/УХО/.test(n)) return "ear";
+  if (/АОРТ/.test(n)) return "aorta";
+  return "";
+}
+
+function igVerySmallD1_(fu) {
+  return /ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu);
+}
+
+function igFractionWordD1_(main, sub) {
+  const p = igProductD1_(main);
+  const fu = igNormD1_(sub);
+  if (!p || !fu) return "";
+  if (p === "root") {
+    if (fu === "МАЛ") return "маленький";
+    if (fu === "СРЕД") return "средний";
+    if (fu === "БОЛ") return "большой";
+    if (fu === "ОГР") return "рогалик";
+    return "";
+  }
+  if (p === "trachea") {
+    if (fu === "МАЛ") return "маленькая";
+    if (fu === "СРЕД") return "средняя";
+    if (fu === "БОЛ") return "большая";
+    return "";
+  }
+  if (p === "sinew") {
+    if (/ПАЛК|ПАЛОЧ/.test(fu)) return "палочка";
+    if (fu === "СРЕД" || /ПОЛОВИН/.test(fu)) return "половинка";
+    if (fu === "БОЛ" || /^ЦЕЛ/.test(fu)) return "целая";
+    return "";
+  }
+  if (p === "ear" || p === "aorta") {
+    if (/ПОЛОВИН/.test(fu)) return "половинка";
+    if (/ОБЫЧН/.test(fu) || /^ЦЕЛ/.test(fu)) return "целое";
+    return "";
+  }
+  if (p === "lung" || p === "lung-lamb") {
+    if (igVerySmallD1_(fu)) return "";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "кубики";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкие кубики";
+    return "";
+  }
+  if (p === "heart" || p === "rumen" || p === "kidney" || p === "turkey" || p === "liver-lamb") {
+    if (igVerySmallD1_(fu)) return "";
+    if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "кусочки";
+    if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "кусочки" : "ломтики";
+    if (/^ПОЛОСК/.test(fu)) {
+      if (p === "liver-lamb") return "кусочки";
+      if (p === "turkey") return "";
+      return "полоски";
+    }
+    if (/^СРЕД/.test(fu) && p === "rumen") return "кусочки";
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
+  }
+  return "";
+}
+
+function igRelabelTextD1_(main, text) {
+  const p = igProductD1_(main);
+  const t = String(text || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  if (!p || !t) return "";
+  if (p === "root") {
+    if (t === "огромные" || t === "огромный") return "рогалик";
+    if (t === "маленькие" || t === "маленький") return "маленький";
+    if (t === "средние" || t === "средний") return "средний";
+    if (t === "большие" || t === "большой") return "большой";
+  }
+  if (p === "trachea") {
+    if (t === "маленькие" || t === "маленькая") return "маленькая";
+    if (t === "средние" || t === "средняя") return "средняя";
+    if (t === "большие" || t === "большая") return "большая";
+  }
+  if (p === "sinew") {
+    if (t === "палочки" || t === "палочка") return "палочка";
+    if (t === "средние" || t === "средняя") return "половинка";
+    if (t === "большие" || t === "большая") return "целая";
+  }
+  if (p === "ear" || p === "aorta") {
+    if (t === "половинки" || t === "половинка") return "половинка";
+  }
+  if (p === "lung" || p === "lung-lamb") {
+    if (t === "целое" || t === "ломтики") return "ломтики";
+    if (t === "среднее" || t === "кубики") return "кубики";
+    if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкие кубики";
+  }
+  if (p === "rumen" && (t === "среднее" || t === "кусочки")) return "кусочки";
+  if (p === "liver-lamb" && t === "полоски") return "кусочки";
+  if ((p === "heart" || p === "rumen" || p === "kidney" || p === "turkey" || p === "liver-lamb") &&
+      (t === "мелкое" || t === "мелкие кусочки")) return "мелкие кусочки";
+  if (p === "kidney" && (t === "ломтики" || t === "целое")) return "кусочки";
+  return "";
+}
+
+function igPer100D1_(map, key, fallback) {
+  const info = map && map[key];
+  if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+  return fallback;
+}
+
+function igRetailAlignD1_(map, name, sub, val) {
+  if (/КРОШК/i.test(String(name || "")) || /КРОШК/i.test(String(sub || ""))) return null;
+  const p = igProductD1_(name);
+  const fu = igNormD1_(sub);
+  if (!p || !fu) return null;
+  let key = "";
+  let fallback = null;
+  if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) {
+    if (p === "heart") { key = "СЕРДЦЕ|Кусочки"; fallback = 13; }
+    else if (p === "rumen") { key = "РУБЕЦ Т|Среднее"; fallback = 13; }
+    else if (p === "kidney") { key = "ПОЧКИ|Целое"; fallback = 11; }
+  } else if (p === "liver-lamb" && !igVerySmallD1_(fu) && /^МЕЛК/.test(fu) && !/КУБИК/.test(fu)) {
+    key = "БАРАНЬЯ ПЕЧЕНЬ|Мелкое";
+    fallback = 19;
+  }
+  if (fallback == null) return null;
+  const per = igPer100D1_(map, key, fallback);
+  const v = Number(val) || 0;
+  if (!(v > 0)) return { cost: 0, per: per, found: true };
+  return { cost: Math.round((v / 100) * per * 100) / 100, per: per, found: true };
+}
+
+function igShownProductD1_(name) {
+  const n = igNormD1_(name);
+  if (n === "УХО К" || n === "УШКО К") return "Ушко кролика";
+  return "";
+}
+
+function gbShownName_(it) {
+  const raw = String((it && (it.name || it.main)) || "").trim();
+  const sub = String((it && it.sub) || "").trim();
+  if (/КРОШК/i.test(raw) || /КРОШК/i.test(sub)) return raw;
+  const main = String((it && it.main) || "").trim() || raw;
+  const shown = igShownProductD1_(main) || main;
+  const word = igFractionWordD1_(main, sub);
+  return word ? shown + " " + word : (igShownProductD1_(main) || raw);
+}
+
 function retailLineCostD1_(map, name, sub, val, cat) {
+  const ig = igRetailAlignD1_(map, name, sub, val);
+  if (ig) return ig;
   const meta = retailLookupKeyD1_(name, sub);
   const n = meta.name;
   const s = meta.sub;
@@ -29258,6 +29423,8 @@ function appendDoyDistToPacksD1_(packs, doyByKey, lightBagsByCounter, dist, meta
     if (meta.type === "light") {
       lightBagsByCounter[key] = (lightBagsByCounter[key] || 0) + n;
     }
+    const shownName = igShownProductD1_(meta.name) || meta.name;
+    const shownSub = igFractionWordD1_(meta.name, meta.sub) || meta.sub || "";
     packs.push({
       name: meta.name,
       sub: meta.sub,
@@ -29267,7 +29434,7 @@ function appendDoyDistToPacksD1_(packs, doyByKey, lightBagsByCounter, dist, meta
       rule: meta.rulePrefix + " → " + key,
       type: meta.type,
       counterKey: key,
-      label: meta.name + (meta.sub ? " / " + meta.sub : "") + " → " + n + " дойп. (" + key + ")"
+      label: shownName + (shownSub ? " / " + shownSub : "") + " → " + n + " дойп. (" + key + ")"
     });
   }
 }
@@ -33721,7 +33888,7 @@ async function gbStaffNotify_(env, text) {
 
 function gbLines_(raw) {
   return parseBasket_(raw).map(function (it) {
-    const name = String((it && (it.name || it.main)) || "").trim();
+    const name = gbShownName_(it);
     const grams = it && it.val != null ? it.val : (it && it.value);
     return { name: name, grams: grams == null ? "" : grams, unit: (it && it.unit) || "г" };
   }).filter(function (it) { return it.name; });

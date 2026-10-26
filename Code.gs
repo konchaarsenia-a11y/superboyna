@@ -7800,8 +7800,11 @@ function computeClientBasketDeficits_(ss, basket, packDay) {
     var coef = Number(matrix[wRow - 2][3]) || (piece ? 1 : 0.2);
     if (!(coef > 0)) coef = piece ? 1 : 0.2;
     var needRaw = piece ? g : ((g / 1000) / coef);
-    var label = String(it.name || it.main || whName || "").trim();
-    if (it.sub) label += " / " + String(it.sub).trim();
+    var labelMain = igShownProductGs_(it.name || it.main) || String(it.name || it.main || whName || "").trim();
+    var igWord = igFractionWordGs_(it.name || it.main, it.sub);
+    var label = labelMain;
+    if (igWord) label += " / " + igWord;
+    else if (it.sub) label += " / " + String(it.sub).trim();
     clientNeedByRow[wRow] = (clientNeedByRow[wRow] || 0) + needRaw;
     clientLabelByRow[wRow] = label;
   }
@@ -21228,6 +21231,7 @@ var RETAIL_PRICE_BYN_ = {
   "СЕРДЦЕ|Ломтики": { per100: 12 },
   "СЕРДЦЕ|Целое": { per100: 12 },
   "СЕРДЦЕ|Полоски": { per100: 12 },
+  "СЕРДЦЕ|Кусочки": { per100: 13 },
   "СЕРДЦЕ|Мелкое": { per100: 14 },
   "СЕРДЦЕ|Очень мелкое": { per100: 16 },
   "ПОЧКИ|Ломтики": { per100: 11 },
@@ -21802,7 +21806,124 @@ function retailBasePer100Gs_(map, n) {
   return null;
 }
 
+function igNormGs_(s) {
+  return String(s || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+}
+
+function igProductGs_(main) {
+  var n = igNormGs_(main);
+  if (!n || n.indexOf("КРОШК") >= 0) return "";
+  if (n.indexOf("БАРАНЬ") >= 0 && n.indexOf("ПЕЧЕН") >= 0) return "liver-lamb";
+  if (n.indexOf("БАРАНЬ") >= 0 && n.indexOf("ЛЕГК") >= 0) return "lung-lamb";
+  if (n.indexOf("ЛЕГК") >= 0) return "lung";
+  if (n.indexOf("СЕРДЦ") >= 0) return "heart";
+  if (n.indexOf("РУБЕЦ") >= 0) return "rumen";
+  if (n.indexOf("ПОЧК") >= 0) return "kidney";
+  if (n.indexOf("ИНДЕЙ") >= 0) return "turkey";
+  if (n.indexOf("БЫЧИЙ КОРЕН") >= 0) return "root";
+  if (n.indexOf("ТРАХЕ") >= 0) return "trachea";
+  if (n.indexOf("СТАНОВ") >= 0) return "sinew";
+  if (n.indexOf("УХО") >= 0) return "ear";
+  if (n.indexOf("АОРТ") >= 0) return "aorta";
+  return "";
+}
+
+function igShownProductGs_(name) {
+  var n = igNormGs_(name);
+  if (n === "УХО К" || n === "УШКО К") return "Ушко кролика";
+  return "";
+}
+
+function igVerySmallGs_(fu) {
+  return /ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu);
+}
+
+function igFractionWordGs_(main, sub) {
+  var p = igProductGs_(main);
+  var fu = igNormGs_(sub);
+  if (!p || !fu || igNormGs_(main).indexOf("КРОШК") >= 0 || fu.indexOf("КРОШК") >= 0) return "";
+  if (p === "root") {
+    if (fu === "МАЛ") return "маленький";
+    if (fu === "СРЕД") return "средний";
+    if (fu === "БОЛ") return "большой";
+    if (fu === "ОГР") return "рогалик";
+    return "";
+  }
+  if (p === "trachea") {
+    if (fu === "МАЛ") return "маленькая";
+    if (fu === "СРЕД") return "средняя";
+    if (fu === "БОЛ") return "большая";
+    return "";
+  }
+  if (p === "sinew") {
+    if (/ПАЛК|ПАЛОЧ/.test(fu)) return "палочка";
+    if (fu === "СРЕД" || /ПОЛОВИН/.test(fu)) return "половинка";
+    if (fu === "БОЛ" || /^ЦЕЛ/.test(fu)) return "целая";
+    return "";
+  }
+  if (p === "ear" || p === "aorta") {
+    if (/ПОЛОВИН/.test(fu)) return "половинка";
+    if (/ОБЫЧН/.test(fu) || /^ЦЕЛ/.test(fu)) return "целое";
+    return "";
+  }
+  if (p === "lung" || p === "lung-lamb") {
+    if (igVerySmallGs_(fu)) return "";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "кубики";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкие кубики";
+    return "";
+  }
+  if (p === "heart" || p === "rumen" || p === "kidney" || p === "turkey" || p === "liver-lamb") {
+    if (igVerySmallGs_(fu)) return "";
+    if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) return "кусочки";
+    if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "кусочки" : "ломтики";
+    if (/^ПОЛОСК/.test(fu)) {
+      if (p === "liver-lamb") return "кусочки";
+      if (p === "turkey") return "";
+      return "полоски";
+    }
+    if (/^СРЕД/.test(fu) && p === "rumen") return "кусочки";
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+  }
+  return "";
+}
+
+function igPer100Gs_(key, fallback) {
+  var map = getRetailPriceLiveMap_() || {};
+  var info = map[key];
+  if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+  info = RETAIL_PRICE_BYN_[key];
+  if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+  return fallback;
+}
+
+function igRetailAlignGs_(name, sub, val) {
+  if (igNormGs_(name).indexOf("КРОШК") >= 0 || igNormGs_(sub).indexOf("КРОШК") >= 0) return null;
+  var p = igProductGs_(name);
+  var fu = igNormGs_(sub);
+  if (!p || !fu) return null;
+  var key = "";
+  var fallback = null;
+  if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) {
+    if (p === "heart") { key = "СЕРДЦЕ|Кусочки"; fallback = 13; }
+    else if (p === "rumen") { key = "РУБЕЦ Т|Среднее"; fallback = 13; }
+    else if (p === "kidney") { key = "ПОЧКИ|Целое"; fallback = 11; }
+  } else if (p === "liver-lamb" && !igVerySmallGs_(fu) && /^МЕЛК/.test(fu) && fu.indexOf("КУБИК") < 0) {
+    key = "БАРАНЬЯ ПЕЧЕНЬ|Мелкое";
+    fallback = 19;
+  }
+  if (fallback == null) return null;
+  var per = igPer100Gs_(key, fallback);
+  var v = Number(val) || 0;
+  if (!(v > 0)) return { cost: 0, per: per, found: true };
+  return { cost: Math.round((v / 100) * per * 100) / 100, per: per, found: true };
+}
+
 function retailLineCost_(name, sub, val, cat) {
+  var ig = igRetailAlignGs_(name, sub, val);
+  if (ig) return ig;
   var meta = retailLookupKeyGs_(name, sub);
   var n = meta.name;
   var s = meta.sub;

@@ -93,7 +93,8 @@
 
   function cardText(name, title, fractions) {
     var fr = (fractions || []).length ? ("Фракции/размеры: " + fractions.join(", ")) : "";
-    return name + "\n" + (title ? ("Категория: " + title + "\n") : "") + (fr ? fr + "\n" : "") + "\n" + blurb(name);
+    var head = shownSku(name);
+    return head + "\n" + (title ? ("Категория: " + title + "\n") : "") + (fr ? fr + "\n" : "") + "\n" + blurb(name);
   }
 
   async function copyText(text, ok) {
@@ -189,15 +190,35 @@
     sh().main(html);
   }
 
+  function shownSku(name) {
+    var ig = root.BoinyaIgLabels;
+    var shown = ig && ig.shownProductName ? ig.shownProductName(name) : "";
+    return shown || name;
+  }
+
+  function shownFracs(name, fr) {
+    var list = (fr || []).slice();
+    var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+    if ((n === "СЕРДЦЕ" || n === "ИНДЕЙКА") && list.indexOf("Кусочки") < 0) {
+      var at = list.indexOf("Полоски");
+      list.splice(at >= 0 ? at + 1 : list.length, 0, "Кусочки");
+    }
+    var e = eng();
+    return list.map(function (f) {
+      var word = e && e.humanFraction ? e.humanFraction(name, f) : "";
+      return word || String(f);
+    });
+  }
+
   function paintCat() {
     var c = cats()[catKey] || {};
     var html = '<button type="button" class="nx-link" data-act="tpl-cards">← Категории</button>';
     html += '<p class="b-lbl">' + esc(c.title || catKey) + "</p>";
     (c.items || []).forEach(function (name) {
-      var fr = (c.fractions && c.fractions[name]) || [];
+      var fr = shownFracs(name, (c.fractions && c.fractions[name]) || []);
       var ov = override(name);
       html += '<button type="button" class="b-li" data-act="tpl-sku" data-name="' + esc(name) + '"><span class="b-li__body"><span class="b-li__title">' +
-        esc(name) + (ov ? " · свой текст" : "") + "</span>" +
+        esc(shownSku(name)) + (ov ? " · свой текст" : "") + "</span>" +
         (fr.length ? '<span class="b-li__sub">' + esc(fr.join(" · ")) + "</span>" : "") +
         "</span><span class=\"b-li__chev\">›</span></button>";
     });
@@ -206,10 +227,10 @@
 
   function paintSku() {
     var c = cats()[catKey] || {};
-    var fr = (c.fractions && c.fractions[sku]) || [];
+    var fr = shownFracs(sku, (c.fractions && c.fractions[sku]) || []);
     var note = noteOf(sku);
     var html = '<button type="button" class="nx-link" data-act="tpl-cat" data-cat="' + esc(catKey) + '">← ' + esc(c.title || "Назад") + "</button>";
-    html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">' + esc(sku) + "</p>" +
+    html += '<article class="b-card" style="margin-top:12px"><p class="b-li__title" style="margin:0">' + esc(shownSku(sku)) + "</p>" +
       '<p class="b-note">' + esc(c.title || "") + (fr.length ? " · " + fr.join(", ") : "") + "</p>" +
       '<p style="white-space:pre-wrap">' + esc(blurb(sku)) + "</p>" +
       '<div class="nx-actions"><button type="button" class="b-btn b-btn--main" data-act="tpl-copy-card">Копировать</button>' +
@@ -367,7 +388,7 @@
     if (act === "tpl-sku") { sku = node.getAttribute("data-name") || ""; view = "sku"; paint(); return true; }
     if (act === "tpl-copy-card") {
       var c = cats()[catKey] || {};
-      var fr = (c.fractions && c.fractions[sku]) || [];
+      var fr = shownFracs(sku, (c.fractions && c.fractions[sku]) || []);
       copyText(cardText(sku, c.title || "", fr), "Описание скопировано");
       return true;
     }

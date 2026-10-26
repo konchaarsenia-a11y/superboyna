@@ -964,7 +964,7 @@ var ASM_CHEW_PER_BIG = 4;
         "ТРАХЕЯ": "Трахея",
         "АОРТА": "Аорта",
         "УХО Г": "Говяжье ухо",
-        "УХО К": "Куриное ухо",
+        "УХО К": "Ушко кролика",
         "НОСЫ шт.": "Носик",
         "СТАНОВАЯ ЖИЛА": "Становая жила",
         "ЛОП ХРЯЩ шт.": "Лопаточный хрящ",
@@ -1155,8 +1155,14 @@ var ASM_CHEW_PER_BIG = 4;
         }
         var unit = it.cat === "chew" ? "шт" : "г";
         var sub = "";
-        if (it.sub === "ПОЛОВИНКА") sub = " (пополам)";
-        else if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
+        var crumbLine = it.cat === "crumb" || /^крошк/i.test(String(it.sub || "")) || /^крошк/i.test(String(it.main || it.name || ""));
+        if (crumbLine) {
+          if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
+        } else {
+          var fracWord = humanFraction(it.main || it.name || "", it.sub || "");
+          if (fracWord) sub = " (" + fracWord + ")";
+          else if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
+        }
         var val = it.value != null ? it.value : it.val;
         lines.push(pricePickSkuTitle_(it.main || it.name) + " — " + val + " " + unit + sub);
       });

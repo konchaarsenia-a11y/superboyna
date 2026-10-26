@@ -285,8 +285,13 @@
   function lineTitle(it) {
     var raw = it.main || it.name || "";
     var name = (eng() && eng().prettyProductName) ? eng().prettyProductName(raw) : raw;
+    var igName = root.BoinyaIgLabels && root.BoinyaIgLabels.shownProductName;
+    if (igName && !/^крошк/i.test(raw)) name = igName(raw) || name;
     var sub = String(it.sub || "").trim();
-    return name + (sub ? " · " + sub : "");
+    if (!sub) return name;
+    if (it.cat === "crumb" || /^крошк/i.test(sub) || /^крошк/i.test(raw)) return name + " · " + sub;
+    var word = eng() && eng().humanFraction ? eng().humanFraction(raw, sub) : "";
+    return name + " · " + (word || sub);
   }
 
   function linePiece_(it) {
@@ -882,9 +887,16 @@
         }
         var val = it.val != null ? it.val : it.value;
         var sub = String(it.sub || "").trim();
+        var subShown = sub;
+        if (sub && it.cat !== "crumb" && !/^крошк/i.test(sub) && eng() && eng().humanFraction) {
+          subShown = eng().humanFraction(it.main || it.name, sub) || sub;
+        }
         var pickGrams = lineGramHtml_(it, i, "cl-pick-g");
-        html += '<div class="b-row" style="margin-top:6px"><span class="b-grow"><span class="b-li__title">' + esc(it.main || it.name || "") + "</span>" +
-          (sub ? '<span class="b-li__sub">' + esc(sub) + "</span>" : "") +
+        var pickTitle = it.main || it.name || "";
+        var igName = root.BoinyaIgLabels && root.BoinyaIgLabels.shownProductName;
+        if (igName) pickTitle = igName(pickTitle) || pickTitle;
+        html += '<div class="b-row" style="margin-top:6px"><span class="b-grow"><span class="b-li__title">' + esc(pickTitle) + "</span>" +
+          (subShown ? '<span class="b-li__sub">' + esc(subShown) + "</span>" : "") +
           (pickGrams ? "" : '<span class="b-li__sub">' + esc(String(val == null ? "" : val) + " " + lineUnit(it)) + "</span>") +
           "</span>" + pickGrams +
           '<button type="button" class="b-chip" data-act="cl-pick-del" data-i="' + i + '">Удалить</button></div>';
@@ -2241,7 +2253,14 @@
       var val = Number(L.val != null ? L.val : L.value) || 0;
       if (L.piece) pcs += val;
       else g += val;
-      var title = (L.name || "") + (L.sub ? " · " + L.sub : "");
+      var subShown = L.sub ? String(L.sub) : "";
+      if (subShown && L.cat !== "crumb" && !/^крошк/i.test(subShown) && !/^крошк/i.test(L.name || "") && eng() && eng().humanFraction) {
+        subShown = eng().humanFraction(L.name || L.main, L.sub) || subShown;
+      }
+      var titleName = L.name || "";
+      var igName = root.BoinyaIgLabels && root.BoinyaIgLabels.shownProductName;
+      if (igName) titleName = igName(titleName) || titleName;
+      var title = titleName + (subShown ? " · " + subShown : "");
       lineRows += '<div class="nx-line"><span>' + esc(title) + "</span><b>" + esc(money2(L.cost)) + "</b></div>";
     });
     var cutG = Math.round(2.5 * (g / 100) * 100) / 100;
