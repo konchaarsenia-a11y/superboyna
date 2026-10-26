@@ -9,6 +9,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const BACKUP_KEY = "crumbMix3Backup:20261026";
+export const MONEY_KEY = "crumbMix3MoneyBackup:20261026";
+
+const SEGMENT_SQL = [
+  "SELECT IFNULL(segment, '') AS segment, COUNT(*) AS n,",
+  " printf('%.2f', IFNULL(SUM(IFNULL(CAST(json_extract(meta_json, '$.orderPrice') AS REAL), 0)), 0)) AS orderSum,",
+  " printf('%.2f', IFNULL(SUM(IFNULL(CAST(json_extract(meta_json, '$.statedCost') AS REAL), 0)), 0)) AS statedSum,",
+  " printf('%.2f', IFNULL(SUM(IFNULL(CAST(json_extract(meta_json, '$.factCost') AS REAL), 0)), 0)) AS factSum",
+  "FROM orders GROUP BY IFNULL(segment, '') ORDER BY segment"
+].join(" ");
 
 const SUMS_SQL = [
   "SELECT",
@@ -123,6 +132,59 @@ function same(a, b) {
   return JSON.stringify(core(a)) === JSON.stringify(core(b));
 }
 
+function num(value) {
+  const n = Number(String(value == null ? "" : value).replace(",", "."));
+  return isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+function addMoney(bucket, row) {
+  bucket.stated = Math.round((bucket.stated + num(row && row.statedCost)) * 100) / 100;
+  bucket.fact = Math.round((bucket.fact + num(row && row.factCost)) * 100) / 100;
+  bucket.price = Math.round((bucket.price + num(row && row.price)) * 100) / 100;
+  bucket.orderPrice = Math.round((bucket.orderPrice + num(row && row.orderPrice)) * 100) / 100;
+  bucket.clientPrice = Math.round((bucket.clientPrice + num(row && row.clientPrice)) * 100) / 100;
+}
+
+function emptyBucket() {
+  return { n: 0, stated: 0, fact: 0, price: 0, orderPrice: 0, clientPrice: 0, mix3: 0 };
+}
+
+function countMix3(list) {
+  let n = 0;
+  (Array.isArray(list) ? list : []).forEach((line) => {
+    if (line && /^mix3:/i.test(String(line.crumbKind || ""))) n++;
+  });
+  return n;
+}
+
+export function sumSubscriptions(payload) {
+  const arr = (payload && (payload.subscriptions || payload.items || payload.list)) || [];
+  const by = {};
+  arr.forEach((it) => {
+    const sheet = String((it && (it.sheet || it.segment)) || "").trim().toLowerCase() || "?";
+    if (!by[sheet]) by[sheet] = emptyBucket();
+    by[sheet].n++;
+    addMoney(by[sheet], it);
+    by[sheet].mix3 += countMix3(it && it.basket) + countMix3(it && it.basket2) + countMix3(it && it.monthlyBasket) + countMix3(it && it.basketBp1);
+  });
+  const ordered = {};
+  Object.keys(by).sort().forEach((key) => { ordered[key] = by[key]; });
+  return { n: arr.length, by: ordered };
+}
+
+function moneyStamp(segments, subs) {
+  return {
+    segments: (segments || []).map((row) => ({
+      segment: String((row && row.segment) || ""),
+      n: Number(row && row.n) || 0,
+      orderSum: String(row && row.orderSum != null ? row.orderSum : "0.00"),
+      statedSum: String(row && row.statedSum != null ? row.statedSum : "0.00"),
+      factSum: String(row && row.factSum != null ? row.factSum : "0.00")
+    })),
+    subs: subs
+  };
+}
+
 function main() {
   if (!process.argv.includes("--apply")) {
     console.error("pass --apply");
@@ -149,15 +211,47 @@ function main() {
   if (typeof stored === "string") stored = JSON.parse(stored);
   const after = stamp(d1(SUMS_SQL)[0], d1(SHEETS_SQL));
   const ok = same(before, after) && same(before, stored);
+  const subsRows = d1("SELECT payload FROM snap_cache WHERE cache_key = 'listSubscriptions'");
+  if (!subsRows.length) {
+    console.error("NO_SUBS_SNAP");
+    process.exit(1);
+  }
+  let subsPayload = subsRows[0] && subsRows[0].payload;
+  if (typeof subsPayload === "string") subsPayload = JSON.parse(subsPayload);
+  const moneyBefore = moneyStamp(d1(SEGMENT_SQL), sumSubscriptions(subsPayload));
+  const moneyExisting = d1("SELECT payload FROM snap_cache WHERE cache_key = " + sqlStr(MONEY_KEY));
+  let moneyState = "exists";
+  if (!moneyExisting.length) {
+    d1(
+      "INSERT INTO snap_cache (cache_key, payload, updated_at) SELECT " +
+        sqlStr(MONEY_KEY) + ", " + sqlStr(JSON.stringify(Object.assign({ at: new Date().toISOString() }, moneyBefore))) +
+        ", " + sqlStr(new Date().toISOString()) +
+        " WHERE NOT EXISTS (SELECT 1 FROM snap_cache WHERE cache_key = " + sqlStr(MONEY_KEY) + ")"
+    );
+    moneyState = "inserted";
+  }
+  const moneyStoredRows = d1("SELECT payload FROM snap_cache WHERE cache_key = " + sqlStr(MONEY_KEY));
+  if (!moneyStoredRows.length) {
+    console.error("NO_MONEY_BACKUP");
+    process.exit(1);
+  }
+  let moneyStored = moneyStoredRows[0].payload;
+  if (typeof moneyStored === "string") moneyStored = JSON.parse(moneyStored);
+  const moneyAfter = moneyStamp(d1(SEGMENT_SQL), sumSubscriptions(subsPayload));
+  const moneyOk = JSON.stringify(moneyBefore) === JSON.stringify(moneyAfter) &&
+    JSON.stringify(moneyBefore.segments) === JSON.stringify(moneyStored.segments) &&
+    JSON.stringify(moneyBefore.subs) === JSON.stringify(moneyStored.subs);
   const out = {
-    ok: ok,
+    ok: ok && moneyOk,
     backup: backupState,
+    moneyBackup: moneyState,
     before: before,
     after: after,
-    stored: core(stored)
+    stored: core(stored),
+    money: moneyBefore
   };
   console.log(JSON.stringify(out));
-  if (!ok) process.exit(1);
+  if (!ok || !moneyOk) process.exit(1);
 }
 
 if (process.argv[1] && process.argv[1].endsWith("crumb-mix3-verify.mjs")) main();
