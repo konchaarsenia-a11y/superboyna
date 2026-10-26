@@ -638,16 +638,26 @@
   function initDelegatedActions() {
     var root = document.getElementById("gbAppShell") || document;
     root.addEventListener("click", function (e) {
+      var routeLink = e.target.closest("[data-route]");
+      if (routeLink) {
+        if (global.GBMap && global.GBMap.openRoute) {
+          e.preventDefault();
+          global.GBMap.openRoute(routeLink);
+        }
+        return;
+      }
       var filterBtn = e.target.closest("[data-map-filter]");
       if (filterBtn) {
-        GBStore.set({ mapFilter: filterBtn.getAttribute("data-map-filter") });
-        GBUI.render();
+        GBStore.set({ mapFilter: filterBtn.getAttribute("data-map-filter"), mapPlaceId: "" });
+        if (global.GBMap && document.getElementById("cabinetMap")) global.GBMap.sync({ refit: true });
+        else GBUI.render();
         return;
       }
       var placeBtn = e.target.closest("[data-place]");
       if (placeBtn) {
         GBStore.set({ mapPlaceId: placeBtn.getAttribute("data-place") });
-        GBUI.render();
+        if (global.GBMap && document.getElementById("cabinetMap")) global.GBMap.sync({ refit: false, pan: true });
+        else GBUI.render();
         return;
       }
       if (e.target.id === "copyPrivilege" || e.target.closest("#copyPrivilege")) {

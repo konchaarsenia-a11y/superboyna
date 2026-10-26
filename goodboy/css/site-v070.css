@@ -4086,3 +4086,74 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     transition: none !important;
   }
 }
+
+/* Текст не слипается и не вылезает за край на 360–420. */
+.site-main h1,
+.site-main h2,
+.site-main h3,
+.site-main p,
+.site-main li,
+.site-main a,
+.site-main button,
+.site-main label,
+.site-main figcaption,
+.promise-hero,
+.tagline,
+.phone-slogan,
+.sub-lead,
+.sub-trial-title,
+.trial-head-text {
+  overflow-wrap: break-word;
+}
+.phone-slide {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.ps-stats div,
+.ps-chips span,
+.ps-card,
+.ps-pet,
+.ps-tip,
+.ps-place,
+.ps-row {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.ps-row strong { min-width: 0; overflow-wrap: break-word; }
+.ps-badge { flex-shrink: 0; }
+.phone-open-btn,
+.nav-cta { max-width: 100%; }
+.sub-hero--trial h1 { min-width: 0; }
+@media (max-width: 420px) {
+  .site-nav--tabs .nav-top {
+    gap: 8px;
+    padding: 0 10px 6px;
+  }
+  .site-nav--tabs .nav-cta {
+    padding: 8px 10px;
+    font-size: 0.78rem;
+  }
+  .site-nav--tabs .nav-tabs {
+    gap: 4px;
+    padding: 6px 8px 8px;
+  }
+  .site-nav--tabs .nav-tabs a {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: normal;
+    font-size: 0.78rem;
+    line-height: 1.15;
+    padding: 8px 4px;
+    overflow-wrap: break-word;
+  }
+  .sub-hero--trial h1 {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+  .feature-rail,
+  .how-grid,
+  .photo-duo,
+  .photo-trio {
+    min-width: 0;
+  }
+}
