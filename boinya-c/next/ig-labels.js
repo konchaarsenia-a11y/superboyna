@@ -169,6 +169,9 @@
     if (product(main) === "liver-lamb" && !verySmall(fu) && /^МЕЛК/.test(fu) && !/КУБИК/.test(fu)) {
       return { key: "БАРАНЬЯ ПЕЧЕНЬ|Мелкое", fallback: 19 };
     }
+    if (product(main) === "rumen" && verySmall(fu)) {
+      return { key: "РУБЕЦ Т|Очень мелкое", fallback: 15 };
+    }
     return null;
   }
 

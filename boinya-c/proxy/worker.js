@@ -27223,6 +27223,9 @@ function igRetailAlignD1_(map, name, sub, val) {
   } else if (p === "liver-lamb" && !igVerySmallD1_(fu) && /^МЕЛК/.test(fu) && !/КУБИК/.test(fu)) {
     key = "БАРАНЬЯ ПЕЧЕНЬ|Мелкое";
     fallback = 19;
+  } else if (p === "rumen" && igVerySmallD1_(fu)) {
+    key = "РУБЕЦ Т|Очень мелкое";
+    fallback = 15;
   }
   if (fallback == null) return null;
   const per = igPer100D1_(map, key, fallback);
