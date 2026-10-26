@@ -1,0 +1,194 @@
+name: root-cut-read
+# Только чтение: бычий корень на 26.10 в заказах, нарезке и сборке. Данные не меняет.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/root-cut-read.yml
+  push:
+    paths:
+      - .github/workflows/root-cut-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read roots for 26.10
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          python3 - <<'PY'
+          import json, os, subprocess, re
+
+          def run(sql):
+              p = subprocess.run(
+                  ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql],
+                  capture_output=True, text=True
+              )
+              text = p.stdout or ""
+              i = text.find("[")
+              if i < 0:
+                  i = text.find("{")
+              if i < 0:
+                  print("NOJSON", (p.stderr or "")[-400:])
+                  raise SystemExit(1)
+              data = json.loads(text[i:])
+              rows = []
+              blocks = data if isinstance(data, list) else [data]
+              for block in blocks:
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      rows.extend(block["results"])
+              return rows
+
+          def red(s):
+              s = str(s or "")
+              s = re.sub(r"\d{7,}", "…", s)
+              return s[:180]
+
+          def basket(raw):
+              try:
+                  b = json.loads(raw or "[]")
+              except Exception:
+                  return []
+              return b if isinstance(b, list) else []
+
+          def is_root(it):
+              if not isinstance(it, dict):
+                  return False
+              blob = " ".join([
+                  str(it.get("name") or ""),
+                  str(it.get("main") or ""),
+                  str(it.get("sub") or ""),
+              ]).lower().replace("ё", "е")
+              return "корен" in blob
+
+          def qty(it):
+              v = it.get("value")
+              if v is None or v == "":
+                  v = it.get("val")
+              try:
+                  return float(v or 0)
+              except Exception:
+                  return 0
+
+          orders = run(
+              "SELECT id, client, match_key, day_name, date_iso, segment, source, status, note, meta_json, basket_json "
+              "FROM orders WHERE status = 'active' AND ("
+              "date_iso = '2026-10-26' OR day_name IN ('Понедельник','Будущая неделя')"
+              ") ORDER BY date_iso, client"
+          )
+          print("ORDERS", len(orders))
+          root_lines = []
+          for r in orders:
+              meta = {}
+              try:
+                  meta = json.loads(r.get("meta_json") or "{}")
+              except Exception:
+                  meta = {}
+              note = str(r.get("note") or "")
+              nocut = bool(meta.get("noCut")) or bool(re.search(r"НЕ\s*РЕЗАТЬ", note, re.I))
+              items = []
+              for it in basket(r.get("basket_json")):
+                  if not is_root(it):
+                      continue
+                  items.append({
+                      "cat": it.get("cat"),
+                      "name": it.get("name") or it.get("main"),
+                      "sub": it.get("sub"),
+                      "value": it.get("value"),
+                      "val": it.get("val"),
+                      "unit": it.get("unit"),
+                      "qty": qty(it),
+                  })
+              if not items and "корен" not in note.lower():
+                  continue
+              root_lines.append({
+                  "id": r.get("id"),
+                  "client": r.get("client"),
+                  "day": r.get("day_name"),
+                  "date": r.get("date_iso"),
+                  "seg": r.get("segment"),
+                  "src": r.get("source"),
+                  "noCut": nocut,
+                  "skip": bool(meta.get("skipAssemble")),
+                  "cutMode": meta.get("cutMode") or "",
+                  "keys": meta.get("cutItemKeys") or meta.get("cutItemLabels") or "",
+                  "note": red(note),
+                  "items": items,
+              })
+          print("ROOT_ORDERS")
+          print(json.dumps(root_lines, ensure_ascii=False, indent=2))
+
+          snaps = run(
+              "SELECT cache_key, updated_at, payload FROM snap_cache WHERE cache_key IN ("
+              "'cutting:Понедельник','assembly:Понедельник','cutting:Будущая неделя','assembly:Будущая неделя'"
+              ")"
+          )
+          print("SNAPS", len(snaps))
+          for s in snaps:
+              key = s.get("cache_key")
+              try:
+                  payload = json.loads(s.get("payload") or "{}")
+              except Exception:
+                  print(key, "bad payload")
+                  continue
+              if str(key).startswith("cutting:"):
+                  rows_out = []
+                  for it in payload.get("items") or []:
+                      name = str((it or {}).get("name") or "")
+                      if "корен" not in name.lower().replace("ё", "е"):
+                          continue
+                      rows_out.append({
+                          "name": name,
+                          "dry": it.get("dry"),
+                          "unit": it.get("unit"),
+                          "sizes": it.get("sizes"),
+                      })
+                  print("CUT", key, "date", payload.get("date") or payload.get("dateIso"),
+                        "fromOrders", payload.get("fromOrders"), "updated", s.get("updated_at"),
+                        "roots", json.dumps(rows_out, ensure_ascii=False))
+              else:
+                  people = []
+                  for c in payload.get("clients") or []:
+                      items = []
+                      for it in c.get("basket") or []:
+                          if is_root(it):
+                              items.append({
+                                  "name": it.get("name") or it.get("main"),
+                                  "sub": it.get("sub"),
+                                  "value": it.get("value"),
+                                  "val": it.get("val"),
+                                  "qty": qty(it),
+                              })
+                      if items:
+                          people.append({
+                              "client": c.get("name"),
+                              "noCut": c.get("noCut"),
+                              "date": c.get("dateIso") or c.get("date") or "",
+                              "items": items,
+                          })
+                  print("ASM", key, "date", payload.get("date") or payload.get("dateIso"),
+                        "n", len(payload.get("clients") or []), "updated", s.get("updated_at"),
+                        "roots", json.dumps(people, ensure_ascii=False))
+
+          counts = run(
+              "SELECT date_iso, day_name, COUNT(*) AS n FROM orders "
+              "WHERE status = 'active' AND date_iso >= '2026-10-26' AND date_iso <= '2026-11-01' "
+              "GROUP BY date_iso, day_name ORDER BY date_iso"
+          )
+          print("WEEK", json.dumps(counts, ensure_ascii=False))
+          PY
