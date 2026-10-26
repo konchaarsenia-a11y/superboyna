@@ -1971,6 +1971,14 @@ var ASM_CHEW_PER_BIG = 4;
     }
 
     function crumbClientMessageLine_(item) {
+      var mixTag = String((item && item.crumbKind) || "");
+      var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
+      if (mixExec || (item && item.crumbScheme === "mix3")) {
+        var mixKind = mixExec ? String(mixExec[1]).toLowerCase() : String(item.crumbKind || "mix").toLowerCase();
+        var mixTitle = mixKind === "hypo" ? "Микс гипоаллергенный" : (mixKind === "meat" ? "Микс мясной" : "Микс");
+        var mixVal = Number(item && (item.val != null ? item.val : item.value)) || 0;
+        return mixTitle + " — " + mixVal + " г";
+      }
       var raw = (item && Array.isArray(item.sources)) ? item.sources : [];
       var kept = [];
       raw.forEach(function (s, i) {

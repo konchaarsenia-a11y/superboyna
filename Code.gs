@@ -13207,6 +13207,7 @@ function attachCrumbSourcesFromCalendar_(sheetBasket, calBasket) {
     copy.sources = d.sources;
     if (d.ratio) copy.ratio = d.ratio;
     if (d.crumbKind) copy.crumbKind = d.crumbKind;
+    if (d.crumbScheme) copy.crumbScheme = d.crumbScheme;
     if (!copy.cat) copy.cat = "crumb";
     if (!copy.sub && d.sub) copy.sub = d.sub;
     return copy;
@@ -22743,6 +22744,20 @@ function crumbPackGoodsGs_(it, grams) {
 }
 
 function retailGoodsFromCrumbItemGs_(it, val) {
+  // Новые заказы: crumbKind "mix3:mix|meat|hypo". Старые без метки — пачки ниже.
+  var mixTag = String((it && it.crumbKind) || "");
+  var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
+  var mixKind = mixExec
+    ? String(mixExec[1]).toLowerCase()
+    : (it && it.crumbScheme === "mix3" && /^(mix|meat|hypo)$/i.test(String(it.crumbKind || "mix"))
+      ? String(it.crumbKind || "mix").toLowerCase()
+      : "");
+  if (mixKind) {
+    var mixRate = mixKind === "hypo" ? 25 : (mixKind === "meat" ? 20 : 15);
+    var mixG = Number(val) || 0;
+    if (!(mixG > 0)) return 0;
+    return Math.round(mixG * mixRate * 100) / 10000;
+  }
   // Одна правка включает схему 09.10: "rates-2026-10-09"
   var CRUMB_RETAIL_SCHEME_ = "packs";
   if (CRUMB_RETAIL_SCHEME_ !== "rates-2026-10-09") {

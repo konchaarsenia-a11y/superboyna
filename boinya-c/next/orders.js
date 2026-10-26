@@ -107,7 +107,7 @@
   }
 
   function blankPicker() {
-    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "meat", sources: [], open: false };
+    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "mix", sources: [], open: false };
   }
 
   function esc(s) { return sh().esc(s); }
@@ -1341,18 +1341,45 @@
     };
   }
 
+  function crumbMixPool_(kind) {
+    var e = eng();
+    var raw = e.crumbSourcePool_("meat") || [];
+    function up(n) {
+      return String(n || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    }
+    function veg(n) { return /ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(up(n)); }
+    function dressura(n) {
+      var u = up(n);
+      return u === "ЛЕГКОЕ" || u === "СЕРДЦЕ" || u === "РУБЕЦ Т" || u === "БАРАНЬЕ ЛЕГКОЕ" || u === "ПОЧКИ";
+    }
+    function hypo(n) { return /КРОЛИК|ИНДЕЙК|БАРАН/.test(up(n)); }
+    return raw.filter(function (p) {
+      var n = p.name;
+      if (e.isChewProductName_ && e.isChewProductName_(n)) return false;
+      if (kind === "hypo") return hypo(n) || veg(n);
+      if (kind === "meat") {
+        if (veg(n)) return true;
+        if (hypo(n) || dressura(n)) return false;
+        return true;
+      }
+      return dressura(n) || veg(n);
+    });
+  }
+
   function crumbBuilderHtml(draft, acts) {
     var e = eng();
     var a = crumbActNames_(acts);
     draft = draft || {};
     if (!draft.sources) draft.sources = [];
     if (!draft.grams) draft.grams = [];
-    if (!draft.kind) draft.kind = "meat";
-    var kinds = [["meat", "мясные"], ["veg", "овощи"], ["hypo", "гипоаллергенные"]];
+    if (!draft.kind || draft.kind === "veg") draft.kind = "mix";
+    var kinds = [["mix", "Микс"], ["meat", "Микс мясной"], ["hypo", "Микс гипоаллергенный"]];
     var html = '<div class="b-chips">' + kinds.map(function (k) {
       return '<button type="button" class="b-chip' + (draft.kind === k[0] ? " b-chip--on" : "") + '" data-act="' + a.kind + '" data-kind="' + k[0] + '">' + esc(k[1]) + "</button>";
     }).join("") + "</div>";
-    var pool = e.crumbSourcePool_(draft.kind);
+    var pool = crumbMixPool_(draft.kind);
+    var rate = draft.kind === "hypo" ? 25 : (draft.kind === "meat" ? 20 : 15);
+    html += '<p class="b-note">' + rate + " BYN за 100 г, по весу. Овощи цену не меняют.</p>";
     html += '<p class="b-lbl">Источники</p>';
     (draft.sources.length ? draft.sources : [""]).forEach(function (src, i) {
       html += '<label class="b-field" style="margin-top:8px"><select class="b-field__input" data-act="' + a.src + '" data-i="' + i + '"><option value="">— позиция —</option>' +
@@ -1390,7 +1417,7 @@
     var multi = (draft.sources || []).filter(Boolean).length >= 2;
     (draft.sources || []).forEach(function (name, i) {
       if (!name) return;
-      var pool = e.crumbSourcePool_(draft.kind);
+      var pool = crumbMixPool_(draft.kind);
       var hit = null;
       pool.forEach(function (p) { if (p.name === name) hit = p; });
       var src = { cat: hit ? hit.cat : "", name: name, main: name, sub: "" };
@@ -1419,7 +1446,7 @@
       item: {
         cat: "crumb",
         main: "КРОШКА",
-        crumbKind: draft.kind,
+        crumbKind: "mix3:" + (draft.kind === "meat" || draft.kind === "hypo" ? draft.kind : "mix"),
         sources: sources,
         ratio: ratio,
         value: sumG,
@@ -2286,7 +2313,7 @@
             return p && !/^крошка$/i.test(p);
           });
           if (names.length) {
-            var pool = e.crumbSourcePool_(row.crumbKind || "meat") || [];
+            var pool = e.crumbSourcePool_("meat") || [];
             row.sources = names.map(function (n) {
               var hit = null;
               pool.forEach(function (p) {
