@@ -10088,6 +10088,115 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
   return items;
 }
 
+/**
+ * Карточка сборки показывает человека, если это не skipAssemble.
+ * «Не резать» само по себе человека со сборки не снимает — нарезка берёт те же строки.
+ * Частичная дорезка остаётся частичной. Перенос (skipAssemble) не входит ни туда, ни туда.
+ */
+function peopleForAssemblyCutting_(people) {
+  return (people || []).filter(function (p) {
+    return !!(p && !p.skipAssemble);
+  }).map(function (p) {
+    const mode = String(p.cutMode || "");
+    const partial = mode === "partial" || !!p.topUp;
+    const note = String(p.note || "").replace(/\s*\[НЕ\s*РЕЗАТЬ\]/gi, "").replace(/\s{2,}/g, " ").trim();
+    return Object.assign({}, p, {
+      noCut: false,
+      skipAssemble: false,
+      note: note,
+      cutMode: partial ? "partial" : "full",
+      topUp: partial ? !!p.topUp : false,
+      cutItemKeys: partial ? p.cutItemKeys : []
+    });
+  });
+}
+
+function cuttingItemsMatchingAssembly_(people, warehouseItems) {
+  return cuttingItemsFromPeople_(peopleForAssemblyCutting_(people), warehouseItems);
+}
+
+function cuttingDryByAgg_(items) {
+  const dry = Object.create(null);
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    const k = cuttingAggKey_(it.name) || cutNameKey_(it.name);
+    if (!k) return;
+    dry[k] = (dry[k] || 0) + (Number(it.dry) || 0);
+  });
+  return dry;
+}
+
+/** Дописать позиции, которые есть на сборке и которых в плане нарезки меньше. Уже посчитанное не уменьшаем. */
+function unionCuttingKeepAssembly_(base, assemblyItems) {
+  const out = (base || []).map(function (it) { return Object.assign({}, it); });
+  const index = Object.create(null);
+  out.forEach(function (it, i) {
+    const k = cuttingAggKey_(it && it.name) || cutNameKey_(it && it.name);
+    if (k && index[k] == null) index[k] = i;
+  });
+  (assemblyItems || []).forEach(function (want) {
+    if (!want) return;
+    const k = cuttingAggKey_(want.name) || cutNameKey_(want.name);
+    if (!k) return;
+    const wantDry = Number(want.dry) || 0;
+    if (!(wantDry > 0)) return;
+    const at = index[k];
+    if (at == null) {
+      index[k] = out.length;
+      out.push(Object.assign({}, want, { laid: false, done: false, outNext: false }));
+      return;
+    }
+    const have = out[at];
+    const haveDry = Number(have.dry) || 0;
+    if (wantDry <= haveDry + 0.001) return;
+    have.dry = Math.round(wantDry * 100) / 100;
+    have.raw = want.raw;
+    if (want.unit) have.unit = want.unit;
+    if (Array.isArray(want.sizes) && want.sizes.length) {
+      have.sizes = want.sizes.map(function (s) {
+        return { text: s.text, dry: s.dry };
+      });
+    }
+  });
+  return out;
+}
+
+function cuttingSnapMissesAssembly_(have, want) {
+  const dry = cuttingDryByAgg_(have);
+  for (let i = 0; i < (want || []).length; i++) {
+    const it = want[i];
+    if (!it) continue;
+    const k = cuttingAggKey_(it.name) || cutNameKey_(it.name);
+    if (!k) continue;
+    if ((Number(it.dry) || 0) > (dry[k] || 0) + 0.001) return true;
+  }
+  return false;
+}
+
+async function cuttingSnapNeedsAssemblyRebuild_(env, day, snap) {
+  if (!env || !day || !snap || !Array.isArray(snap.items)) return false;
+  let live = null;
+  try {
+    live = await getClients_({ day: day }, env);
+  } catch (eLive) {
+    return false;
+  }
+  let wh = [];
+  try {
+    const wsnap = await getSnapRaw_(env, "warehouse");
+    wh = (wsnap && (wsnap.items || wsnap.rows)) || [];
+  } catch (eW) {
+    wh = [];
+  }
+  let want = [];
+  try {
+    want = cuttingItemsMatchingAssembly_((live && live.clients) || [], wh);
+  } catch (eWant) {
+    return false;
+  }
+  return cuttingSnapMissesAssembly_(snap.items, want);
+}
+
 function cutNameKey_(name) {
   return String(name || "")
     .toUpperCase()
@@ -10793,6 +10902,9 @@ async function applyCalendarWeekIfSkewed_(a, params, env, sheetCounts) {
     let items = [];
     try {
       items = cuttingItemsFromPeople_(clients, wh);
+      try {
+        items = unionCuttingKeepAssembly_(items, cuttingItemsMatchingAssembly_(clients, wh));
+      } catch (eAsmCut) {}
       try {
         const ymap = await yieldMapForDate_({ dateIso: iso }, env);
         items = applyCuttingYieldMap_(items, ymap && ymap.yields);
@@ -11721,6 +11833,9 @@ async function rebuildCuttingDay_(env, day) {
   try {
     items = cuttingItemsFromPeople_(live.clients || [], wh);
     try {
+      items = unionCuttingKeepAssembly_(items, cuttingItemsMatchingAssembly_(live.clients || [], wh));
+    } catch (eAsmCut) {}
+    try {
       const ymap = await yieldMapForDate_({ dateIso: info.iso || "" }, env);
       items = applyCuttingYieldMap_(items, ymap && ymap.yields);
     } catch (eY) {}
@@ -12598,12 +12713,21 @@ async function getCutting_(params, env) {
   const dupCut = !!(hit && cuttingListHasAliasDup_(hit.items));
   // свежие галочки — не пересобирать из D1 на каждый poll
   const touched = Number((hit && hit.flagsTouchedAt) || 0);
-  if (!dupCut && touched && Date.now() - touched < 600000) {
+  let behindAsm = false;
+  if (hit && !dupCut) {
+    try {
+      behindAsm = await cuttingSnapNeedsAssemblyRebuild_(env, day, hit);
+    } catch (eBehind) {
+      behindAsm = false;
+    }
+  }
+  if (!behindAsm && !dupCut && touched && Date.now() - touched < 600000) {
     return finishHit_(hit);
   }
-  // struct d1-primary: план из orders; GAS-snap не приоритетнее
+  // struct d1-primary: план из orders; GAS-snap не приоритетнее.
+  // Старый fromOrders-снимок не держим, если в нём меньше живых строк, чем на сборке.
   if (isCuttingStructD1PrimaryCanon_(env)) {
-    if (!dupCut && hit && hit.fromOrders && !hit.fromCalendar) {
+    if (!behindAsm && !dupCut && hit && hit.fromOrders && !hit.fromCalendar) {
       return finishHit_(hit);
     }
     try {
@@ -12615,13 +12739,13 @@ async function getCutting_(params, env) {
     if (hit) return finishHit_(hit);
     return hit;
   }
-  if (hit && hit.fromGas && !hit.fromCalendar) {
+  if (!behindAsm && hit && hit.fromGas && !hit.fromCalendar) {
     return finishHit_(hit);
   }
-  if (hit && hit.fromOrders && !hit.fromCalendar) {
+  if (!behindAsm && hit && hit.fromOrders && !hit.fromCalendar) {
     return finishHit_(hit);
   }
-  if (hit && !hit.fromD1 && !hit.fromCalendar) {
+  if (!behindAsm && hit && !hit.fromD1 && !hit.fromCalendar) {
     return finishHit_(hit);
   }
   try {
