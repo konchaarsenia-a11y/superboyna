@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { alignRetailItems, HEART_KEY, LIVER_KEY } from "./ig-price-align.mjs";
+import { alignRetailItems, HEART_KEY, LIVER_KEY, parseFirstJson } from "./ig-price-align.mjs";
 
 const engine = {
   prettyProductName(name) { return "PRETTY:" + name; },
@@ -114,5 +114,8 @@ assert.match(gas, /function igRetailAlignGs_/);
 assert.match(gas, /Ушко кролика/);
 assert.doesNotMatch(engineSrc, /Ушко кролика/);
 assert.match(worker, /КРОШК\/i\.test\(String\(name \|\| ""\)\)/);
+
+const parsed = parseFirstJson("npm warn\n[{\"results\":[{\"n\":3}]}]\nextra");
+assert.equal(parsed[0].results[0].n, 3);
 
 console.log("ig-labels ok");

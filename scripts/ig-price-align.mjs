@@ -53,6 +53,31 @@ function sqlStr(value) {
   return "'" + String(value).replace(/'/g, "''") + "'";
 }
 
+export function parseFirstJson(raw) {
+  const at = String(raw || "").search(/[\[{]/);
+  if (at < 0) throw new Error(String(raw || "").slice(0, 300) || "empty d1 output");
+  const slice = raw.slice(at);
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < slice.length; i++) {
+    const c = slice[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === "\"") inStr = false;
+      continue;
+    }
+    if (c === "\"") inStr = true;
+    else if (c === "[" || c === "{") depth++;
+    else if (c === "]" || c === "}") {
+      depth--;
+      if (depth === 0) return JSON.parse(slice.slice(0, i + 1));
+    }
+  }
+  return JSON.parse(slice);
+}
+
 function d1(sql) {
   const proxy = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../boinya-c/proxy");
   const r = spawnSync(
@@ -60,17 +85,11 @@ function d1(sql) {
     ["wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql],
     { cwd: proxy, encoding: "utf8", env: process.env, maxBuffer: 32 * 1024 * 1024 }
   );
-  const raw = (r.stdout || "") + (r.stderr || "");
   if (r.status !== 0) {
-    console.error(raw.slice(0, 4000));
+    console.error((r.stderr || r.stdout || "").slice(0, 2000));
     process.exit(r.status || 1);
   }
-  const at = raw.search(/[\[{]/);
-  if (at < 0) {
-    console.error(raw.slice(0, 2000));
-    process.exit(1);
-  }
-  const data = JSON.parse(raw.slice(at));
+  const data = parseFirstJson(r.stdout || "");
   const blocks = Array.isArray(data) ? data : [data];
   const rows = [];
   blocks.forEach((block) => {
