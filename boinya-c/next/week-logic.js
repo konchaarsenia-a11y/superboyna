@@ -121,7 +121,12 @@
     var val = it.val != null ? it.val : it.value;
     var unit = it.unit ? String(it.unit) : "";
     var bit = name;
-    if (sub) bit += " / " + sub;
+    var word = "";
+    var ig = typeof globalThis !== "undefined" ? globalThis.BoinyaIgLabels : null;
+    if (ig && ig.igFractionWord && sub && !/^крошк/i.test(name) && !/^крошк/i.test(sub)) {
+      word = ig.igFractionWord(name, sub) || "";
+    }
+    if (sub) bit += " / " + (word || sub);
     if (val != null && val !== "") bit += " " + val + (unit ? " " + unit : "");
     return bit || "позиция";
   }

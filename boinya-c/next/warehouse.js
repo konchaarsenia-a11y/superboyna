@@ -87,11 +87,17 @@
     syncLabels();
   }
 
+  function shownWh_(name) {
+    var ig = root.BoinyaIgLabels;
+    var shown = ig && ig.shownProductName ? ig.shownProductName(name) : "";
+    return shown || name || "";
+  }
+
   function stockCard(it, shown) {
     var L = logic();
     var buy = it.buy ? ', <span style="color:var(--b-accent)">закупить</span>' : "";
     return '<article class="b-card" style="margin-bottom:8px">' +
-      "<b>" + esc(it.name) + '</b> <span class="b-note">' + esc(it.unit) + "</span>" +
+      "<b>" + esc(shownWh_(it.name)) + '</b> <span class="b-note">' + esc(it.unit) + "</span>" +
       '<div style="margin-top:6px"><b>' + esc(L.formatWhNum(shown)) + "</b>" + buy + "</div>" +
       '<div class="nx-pair" style="margin-top:8px">' +
         '<label class="b-field"><input class="b-field__input" type="number" id="arr_' + esc(it.row) + '" placeholder="дозакуп" inputmode="decimal"></label>' +

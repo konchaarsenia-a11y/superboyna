@@ -188,8 +188,16 @@
       return;
     }
     box.innerHTML = items.map(function (it) {
+      var rawKey = String(it.key || "");
+      var pipe = rawKey.indexOf("|");
+      var main = pipe >= 0 ? rawKey.slice(0, pipe) : rawKey;
+      var frac = pipe >= 0 ? rawKey.slice(pipe + 1) : "";
+      var e = eng();
+      var title = e && e.prettyProductName ? e.prettyProductName(main) : main;
+      var word = frac && e && e.humanFraction ? e.humanFraction(main, frac) : "";
+      var label = word ? (title + " · " + word) : title;
       return '<div class="nx-line">' +
-        '<div class="b-grow"><b style="word-break:break-word">' + esc(it.key) + '</b><div class="b-note">' + esc(it.kind || "") + "</div></div>" +
+        '<div class="b-grow"><b style="word-break:break-word">' + esc(label) + '</b><div class="b-note">' + esc(it.kind || "") + "</div></div>" +
         '<label class="b-field" style="width:96px;flex:none"><input class="b-field__input" type="number" step="0.01" min="0" data-rp-key="' +
         esc(it.key) + '" data-rp-kind="' + esc(it.kind || "per100") + '" value="' + (Number(it.price) || 0) + '"></label>' +
         "</div>";

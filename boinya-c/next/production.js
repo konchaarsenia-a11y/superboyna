@@ -41,6 +41,12 @@
   function maps() { return root.CourierMaps; }
   function esc(s) { return sh().esc(s); }
 
+  function shownProduct_(raw) {
+    var ig = root.BoinyaIgLabels;
+    var shown = ig && ig.shownProductName ? ig.shownProductName(raw) : "";
+    return shown || raw || "";
+  }
+
   function prettyName(raw) {
     var n = String(raw || "").trim();
     if (!n) return "";
@@ -374,7 +380,10 @@
   function cutSizesNote(item) {
     var cut = root.BoinyaCutFrac;
     if (!cut || !item || !item.sizes) return "";
-    var text = cut.sizesText(item.sizes, item.unit);
+    var sizes = item.sizes;
+    var ig = root.BoinyaIgLabels;
+    if (ig && ig.relabelSizes) sizes = ig.relabelSizes(item.name, sizes);
+    var text = cut.sizesText(sizes, item.unit);
     if (!text) return "";
     return '<p class="b-note">' + esc(text) + "</p>";
   }
@@ -403,7 +412,7 @@
     var html = '<article class="' + cls + '" style="margin-top:12px" data-cut="' + esc(key) + '">';
     html += '<div class="nx-cut-head"><button type="button" class="b-chip' + (it.outNext ? " b-chip--on" : "") + '" data-act="pr-bang" data-k="' + esc(key) + '"' + (readonly ? " disabled" : "") + '>!</button>';
     if (!readonly && chew) html += '<button type="button" class="b-chip nx-mini-bang' + (sur ? " b-chip--on" : "") + '" data-act="pr-surplus-open" data-k="' + esc(key) + '" aria-label="Излишек">!</button>';
-    html += '<p class="b-li__title" style="margin:0">' + esc(it.name || "") + "</p></div>";
+    html += '<p class="b-li__title" style="margin:0">' + esc(shownProduct_(it.name) || "") + "</p></div>";
     html += cutNote(it);
     html += '<p class="b-note">Нужно: ' + esc(String(dry)) + "<br>Сырьё: " + esc(String(raw)) + (sur ? ", излишек " + esc(String(sur)) : "") + "</p>";
     html += cutSizesNote(it);
@@ -752,7 +761,7 @@
       for (var i = 0; i < pending.length; i++) {
         var it = pending[i];
         var ans = await sh().choice({
-          title: "Позиция: " + it.name,
+          title: "Позиция: " + shownProduct_(it.name),
           text: "Есть в наличии и заготовлена?",
           options: [
             { label: "Да, заготовлена", value: "ready" },
@@ -2175,7 +2184,7 @@
       if (!it) return true;
       var next = !it.outNext;
       sh().confirm({
-        title: it.name,
+        title: shownProduct_(it.name),
         text: next ? "Пометить: на эту нарезку хватает, на следующую — уже нет?" : "Снять пометку дефицита на следующую нарезку?",
         ok: "Да"
       }).then(function (ok) {

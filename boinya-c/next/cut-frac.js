@@ -81,6 +81,11 @@
 
   /* То же дерево, что order-engine humanFraction. */
   function catalogWord(main, sub) {
+    var ig = typeof globalThis !== "undefined" ? globalThis.BoinyaIgLabels : null;
+    if (ig && ig.igFractionWord) {
+      var igWord = ig.igFractionWord(main, sub);
+      if (igWord) return igWord;
+    }
     var f = String(sub || "").trim();
     if (!f) return "";
     var m = String(main || "").toUpperCase();
