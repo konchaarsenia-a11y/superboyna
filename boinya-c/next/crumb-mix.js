@@ -59,7 +59,7 @@
       work = next ? after.slice(next.index) : "";
     }
     if (!found.length) return null;
-    var kind = hypo ? "hypo" : (found.every(function (f) { return f.kind === "veg"; }) ? "veg" : "meat");
+    var tier = mix3TierFromSources_(found, hypo, /мясн/i.test(raw));
     var ratio = found.map(function (f) { return f.grams; });
     var value = 0;
     ratio.forEach(function (n) { value += n; });
@@ -68,7 +68,7 @@
       main: "КРОШКА",
       name: "КРОШКА",
       sub: "",
-      crumbKind: kind,
+      crumbKind: "mix3:" + tier,
       value: value,
       ratio: ratio.slice(),
       sources: found.map(function (f) {
@@ -214,9 +214,61 @@
     return "Мясо";
   }
 
+  function mix3KindOf(g) {
+    var raw = String((g && g.crumbKind) || "");
+    var m = /^mix3:(mix|meat|hypo)$/i.exec(raw);
+    if (m) return m[1].toLowerCase();
+    if (g && g.crumbScheme === "mix3") {
+      var k = raw.toLowerCase();
+      if (k === "meat" || k === "hypo" || k === "mix") return k;
+      return "mix";
+    }
+    return "";
+  }
+
+  function mix3Title(kind) {
+    if (kind === "hypo") return "Микс гипоаллергенный";
+    if (kind === "meat") return "Микс мясной";
+    return "Микс";
+  }
+
+  function mix3TierFromSources_(found, hypo, meatWord) {
+    if (hypo) return "hypo";
+    if (meatWord) return "meat";
+    var tier = "";
+    (found || []).forEach(function (f) {
+      if (tier) return;
+      var n = String(f.name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) return;
+      if (n === "ЛЕГКОЕ" || n === "СЕРДЦЕ" || n === "РУБЕЦ Т" || n === "БАРАНЬЕ ЛЕГКОЕ" || n === "ПОЧКИ") {
+        tier = "mix";
+        return;
+      }
+      if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) {
+        tier = "hypo";
+        return;
+      }
+      tier = "meat";
+    });
+    return tier || "mix";
+  }
+
   function lineHtml(g, pretty) {
     if (!g) return "";
     var src = sourcesOf(g);
+    var schemeKind = mix3KindOf(g);
+    if (isCrumb(g) && schemeKind && src.length) {
+      var totalM = Number(g.val != null ? g.val : g.value);
+      var headM = mix3Title(schemeKind);
+      if (isFinite(totalM) && totalM > 0) headM += " — " + totalM + " " + (g.unit || "г");
+      var partsM = src.map(function (s) {
+        var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
+        var label = nominative(s.name || s.main, pretty);
+        var text = q ? (label + " — " + q.qty + " " + (q.unit || "г")) : label;
+        return '<div class="mix-part">' + esc(text) + "</div>";
+      }).join("");
+      return '<div class="mix"><div class="mix-title">' + esc(headM) + '</div><div class="mix-parts">' + partsM + "</div></div>";
+    }
     if (isCrumb(g) && src.length >= 2) {
       var total = Number(g.val != null ? g.val : g.value);
       var head = "Крошка микс";
@@ -418,6 +470,8 @@
     linesHtml: linesHtml,
     rowHtml: lineHtml,
     singleLabel: singleLabel,
+    mix3KindOf: mix3KindOf,
+    mix3Title: mix3Title,
     plainLabel: function (g) {
       var html = lineHtml(g);
       return String(html || "").replace(/<[^>]+>/g, "");

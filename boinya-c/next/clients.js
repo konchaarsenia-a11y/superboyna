@@ -1398,7 +1398,7 @@
   function pickerCat(cat) {
     markAddCat(cat);
     if (cat === "crumb") {
-      crumbDraft = { kind: "meat", sources: [], grams: [], qty: "" };
+      crumbDraft = { kind: "mix", sources: [], grams: [], qty: "" };
       renderCrumbPicker();
       return;
     }

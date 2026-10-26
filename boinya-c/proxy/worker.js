@@ -29698,6 +29698,20 @@ function crumbPackGoodsD1_(it, grams) {
 }
 
 function retailGoodsFromCrumbItemD1_(map, it, val) {
+  // Новые заказы: crumbKind "mix3:mix|meat|hypo". Старые без метки — пачки ниже.
+  const mixTag = String((it && it.crumbKind) || "");
+  const mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
+  const mixKind = mixExec
+    ? String(mixExec[1]).toLowerCase()
+    : (it && it.crumbScheme === "mix3" && /^(mix|meat|hypo)$/i.test(String(it.crumbKind || "mix"))
+      ? String(it.crumbKind || "mix").toLowerCase()
+      : "");
+  if (mixKind) {
+    const mixRate = mixKind === "hypo" ? 25 : (mixKind === "meat" ? 20 : 15);
+    const mixG = Number(val) || 0;
+    if (!(mixG > 0)) return 0;
+    return Math.round(mixG * mixRate * 100) / 10000;
+  }
   // Одна правка включает схему 09.10: "rates-2026-10-09"
   const CRUMB_RETAIL_SCHEME_ = "packs";
   if (CRUMB_RETAIL_SCHEME_ !== "rates-2026-10-09") {
