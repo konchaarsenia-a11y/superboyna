@@ -880,7 +880,7 @@ function recalculateCuttingForDate_(ss, dateText) {
     var noteRowIdx = block.note - 1;
     if (noteRowIdx >= 0 && noteRowIdx < matrix.length) {
       for (var sc = 0; sc < 15; sc++) {
-        if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(matrix[noteRowIdx][sc] || ""))) skipCols[sc] = true;
+        if (sheetColumnHiddenFromCutting_(matrix[noteRowIdx][sc])) skipCols[sc] = true;
       }
     }
   }
@@ -906,6 +906,11 @@ function recalculateCuttingForDate_(ss, dateText) {
   }
   if (cutting) cutting.getRange("B3:B48").setValues(totals);
   return totals;
+}
+
+/** Перенос: колонку с [НЕ РЕЗАТЬ] не суммируем в нарезку. На сборке приложения такой заказ тоже снят (skipAssemble). */
+function sheetColumnHiddenFromCutting_(note) {
+  return /\[НЕ\s*РЕЗАТЬ\]/i.test(String(note || ""));
 }
 
 /** Колонки C–Q (0..14) с [НЕ РЕЗАТЬ] в примечании блока дня. */
@@ -947,7 +952,7 @@ function noCutSkipColsForBlock_(sheet, block) {
   try {
     var notes = sheet.getRange(block.note, 3, 1, 15).getValues()[0] || [];
     for (var sc = 0; sc < 15; sc++) {
-      if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(notes[sc] || ""))) skip[sc] = true;
+      if (sheetColumnHiddenFromCutting_(notes[sc])) skip[sc] = true;
     }
   } catch (eN) {}
   return skip;

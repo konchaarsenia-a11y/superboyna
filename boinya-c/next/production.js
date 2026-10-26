@@ -831,6 +831,36 @@
     paintCut();
   }
 
+  /* Те же живые жевалки, что уйдут в план нарезки: карточки сборки, без переноса. */
+  function asmChewRollup(clients) {
+    var cut = root.BoinyaCutFrac;
+    if (!cut || !cut.isChew || !cut.phrase) return "";
+    var groups = {};
+    var orderKeys = [];
+    (clients || []).forEach(function (c) {
+      if (!c || c.skipAssemble) return;
+      (viewBasket(c) || []).forEach(function (it) {
+        if (!cut.isChew(it)) return;
+        var nm = prettyName(it.name || it.main || "");
+        var word = cut.phrase(it) || "";
+        var n = Number(it.val != null ? it.val : it.value) || 0;
+        if (!nm || !(n > 0)) return;
+        var key = nm + "\n" + word;
+        if (!groups[key]) {
+          groups[key] = { name: nm, word: word, n: 0 };
+          orderKeys.push(key);
+        }
+        groups[key].n += n;
+      });
+    });
+    if (!orderKeys.length) return "";
+    var text = orderKeys.map(function (k) {
+      var g = groups[k];
+      return g.word ? (g.name + " " + g.word + " " + g.n + " шт") : (g.name + " " + g.n + " шт");
+    }).join(", ");
+    return '<p class="b-note">Жевалки: ' + esc(text) + "</p>";
+  }
+
   function dressuraBlock(clients) {
     var mix = root.BoinyaCrumbMix;
     if (!mix || !mix.dressuraSummary || !mix.dressuraSummaryHtml) return "";
@@ -1025,6 +1055,7 @@
     });
     html += "</div>";
     html += '<p class="b-note">Итого пакетов: ' + enabledTotal + ", собрано " + doneN + " / " + clients.length + "</p>";
+    html += asmChewRollup(clients);
     html += dressuraBlock(pending);
     html += "</article>";
     clients.forEach(function (c) {
