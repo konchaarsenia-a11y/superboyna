@@ -6423,8 +6423,42 @@ async function touchArriveSnaps_(env, day, row, spec) {
   } catch (eA) {}
 }
 
+/**
+ * Точка Варки — отдельный человек. «Varka Цвирко» и «Varka Шевченко»
+ * не сходятся в handle VARKA. Чужие ники идут прежним normalizeMatchKey_.
+ * Голая «Варка» без улицы остаётся одной, если адрес тоже один.
+ */
+function partnerOpsKey_(c) {
+  if (!c) return "";
+  function pointOf(raw) {
+    var s = String(raw || "")
+      .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+      .trim();
+    return partnerPointKey_(s);
+  }
+  var name = pointOf(c.ownerName || c.name || c.client || "");
+  var mk = pointOf(c.matchKey || c.match_key || "");
+  var addr = partnerAddressKey_(c.address || "");
+  if (name.indexOf("ВАРКА ") === 0) return name;
+  if (mk.indexOf("ВАРКА ") === 0) return mk;
+  if (name === "ВАРКА" || mk === "ВАРКА") {
+    if (addr) return "ВАРКА " + addr;
+    var id = String(c.partnerOrderId || "").trim();
+    if (id) return "ВАРКА#" + id;
+    return "ВАРКА";
+  }
+  return "";
+}
+
 function opsPersonKey_(c) {
   if (!c) return "";
+  var point = "";
+  try {
+    point = partnerOpsKey_(c);
+  } catch (ePoint) {
+    point = "";
+  }
+  if (point) return point;
   var raw = c.matchKey || c.ownerName || c.name || "";
   raw = String(raw).replace(/\s*[·•#]\s*2\s*$/i, "").trim();
   return normalizeMatchKey_(raw);
@@ -6613,6 +6647,13 @@ async function ensureCourierDay_(env, day) {
       const sc = hit.clients[j];
       if (!lookupByMatchAliases_(liveBy, (sc && (sc.matchKey || sc.name)) || "")) missing = true;
     }
+  }
+  // Две точки Варки с одним handle VARKA: алиас их не различает, ключ точки различает.
+  if (
+    !missing &&
+    opsPeopleSetsDiffer_(opsPeopleKeySet_(clients), opsPeopleKeySet_((hit && hit.clients) || []))
+  ) {
+    missing = true;
   }
   if (!missing) return { rebuilt: false, day: day, n: clients.length };
   await rebuildCourierDay_(env, day);
@@ -7667,7 +7708,7 @@ function dedupeOrdersPreferSlot_(rows) {
   (rows || []).forEach(function (row) {
     if (!row) return;
     const seg = normalizeSegmentLabel_(row.segment || "") || "";
-    const mk = (normalizeMatchKey_(row.match_key || row.client || "") || ("id:" + row.id)) + "|" + seg;
+    const mk = (partnerOpsKey_(row) || normalizeMatchKey_(row.match_key || row.client || "") || ("id:" + row.id)) + "|" + seg;
     const prev = byMk[mk];
     if (!prev) {
       byMk[mk] = row;
@@ -8421,12 +8462,12 @@ async function repairFutureWeekDupes_(env, opts) {
   const sourceMks = Object.create(null);
   try {
     const qSrc = await env.DB.prepare(
-      "SELECT id, match_key, client, day_name, date_iso FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso <= ? LIMIT 500"
+      "SELECT id, match_key, client, address, day_name, date_iso FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso <= ? LIMIT 500"
     )
       .bind(sourceIsos[0] || fromMonday, sourceIsos[6] || fromMonday)
       .all();
     ((qSrc && qSrc.results) || []).forEach(function (r) {
-      const mk = normalizeMatchKey_(r.match_key || r.client);
+      const mk = partnerOpsKey_(r) || normalizeMatchKey_(r.match_key || r.client);
       const day = String(r.day_name || "");
       if (!mk || day === "Будущая неделя") return;
       sourceMks[mk] = {
@@ -8442,7 +8483,7 @@ async function repairFutureWeekDupes_(env, opts) {
   try {
     const gf = await gasProxy_("getClients", { day: "Будущая неделя" }, env, { write: false });
     ((gf && gf.clients) || []).forEach(function (c) {
-      const mk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+      const mk = partnerOpsKey_(c) || normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
       const nm = (c && (c.name || c.client)) || mk;
       if (mk) {
         gasFutureMks[mk] = nm;
@@ -8454,7 +8495,7 @@ async function repairFutureWeekDupes_(env, opts) {
   let rows = [];
   try {
     const qF = await env.DB.prepare(
-      "SELECT id, status, match_key, client, day_name, date_iso FROM orders WHERE date_iso = ? OR day_name = ? LIMIT 500"
+      "SELECT id, status, match_key, client, address, day_name, date_iso FROM orders WHERE date_iso = ? OR day_name = ? LIMIT 500"
     )
       .bind(futureIso, "Будущая неделя")
       .all();
@@ -8468,7 +8509,7 @@ async function repairFutureWeekDupes_(env, opts) {
     const r = rows[i];
     if (!r) continue;
     result.scanned++;
-    const mk = normalizeMatchKey_(r.match_key || r.client);
+    const mk = partnerOpsKey_(r) || normalizeMatchKey_(r.match_key || r.client);
     if (!mk) continue;
     const verdict = decideFutureWeekDupe_(!!sourceMks[mk], !!gasFutureMks[mk], alignToGas);
     const info = {
@@ -8641,7 +8682,7 @@ async function getClients_(params, env) {
         const seenMk = Object.create(null);
         const seenIdx = Object.create(null);
         rows.forEach(function (r, ri) {
-          const mk = normalizeMatchKey_((r && (r.match_key || r.client)) || "");
+          const mk = partnerOpsKey_(r) || normalizeMatchKey_((r && (r.match_key || r.client)) || "");
           if (mk) {
             seenMk[mk] = true;
             if (seenIdx[mk] == null) seenIdx[mk] = ri;
@@ -8651,7 +8692,7 @@ async function getClients_(params, env) {
         for (let xi = 0; xi < extra.length; xi++) {
           const rowX = extra[xi];
           if (!rowX) continue;
-          const mkX = normalizeMatchKey_(rowX.match_key || rowX.client || "");
+          const mkX = partnerOpsKey_(rowX) || normalizeMatchKey_(rowX.match_key || rowX.client || "");
           if (mkX && seenMk[mkX]) {
             const idx = seenIdx[mkX];
             const slot = idx != null ? rows[idx] : null;
@@ -9801,7 +9842,7 @@ function uniqPeople_(list) {
   const out = [];
   (list || []).forEach(function (c) {
     if (!c) return;
-    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick);
+    const mk = partnerOpsKey_(c) || normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick);
     if (!mk || seen[mk]) return;
     seen[mk] = true;
     out.push(c);
@@ -10946,7 +10987,7 @@ function countPeopleFromViewPayload_(payload) {
   let n = 0;
   lists.forEach(function (c) {
     if (!c) return;
-    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick);
+    const mk = partnerOpsKey_(c) || normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick);
     if (!mk || seen[mk]) return;
     seen[mk] = true;
     n++;
@@ -11265,7 +11306,7 @@ async function rebuildMonthOverview_(env, monthWanted) {
   let prev = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
   if (!prev || !Array.isArray(prev.days)) prev = prevGlobal;
   const q = await env.DB.prepare(
-    "SELECT date_iso, match_key, client, segment, source FROM orders WHERE status = 'active' AND date_iso != ''"
+      "SELECT date_iso, match_key, client, address, segment, source FROM orders WHERE status = 'active' AND date_iso != ''"
   ).all();
   const byDate = Object.create(null);
   // D1-only counts (источник правды). Snap/GAS не сидят «призраков».
@@ -11273,7 +11314,7 @@ async function rebuildMonthOverview_(env, monthWanted) {
   (q.results || []).forEach(function (r) {
     const iso = r.date_iso;
     if (!iso || iso.slice(0, 7) !== month) return;
-    const mk = normalizeMatchKey_(r.match_key || r.client);
+    const mk = partnerOpsKey_(r) || normalizeMatchKey_(r.match_key || r.client);
     if (!mk) return;
     if (!orderByDate[iso]) {
       orderByDate[iso] = { seen: Object.create(null), count: 0, segments: {} };
@@ -11793,7 +11834,8 @@ async function rebuildAssemblyDay_(env, day) {
         cutItemLabels: c.cutItemLabels || [],
         dogPart: ent.dogPart || 0,
         ownerName: baseName,
-        matchKey: c.matchKey
+        matchKey: c.matchKey,
+        partnerOrderId: c.partnerOrderId || ""
       };
       clients.push(stampDisplayDog_(card, dogDir));
     });
@@ -12214,7 +12256,12 @@ function partnerOrderListed_(list, order) {
     if (id && String(c.partnerOrderId || "") === id) return true;
     if (id && String(c.note || "").indexOf(id) >= 0) return true;
     const ck = partnerPointKey_(c.name || c.client || "");
-    if (key && ck === key) return true;
+    if (key && ck === key) {
+      if (key !== "ВАРКА") return true;
+      const caddr = partnerAddressKey_(c.address || "");
+      const oaddr = partnerAddressKey_((order && order.address) || "");
+      if (!oaddr || !caddr || oaddr === caddr || oaddr.indexOf(caddr) >= 0 || caddr.indexOf(oaddr) >= 0) return true;
+    }
   }
   return false;
 }
@@ -14136,7 +14183,7 @@ function weekDupeDropIds_(rows) {
     const r = rows[i];
     if (!r || String(r.status || "active").toLowerCase() === "deleted") continue;
     if (!String(r.day_name || "").trim()) continue;
-    const mk = normalizeMatchKey_(r.match_key || r.client || "");
+    const mk = partnerOpsKey_(r) || normalizeMatchKey_(r.match_key || r.client || "");
     if (!mk) continue;
     if (!byMk[mk]) byMk[mk] = [];
     byMk[mk].push(r);
@@ -15795,12 +15842,30 @@ async function setAssemblyFlag_(params, env, flag) {
   const val = toBool_(params[flag] != null ? params[flag] : params.value);
   const snap = await getAssembly_({ day: day }, env);
   let exact = false;
+  let wantPoint = "";
+  try {
+    wantPoint = partnerOpsKey_({ name: client, matchKey: params.matchKey || "", address: params.address || "" });
+  } catch (eWant) {
+    wantPoint = "";
+  }
+  if (wantPoint && wantPoint.indexOf("ВАРКА ") === 0) {
+    (snap.clients || []).forEach(function (c) {
+      var got = "";
+      try { got = partnerOpsKey_(c); } catch (eGot) { got = ""; }
+      if (got && got === wantPoint) {
+        c[flag] = val;
+        exact = true;
+      }
+    });
+  }
+  if (!exact) {
   (snap.clients || []).forEach(function (c) {
     if (String(c.name || "") === client) {
       c[flag] = val;
       exact = true;
     }
   });
+  }
   // без точного имени (старые карточки) — по matchKey, но не трогать обе собаки разом
   if (!exact) {
     (snap.clients || []).forEach(function (c) {
@@ -23429,7 +23494,7 @@ async function scrubWeekClientDupes_(env) {
   let rows = [];
   try {
     const q = await env.DB.prepare(
-      "SELECT id, match_key, client, day_name, date_iso FROM orders WHERE status = 'active' AND day_name != '' AND day_name IS NOT NULL LIMIT 500"
+      "SELECT id, match_key, client, address, day_name, date_iso FROM orders WHERE status = 'active' AND day_name != '' AND day_name IS NOT NULL LIMIT 500"
     ).all();
     rows = (q && q.results) || [];
   } catch (eQ) {

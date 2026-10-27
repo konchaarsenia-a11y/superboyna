@@ -910,7 +910,9 @@
   }
 
   function asmTitle(c) {
-    var owner = (c && (c.ownerName || c.name)) || "";
+    var packs = root.BoinyaAsmPacks;
+    var face = packs && packs.pointLabel && packs.pointLabel(c);
+    var owner = face || (c && (c.ownerName || c.name)) || "";
     owner = String(owner).replace(/\s*[·•#]\s*2\s*$/i, "").trim();
     var part = Number(c && c.dogPart) || 0;
     var nick = asmNick(c, part || 1);
@@ -1091,13 +1093,16 @@
       if (!Array.isArray(topLabels)) topLabels = [];
       var topUp = !c.assembled && (!!(c.topUp) || String(c.cutMode || "") === "partial") && topLabels.length;
       var plaque = c.assembled ? "собран" : (topUp ? "доложить" : "не собран");
+      var pointFace = root.BoinyaAsmPacks && root.BoinyaAsmPacks.pointLabel && root.BoinyaAsmPacks.pointLabel(c);
+      var pointAddr = pointFace && c.address ? '<p class="b-note">' + esc(c.address) + "</p>" : "";
       html += '<article class="b-card' + (c.assembled ? " nx-dim" : "") + '" style="margin-top:12px">' +
-        '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
+        '<label class="nx-check"><input type="checkbox" data-act="pr-asm" data-name="' + esc(asmTitle(c) || c.name || "") + '"' + (c.assembled ? " checked" : "") + "> " +
         esc(asmTitle(c)) + ", " + bags + " пак. " +
         '<span class="plaque ' + (c.assembled || topUp ? "plaque--gold" : "plaque--bad") + '">' + plaque + "</span>" +
         (c.printed ? ", пропечатано" : "") + "</label>" +
+        pointAddr +
         (topUp ? '<p class="b-note">Доложить: ' + esc(topLabels.join(", ")) + "</p>" : "") +
-        '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
+        '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(asmTitle(c) || c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
         lines +
         '<p class="b-note">Пакеты: ' + esc(summary) + (c.printed ? ", без лакомств" : "") + "</p></article>";
     });
@@ -1126,7 +1131,7 @@
       return;
     }
     (res.clients || []).forEach(function (c) {
-      var o = asmFlags[String(c.name || "").toUpperCase()];
+      var o = asmFlags[String(asmTitle(c) || c.name || "").toUpperCase()];
       if (!o) return;
       if (Date.now() - (o.ts || 0) > 1800000) return;
       if (o.assembled !== undefined) c.assembled = !!o.assembled;
@@ -1138,7 +1143,11 @@
 
   function findAsm(name) {
     var list = (asm && asm.clients) || [];
-    for (var i = 0; i < list.length; i++) if (String(list[i].name || "") === String(name || "")) return list[i];
+    var want = String(name || "");
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].name || "") === want) return list[i];
+      if (asmTitle(list[i]) === want) return list[i];
+    }
     return null;
   }
 
@@ -1146,7 +1155,7 @@
     var c = findAsm(name);
     var day = currentDay("nxAsmDay", "pack");
     if (!c || !day) return;
-    var key = String(c.name || "").toUpperCase();
+    var key = String(asmTitle(c) || c.name || "").toUpperCase();
     var prev = { assembled: !!c.assembled, printed: !!c.printed };
     if (patch.assembled !== undefined) c.assembled = !!patch.assembled;
     if (patch.printed !== undefined) c.printed = !!patch.printed;
@@ -1156,12 +1165,13 @@
     try { overlayCour(cour, (asm && asm.clients) || []); } catch (eOv) {}
     try {
       var body = patch.printed !== undefined
-        ? { action: "setPrinted", day: day, client: c.name, printed: !!c.printed }
+        ? { action: "setPrinted", day: day, client: c.name, matchKey: c.matchKey || "", printed: !!c.printed }
         : { action: "setAssembled", day: day, client: c.name, matchKey: c.matchKey || "", dogPart: c.dogPart || "", assembled: !!c.assembled };
       var res = await api().apiPost(body);
       if (!res || (res.status !== "success" && res.status !== "sent_opaque")) throw new Error("save");
-      if (patch.printed !== undefined) sh().toast(c.printed ? ("Пропечатано без лакомств: " + c.name) : ("Печать сброшена: " + c.name));
-      else sh().toast(c.assembled ? ("Собран: " + (c.dogName || c.name)) : ("Снято: " + (c.dogName || c.name)));
+      var whoAsm = asmTitle(c) || c.name;
+      if (patch.printed !== undefined) sh().toast(c.printed ? ("Пропечатано без лакомств: " + whoAsm) : ("Печать сброшена: " + whoAsm));
+      else sh().toast(c.assembled ? ("Собран: " + whoAsm) : ("Снято: " + whoAsm));
     } catch (e) {
       c.assembled = prev.assembled;
       c.printed = prev.printed;
@@ -1511,7 +1521,9 @@
       var noteCtx = { note: c.note || "", role: "cour" };
       var note = noteFor(c.note || "", "cour");
       var tel = phoneOf(c);
-      var who = String(c.name || "").split(/\s*[·•]\s*/);
+      var facePacks = root.BoinyaAsmPacks;
+      var face = facePacks && facePacks.pointLabel && facePacks.pointLabel(c);
+      var who = String(face || c.name || "").split(/\s*[·•]\s*/);
       var dog = who[0] || "";
       var nick = who[1] || who[0] || c.name || "Клиент";
       var kind = clientTypeLabel(c);

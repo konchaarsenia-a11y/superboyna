@@ -1009,6 +1009,17 @@
 
   function rowKey(c) {
     if (!c) return "";
+    var namePoint = partnerPointMatchKey(c.name || c.client || "");
+    var mkPoint = partnerPointMatchKey(c.matchKey || "");
+    if (namePoint) return namePoint;
+    if (mkPoint) return mkPoint;
+    function bare(raw) {
+      return String(raw || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
+    }
+    if (bare(c.name || c.client || "") === "ВАРКА" || bare(c.matchKey || "") === "ВАРКА") {
+      var addr = String(c.address || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е");
+      if (addr) return "ВАРКА " + addr;
+    }
     return viewClientKey(c.matchKey || "") || viewClientKey(c.name || c.client || "");
   }
 
@@ -1360,6 +1371,7 @@
     resolveOrderType: resolveOrderType,
     viewClientKey: viewClientKey,
     partnerPointMatchKey: partnerPointMatchKey,
+    rowKey: rowKey,
     clientGaps: clientGaps,
     currentWeekKey: currentWeekKey,
     peopleToast: peopleToast,
