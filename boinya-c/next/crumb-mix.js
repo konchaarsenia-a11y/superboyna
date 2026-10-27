@@ -59,7 +59,7 @@
       work = next ? after.slice(next.index) : "";
     }
     if (!found.length) return null;
-    var tier = mix3TierFromSources_(found, hypo, /мясн/i.test(raw));
+    var tier = mix4TierFromSources_(found, hypo);
     var ratio = found.map(function (f) { return f.grams; });
     var value = 0;
     ratio.forEach(function (n) { value += n; });
@@ -68,7 +68,7 @@
       main: "КРОШКА",
       name: "КРОШКА",
       sub: "",
-      crumbKind: "mix3:" + tier,
+      crumbKind: "mix4:" + tier,
       value: value,
       ratio: ratio.slice(),
       sources: found.map(function (f) {
@@ -232,6 +232,43 @@
     return "Микс";
   }
 
+  function mix4KindOf(g) {
+    var m = /^mix4:(dress|veg|hypo)$/i.exec(String((g && g.crumbKind) || ""));
+    return m ? m[1].toLowerCase() : "";
+  }
+
+  function mix4Title(kind) {
+    if (kind === "hypo") return "Гипоаллергенные";
+    if (kind === "veg") return "Овощи/фрукты";
+    return "Мясные (дрессура)";
+  }
+
+  function mix4TierFromSources_(found, hypo) {
+    if (hypo) return "hypo";
+    var sawVeg = false;
+    var sawDress = false;
+    var sawHypo = false;
+    (found || []).forEach(function (f) {
+      var n = String(f.name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) {
+        sawVeg = true;
+        return;
+      }
+      if (n === "ЛЕГКОЕ" || n === "СЕРДЦЕ" || n === "РУБЕЦ Т" || n === "БАРАНЬЕ ЛЕГКОЕ" || n === "ПОЧКИ") {
+        sawDress = true;
+        return;
+      }
+      if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) {
+        sawHypo = true;
+        return;
+      }
+      sawDress = true;
+    });
+    if (sawHypo && !sawDress) return "hypo";
+    if (!sawDress && sawVeg) return "veg";
+    return "dress";
+  }
+
   function mix3TierFromSources_(found, hypo, meatWord) {
     if (hypo) return "hypo";
     if (meatWord) return "meat";
@@ -256,10 +293,11 @@
   function lineHtml(g, pretty) {
     if (!g) return "";
     var src = sourcesOf(g);
-    var schemeKind = mix3KindOf(g);
+    var kind4 = mix4KindOf(g);
+    var schemeKind = kind4 || mix3KindOf(g);
     if (isCrumb(g) && schemeKind && src.length) {
       var totalM = Number(g.val != null ? g.val : g.value);
-      var headM = mix3Title(schemeKind);
+      var headM = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
       if (isFinite(totalM) && totalM > 0) headM += " — " + totalM + " " + (g.unit || "г");
       var partsM = src.map(function (s) {
         var q = partQty(g, s, sourcePos(g, s), sourceCount(g));

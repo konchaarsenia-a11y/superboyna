@@ -22796,7 +22796,21 @@ function crumbPackGoodsGs_(it, grams) {
   return Math.round((Number(grams) / 100) * row[100] * 100) / 100;
 }
 
+/** Новые заказы mix4. Старые mix3 и пачки не меняются. 100/50/20 г без округления до рубля. */
+function crumbMix4GoodsGs_(it, val) {
+  var tag = String((it && it.crumbKind) || "");
+  var m = /^mix4:(dress|veg|hypo)$/i.exec(tag);
+  if (!m) return null;
+  var kind = String(m[1]).toLowerCase();
+  var rate = kind === "hypo" ? 22 : (kind === "veg" ? 17 : 19);
+  var g = Number(val) || 0;
+  if (!(g > 0)) return 0;
+  return Math.round(g * rate * 100) / 10000;
+}
+
 function retailGoodsFromCrumbItemGs_(it, val) {
+  var mix4 = crumbMix4GoodsGs_(it, val);
+  if (mix4 != null) return mix4;
   // Новые заказы: crumbKind "mix3:mix|meat|hypo". Старые без метки — пачки ниже.
   var mixTag = String((it && it.crumbKind) || "");
   var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);

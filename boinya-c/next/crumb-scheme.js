@@ -35,6 +35,29 @@
     return Math.round(g * rate * 100) / 10000;
   }
 
+  /* Новые заказы. Старые mix3 остаются на 15/20/25. */
+  function mix4KindOf(it) {
+    if (!it) return "";
+    var m = /^mix4:(dress|veg|hypo)$/i.exec(String(it.crumbKind || ""));
+    return m ? m[1].toLowerCase() : "";
+  }
+
+  function mix4Rate(kind) {
+    if (kind === "hypo") return 22;
+    if (kind === "veg") return 17;
+    if (kind === "dress") return 19;
+    return 0;
+  }
+
+  function mix4Goods(it, grams) {
+    var kind = mix4KindOf(it);
+    var rate = mix4Rate(kind);
+    if (!(rate > 0)) return null;
+    var g = Number(grams);
+    if (!isFinite(g) || !(g > 0)) return 0;
+    return Math.round(g * rate * 100) / 10000;
+  }
+
   function install(engine) {
     if (!engine || engine.__crumbMix3 || typeof engine.calcRetailBasketTotal !== "function") return engine;
     var origCalc = engine.calcRetailBasketTotal;
@@ -44,13 +67,14 @@
       var extraCost = 0;
       var extraLines = [];
       (list || []).forEach(function (it) {
-        var kind = mix3KindOf(it);
+        var kind4 = mix4KindOf(it);
+        var kind = kind4 || mix3KindOf(it);
         if (!kind) {
           plain.push(it);
           return;
         }
         var val = it && it.val != null ? it.val : it && it.value;
-        var cost = mix3Goods(it, val);
+        var cost = kind4 ? mix4Goods(it, val) : mix3Goods(it, val);
         if (cost == null) {
           plain.push(it);
           return;
@@ -60,7 +84,7 @@
           name: (it && (it.name || it.main)) || "крошка",
           sub: (it && it.sub) || "",
           val: Number(val) || 0,
-          per100: mix3Rate(kind),
+          per100: kind4 ? mix4Rate(kind4) : mix3Rate(kind),
           cost: cost,
           found: true
         });
@@ -103,6 +127,9 @@
     mix3KindOf: mix3KindOf,
     mix3Rate: mix3Rate,
     mix3Goods: mix3Goods,
+    mix4KindOf: mix4KindOf,
+    mix4Rate: mix4Rate,
+    mix4Goods: mix4Goods,
     install: install
   };
 });

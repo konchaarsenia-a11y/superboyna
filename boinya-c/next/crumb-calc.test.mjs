@@ -35,34 +35,50 @@ test("пул крошки содержит рубец и не содержит �
 });
 
 test("крошка рубца 100 г и микс попадают в состав и в текст", () => {
-  const one = api.crumbItemFromDraft({ kind: "mix", sources: ["РУБЕЦ Т"], grams: [], qty: 100 });
+  const one = api.crumbItemFromDraft({ kind: "dress", sources: ["РУБЕЦ Т"], grams: [], qty: 100 });
   assert.equal(one.ok, true);
   assert.equal(one.item.cat, "crumb");
-  assert.equal(one.item.crumbKind, "mix3:mix");
+  assert.equal(one.item.crumbKind, "mix4:dress");
   assert.equal(one.item.sources[0].name, "РУБЕЦ Т");
   assert.equal(one.item.value, 100);
-  assert.match(mix.plainLabel(one.item), /Микс — 100 г/);
+  assert.match(mix.plainLabel(one.item), /Мясные \(дрессура\) — 100 г/);
   assert.match(mix.plainLabel(one.item), /рубец т — 100 г/i);
-  const msg = price.composeRetailClientMessage([one.item], 15, "");
-  assert.match(msg, /Микс — 100 г/);
+  const msg = price.composeRetailClientMessage([one.item], 19, "");
+  assert.match(msg, /Мясные \(дрессура\) — 100 г/);
   assert.doesNotMatch(msg, /Доставка/);
   const quote = engine.calcRetailBasketTotal([one.item], { deliveriesN: 1, applyDelivery: false });
-  assert.equal(quote.goods, 15);
+  assert.equal(quote.goods, 19);
 
-  const draft = { kind: "mix", sources: ["ЛЁГКОЕ", "РУБЕЦ Т"], grams: ["60", "40"], qty: 100 };
+  const draft = { kind: "dress", sources: ["ЛЁГКОЕ", "РУБЕЦ Т"], grams: ["60", "40"], qty: 100 };
   draft.qty = Math.max(5, api.gramStep_(draft.qty, -1));
   assert.equal(draft.qty, 95);
   assert.deepEqual(draft.sources, ["ЛЁГКОЕ", "РУБЕЦ Т"]);
   const two = api.crumbItemFromDraft(draft);
   assert.equal(two.ok, true);
   assert.equal(two.item.value, 100);
-  assert.equal(two.item.crumbKind, "mix3:mix");
-  assert.match(mix.plainLabel(two.item), /Микс — 100 г/);
+  assert.equal(two.item.crumbKind, "mix4:dress");
+  assert.match(mix.plainLabel(two.item), /Мясные \(дрессура\) — 100 г/);
   assert.match(mix.plainLabel(two.item), /лёгкое — 60 г/i);
   assert.match(mix.plainLabel(two.item), /рубец т — 40 г/i);
-  const withVeg = api.crumbItemFromDraft({ kind: "mix", sources: ["ЛЁГКОЕ", "ЯБЛОКИ"], grams: ["50", "50"], qty: 100 });
-  assert.equal(withVeg.ok, true);
-  assert.equal(engine.calcRetailBasketTotal([withVeg.item], { applyDelivery: false }).goods, 15);
+  const veg = api.crumbItemFromDraft({ kind: "veg", sources: ["ЯБЛОКИ"], grams: [], qty: 50 });
+  assert.equal(veg.ok, true);
+  assert.equal(veg.item.crumbKind, "mix4:veg");
+  assert.equal(engine.calcRetailBasketTotal([veg.item], { applyDelivery: false }).goods, 8.5);
+  const hypo = api.crumbItemFromDraft({ kind: "hypo", sources: ["ИНДЕЙКА"], grams: [], qty: 20 });
+  assert.equal(hypo.ok, true);
+  assert.equal(hypo.item.crumbKind, "mix4:hypo");
+  assert.equal(engine.calcRetailBasketTotal([hypo.item], { applyDelivery: false }).goods, 4.4);
+  const oldMix = {
+    cat: "crumb",
+    crumbKind: "mix3:mix",
+    name: "крошка",
+    main: "крошка",
+    value: 100,
+    sources: [{ name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", cat: "dressura" }],
+    ratio: [100]
+  };
+  assert.match(mix.plainLabel(oldMix), /Микс — 100 г/);
+  assert.equal(engine.calcRetailBasketTotal([oldMix], { applyDelivery: false }).goods, 15);
 
   const chew = api.crumbItemFromDraft({ kind: "mix", sources: ["ТРАХЕЯ"], qty: 100 });
   assert.equal(chew.ok, false);
@@ -92,16 +108,24 @@ test("расчёт зовёт конструктор крошки, а не пу�
     { kind: "mix", sources: ["РУБЕЦ Т"], grams: [], qty: 100 },
     { kind: "cl-ckind", src: "cl-csrc", add: "cl-csrc-add", del: "cl-csrc-del", gram: "cl-cgram", qty: "cl-cqty" }
   );
-  assert.match(html, /Микс мясной/);
-  assert.match(html, /Микс гипоаллергенный/);
+  assert.match(html, /Мясные \(дрессура\)/);
+  assert.match(html, /Овощи\/фрукты/);
+  assert.match(html, /Гипоаллергенные/);
   assert.match(html, /Рубец Т/);
-  assert.match(html, /15 BYN за 100 г/);
+  assert.match(html, /19 BYN за 100 г, строго по весу/);
   assert.match(html, /data-act="cl-cqty-in"/);
+  assert.doesNotMatch(html, /Микс мясной/);
   assert.doesNotMatch(html, /Пусто/);
-  assert.doesNotMatch(html, /Печень/);
-  const meatHtml = api.crumbBuilderHtml({ kind: "meat", sources: [], grams: [], qty: 100 });
-  assert.match(meatHtml, /Печень/);
-  assert.match(meatHtml, /Яблоки/);
-  assert.doesNotMatch(meatHtml, /Рубец Т/);
-  assert.doesNotMatch(meatHtml, /Индейка/);
+  assert.match(html, /Печень/);
+  assert.doesNotMatch(html, /Яблоки/);
+  assert.doesNotMatch(html, /Индейка/);
+  const vegHtml = api.crumbBuilderHtml({ kind: "veg", sources: [], grams: [], qty: 100 });
+  assert.match(vegHtml, /Яблоки/);
+  assert.match(vegHtml, /17 BYN за 100 г/);
+  assert.doesNotMatch(vegHtml, /Рубец Т/);
+  const hypoHtml = api.crumbBuilderHtml({ kind: "hypo", sources: [], grams: [], qty: 100 });
+  assert.match(hypoHtml, /Индейка/);
+  assert.match(hypoHtml, /22 BYN за 100 г/);
+  assert.doesNotMatch(hypoHtml, /Рубец Т/);
+  assert.doesNotMatch(hypoHtml, /Яблоки/);
 });

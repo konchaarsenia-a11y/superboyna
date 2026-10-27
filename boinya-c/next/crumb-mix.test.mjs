@@ -33,6 +33,7 @@ function cuttingFixture() {
     "crumbParentFromBasketName_",
     "cuttingNameFromBasketItem_",
     "cuttingAggKey_",
+    "basketForCutting_",
     "cuttingItemsFromPeople_",
     "isChewProductNameD1_",
     "isChewCrumbSourceD1_",
@@ -101,7 +102,7 @@ test("cutting splits 20 and 50", () => {
 
 test("assembly lines name both sources", () => {
   const html = mix.linesHtml(savedBasket("крошка почки 20 рубец 50"));
-  assert.match(html, /Крошка микс — 70 г/);
+  assert.match(html, /Мясные \(дрессура\) — 70 г/);
   assert.match(html, /почки — 20 г/);
   assert.match(html, /рубец т — 50 г/);
   assert.match(html, /mix-parts/);
