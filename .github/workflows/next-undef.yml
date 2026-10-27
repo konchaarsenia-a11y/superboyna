@@ -59,3 +59,5 @@ jobs:
         run: node --test boinya-c/next/addr-parts.test.mjs boinya-c/next/order-parity.test.mjs
       - name: partner orders stay on the month
         run: node --test boinya-c/next/partner-month.test.mjs
+      - name: calendar day clean matches stats
+        run: node --test boinya-c/next/cal-day-money.test.mjs

@@ -842,6 +842,40 @@
     return out;
   }
 
+  /* Чистые каждого дня: тот же роллап, что статистика, день = from=to. Валовая = выручка − себес. */
+  function formulaDayMap_(rows, fromIso, toIso) {
+    var from = isoDay_(fromIso);
+    var to = isoDay_(toIso);
+    var out = {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return out;
+    var iso = from;
+    var guard = 0;
+    while (iso <= to && guard < 45) {
+      var roll = formulaRollup_(rows, { fromIso: iso, toIso: iso });
+      var month = formulaMonth_({
+        revenue: roll.revenue,
+        S: roll.S,
+        G: roll.G,
+        P: roll.P,
+        N: roll.N
+      });
+      if (roll.N > 0 || roll.revenue > 0 || (roll.pending && roll.pending.N > 0)) {
+        out[iso] = {
+          revenue: month.revenue,
+          cost: month.cost,
+          clean: month.gross,
+          S: roll.S,
+          G: roll.G,
+          P: roll.P,
+          N: roll.N
+        };
+      }
+      iso = addDaysIso_(iso, 1);
+      guard++;
+    }
+    return out;
+  }
+
   var TAX_RATE_ = 0.2;
   var DELIVERY_REST_ = 0.6;
   var RENT_DEFAULT_ = 0;
@@ -1067,6 +1101,7 @@
     courierDayPay_: courierDayPay_,
     courierDayPayOf_: courierDayPayOf_,
     formulaRollup_: formulaRollup_,
+    formulaDayMap_: formulaDayMap_,
     formulaPpClientMonths_: formulaPpClientMonths_,
     monthBoundsIso_: monthBoundsIso_
   };

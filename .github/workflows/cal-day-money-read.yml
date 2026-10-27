@@ -1,0 +1,57 @@
+name: cal-day-money-read
+
+# Грязная и чистая сумма 26.10. Только чтение. Заказы не меняет.
+
+on:
+  push:
+    paths:
+      - .github/workflows/cal-day-money-read.yml
+      - scripts/cal-day-money-read.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read 26 Oct dirty and clean
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/cal-day-money"
+          q() {
+            local name="$1"
+            local sql="$2"
+            echo "---- $name"
+            set +e
+            npx wrangler@4 d1 execute boinya-c --remote --json --command "$sql" > "$GITHUB_WORKSPACE/artifacts/cal-day-money/$name.json" 2> "$GITHUB_WORKSPACE/artifacts/cal-day-money/$name.err"
+            local code=$?
+            set -e
+            echo "exit=$code bytes=$(wc -c < "$GITHUB_WORKSPACE/artifacts/cal-day-money/$name.json" | tr -d ' ')"
+            if [ "$code" -ne 0 ]; then
+              echo "STDERR:"
+              cat "$GITHUB_WORKSPACE/artifacts/cal-day-money/$name.err" || true
+              exit "$code"
+            fi
+          }
+          q orders "SELECT date_iso, client, match_key, status, segment, source, basket_json, json_extract(meta_json, '\$.orderPrice') AS price, json_extract(meta_json, '\$.clientPrice') AS client_price, json_extract(meta_json, '\$.statedCost') AS stated, json_extract(meta_json, '\$.paid') AS paid, json_extract(meta_json, '\$.ppPaid') AS pp_paid, json_extract(meta_json, '\$.ppSlot') AS pp_slot, json_extract(meta_json, '\$.deliverySlot') AS delivery_slot, json_extract(meta_json, '\$.deliveriesN') AS deliveries_n, json_extract(meta_json, '\$.orderType') AS order_type, json_extract(meta_json, '\$.mailTrack') AS mail_track, json_extract(meta_json, '\$.track') AS track, json_extract(meta_json, '\$.payDue') AS pay_due, json_extract(meta_json, '\$.payMoved') AS pay_moved, json_extract(meta_json, '\$.ppHint') AS pp_hint, CASE WHEN instr(ifnull(note,''), '[ЦЕНА:') > 0 THEN substr(note, instr(note, '[ЦЕНА:'), 40) ELSE '' END AS price_tag FROM orders WHERE date_iso >= '2026-09-21' AND date_iso <= '2026-10-31' AND lower(coalesce(status, '')) NOT IN ('cancelled', 'deleted')"
+          q deliveries "SELECT date_iso, match_key FROM deliveries WHERE date_iso >= '2026-09-21' AND date_iso <= '2026-10-31' AND delivered = 1"
+          q costs "SELECT payload FROM snap_cache WHERE cache_key = 'priceCostsPp'"
+          q versions "SELECT sku, cost, shrink, effective_from AS effectiveFrom FROM raw_cost_ver ORDER BY effective_from, id"
+          node "$GITHUB_WORKSPACE/scripts/cal-day-money-read.mjs" "$GITHUB_WORKSPACE/artifacts/cal-day-money"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cal-day-money
+          path: artifacts/cal-day-money/summary.json

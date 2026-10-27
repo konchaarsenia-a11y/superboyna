@@ -486,6 +486,45 @@ a.nx-tel {
 .cell.is-on .cell-date { color: var(--on-muted); }
 .cell.is-on .cell-count { color: var(--on-fg); }
 
+.cell-sums {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+  margin-top: 1px;
+}
+.cell-sums b {
+  font-family: Unbounded, sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+@media (max-width: 520px) {
+  .cell-sums {
+    flex-flow: column nowrap;
+    gap: 2px;
+  }
+  .cell-sums .cell-sum-gap { display: none; }
+}
+.cell-dirty { color: var(--b-text); }
+.cell-clean { color: var(--b-text-2); }
+.cell-sum-gap {
+  flex: 0 0 4px;
+  width: 4px;
+  height: 7px;
+  margin: 0 1px;
+  border-left: 1px solid currentColor;
+  opacity: 0.55;
+}
+.cell.is-on .cell-dirty { color: var(--on-fg); }
+.cell.is-on .cell-clean { color: var(--on-muted); }
+.cell.is-on .cell-sum-gap { border-left-color: var(--on-fg); }
+
 .dots { display: flex; gap: 3px; height: 6px; margin-top: auto; }
 .dot { width: 6px; height: 6px; border-radius: 50%; display: block; }
 .dot-pp { background: var(--dot-pp); }

@@ -579,6 +579,20 @@
     return Math.round(sum * 100) / 100;
   }
 
+  /* Грязная сумма по дням: те же доли, что revenueSum, без второго прохода атрибуции. */
+  function dayRevenueMap(list) {
+    var attr = attributePpRevenue(list);
+    var map = {};
+    (list || []).forEach(function (c, i) {
+      if (attr.amount[i] == null) return;
+      var iso = String((c && (c._sumDate || c.dateIso || c.date)) || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      if (!Object.prototype.hasOwnProperty.call(map, iso)) map[iso] = 0;
+      map[iso] = Math.round((map[iso] + attr.amount[i]) * 100) / 100;
+    });
+    return map;
+  }
+
   function fracPaySlot_(raw) {
     var s = String(raw == null ? "" : raw).trim();
     var m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
@@ -1337,6 +1351,7 @@
     attributePpRevenue: attributePpRevenue,
     stampPpPay: stampPpPay,
     revenueSum: revenueSum,
+    dayRevenueMap: dayRevenueMap,
     courierStopMoney: courierStopMoney,
     courierCollectSum: courierCollectSum,
     courierMailMethod: courierMailMethod,
