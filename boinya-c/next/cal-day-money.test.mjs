@@ -146,7 +146,7 @@ test("грязная сумма дня совпадает с revenueSum", functi
   assert.equal(week.revenueSum(list), 55.5);
 });
 
-test("ячейка дня без сумм, чистые рядом с общей в карточке дня", function () {
+test("ячейка дня без сумм, в окне дня одна строка грязная/чистая", function () {
   const html = fs.readFileSync(new URL("./week.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("./theme.css", import.meta.url), "utf8");
   const app = fs.readFileSync(new URL("./app.css", import.meta.url), "utf8");
@@ -157,9 +157,10 @@ test("ячейка дня без сумм, чистые рядом с общей
   assert.match(cell, /cell-count/);
   assert.equal(css.includes(".cell-sums"), false);
   assert.equal(app.includes("button.cell"), false);
-  assert.match(html, /if \(!dayOn\) return dirty/);
-  assert.match(html, /Чистые, BYN/);
-  assert.match(html, /id="nxCalClean"/);
+  assert.match(html, /nx-day-money/);
+  assert.match(html, /moneyText\(summaryMoney\(true\)\) \+ "\/" \+ moneyText\(clean\)/);
+  assert.equal(html.includes("Чистые, BYN"), false);
+  assert.match(app, /\.nx-day-money\s*\{[^}]*color:\s*#fff/);
   const worker = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
   assert.match(worker, /dayMoneyReady/);
   assert.match(worker, /rolled\.byDay = statsFormulaByDayD1_/);
