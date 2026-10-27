@@ -39,6 +39,7 @@ test("новые тексты называют позиции и фракции 
   ], 21, "");
   assert.match(retail, /Лёгкое - 100 г \(крупный кубик\)/);
   assert.match(retail, /Рубец - 100 г \(кусочки\)/);
+  assert.match(retail, /21 рубль/);
   assert.match(retail, /Ушко говяжье - 1 шт \(целое\)/);
   assert.match(retail, /Ушко кролика - 1 шт \(целое\)/);
   assert.match(retail, /Говядина - 100 г \(кусочки\)/);
@@ -97,9 +98,10 @@ test("розница сердца 100 г без пакетов 21, подпис�
   assert.equal(price.retailOfferTotal_(basket.total), 21);
   const before = price.composeRetailClientMessage(heart, 22.96, "");
   const after = price.composeRetailClientMessage(heart, price.retailOfferTotal_(basket.total), "");
-  assert.match(before, /23 рублей/);
+  assert.match(before, /23 рубля/);
   assert.match(after, /Сердце - 100 г \(ломтики\)/);
-  assert.match(after, /21 рублей/);
+  assert.match(after, /21 рубль/);
+  assert.equal(after.includes("21 рублей"), false);
   assert.equal(after.includes("пакет"), false);
   const bare = price.quotePp({
     scheme: "RAW26", coef: 2.6, deliveriesN: 2, costSum: 5,
@@ -110,6 +112,39 @@ test("розница сердца 100 г без пакетов 21, подпис�
     list: heart, packagesByn: packs.byn, fracTotal: 0
   });
   assert.equal(Math.round((full.fact.factBeforeCap - bare.fact.factBeforeCap) * 100) / 100, 1.96);
+});
+
+test("слово рубль склоняется по числу, Рубец на месте", () => {
+  const word = price.rublesWord_;
+  assert.equal(word(1), "рубль");
+  assert.equal(word(21), "рубль");
+  assert.equal(word(31), "рубль");
+  assert.equal(word(101), "рубль");
+  assert.equal(word(2), "рубля");
+  assert.equal(word(4), "рубля");
+  assert.equal(word(22), "рубля");
+  assert.equal(word(23), "рубля");
+  assert.equal(word(24), "рубля");
+  assert.equal(word(0), "рублей");
+  assert.equal(word(5), "рублей");
+  assert.equal(word(11), "рублей");
+  assert.equal(word(14), "рублей");
+  assert.equal(word(20), "рублей");
+  assert.equal(word(25), "рублей");
+  assert.equal(word(111), "рублей");
+  assert.equal(word(114), "рублей");
+  assert.equal(word(22.96), "рубля");
+  assert.equal(word(11.5), "рубля");
+  assert.equal(word(101.01), "рубля");
+  const msg21 = price.composeRetailClientMessage([row("РУБЕЦ Т", "Среднее", 100)], 21, "");
+  const msg23 = price.composeRetailClientMessage([], 23, "");
+  const msg25 = price.composeRetailClientMessage([], 25, "");
+  assert.match(msg21, /Рубец - 100 г \(кусочки\)/);
+  assert.match(msg21, /21 рубль/);
+  assert.equal(/21 рубл[яей]/.test(msg21.replace("21 рубль", "")), false);
+  assert.match(msg23, /23 рубля/);
+  assert.match(msg25, /25 рублей/);
+  assert.equal(msg21.includes("Рубец Т"), false);
 });
 
 test("счётчик пакетов остаётся только в подписке", () => {
