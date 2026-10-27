@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const week = require("../boinya-c/next/week-logic.js");
+const formulas = require("../boinya-c/next/formulas.js");
 
 function rowsOf(raw) {
   const data = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -245,6 +246,102 @@ function dirtyOf(api, orders, iso) {
   };
 }
 
+function minskToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Minsk",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+}
+
+function pointKey(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\bVARKA\b/g, "ВАРКА");
+}
+
+function planList(api, orders, partnerOrders, costs, versions, today) {
+  const month = "2026-10";
+  const list = [];
+  orders.forEach(function (row) {
+    if (String(row.status || "").toLowerCase() !== "active") return;
+    const date = String(row.date_iso || "").slice(0, 10);
+    if (date.slice(0, 7) !== month) return;
+    const basket = api.parseBasket_(row.basket_json);
+    const priced = api.overlayRawCostsD1_(costs, versions, date);
+    const units = api.statsUnitsD1_(basket, priced);
+    list.push({
+      name: row.client,
+      matchKey: row.match_key,
+      segment: api.normalizeSegmentLabel_(row.segment || row.order_type || ""),
+      source: row.source || "",
+      orderPrice: row.price,
+      paid: row.paid,
+      ppPaid: row.pp_paid,
+      ppSlot: row.pp_slot,
+      deliverySlot: row.delivery_slot,
+      deliveriesN: row.deliveries_n,
+      payDue: row.pay_due,
+      payMoved: row.pay_moved,
+      ppHint: row.pp_hint,
+      _sumDate: date,
+      dateIso: date,
+      costS: units.S,
+      costG: units.G,
+      costP: units.P,
+      costReady: true
+    });
+  });
+  (partnerOrders || []).forEach(function (order) {
+    const st = String((order && (order.status || order.orderStatus)) || "").toLowerCase();
+    if (st === "delivered" || st === "cancelled" || st === "canceled") return;
+    const date = String((order && order.deliverDateIso) || "").slice(0, 10);
+    if (date.slice(0, 7) !== month || date < today) return;
+    const name = String((order.locationName || order.userName) || "Партнёр").trim() || "Партнёр";
+    const key = pointKey(name);
+    const sameDay = list.some(function (c) {
+      return c.dateIso === date && (pointKey(c.name) === key || (order.id && String(c.note || "").indexOf(order.id) >= 0));
+    });
+    if (sameDay) return;
+    const basket = Array.isArray(order.basket) ? order.basket : [];
+    const priced = api.overlayRawCostsD1_(costs, versions, date);
+    const units = api.statsUnitsD1_(basket, priced);
+    const price = order.totalByn != null && order.totalByn !== "" ? order.totalByn : "";
+    list.push({
+      name: name,
+      matchKey: key,
+      segment: "ПАРТНЁР",
+      source: "partner",
+      orderPrice: price,
+      _sumDate: date,
+      dateIso: date,
+      costS: units.S,
+      costG: units.G,
+      costP: units.P,
+      costReady: true
+    });
+  });
+  return list;
+}
+
+function pairOf(plan, iso) {
+  const dirty = week.revenueSum(plan.list, { onlyDate: iso });
+  const slot = plan.map[iso];
+  if (!slot) return { dirty: dirty == null ? 0 : dirty, clean: null, N: 0 };
+  const made = formulas.formulaMonth_({
+    revenue: slot.revenue,
+    S: slot.S,
+    G: slot.G,
+    P: slot.P,
+    N: slot.N
+  });
+  return { dirty: slot.revenue, clean: made.gross, cost: made.cost, N: slot.N };
+}
+
 function main() {
   const api = loadApi();
   if (process.argv.indexOf("--self-check") >= 0) {
@@ -259,16 +356,36 @@ function main() {
   const flags = rowsOf(fs.readFileSync(dir + "/deliveries.json", "utf8"));
   const costRows = rowsOf(fs.readFileSync(dir + "/costs.json", "utf8"));
   const verRows = rowsOf(fs.readFileSync(dir + "/versions.json", "utf8"));
-  let costs = {};
+  let partnerOrders = [];
+  try {
+    const partnerRows = rowsOf(fs.readFileSync(dir + "/partners.json", "utf8"));
+    if (partnerRows[0] && partnerRows[0].payload) {
+      const snap = JSON.parse(partnerRows[0].payload);
+      partnerOrders = (snap && snap.orders) || [];
+    }
+  } catch (ePartner) {
+    partnerOrders = [];
+  }
+  let rawCosts = {};
   if (costRows[0] && costRows[0].payload) {
     const snap = JSON.parse(costRows[0].payload);
-    costs = (snap && snap.costs) || {};
+    rawCosts = (snap && snap.costs) || {};
   }
-  costs = api.overlayRawCostsD1_(costs, verRows, "2026-10-26");
+  const costs = api.overlayRawCostsD1_(rawCosts, verRows, "2026-10-26");
   const events = buildEvents(api, orders, flags, costs);
   const byDay = api.statsFormulaByDayD1_(events, "2026-10-01", "2026-10-31");
   const day = byDay["2026-10-26"] || { revenue: 0, cost: 0, clean: 0, N: 0 };
   const dirty = dirtyOf(api, orders, "2026-10-26");
+  const today = minskToday();
+  const list = planList(api, orders, partnerOrders, rawCosts, verRows, today);
+  const map = week.dayPlanUnits(list);
+  if (!map) throw new Error("себес не собрался");
+  const dates = ["2026-10-26", "2026-10-27", "2026-10-28"];
+  const days = {};
+  dates.forEach(function (iso) {
+    days[iso] = pairOf({ list: list, map: map }, iso);
+    days[iso].statsClean = (byDay[iso] && byDay[iso].clean) || 0;
+  });
   const summary = {
     date: "2026-10-26",
     dirty: dirty.dirty,
@@ -278,7 +395,9 @@ function main() {
     N: day.N,
     monthDirty: dirty.monthDirty,
     orders: orders.length,
-    events: events.length
+    events: events.length,
+    today: today,
+    days: days
   };
   fs.writeFileSync(dir + "/summary.json", JSON.stringify(summary, null, 2));
   process.stdout.write(JSON.stringify(summary) + "\n");

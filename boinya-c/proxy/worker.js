@@ -12305,6 +12305,41 @@ async function appendPartnerOrdersForDate_(env, clients, dateIso, day) {
   return list;
 }
 
+/** Себес корзин месяца для окна дня. Статистику и «отвезено» не читает. */
+async function stampMonthCostUnitsD1_(env, byDate) {
+  if (!env || !env.DB || !byDate) return false;
+  let base = {};
+  let versions = [];
+  try {
+    const snapCosts = await getSnapRaw_(env, "priceCostsPp");
+    base = (snapCosts && snapCosts.costs) || {};
+    versions = await loadRawCostVersions_(env);
+  } catch (eStamp) {
+    return false;
+  }
+  const cache = Object.create(null);
+  function costsOn(iso) {
+    if (!cache[iso]) cache[iso] = overlayRawCostsD1_(base, versions, iso);
+    return cache[iso];
+  }
+  const dates = Object.keys(byDate);
+  for (let di = 0; di < dates.length; di++) {
+    const iso = dates[di];
+    const list = byDate[iso] || [];
+    const costs = costsOn(iso);
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c) continue;
+      const units = statsUnitsD1_(c.basket, costs);
+      c.costS = units.S;
+      c.costG = units.G;
+      c.costP = units.P;
+      c.costReady = true;
+    }
+  }
+  return true;
+}
+
 /** Лёгкий список людей месяца одним SELECT плюс открытые заявки партнёров с датой. */
 async function getCalendarMonthPeople_(params, env) {
   const month = monthKeyFromParam_(params && params.month);
@@ -12359,6 +12394,12 @@ async function getCalendarMonthPeople_(params, env) {
   } catch (eDayMoney) {
     dayMoney = null;
   }
+  let costReady = false;
+  try {
+    costReady = await stampMonthCostUnitsD1_(env, byDate);
+  } catch (eCostReady) {
+    costReady = false;
+  }
   return {
     status: "success",
     month: month,
@@ -12366,7 +12407,8 @@ async function getCalendarMonthPeople_(params, env) {
     total: totalPeople,
     source: "d1",
     dayMoney: dayMoney || {},
-    dayMoneyReady: dayMoney != null
+    dayMoneyReady: dayMoney != null,
+    costReady: costReady
   };
 }
 
