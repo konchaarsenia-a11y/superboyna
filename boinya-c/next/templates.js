@@ -203,6 +203,7 @@
       var at = list.indexOf("Полоски");
       list.splice(at >= 0 ? at + 1 : list.length, 0, "Кусочки");
     }
+    if (n === "ИНДЕЙКА") list = list.filter(function (f) { return String(f || "").toUpperCase() !== "ПОЛОСКИ"; });
     var e = eng();
     return list.map(function (f) {
       var word = e && e.humanFraction ? e.humanFraction(name, f) : "";

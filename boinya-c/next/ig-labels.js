@@ -315,6 +315,7 @@
         var hide = null;
         if (n === "СЕРДЦЕ" || n === "РУБЕЦ Т") hide = { "ПОЛОСКИ": 1, "КРУПНОЕ": 1 };
         else if (n === "ПОЧКИ" || n === "БАРАНЬЕ ЛЕГКОЕ") hide = { "ОЧЕНЬ МЕЛКОЕ": 1 };
+        else if (n === "ИНДЕЙКА") hide = { "ПОЛОСКИ": 1 };
         if (!hide) return fr;
         return fr.filter(function (f) {
           return !hide[norm(f)];
