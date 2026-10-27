@@ -20,6 +20,66 @@
     }).map(function (n) { return String(n.text).trim(); }).join(" · ");
   }
 
+  function permanentTagged(notes, eng) {
+    return eng.serializeOrderNotes((notes || []).filter(function (n) {
+      return n && n.permanent && String(n.text || "").trim();
+    }));
+  }
+
+  function mergePermanentTagged(prevRaw, nextRaw, eng) {
+    var seen = {};
+    var out = [];
+    function take(raw) {
+      eng.parseOrderNotes(raw).forEach(function (n) {
+        if (!n || !n.permanent || !String(n.text || "").trim()) return;
+        var key = String(n.text).trim() + "|" + String(n.itemKey || "").trim();
+        if (seen[key]) return;
+        seen[key] = 1;
+        out.push(n);
+      });
+    }
+    take(prevRaw);
+    take(nextRaw);
+    return eng.serializeOrderNotes(out);
+  }
+
+  function noteBlocks(raw) {
+    var s = String(raw || "");
+    var out = [];
+    var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+    var m;
+    while ((m = re.exec(s))) {
+      var text = String(m[4] || "").trim();
+      if (!text) continue;
+      out.push({
+        text: text,
+        permanent: String(m[2] || "") === "perm",
+        roles: String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean),
+        item: String(m[3] || "").trim()
+      });
+    }
+    if (out.length) return out;
+    var plain = s.replace(/\[[^\]]*\]/g, " ").replace(/\s{2,}/g, " ").trim();
+    if (!plain) return [];
+    return [{ text: plain, permanent: false, roles: ["cour"], item: "" }];
+  }
+
+  function headerNotes(raw, role) {
+    return noteBlocks(raw).filter(function (n) {
+      if (n.item) return false;
+      if (!role) return true;
+      return (n.roles || []).indexOf(role) >= 0;
+    });
+  }
+
+  function headerNoteText(raw, role) {
+    return headerNotes(raw, role).map(function (n) { return n.text; }).join(", ");
+  }
+
+  function cardNoteText(raw) {
+    return noteBlocks(raw).map(function (n) { return n.text; }).join(", ");
+  }
+
   function couponsOf(state) {
     if (!state || state.orderType !== "partner" || !state.partnerCouponsEnabled) {
       return { couponsQty: 0, couponPrice: 0 };
@@ -259,6 +319,9 @@
       phone: String(state.phone || "").trim(),
       note: packed.note || "",
       permanentNote: packed.permanentNote || "",
+      permanentNotesTagged: permanentTagged(state.notes, eng),
+      permanentNotesLoaded: state.notesLoaded ? "1" : "",
+      clearPermanentNotes: state.clearPermanent ? "1" : "",
       clearNote: noteCleared ? "1" : "",
       orderType: ot || "",
       segment: eng.orderTypeToSegment_(ot) || "",
@@ -635,6 +698,11 @@
     retailDisplayed: retailDisplayed,
     couponsOf: couponsOf,
     noteOf: noteOf,
+    permanentTagged: permanentTagged,
+    mergePermanentTagged: mergePermanentTagged,
+    noteBlocks: noteBlocks,
+    headerNoteText: headerNoteText,
+    cardNoteText: cardNoteText,
     mailFromNote_: mailFromNote_,
     mailTags_: mailTags_,
     basketOf: basketOf,

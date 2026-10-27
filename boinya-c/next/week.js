@@ -177,8 +177,14 @@
         '<button type="button" class="nx-pp-toggle__btn' + (slotNow === 2 ? " nx-pp-toggle__btn--on" : "") + '" data-act="wslot" data-slot="2" data-i="' + index + '" data-src="' + source + '">ПП2</button>' +
         "</div>";
     }
+    var cardNote = "";
+    try {
+      var payNote = root.BoinyaOrderPayload;
+      if (payNote && payNote.cardNoteText) cardNote = payNote.cardNoteText(c.note || "");
+    } catch (eCardNote) { cardNote = ""; }
     var html = (who.nick ? '<p class="sheet-lead">' + esc(who.nick) + "</p>" : "") +
       slotNote +
+      (cardNote ? '<p class="b-lbl">Доп информация</p><p class="nx-extra-info">' + esc(cardNote) + "</p>" : "") +
       (lines ? '<div class="mix-list">' + lines + "</div>" : '<p class="b-note">Состав не указан</p>') +
       slotBtns +
       '<button type="button" class="b-btn b-btn--main" data-act="wedit" data-i="' + index + '" data-src="' + source + '" style="margin-top:12px">Править</button>' +

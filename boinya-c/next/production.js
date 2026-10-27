@@ -1101,6 +1101,14 @@
         '<span class="plaque ' + (c.assembled || topUp ? "plaque--gold" : "plaque--bad") + '">' + plaque + "</span>" +
         (c.printed ? ", пропечатано" : "") + "</label>" +
         pointAddr +
+        (function () {
+          var extra = "";
+          try {
+            var pay = root.BoinyaOrderPayload;
+            if (pay && pay.headerNoteText) extra = pay.headerNoteText(c.note || "");
+          } catch (eNote) { extra = ""; }
+          return extra ? '<p class="b-note nx-extra-info">' + esc(extra) + "</p>" : "";
+        })() +
         (topUp ? '<p class="b-note">Доложить: ' + esc(topLabels.join(", ")) + "</p>" : "") +
         '<label class="nx-check" style="margin-top:8px"><input type="checkbox" data-act="pr-print" data-name="' + esc(asmTitle(c) || c.name || "") + '"' + (c.printed ? " checked" : "") + '> Пропечатано <span class="b-note">(без лакомств)</span></label>' +
         lines +
