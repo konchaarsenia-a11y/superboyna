@@ -90,6 +90,6 @@ test("текст оффера не показывает цену выше 92% р
   assert.equal(P.capOfferSubToDisplayedRetail_(178.94, 171.2), 157.5);
   const msg = P.composePpClientMessage([], 1, "", 171.2, 178.94, "RAW26", {});
   assert.doesNotMatch(msg, /Доставка -/);
-  assert.match(msg, /в розницу выходит - 171 рублей/);
+  assert.match(msg, /в розницу выходит - 171 рубль/);
   assert.match(msg, /стоимость выходит - 158 рублей/);
 });

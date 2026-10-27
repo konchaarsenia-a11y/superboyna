@@ -43,7 +43,7 @@ test("rit_murr: R 171,20, цена не выше 157,50, доставка в ф�
   assert.equal(q.fact.uncappedFloor, false);
   assert.ok(q.fact.goodsByn > 157.5, "товар не урезан до капа, got " + q.fact.goodsByn);
   const msg = P.composePpClientMessage(rit, 1, "", retail.total, q.total, "RAW26");
-  assert.match(msg, /в розницу выходит - 171 рублей/);
+  assert.match(msg, /в розницу выходит - 171 рубль/);
   assert.match(msg, /стоимость выходит - 158 рублей/);
 });
 
@@ -67,5 +67,5 @@ test("1000 г лёгкое среднее: R 110, цена не выше 101,20"
   assert.equal(q.fact.goodsByn, q.fact.goodsBeforeCap);
   const msg = P.composePpClientMessage(list, 1, "", retail.total, q.total, "RAW26");
   assert.match(msg, /в розницу выходит - 110 рублей/);
-  assert.match(msg, /стоимость выходит - 101 рублей/);
+  assert.match(msg, /стоимость выходит - 101 рубль/);
 });

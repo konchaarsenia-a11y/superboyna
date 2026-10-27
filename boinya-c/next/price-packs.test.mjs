@@ -87,8 +87,8 @@ test("новый розничный итог не прибавляет паке�
   assert.equal(P.retailOfferTotal_(21), 21);
   assert.equal(P.retailTotalWithPacks_(21, 1.96), 22.96);
   const msg = P.composeRetailClientMessage(heart, P.retailOfferTotal_(21), "");
-  assert.match(msg, /21 рублей/);
-  assert.equal(msg.includes("23 рублей"), false);
+  assert.match(msg, /21 рубль/);
+  assert.equal(msg.includes("23 рубл"), false);
   assert.equal(msg.includes("пакет"), false);
   assert.equal(msg.includes("Доставка"), false);
 });

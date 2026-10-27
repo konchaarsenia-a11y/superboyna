@@ -2113,6 +2113,19 @@ var ASM_CHEW_PER_BIG = 4;
       return (Math.abs(x - Math.round(x)) < 0.001) ? String(Math.round(x)) : x.toFixed(2);
     }
 
+    /** Слово «рубль» к сумме в письме. Дробь с копейками — всегда «рубля». «Рубец» не трогает. */
+    function rublesWord_(n) {
+      var x = money2_(n);
+      if (Math.abs(x - Math.round(x)) >= 0.001) return "рубля";
+      var abs = Math.abs(Math.round(x));
+      var mod100 = abs % 100;
+      if (mod100 >= 11 && mod100 <= 14) return "рублей";
+      var mod10 = abs % 10;
+      if (mod10 === 1) return "рубль";
+      if (mod10 >= 2 && mod10 <= 4) return "рубля";
+      return "рублей";
+    }
+
     /** Потолок 92% показанной розницы на всю цену подписки. */
     function capOfferSubToDisplayedRetail_(subTotal, retailTotal) {
       var sub = money2_(subTotal);
@@ -2231,9 +2244,9 @@ var ASM_CHEW_PER_BIG = 4;
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " рублей";
+      msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " " + rublesWord_(Number(rShow));
       msg += "\n\nВ подписке с учётом доставок, поддержки 24/7 и партнёрской программы со скидками для наших клиентов\n" +
-        "стоимость выходит - " + sShow + " рублей за месяц";
+        "стоимость выходит - " + sShow + " " + rublesWord_(Number(sShow)) + " за месяц";
       msg += "\n\nКак вам наше предложение?)\nГотовы продолжать😁";
       return msg;
     }
@@ -2243,7 +2256,8 @@ var ASM_CHEW_PER_BIG = 4;
       var note = String(clientNote || "").trim();
       var msg = "Давайте подытожим ваш заказ 📜\n\n" + blocks;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот набор составит - " + String(roundRub(retailTotal)) + " рублей";
+      var retailShow = String(roundRub(retailTotal));
+      msg += "\n\nЦена за этот набор составит - " + retailShow + " " + rublesWord_(Number(retailShow));
       msg += "\n\nВсё подходит?)";
       return msg;
     }
@@ -2558,6 +2572,7 @@ var ASM_CHEW_PER_BIG = 4;
     subscriptionOfferWithPacks_: subscriptionOfferWithPacks_,
     retailTotalWithPacks_: retailTotalWithPacks_,
     retailOfferTotal_: retailOfferTotal_,
+    rublesWord_: rublesWord_,
     composePpClientMessage: composePpClientMessage,
     monthDeliveriesN_: monthDeliveriesN_,
     raw26ApiFactUsable_: raw26ApiFactUsable_,
