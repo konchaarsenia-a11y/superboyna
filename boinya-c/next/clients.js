@@ -2128,11 +2128,32 @@
     });
   }
 
+  function visibleFracs_(cat, name) {
+    return fractionsWithoutCrumb_(eng().catalogFractionsForUi_(cat, name) || []);
+  }
+
+  /** Новая строка расчёта: скрытую фракцию заменяем видимой, старые записи не трогаем. */
+  function snapCalcFrac_(cat, name, sub) {
+    var fracs = visibleFracs_(cat, name);
+    if (!fracs.length) return sub || "";
+    if (!sub || fracs.indexOf(sub) >= 0) return sub || "";
+    var up = String(sub).toUpperCase().replace(/Ё/g, "Е");
+    if ((/^ПОЛОСК/.test(up) || /^КРУП/.test(up)) && fracs.indexOf("Кусочки") >= 0) return "Кусочки";
+    if ((/^ПОЛОСК/.test(up) || /^КРУП/.test(up)) && fracs.indexOf("Среднее") >= 0) return "Среднее";
+    return fracs[0];
+  }
+
   async function askQty(cat, name) {
-    var fracs = fractionsWithoutCrumb_(eng().catalogFractionsForUi_(cat, name) || []);
+    var fracs = visibleFracs_(cat, name);
     var sub = "";
     if (fracs.length) {
-      sub = await sh().choice({ title: name, text: "Фракция", options: fracs.map(function (f) { return { value: f, label: f }; }) });
+      sub = await sh().choice({
+        title: eng().prettyProductName(name),
+        text: "Фракция",
+        options: fracs.map(function (f) {
+          return { value: f, label: eng().humanFraction(name, f) || f };
+        })
+      });
       if (sub == null) return;
     }
     var pieceAsk = cat === "chew";
@@ -2403,7 +2424,13 @@
     var items = parsed && (parsed.items || parsed.list || parsed);
     if (!Array.isArray(items) || !items.length) { sh().toast("Не распознал"); return; }
     var list = activeBasket().slice();
-    items.forEach(function (it) { list.push(it); });
+    items.forEach(function (it) {
+      var copy = Object.assign({}, it);
+      if (copy.cat && copy.cat !== "crumb" && copy.cat !== "veg" && copy.cat !== "chew") {
+        copy.sub = snapCalcFrac_(copy.cat, copy.main || copy.name, copy.sub || "");
+      }
+      list.push(copy);
+    });
     setActiveBasket(list);
     sh().toast("В состав: " + items.length);
     paint();
