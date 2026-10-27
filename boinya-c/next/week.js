@@ -352,21 +352,15 @@
   }
 
   function summaryClean(dayOn) {
+    if (!dayOn) return null;
     var pack = monthPeopleCache[displayedMonth()];
-    if (!pack || !pack.dayMoneyReady) return null;
-    var money = pack.dayMoney || {};
-    if (dayOn) {
-      var one = grossOf(money[view.date]);
-      return one == null ? 0 : one;
-    }
-    var sum = 0;
-    var month = displayedMonth();
-    Object.keys(money).forEach(function (iso) {
-      if (String(iso).slice(0, 7) !== month) return;
-      var g = grossOf(money[iso]);
-      if (g != null) sum += g;
-    });
-    return Math.round(sum * 100) / 100;
+    if (!pack || !pack.costReady) return null;
+    if (!logic().monthPeopleReady(pack, view.overview)) return null;
+    var map = logic().dayPlanUnits(flattenMonth(pack));
+    if (!map) return null;
+    var slot = map[view.date];
+    if (!slot) return null;
+    return grossOf(slot);
   }
 
   function summaryMoneyHtml(dayOn) {

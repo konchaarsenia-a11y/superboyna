@@ -593,6 +593,29 @@
     return map;
   }
 
+  /* Себес окна дня: те же заказы и то же правило ПП, что грязная сумма. «Отвезено» не смотрит. */
+  function dayPlanUnits(list) {
+    var attr = attributePpRevenue(list);
+    var map = {};
+    var rows = list || [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      if (attr.amount[i] == null) continue;
+      var c = rows[i];
+      if (!c || c.costReady !== true) return null;
+      var iso = String((c._sumDate || c.dateIso || c.date) || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+      if (!map[iso]) map[iso] = { revenue: 0, S: 0, G: 0, P: 0, N: 0 };
+      var bucket = map[iso];
+      bucket.revenue = Math.round((bucket.revenue + attr.amount[i]) * 100) / 100;
+      bucket.S = Math.round((bucket.S + (Number(c.costS) || 0)) * 100) / 100;
+      bucket.G += Number(c.costG) || 0;
+      bucket.P += Number(c.costP) || 0;
+      bucket.N += 1;
+    }
+    return map;
+  }
+
   function fracPaySlot_(raw) {
     var s = String(raw == null ? "" : raw).trim();
     var m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
@@ -1352,6 +1375,7 @@
     stampPpPay: stampPpPay,
     revenueSum: revenueSum,
     dayRevenueMap: dayRevenueMap,
+    dayPlanUnits: dayPlanUnits,
     courierStopMoney: courierStopMoney,
     courierCollectSum: courierCollectSum,
     courierMailMethod: courierMailMethod,
