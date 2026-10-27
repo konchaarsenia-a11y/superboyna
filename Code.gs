@@ -21441,6 +21441,35 @@ function applyRetailShowcasePatchGs_(map) {
   return changed;
 }
 
+/** Сетка фракций для новых заказов. Ключи не удаляет. */
+function applyFracGridPatchGs_(map) {
+  map = map || {};
+  var per100 = {
+    "СЕРДЦЕ|Очень мелкое": 15,
+    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 19,
+    "ПЕЧЕНЬ|Кусочки": 11,
+    "ПЕЧЕНЬ|Мелкое": 12,
+    "ВЫМЯ|Кусочки": 10,
+    "ВЫМЯ|Мелкое": 11,
+    "СЕМЕННИКИ|Кусочки": 13,
+    "СЕМЕННИКИ|Мелкое": 14,
+    "МЯСНЫЕ ЛОМТИКИ|Кусочки": 16,
+    "МЯСНЫЕ ЛОМТИКИ|Мелкое": 17
+  };
+  var changed = false;
+  var k;
+  for (k in per100) {
+    if (!Object.prototype.hasOwnProperty.call(per100, k)) continue;
+    var cur = map[k] || {};
+    if (Number(cur.per100) !== per100[k] || cur.perPiece != null) {
+      map[k] = { per100: per100[k] };
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function getRetailPriceLiveMap_() {
   if (RETAIL_PRICE_LIVE_MEM_) return RETAIL_PRICE_LIVE_MEM_;
   var map = null;
@@ -21465,8 +21494,9 @@ function getRetailPriceLiveMap_() {
     }
   }
   var showcaseChanged = applyRetailShowcasePatchGs_(map);
+  var gridChanged = applyFracGridPatchGs_(map);
   var showcaseStripped = stripBareRetailParentsMap_(map);
-  if (showcaseChanged || Object.keys(showcaseStripped).length !== Object.keys(map).length) {
+  if (showcaseChanged || gridChanged || Object.keys(showcaseStripped).length !== Object.keys(map).length) {
     map = showcaseStripped;
     try {
       PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));

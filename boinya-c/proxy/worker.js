@@ -10016,7 +10016,7 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       else if (/ОБЫЧН/.test(fu) || /^КРОШК/.test(fu)) word = "";
       else word = f.toLowerCase();
     }
-    const igWord = igFractionWordD1_(main, f);
+    const igWord = fracGridWordD1_(main, f) || igFractionWordD1_(main, f);
     if (igWord) word = igWord;
     const frac = String(it.frac || "").trim().toLowerCase();
     const extra = frac === "s" ? "мелкая" : frac === "m" ? "средняя" : frac === "l" ? "крупная" : "";
@@ -27118,6 +27118,33 @@ function retailItemsFromMapD1_(map) {
   return items;
 }
 
+/** Сетка фракций для новых заказов. Ключи не удаляет. */
+function applyFracGridPatchD1_(map) {
+  map = map || Object.create(null);
+  const per100 = {
+    "СЕРДЦЕ|Очень мелкое": 15,
+    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 19,
+    "ПЕЧЕНЬ|Кусочки": 11,
+    "ПЕЧЕНЬ|Мелкое": 12,
+    "ВЫМЯ|Кусочки": 10,
+    "ВЫМЯ|Мелкое": 11,
+    "СЕМЕННИКИ|Кусочки": 13,
+    "СЕМЕННИКИ|Мелкое": 14,
+    "МЯСНЫЕ ЛОМТИКИ|Кусочки": 16,
+    "МЯСНЫЕ ЛОМТИКИ|Мелкое": 17
+  };
+  let changed = false;
+  Object.keys(per100).forEach(function (k) {
+    const cur = map[k] || {};
+    if (Number(cur.per100) !== per100[k] || cur.perPiece != null) {
+      map[k] = { per100: per100[k] };
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 function retailNormalizeNameD1_(name) {
   const n = String(name || "").trim();
   const u = n
@@ -27210,6 +27237,10 @@ function igProductD1_(main) {
   if (/РУБЕЦ/.test(n)) return "rumen";
   if (/ПОЧК/.test(n)) return "kidney";
   if (/ИНДЕЙ/.test(n)) return "turkey";
+  if (/^ПЕЧЕН/.test(n)) return "liver";
+  if (/ВЫМЯ/.test(n)) return "udder";
+  if (/СЕМЕН/.test(n)) return "testis";
+  if ((/МЯСН/.test(n) && /ЛОМТ/.test(n)) || n === "ГОВЯДИНА") return "beef";
   if (/БЫЧИЙ КОРЕН/.test(n)) return "root";
   if (/ТРАХЕ/.test(n)) return "trachea";
   if (/СТАНОВ/.test(n)) return "sinew";
@@ -27383,17 +27414,85 @@ function igShownProductD1_(name) {
   return "";
 }
 
+function fracGridNameD1_(name) {
+  const n = igNormD1_(name);
+  if ((/МЯСН/.test(n) && /ЛОМТ/.test(n)) || n === "ГОВЯДИНА") return "Говядина";
+  return "";
+}
+
+function fracGridWordD1_(main, sub) {
+  const p = igProductD1_(main);
+  const fu = igNormD1_(sub);
+  if (!p || !fu || /КРОШК/.test(igNormD1_(main))) return "";
+  if (p === "lung" || p === "lung-lamb") {
+    if (igVerySmallD1_(fu)) return "очень мелкий кубик";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
+    if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "средний кубик";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкий кубик";
+    return "";
+  }
+  if (p === "heart" || p === "rumen" || p === "kidney") {
+    if (igVerySmallD1_(fu)) return "очень мелкие кусочки";
+    if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "кусочки";
+    if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
+    if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупные кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "кусочки" : "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^СРЕД/.test(fu) && p === "rumen") return "кусочки";
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
+  }
+  if (p === "liver" || p === "udder" || p === "testis" || p === "beef") {
+    if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "кусочки";
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
+  }
+  return "";
+}
+
+function fracGridPer100D1_(name, sub, val) {
+  const raw = igNormD1_(name);
+  const fu = igNormD1_(sub);
+  if (!raw || !fu || /КРОШК/.test(raw) || /КРОШК/.test(fu)) return null;
+  let per = null;
+  const p = igProductD1_(name);
+  if (p === "heart" && igVerySmallD1_(fu)) per = 15;
+  else if (p === "lung-lamb" && !igVerySmallD1_(fu)) {
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu) && !/КРУП/.test(fu))) per = 18;
+    else if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) per = 19;
+  } else if (raw === "ПЕЧЕНЬ" || raw === "ВЫМЯ" || raw === "СЕМЕННИКИ" || raw === "МЯСНЫЕ ЛОМТИКИ") {
+    const coarse = /^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu);
+    const fine = /^МЕЛК/.test(fu);
+    if (raw === "ПЕЧЕНЬ" && coarse) per = 11;
+    else if (raw === "ПЕЧЕНЬ" && fine) per = 12;
+    else if (raw === "ВЫМЯ" && coarse) per = 10;
+    else if (raw === "ВЫМЯ" && fine) per = 11;
+    else if (raw === "СЕМЕННИКИ" && coarse) per = 13;
+    else if (raw === "СЕМЕННИКИ" && fine) per = 14;
+    else if (raw === "МЯСНЫЕ ЛОМТИКИ" && coarse) per = 16;
+    else if (raw === "МЯСНЫЕ ЛОМТИКИ" && fine) per = 17;
+  }
+  if (per == null) return null;
+  const v = Number(val) || 0;
+  if (!(v > 0)) return { cost: 0, per: per, found: true };
+  return { cost: Math.round((v / 100) * per * 100) / 100, per: per, found: true };
+}
+
 function gbShownName_(it) {
   const raw = String((it && (it.name || it.main)) || "").trim();
   const sub = String((it && it.sub) || "").trim();
   if (/КРОШК/i.test(raw) || /КРОШК/i.test(sub)) return raw;
   const main = String((it && it.main) || "").trim() || raw;
-  const shown = igShownProductD1_(main) || main;
-  const word = igFractionWordD1_(main, sub);
-  return word ? shown + " " + word : (igShownProductD1_(main) || raw);
+  const shown = fracGridNameD1_(main) || igShownProductD1_(main) || main;
+  const word = fracGridWordD1_(main, sub) || igFractionWordD1_(main, sub);
+  return word ? shown + " " + word : (fracGridNameD1_(main) || igShownProductD1_(main) || raw);
 }
 
 function retailLineCostD1_(map, name, sub, val, cat) {
+  const grid = fracGridPer100D1_(name, sub, val);
+  if (grid) return grid;
   const ig = igRetailAlignD1_(map, name, sub, val);
   if (ig) return ig;
   const meta = retailLookupKeyD1_(name, sub);
@@ -27448,7 +27547,8 @@ async function ensureRetailPricesSnap_(env, ctx) {
   if (!(snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length)) return snap || null;
   const map = retailMapFromItemsD1_(snap.items);
   const patched = applyRetailShowcasePatchD1_(map);
-  if (!patched) return snap;
+  const gridPatched = applyFracGridPatchD1_(map);
+  if (!patched && !gridPatched) return snap;
   const next = Object.assign({}, snap, {
     items: retailItemsFromMapD1_(map),
     showcasePatched: true,
@@ -27474,9 +27574,11 @@ async function getRetailPriceListD1_(params, env, ctx) {
       if (map[gk] && !map[kk]) map[kk] = Object.assign({}, map[gk]);
     });
     const showcasePatched = applyRetailShowcasePatchD1_(map);
+    const gridPatched = applyFracGridPatchD1_(map);
     const cleaned = retailItemsFromMapD1_(map);
     const changed =
       showcasePatched ||
+      gridPatched ||
       cleaned.length !== (snap.items || []).length ||
       !!(map["УХО К|Обычное"] && !(snap.items || []).some(function (it) {
         return it && it.key === "УХО К|Обычное";
@@ -29569,8 +29671,8 @@ function appendDoyDistToPacksD1_(packs, doyByKey, lightBagsByCounter, dist, meta
     if (meta.type === "light") {
       lightBagsByCounter[key] = (lightBagsByCounter[key] || 0) + n;
     }
-    const shownName = igShownProductD1_(meta.name) || meta.name;
-    const shownSub = igFractionWordD1_(meta.name, meta.sub) || meta.sub || "";
+    const shownName = fracGridNameD1_(meta.name) || igShownProductD1_(meta.name) || meta.name;
+    const shownSub = fracGridWordD1_(meta.name, meta.sub) || igFractionWordD1_(meta.name, meta.sub) || meta.sub || "";
     packs.push({
       name: meta.name,
       sub: meta.sub,
@@ -30327,6 +30429,31 @@ function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   }
   // Чужая фракция того же имени — не эта позиция. Иначе после сброса кэша
   // «ТРАХЕЯ / СРЕД» закроется ценой «БОЛ», missing останется 0 и GAS не допишет ключ.
+  const meatParent = meatFracParentCostD1_(costs, name, sub);
+  if (meatParent) return meatParent;
+  return null;
+}
+
+function meatFracParentCostD1_(costs, name, sub) {
+  const n = String(name || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  if (n !== "ПЕЧЕНЬ" && n !== "ВЫМЯ" && n !== "СЕМЕННИКИ" && n !== "МЯСНЫЕ ЛОМТИКИ") return null;
+  const u = String(sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (!u || /КРОШК/.test(u)) return null;
+  const coarse = /^КУСОЧК/.test(u) && !/МЕЛК/.test(u);
+  const fine = /^МЕЛК/.test(u) && !/ОЧЕНЬ/.test(u);
+  if (!coarse && !fine) return null;
+  costs = costs || {};
+  const bare = costs[name] || costs[n];
+  if (bare && ppCostUnitD1_(bare) > 0) return bare;
+  const keys = Object.keys(costs);
+  for (let i = 0; i < keys.length; i++) {
+    const info = costs[keys[i]];
+    if (!info) continue;
+    const nm = String(info.name || "").trim().toUpperCase().replace(/Ё/g, "Е");
+    if (nm !== n) continue;
+    if (String(info.sub || "").trim()) continue;
+    if (ppCostUnitD1_(info) > 0) return info;
+  }
   return null;
 }
 
