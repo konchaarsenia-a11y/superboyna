@@ -105,15 +105,34 @@ var ASM_CHEW_PER_BIG = 4;
       });
     }
 
+    function pricePickVisibleFracs_(cat, name) {
+      var fracs = [];
+      if (eng && typeof eng.catalogFractionsForUi_ === "function") {
+        fracs = eng.catalogFractionsForUi_(cat, name) || [];
+      }
+      if (!fracs.length) {
+        var known = buildIgKnownMap();
+        var hit = known[String(name || "").toUpperCase()];
+        fracs = (hit && hit.fractions) || [];
+      }
+      return fracs.filter(function (f) { return !/^крошк/i.test(String(f || "")); });
+    }
+
     function pricePickDefaultFrac_(cat, name, preferred) {
       if (cat === "veg") return "";
-      var known = buildIgKnownMap();
-      var hit = known[String(name || "").toUpperCase()];
-      var fracs = (hit && hit.fractions) || [];
+      var fracs = pricePickVisibleFracs_(cat, name);
       if (preferred) {
         var want = String(preferred).toLowerCase();
         for (var i = 0; i < fracs.length; i++) {
           if (String(fracs[i]).toLowerCase().indexOf(want) >= 0) return fracs[i];
+        }
+        if (want.indexOf("полос") >= 0) {
+          if (fracs.indexOf("Кусочки") >= 0) return "Кусочки";
+          if (fracs.indexOf("Среднее") >= 0) return "Среднее";
+        }
+        if (want.indexOf("круп") >= 0 && fracs.indexOf("Крупное") < 0) {
+          if (fracs.indexOf("Среднее") >= 0) return "Среднее";
+          if (fracs.indexOf("Кусочки") >= 0) return "Кусочки";
         }
       }
       if (cat === "chew") {
@@ -125,6 +144,16 @@ var ASM_CHEW_PER_BIG = 4;
       if (fracs.indexOf("Среднее") >= 0) return "Среднее";
       if (fracs.indexOf("Ломтики") >= 0) return "Ломтики";
       return fracs[0] || "";
+    }
+
+    function pricePickSnapFrac_(cat, name, sub, preferred) {
+      var fracs = pricePickVisibleFracs_(cat, name);
+      if (!fracs.length) return sub || "";
+      if (sub && fracs.indexOf(sub) >= 0) return sub;
+      var up = String(sub || "").toUpperCase().replace(/Ё/g, "Е");
+      if ((/^ПОЛОСК/.test(up) || /^КРУП/.test(up)) && fracs.indexOf("Кусочки") >= 0) return "Кусочки";
+      if ((/^ПОЛОСК/.test(up) || /^КРУП/.test(up)) && fracs.indexOf("Среднее") >= 0) return "Среднее";
+      return pricePickDefaultFrac_(cat, name, preferred) || fracs[0] || sub || "";
     }
 
     function pricePickDefaultStarter_() {
@@ -905,7 +934,9 @@ var ASM_CHEW_PER_BIG = 4;
       if (explicit) {
         list = catalogLines.map(function (it) {
           var copy = Object.assign({}, it);
-          if (!copy.sub && copy.cat !== "veg") {
+          if (copy.cat && copy.cat !== "veg" && copy.cat !== "crumb" && copy.cat !== "chew") {
+            copy.sub = pricePickSnapFrac_(copy.cat, copy.main || copy.name, copy.sub, signals.fracPref);
+          } else if (!copy.sub && copy.cat !== "veg") {
             copy.sub = pricePickDefaultFrac_(copy.cat, copy.main || copy.name, signals.fracPref);
           }
           copy.needFrac = false;
