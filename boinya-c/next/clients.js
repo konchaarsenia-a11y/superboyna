@@ -835,9 +835,9 @@
       });
       html += "</div>";
       html += '<p class="b-lbl">Наценка фракций</p>' + fracHtml("cxF", price.fracs);
+      html += '<p class="b-lbl">Пакеты <span class="b-note" data-pack-byn>' + esc(rubShort_(packagesBynNow())) + " р в цене</span></p>" + packsHtml("cxP", price.packs, [["small", "мал"], ["medium", "ср"], ["large", "бол"], ["legs", "ножк"]]);
+      html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-repack" style="margin-top:8px">Пересчитать пакеты</button>';
     }
-    html += '<p class="b-lbl">Пакеты <span class="b-note" data-pack-byn>' + esc(rubShort_(packagesBynNow())) + " р в цене</span></p>" + packsHtml("cxP", price.packs, [["small", "мал"], ["medium", "ср"], ["large", "бол"], ["legs", "ножк"]]);
-    html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-repack" style="margin-top:8px">Пересчитать пакеты</button>';
     html += '<p class="b-lbl">Примечание для клиента</p>' + area("cxNote", price.note, "Примечание");
     html += basketBlock();
     html += '<p class="b-lbl">Чеклист Instagram</p>' + area("cxIg", price.ig, "Вставь список из Direct");
@@ -1179,16 +1179,14 @@
   }
 
   function retailWithPacks_(list) {
-    if (!price.packsManual) syncAutoPacks_();
     var local = retailCalcChoice_(eng(), list, price.retailDelivery);
-    var packs = packagesBynNow();
     return {
       mode: local.mode,
       goods: local.goods,
       delivery: local.delivery,
-      packagesByn: packs,
+      packagesByn: 0,
       note: local.note,
-      total: P().retailTotalWithPacks_(local.total, packs)
+      total: P().retailOfferTotal_(local.total)
     };
   }
 
