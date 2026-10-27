@@ -994,7 +994,8 @@ var ASM_CHEW_PER_BIG = 4;
         "БЫЧИЙ КОРЕНЬ": "Бычий корень",
         "ТРАХЕЯ": "Трахея",
         "АОРТА": "Аорта",
-        "УХО Г": "Говяжье ухо",
+        "УХО Г": "Ушко говяжье",
+        "МЯСНЫЕ ЛОМТИКИ": "Говядина",
         "УХО К": "Ушко кролика",
         "НОСЫ шт.": "Носик",
         "СТАНОВАЯ ЖИЛА": "Становая жила",
@@ -1188,14 +1189,13 @@ var ASM_CHEW_PER_BIG = 4;
         var sub = "";
         var crumbLine = it.cat === "crumb" || /^крошк/i.test(String(it.sub || "")) || /^крошк/i.test(String(it.main || it.name || ""));
         if (crumbLine) {
-          if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
-        } else {
-          var fracWord = humanFraction(it.main || it.name || "", it.sub || "");
-          if (fracWord) sub = " (" + fracWord + ")";
-          else if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
+          lines.push(crumbClientMessageLine_(it));
+          return;
         }
+        var fracWord = clientFraction_(it.main || it.name || "", it.sub || "");
+        if (fracWord) sub = " (" + fracWord + ")";
         var val = it.value != null ? it.value : it.val;
-        lines.push(pricePickSkuTitle_(it.main || it.name) + " — " + val + " " + unit + sub);
+        lines.push(clientFacingName_(it.main || it.name) + " — " + val + " " + unit + sub);
       });
 
       var names = function (cat) {
@@ -2055,8 +2055,8 @@ var ASM_CHEW_PER_BIG = 4;
       var sub = it.sub || "";
       var val = it.val != null ? it.val : it.value;
       var unit = priceUnitLabel(it.cat, main);
-      var frac = humanFraction(main, sub);
-      var line = prettyProductName(main) + " - " + (Number(val) || 0) + " " + unit;
+      var frac = clientFraction_(main, sub);
+      var line = clientFacingName_(main) + " - " + (Number(val) || 0) + " " + unit;
       if (frac) line += " (" + frac + ")";
       return line;
     }
@@ -2148,6 +2148,37 @@ var ASM_CHEW_PER_BIG = 4;
 
     function retailTotalWithPacks_(retailTotal, packagesByn) {
       return money2_((Number(retailTotal) || 0) + (Number(packagesByn) || 0));
+    }
+
+    /** Розница клиенту: пакеты уже внутри прайса, отдельную доплату не прибавляем. */
+    function retailOfferTotal_(basketTotal) {
+      return money2_(basketTotal);
+    }
+
+    function clientFacingName_(name) {
+      var raw = String(name || "");
+      var n = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      if (n === "УХО К" || n === "УШКО К") return "Ушко кролика";
+      if (n === "УХО Г" || n === "УШКО Г") return "Ушко говяжье";
+      if (n === "РУБЕЦ Т" || n === "РУБЕЦ") return "Рубец";
+      if ((/МЯСН/.test(n) && /ЛОМТ/.test(n)) || n === "ГОВЯДИНА") return "Говядина";
+      var shown = "";
+      try { shown = (eng.prettyProductName || prettyProductName)(raw) || ""; } catch (eName) { shown = ""; }
+      if (shown === "Ухо Г" || shown === "Ухо г") return "Ушко говяжье";
+      if (shown === "Ухо К" || shown === "Ухо к") return "Ушко кролика";
+      if (shown === "Рубец Т" || shown === "Рубец т") return "Рубец";
+      if (shown === "Мясные ломтики") return "Говядина";
+      return shown || raw;
+    }
+
+    function clientFraction_(main, sub) {
+      var ig = typeof globalThis !== "undefined" ? globalThis.BoinyaIgLabels : null;
+      if (ig && typeof ig.igFractionWord === "function") {
+        var word = ig.igFractionWord(main, sub);
+        if (word) return word;
+      }
+      var fn = eng.humanFraction || humanFraction;
+      try { return fn(main, sub) || ""; } catch (eFrac) { return ""; }
     }
 
     /** Месячное N. «2», «2/мес», «2 доставки» → 2. Слот «1/2» → знаменатель 2, не 1. */
@@ -2526,6 +2557,7 @@ var ASM_CHEW_PER_BIG = 4;
     capOfferSubToDisplayedRetail_: capOfferSubToDisplayedRetail_,
     subscriptionOfferWithPacks_: subscriptionOfferWithPacks_,
     retailTotalWithPacks_: retailTotalWithPacks_,
+    retailOfferTotal_: retailOfferTotal_,
     composePpClientMessage: composePpClientMessage,
     monthDeliveriesN_: monthDeliveriesN_,
     raw26ApiFactUsable_: raw26ApiFactUsable_,

@@ -83,11 +83,12 @@ test("ориентир 157 без пакетов и 166 с доплатой 8,92
   assert.equal(capped, 92);
 });
 
-test("розница включает доплату за пакеты и не пишет её отдельной строкой", () => {
-  assert.equal(P.retailTotalWithPacks_(80, 8.92), 88.92);
-  assert.equal(P.retailTotalWithPacks_(157, 0), 157);
-  const msg = P.composeRetailClientMessage(heart, 88.92, "");
-  assert.match(msg, /89 рублей/);
+test("новый розничный итог не прибавляет пакеты, формула подписки их хранит", () => {
+  assert.equal(P.retailOfferTotal_(21), 21);
+  assert.equal(P.retailTotalWithPacks_(21, 1.96), 22.96);
+  const msg = P.composeRetailClientMessage(heart, P.retailOfferTotal_(21), "");
+  assert.match(msg, /21 рублей/);
+  assert.equal(msg.includes("23 рублей"), false);
   assert.equal(msg.includes("пакет"), false);
   assert.equal(msg.includes("Доставка"), false);
 });
