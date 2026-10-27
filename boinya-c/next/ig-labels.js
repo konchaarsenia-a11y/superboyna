@@ -56,7 +56,16 @@
       if (/ОБЫЧН/.test(fu) || /^ЦЕЛ/.test(fu)) return "целое";
       return "";
     }
-    if (p === "lung" || p === "lung-lamb") {
+    if (p === "lung") {
+      if (verySmall(fu)) return "очень мелкий кубик";
+      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+      if (/^ПОЛОСК/.test(fu)) return "полоски";
+      if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
+      if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "средний кубик";
+      if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкий кубик";
+      return "";
+    }
+    if (p === "lung-lamb") {
       if (verySmall(fu)) return "";
       if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
       if (/^ПОЛОСК/.test(fu)) return "полоски";
@@ -64,17 +73,27 @@
       if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкие кубики";
       return "";
     }
-    if (p === "heart" || p === "rumen" || p === "kidney" || p === "turkey" || p === "liver-lamb") {
+    if (p === "heart" || p === "rumen" || p === "kidney") {
+      if (verySmall(fu)) return "очень мелкие кусочки";
+      if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "средние кусочки";
+      if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
+      if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупные кусочки";
+      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "средние кусочки" : "ломтики";
+      if (/^ПОЛОСК/.test(fu)) return "полоски";
+      if (/^СРЕД/.test(fu) && p === "rumen") return "средние кусочки";
+      if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+      return "";
+    }
+    if (p === "turkey" || p === "liver-lamb") {
       if (verySmall(fu)) return "";
       if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "кусочки";
       if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
-      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "кусочки" : "ломтики";
+      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
       if (/^ПОЛОСК/.test(fu)) {
         if (p === "liver-lamb") return "кусочки";
         if (p === "turkey") return "";
         return "полоски";
       }
-      if (/^СРЕД/.test(fu) && p === "rumen") return "кусочки";
       if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
       return "";
     }
@@ -104,16 +123,32 @@
     if (p === "ear" || p === "aorta") {
       if (t === "половинки" || t === "половинка") return "половинка";
     }
-    if (p === "lung" || p === "lung-lamb") {
+    if (p === "lung") {
+      if (t === "очень мелкое" || t === "очень мелкий кубик") return "очень мелкий кубик";
+      if (t === "целое" || t === "ломтики") return "ломтики";
+      if (t === "полоски") return "полоски";
+      if (t === "крупное" || t === "крупный кубик") return "крупный кубик";
+      if (t === "среднее" || t === "кубики" || t === "средний кубик") return "средний кубик";
+      if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкий кубик";
+    }
+    if (p === "lung-lamb") {
       if (t === "целое" || t === "ломтики") return "ломтики";
       if (t === "среднее" || t === "кубики") return "кубики";
       if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкие кубики";
     }
-    if (p === "rumen" && (t === "среднее" || t === "кусочки")) return "кусочки";
+    if (p === "heart" || p === "rumen" || p === "kidney") {
+      if (t === "очень мелкое" || t === "очень мелкие кусочки") return "очень мелкие кусочки";
+      if (t === "крупное" || t === "крупные кусочки") return "крупные кусочки";
+      if (t === "кусочки" || t === "средние кусочки") return "средние кусочки";
+      if (p === "rumen" && t === "среднее") return "средние кусочки";
+      if (t === "мелкое" || t === "мелкие кусочки") return "мелкие кусочки";
+      if (p === "kidney" && (t === "ломтики" || t === "целое")) return "средние кусочки";
+      if ((p === "heart" || p === "rumen") && (t === "ломтики" || t === "целое")) return "ломтики";
+      if (t === "полоски") return "полоски";
+    }
     if (p === "liver-lamb" && t === "полоски") return "кусочки";
-    if ((p === "heart" || p === "rumen" || p === "kidney" || p === "turkey" || p === "liver-lamb") &&
+    if ((p === "turkey" || p === "liver-lamb") &&
         (t === "мелкое" || t === "мелкие кусочки")) return "мелкие кусочки";
-    if (p === "kidney" && (t === "ломтики" || t === "целое")) return "кусочки";
     return "";
   }
 
