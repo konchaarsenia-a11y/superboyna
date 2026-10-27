@@ -3,15 +3,19 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { alignRetailItems, HEART_KEY, LIVER_KEY, parseFirstJson } from "./ig-price-align.mjs";
 import { setRumenXs, RUMEN_KEY, RUMEN_PRICE } from "./rumen-xs-price.mjs";
+import { setFracGrid, GRID } from "./frac-grid-price.mjs";
 
 const engine = {
   prettyProductName(name) { return "PRETTY:" + name; },
   humanFraction(main, sub) { return "ORIG:" + sub; },
   catalogFractionsForUi_(cat, name) {
-    if (name === "СЕРДЦЕ") return ["Ломтики", "Полоски", "Мелкое", "Очень мелкое"];
+    if (name === "СЕРДЦЕ") return ["Ломтики", "Полоски", "Крупное", "Мелкое", "Очень мелкое", "Крошка"];
     if (name === "ИНДЕЙКА") return ["Ломтики", "Полоски", "Мелкое"];
-    if (name === "РУБЕЦ Т") return ["Ломтики", "Полоски", "Среднее", "Мелкое"];
-    if (name === "ПОЧКИ") return ["Ломтики", "Мелкое"];
+    if (name === "РУБЕЦ Т") return ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое"];
+    if (name === "ПОЧКИ") return ["Ломтики", "Мелкое", "Очень мелкое"];
+    if (name === "БАРАНЬЕ ЛЁГКОЕ") return ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое"];
+    if (name === "ЛЁГКОЕ") return ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое"];
+    if (name === "ПЕЧЕНЬ" || name === "ВЫМЯ" || name === "СЕМЕННИКИ" || name === "МЯСНЫЕ ЛОМТИКИ") return ["Крошка"];
     return ["Ломтики"];
   },
   applyRetailPriceMapToUi_(items) { engine.saved = items; },
@@ -37,6 +41,7 @@ const api = context.BoinyaOrderEngine;
 const ig = context.BoinyaIgLabels;
 
 assert.equal(api.prettyProductName("УХО К"), "Ушко кролика");
+assert.equal(api.prettyProductName("МЯСНЫЕ ЛОМТИКИ"), "Говядина");
 assert.equal(api.prettyProductName("УХО Г"), "PRETTY:УХО Г");
 assert.equal(ig.shownProductName("КРОШКА ЛЁГКОГО"), "");
 assert.equal(api.humanFraction("БЫЧИЙ КОРЕНЬ", "ОГР"), "рогалик");
@@ -51,23 +56,24 @@ assert.equal(api.humanFraction("ЛЁГКОЕ", "Мелкое"), "мелкий к
 assert.equal(api.humanFraction("ЛЁГКОЕ", "Крупное"), "крупный кубик");
 assert.equal(api.humanFraction("ЛЁГКОЕ", "Очень мелкое"), "очень мелкий кубик");
 assert.equal(api.humanFraction("ЛЁГКОЕ", "Целое"), "ломтики");
-assert.equal(api.humanFraction("ЛЁГКОЕ", "Полоски"), "полоски");
-assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Полоски"), "полоски");
-assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Среднее"), "кубики");
-assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Мелкое"), "мелкие кубики");
-assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Очень мелкое"), "ORIG:Очень мелкое");
+assert.equal(api.humanFraction("ЛЁГКОЕ", "Полоски"), "палочки");
+assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Полоски"), "палочки");
+assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Крупное"), "крупный кубик");
+assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Среднее"), "средний кубик");
+assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Мелкое"), "мелкий кубик");
+assert.equal(api.humanFraction("БАРАНЬЕ ЛЁГКОЕ", "Очень мелкое"), "очень мелкий кубик");
 assert.equal(api.humanFraction("СЕРДЦЕ", "Полоски"), "полоски");
 assert.equal(api.humanFraction("СЕРДЦЕ", "Ломтики"), "ломтики");
-assert.equal(api.humanFraction("СЕРДЦЕ", "Кусочки"), "средние кусочки");
+assert.equal(api.humanFraction("СЕРДЦЕ", "Кусочки"), "кусочки");
 assert.equal(api.humanFraction("СЕРДЦЕ", "Мелкое"), "мелкие кусочки");
 assert.equal(api.humanFraction("СЕРДЦЕ", "Крупное"), "крупные кусочки");
 assert.equal(api.humanFraction("СЕРДЦЕ", "Очень мелкое"), "очень мелкие кусочки");
-assert.equal(api.humanFraction("РУБЕЦ Т", "Среднее"), "средние кусочки");
+assert.equal(api.humanFraction("РУБЕЦ Т", "Среднее"), "кусочки");
 assert.equal(api.humanFraction("РУБЕЦ Т", "Крупное"), "крупные кусочки");
 assert.equal(api.humanFraction("РУБЕЦ Т", "Ломтики"), "ломтики");
 assert.equal(api.humanFraction("РУБЕЦ Т", "Полоски"), "полоски");
 assert.equal(api.humanFraction("РУБЕЦ Т", "Мелкое"), "мелкие кусочки");
-assert.equal(api.humanFraction("ПОЧКИ", "Ломтики"), "средние кусочки");
+assert.equal(api.humanFraction("ПОЧКИ", "Ломтики"), "кусочки");
 assert.equal(api.humanFraction("ПОЧКИ", "Очень мелкое"), "очень мелкие кусочки");
 assert.equal(api.humanFraction("БАРАНЬЯ ПЕЧЕНЬ", "Полоски"), "кусочки");
 assert.equal(api.humanFraction("БАРАНЬЯ ПЕЧЕНЬ", "Мелкое"), "мелкие кусочки");
@@ -100,8 +106,27 @@ const basket = api.calcRetailBasketTotal([
   { name: "РУБЕЦ Т", sub: "Очень мелкое", val: 100 }
 ]);
 assert.equal(basket.goods, 9 + 9 + 13 + 15);
-assert.ok(api.catalogFractionsForUi_("dressura", "СЕРДЦЕ").includes("Кусочки"));
-assert.equal(api.catalogFractionsForUi_("dressura", "РУБЕЦ Т").includes("Кусочки"), false);
+const heartPick = api.catalogFractionsForUi_("dressura", "СЕРДЦЕ");
+assert.ok(heartPick.includes("Кусочки"));
+assert.equal(heartPick.includes("Полоски"), false);
+assert.equal(heartPick.includes("Крупное"), false);
+assert.deepEqual(api.catalogFractionsForUi_("dressura", "РУБЕЦ Т"), ["Ломтики", "Среднее", "Мелкое", "Очень мелкое"]);
+assert.deepEqual(api.catalogFractionsForUi_("dressura", "ПОЧКИ"), ["Ломтики", "Мелкое"]);
+assert.equal(api.catalogFractionsForUi_("dressura", "БАРАНЬЕ ЛЁГКОЕ").includes("Очень мелкое"), false);
+assert.deepEqual(api.catalogFractionsForUi_("other", "ПЕЧЕНЬ"), ["Кусочки", "Мелкое", "Крошка"]);
+assert.deepEqual(api.catalogFractionsForUi_("other", "ИНДЕЙКА"), ["Ломтики", "Полоски", "Кусочки", "Мелкое"]);
+assert.equal(api.retailLineCost("СЕРДЦЕ", "Очень мелкое", 100).cost, 15);
+assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", "Среднее", 100).cost, 18);
+assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", "Мелкое", 100).cost, 19);
+assert.equal(api.retailLineCost("ПЕЧЕНЬ", "Кусочки", 100).cost, 11);
+assert.equal(api.retailLineCost("ПЕЧЕНЬ", "Мелкое", 100).cost, 12);
+assert.equal(api.retailLineCost("ВЫМЯ", "Кусочки", 100).cost, 10);
+assert.equal(api.retailLineCost("ВЫМЯ", "Мелкое", 100).cost, 11);
+assert.equal(api.retailLineCost("СЕМЕННИКИ", "Мелкое", 100).cost, 14);
+assert.equal(api.retailLineCost("МЯСНЫЕ ЛОМТИКИ", "Кусочки", 100).cost, 16);
+assert.equal(api.retailLineCost("МЯСНЫЕ ЛОМТИКИ", "Мелкое", 100).cost, 17);
+assert.equal(api.retailLineCost("ИНДЕЙКА", "Мелкое", 100).cost, 12);
+assert.equal(api.retailLineCost("КРОШКА МИКС", "Мелкое", 100).cost, 12);
 assert.equal(ig.relabelText("БЫЧИЙ КОРЕНЬ", "огромные"), "рогалик");
 assert.equal(ig.relabelText("ТРАХЕЯ", "огромные"), "");
 assert.equal(ig.relabelText("КРОШКА ЛЁГКОГО", "мелкое"), "");
@@ -109,11 +134,13 @@ assert.equal(ig.relabelText("ЛЁГКОЕ", "кубики"), "средний к�
 assert.equal(ig.relabelText("ЛЁГКОЕ", "среднее"), "средний кубик");
 assert.equal(ig.relabelText("ЛЁГКОЕ", "мелкие кубики"), "мелкий кубик");
 assert.equal(ig.relabelText("ЛЁГКОЕ", "очень мелкое"), "очень мелкий кубик");
-assert.equal(ig.relabelText("БАРАНЬЕ ЛЁГКОЕ", "кубики"), "кубики");
-assert.equal(ig.relabelText("БАРАНЬЕ ЛЁГКОЕ", "очень мелкое"), "");
-assert.equal(ig.relabelText("РУБЕЦ Т", "кусочки"), "средние кусочки");
-assert.equal(ig.relabelText("РУБЕЦ Т", "среднее"), "средние кусочки");
-assert.equal(ig.relabelText("ПОЧКИ", "ломтики"), "средние кусочки");
+assert.equal(ig.relabelText("БАРАНЬЕ ЛЁГКОЕ", "кубики"), "средний кубик");
+assert.equal(ig.relabelText("БАРАНЬЕ ЛЁГКОЕ", "очень мелкое"), "очень мелкий кубик");
+assert.equal(ig.relabelText("ЛЁГКОЕ", "полоски"), "палочки");
+assert.equal(ig.relabelText("РУБЕЦ Т", "кусочки"), "кусочки");
+assert.equal(ig.relabelText("РУБЕЦ Т", "среднее"), "кусочки");
+assert.equal(ig.relabelText("РУБЕЦ Т", "средние кусочки"), "кусочки");
+assert.equal(ig.relabelText("ПОЧКИ", "ломтики"), "кусочки");
 assert.equal(ig.relabelText("СЕРДЦЕ", "очень мелкое"), "очень мелкие кусочки");
 assert.equal(ig.relabelText("СЕРДЦЕ", "ломтики"), "ломтики");
 assert.equal(ig.relabelText("ИНДЕЙКА", "кусочки"), "");
@@ -123,12 +150,19 @@ const cut = context.BoinyaCutFrac;
 assert.equal(cut.phrase({ cat: "dressura", name: "ЛЁГКОЕ", sub: "Среднее" }), "средний кубик");
 assert.equal(cut.phrase({ cat: "dressura", name: "ЛЁГКОЕ", sub: "Крупное" }), "крупный кубик");
 assert.equal(cut.phrase({ cat: "dressura", name: "ЛЁГКОЕ", sub: "Очень мелкое" }), "очень мелкий кубик");
-assert.equal(cut.phrase({ cat: "dressura", name: "ЛЁГКОЕ", sub: "Полоски" }), "полоски");
-assert.equal(cut.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Кусочки" }), "средние кусочки");
+assert.equal(cut.phrase({ cat: "dressura", name: "ЛЁГКОЕ", sub: "Полоски" }), "палочки");
+assert.equal(cut.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Полоски" }), "полоски");
+assert.equal(cut.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Крупное" }), "крупные кусочки");
+assert.equal(cut.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Кусочки" }), "кусочки");
 assert.equal(cut.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Ломтики" }), "ломтики");
 assert.equal(cut.phrase({ cat: "dressura", name: "РУБЕЦ Т", sub: "Очень мелкое" }), "очень мелкие кусочки");
-assert.equal(cut.phrase({ cat: "dressura", name: "ПОЧКИ", sub: "Ломтики" }), "средние кусочки");
-assert.equal(cut.phrase({ cat: "dressura", name: "БАРАНЬЕ ЛЁГКОЕ", sub: "Среднее" }), "кубики");
+assert.equal(cut.phrase({ cat: "dressura", name: "ПОЧКИ", sub: "Ломтики" }), "кусочки");
+assert.equal(cut.phrase({ cat: "dressura", name: "ПОЧКИ", sub: "Очень мелкое" }), "очень мелкие кусочки");
+assert.equal(cut.phrase({ cat: "dressura", name: "БАРАНЬЕ ЛЁГКОЕ", sub: "Среднее" }), "средний кубик");
+assert.equal(cut.phrase({ cat: "dressura", name: "БАРАНЬЕ ЛЁГКОЕ", sub: "Очень мелкое" }), "очень мелкий кубик");
+assert.equal(cut.phrase({ cat: "other", name: "ПЕЧЕНЬ", sub: "Кусочки" }), "кусочки");
+assert.equal(cut.phrase({ cat: "other", name: "ПЕЧЕНЬ", sub: "Мелкое" }), "мелкие кусочки");
+assert.equal(cut.phrase({ cat: "other", name: "МЯСНЫЕ ЛОМТИКИ", sub: "Мелкое" }), "мелкие кусочки");
 assert.equal(cut.phrase({ cat: "other", name: "ИНДЕЙКА", sub: "Кусочки" }), "кусочки");
 assert.equal(cut.phrase({ cat: "other", name: "БАРАНЬЯ ПЕЧЕНЬ", sub: "Полоски" }), "кусочки");
 const sizes = ig.relabelSizes("БЫЧИЙ КОРЕНЬ", [
@@ -185,7 +219,7 @@ const showcase = worker.slice(
   worker.indexOf("function retailItemsFromMapD1_")
 );
 assert.doesNotMatch(showcase, /Очень мелкое/);
-const wsrc = worker.slice(worker.indexOf("function igNormD1_("), worker.indexOf("function igShownProductD1_("));
+const wsrc = worker.slice(worker.indexOf("function igNormD1_("), worker.indexOf("function retailLineCostD1_("));
 const wctx = {};
 vm.createContext(wctx);
 vm.runInContext(wsrc, wctx);
@@ -199,6 +233,16 @@ assert.equal(wctx.igFractionWordD1_("ЛЁГКОЕ", "Среднее"), "сред
 assert.equal(wctx.igFractionWordD1_("ЛЁГКОЕ", "Очень мелкое"), "очень мелкий кубик");
 assert.equal(wctx.igFractionWordD1_("БАРАНЬЕ ЛЁГКОЕ", "Среднее"), "кубики");
 assert.equal(wctx.igFractionWordD1_("БАРАНЬЕ ЛЁГКОЕ", "Очень мелкое"), "");
+assert.equal(wctx.fracGridWordD1_("БАРАНЬЕ ЛЁГКОЕ", "Среднее"), "средний кубик");
+assert.equal(wctx.fracGridWordD1_("БАРАНЬЕ ЛЁГКОЕ", "Очень мелкое"), "очень мелкий кубик");
+assert.equal(wctx.fracGridWordD1_("ЛЁГКОЕ", "Полоски"), "палочки");
+assert.equal(wctx.fracGridWordD1_("СЕРДЦЕ", "Кусочки"), "кусочки");
+assert.equal(wctx.fracGridWordD1_("СЕРДЦЕ", "Полоски"), "полоски");
+assert.equal(wctx.fracGridWordD1_("ПЕЧЕНЬ", "Мелкое"), "мелкие кусочки");
+assert.equal(wctx.fracGridNameD1_("МЯСНЫЕ ЛОМТИКИ"), "Говядина");
+assert.equal(wctx.fracGridPer100D1_("ПЕЧЕНЬ", "Кусочки", 100).cost, 11);
+assert.equal(wctx.fracGridPer100D1_("КРОШКА ЛЁГКОГО", "Мелкое", 100), null);
+assert.equal(wctx.fracGridPer100D1_("ИНДЕЙКА", "Мелкое", 100), null);
 assert.equal(wctx.igFractionWordD1_("РУБЕЦ Т", "Очень мелкое"), "очень мелкие кусочки");
 assert.equal(wctx.igFractionWordD1_("ИНДЕЙКА", "Кусочки"), "кусочки");
 assert.equal(wctx.igFractionWordD1_("ПОЧКИ", "Ломтики"), "средние кусочки");
@@ -246,5 +290,55 @@ assert.equal(from14.items.length, baseItems.length + 1);
 
 const parsed = parseFirstJson("npm warn\n[{\"results\":[{\"n\":3}]}]\nextra");
 assert.equal(parsed[0].results[0].n, 3);
+
+const gridBase = [
+  { key: "КРОШКА РУБЕЦ", kind: "per100", price: 12 },
+  { key: "РУБЕЦ Т|Очень мелкое", kind: "per100", price: 15 },
+  { key: "УХО К|ПОЛОВИНКА", kind: "perPiece", price: 5 },
+  { key: "СЕРДЦЕ|Очень мелкое", kind: "per100", price: 16 },
+  { key: "КАБАЧОК", kind: "per100", price: 0 }
+];
+const gridded = setFracGrid(gridBase);
+assert.equal(gridded.items.length, gridBase.length + Object.keys(GRID).length - 1);
+assert.equal(gridded.items.find((it) => it.key === "СЕРДЦЕ|Очень мелкое").price, 15);
+assert.equal(gridded.items.find((it) => it.key === "КРОШКА РУБЕЦ").price, 12);
+assert.equal(gridded.items.find((it) => it.key === "РУБЕЦ Т|Очень мелкое").price, 15);
+assert.equal(gridded.items.find((it) => it.key === "УХО К|ПОЛОВИНКА").price, 5);
+assert.equal(gridded.items.filter((it) => it.key === "КАБАЧОК").length, 1);
+assert.equal(setFracGrid(gridded.items).changed.length, 0);
+
+const real = { console };
+real.globalThis = real;
+vm.createContext(real);
+vm.runInContext(fs.readFileSync(new URL("../boinya-c/next/order-engine.js", import.meta.url), "utf8"), real);
+vm.runInContext(fs.readFileSync(new URL("../boinya-c/next/ig-labels.js", import.meta.url), "utf8"), real);
+vm.runInContext(fs.readFileSync(new URL("../boinya-c/next/cut-frac.js", import.meta.url), "utf8"), real);
+const live = real.BoinyaOrderEngine;
+function offer(cat, name) {
+  const fr = Array.from(live.catalogFractionsForUi_(cat, name) || []);
+  return fr
+    .filter((f) => !/^крошк/i.test(String(f)))
+    .map((f) => String(live.humanFraction(name, f)) + " " + live.retailLineCost(name, f, 100).per);
+}
+assert.deepEqual(offer("dressura", "ЛЁГКОЕ"), ["ломтики 9", "палочки 10", "крупный кубик 10", "средний кубик 11", "мелкий кубик 12", "очень мелкий кубик 13"]);
+assert.deepEqual(offer("dressura", "СЕРДЦЕ"), ["ломтики 12", "кусочки 13", "мелкие кусочки 14", "очень мелкие кусочки 15"]);
+assert.deepEqual(offer("dressura", "РУБЕЦ Т"), ["ломтики 12", "кусочки 13", "мелкие кусочки 14", "очень мелкие кусочки 15"]);
+assert.deepEqual(offer("dressura", "ПОЧКИ"), ["кусочки 11", "мелкие кусочки 12"]);
+assert.equal(String(live.prettyProductName("МЯСНЫЕ ЛОМТИКИ")), "Говядина");
+assert.deepEqual(offer("other", "ПЕЧЕНЬ"), ["кусочки 11", "мелкие кусочки 12"]);
+assert.deepEqual(offer("other", "ВЫМЯ"), ["кусочки 10", "мелкие кусочки 11"]);
+assert.deepEqual(offer("other", "СЕМЕННИКИ"), ["кусочки 13", "мелкие кусочки 14"]);
+assert.deepEqual(offer("other", "МЯСНЫЕ ЛОМТИКИ"), ["кусочки 16", "мелкие кусочки 17"]);
+assert.deepEqual(offer("other", "ИНДЕЙКА"), ["ломтики 16", "полоски 17", "кусочки 17", "мелкие кусочки 18"]);
+assert.deepEqual(offer("dressura", "БАРАНЬЕ ЛЁГКОЕ"), ["ломтики 16", "палочки 17", "крупный кубик 17", "средний кубик 18", "мелкий кубик 19"]);
+assert.deepEqual(offer("other", "БАРАНЬЯ ПЕЧЕНЬ"), ["ломтики 17", "кусочки 18", "мелкие кусочки 19"]);
+assert.equal(offer("other", "КРОЛИК").length, 0);
+assert.equal(real.BoinyaCutFrac.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Полоски" }), "полоски");
+assert.equal(real.BoinyaCutFrac.phrase({ cat: "dressura", name: "ПОЧКИ", sub: "Очень мелкое" }), "очень мелкие кусочки");
+assert.equal(real.BoinyaCutFrac.phrase({ cat: "other", name: "ВЫМЯ", sub: "Мелкое" }), "мелкие кусочки");
+assert.doesNotMatch(engineSrc, /Говядина/);
+assert.match(worker, /function applyFracGridPatchD1_/);
+assert.match(worker, /function meatFracParentCostD1_/);
+assert.match(gas, /function applyFracGridPatchGs_/);
 
 console.log("ig-labels ok");

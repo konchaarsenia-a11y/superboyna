@@ -16,6 +16,10 @@
     if (/РУБЕЦ/.test(n)) return "rumen";
     if (/ПОЧК/.test(n)) return "kidney";
     if (/ИНДЕЙ/.test(n)) return "turkey";
+    if (/^ПЕЧЕН/.test(n)) return "liver";
+    if (/ВЫМЯ/.test(n)) return "udder";
+    if (/СЕМЕН/.test(n)) return "testis";
+    if ((/МЯСН/.test(n) && /ЛОМТ/.test(n)) || n === "ГОВЯДИНА") return "beef";
     if (/БЫЧИЙ КОРЕН/.test(n)) return "root";
     if (/ТРАХЕ/.test(n)) return "trachea";
     if (/СТАНОВ/.test(n)) return "sinew";
@@ -56,32 +60,29 @@
       if (/ОБЫЧН/.test(fu) || /^ЦЕЛ/.test(fu)) return "целое";
       return "";
     }
-    if (p === "lung") {
+    if (p === "lung" || p === "lung-lamb") {
       if (verySmall(fu)) return "очень мелкий кубик";
       if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
-      if (/^ПОЛОСК/.test(fu)) return "полоски";
-      if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
+      if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
+      if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu) || (/КУБИК/.test(fu) && /КРУП/.test(fu))) return "крупный кубик";
       if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "средний кубик";
       if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкий кубик";
       return "";
     }
-    if (p === "lung-lamb") {
-      if (verySmall(fu)) return "";
-      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
-      if (/^ПОЛОСК/.test(fu)) return "полоски";
-      if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "кубики";
-      if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкие кубики";
-      return "";
-    }
     if (p === "heart" || p === "rumen" || p === "kidney") {
       if (verySmall(fu)) return "очень мелкие кусочки";
-      if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "средние кусочки";
+      if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "кусочки";
       if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
       if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупные кусочки";
-      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "средние кусочки" : "ломтики";
+      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "кусочки" : "ломтики";
       if (/^ПОЛОСК/.test(fu)) return "полоски";
-      if (/^СРЕД/.test(fu) && p === "rumen") return "средние кусочки";
+      if (/^СРЕД/.test(fu) && p === "rumen") return "кусочки";
       if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+      return "";
+    }
+    if (p === "liver" || p === "udder" || p === "testis" || p === "beef") {
+      if (/^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu)) return "кусочки";
+      if (/^МЕЛК/.test(fu) || (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu))) return "мелкие кусочки";
       return "";
     }
     if (p === "turkey" || p === "liver-lamb") {
@@ -123,28 +124,28 @@
     if (p === "ear" || p === "aorta") {
       if (t === "половинки" || t === "половинка") return "половинка";
     }
-    if (p === "lung") {
-      if (t === "очень мелкое" || t === "очень мелкий кубик") return "очень мелкий кубик";
+    if (p === "lung" || p === "lung-lamb") {
+      if (p === "lung" && (t === "очень мелкое" || t === "очень мелкий кубик")) return "очень мелкий кубик";
+      if (p === "lung-lamb" && (t === "очень мелкое" || t === "очень мелкий кубик")) return "очень мелкий кубик";
       if (t === "целое" || t === "ломтики") return "ломтики";
-      if (t === "полоски") return "полоски";
+      if (t === "полоски" || t === "палочки") return "палочки";
       if (t === "крупное" || t === "крупный кубик") return "крупный кубик";
       if (t === "среднее" || t === "кубики" || t === "средний кубик") return "средний кубик";
       if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкий кубик";
     }
-    if (p === "lung-lamb") {
-      if (t === "целое" || t === "ломтики") return "ломтики";
-      if (t === "среднее" || t === "кубики") return "кубики";
-      if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкие кубики";
-    }
     if (p === "heart" || p === "rumen" || p === "kidney") {
       if (t === "очень мелкое" || t === "очень мелкие кусочки") return "очень мелкие кусочки";
       if (t === "крупное" || t === "крупные кусочки") return "крупные кусочки";
-      if (t === "кусочки" || t === "средние кусочки") return "средние кусочки";
-      if (p === "rumen" && t === "среднее") return "средние кусочки";
+      if (t === "кусочки" || t === "средние кусочки") return "кусочки";
+      if (p === "rumen" && t === "среднее") return "кусочки";
       if (t === "мелкое" || t === "мелкие кусочки") return "мелкие кусочки";
-      if (p === "kidney" && (t === "ломтики" || t === "целое")) return "средние кусочки";
+      if (p === "kidney" && (t === "ломтики" || t === "целое")) return "кусочки";
       if ((p === "heart" || p === "rumen") && (t === "ломтики" || t === "целое")) return "ломтики";
       if (t === "полоски") return "полоски";
+    }
+    if (p === "liver" || p === "udder" || p === "testis" || p === "beef") {
+      if (t === "кусочки" || t === "средние кусочки") return "кусочки";
+      if (t === "мелкое" || t === "мелкие кусочки") return "мелкие кусочки";
     }
     if (p === "liver-lamb" && t === "полоски") return "кусочки";
     if ((p === "turkey" || p === "liver-lamb") &&
@@ -237,7 +238,40 @@
   function shownProductName(name) {
     var n = norm(name);
     if (n === "УХО К" || n === "УШКО К") return "Ушко кролика";
+    if ((/МЯСН/.test(n) && /ЛОМТ/.test(n)) || n === "ГОВЯДИНА") return "Говядина";
     return "";
+  }
+
+  function gridPer100(main, sub) {
+    var p = product(main);
+    var fu = norm(sub);
+    if (!p || !fu || isCrumbLine(main, sub)) return null;
+    if (p === "heart" && verySmall(fu)) return 15;
+    if (p === "lung-lamb" && !verySmall(fu)) {
+      if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu) && !/КРУП/.test(fu))) return 18;
+      if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return 19;
+    }
+    if (p === "liver" || p === "udder" || p === "testis" || p === "beef") {
+      var coarse = /^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu);
+      var fine = /^МЕЛК/.test(fu);
+      if (p === "liver" && coarse) return 11;
+      if (p === "liver" && fine) return 12;
+      if (p === "udder" && coarse) return 10;
+      if (p === "udder" && fine) return 11;
+      if (p === "testis" && coarse) return 13;
+      if (p === "testis" && fine) return 14;
+      if (p === "beef" && coarse) return 16;
+      if (p === "beef" && fine) return 17;
+    }
+    return null;
+  }
+
+  function gridLine(name, sub, val) {
+    var per = gridPer100(name, sub);
+    if (per == null) return null;
+    var v = Number(val) || 0;
+    if (!(v > 0)) return { cost: 0, per: per, found: true };
+    return { cost: Math.round((v / 100) * per * 100) / 100, per: per, found: true };
   }
 
   var api = root.BoinyaOrderEngine;
@@ -269,7 +303,22 @@
             fr.splice(at >= 0 ? at + 1 : fr.length, 0, "Кусочки");
           }
         }
-        return fr;
+        if (n === "ПЕЧЕНЬ" || n === "ВЫМЯ" || n === "СЕМЕННИКИ" || n === "МЯСНЫЕ ЛОМТИКИ") {
+          ["Кусочки", "Мелкое"].forEach(function (f) {
+            if (fr.indexOf(f) >= 0) return;
+            var crumbAt = -1;
+            var i;
+            for (i = 0; i < fr.length; i++) if (/^КРОШК/i.test(String(fr[i] || ""))) crumbAt = i;
+            fr.splice(crumbAt >= 0 ? crumbAt : fr.length, 0, f);
+          });
+        }
+        var hide = null;
+        if (n === "СЕРДЦЕ" || n === "РУБЕЦ Т") hide = { "ПОЛОСКИ": 1, "КРУПНОЕ": 1 };
+        else if (n === "ПОЧКИ" || n === "БАРАНЬЕ ЛЕГКОЕ") hide = { "ОЧЕНЬ МЕЛКОЕ": 1 };
+        if (!hide) return fr;
+        return fr.filter(function (f) {
+          return !hide[norm(f)];
+        });
       };
     }
     if (typeof api.applyRetailPriceMapToUi_ === "function") {
@@ -282,6 +331,8 @@
     if (typeof api.retailLineCost === "function") {
       var origLine = api.retailLineCost;
       api.retailLineCost = function (name, sub, val, cat, extra) {
+        var locked = gridLine(name, sub, val);
+        if (locked) return locked;
         var hit = kusochkiCost(name, sub, val);
         if (hit) return hit;
         return origLine.apply(this, arguments);
@@ -302,7 +353,7 @@
             plain.push(it);
             return;
           }
-          var hit = kusochkiCost(name, sub, val);
+          var hit = gridLine(name, sub, val) || kusochkiCost(name, sub, val);
           if (!hit) {
             plain.push(it);
             return;
@@ -353,6 +404,7 @@
     relabelText: relabelText,
     relabelSizes: relabelSizes,
     kusochkiCost: kusochkiCost,
+    gridPer100: gridPer100,
     rememberPrices: rememberPrices
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
