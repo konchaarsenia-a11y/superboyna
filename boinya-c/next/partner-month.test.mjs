@@ -176,6 +176,12 @@ test("точки Варки не сходятся в один VARKA на сбо�
     api.ops({ name: "Варка", matchKey: "ВАРКА", address: "Цвирко 100" }),
     api.ops({ name: "Варка", matchKey: "ВАРКА", address: "Шевченко 1" })
   );
+  assert.equal(api.ops({ name: "Варка", matchKey: "ВАРКА ЦВИРКО 100", address: "Цвирко 100" }), "ВАРКА ЦВИРКО 100");
+  assert.equal(api.ops({ name: "Варка", matchKey: "ВАРКА ШЕВЧЕНКО 1", address: "Шевченко 1" }), "ВАРКА ШЕВЧЕНКО 1");
+  assert.notEqual(
+    api.ops({ name: "Варка", matchKey: "ВАРКА ЦВИРКО 100", address: "Цвирко 100" }),
+    api.ops({ name: "Варка", matchKey: "ВАРКА ШЕВЧЕНКО 1", address: "Шевченко 1" })
+  );
   const logic = require("./week-logic.js");
   assert.equal(logic.rowKey(tsv), "ВАРКА ЦВИРКО 100");
   assert.notEqual(logic.rowKey(tsv), logic.rowKey(shev));

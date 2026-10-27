@@ -15842,12 +15842,30 @@ async function setAssemblyFlag_(params, env, flag) {
   const val = toBool_(params[flag] != null ? params[flag] : params.value);
   const snap = await getAssembly_({ day: day }, env);
   let exact = false;
+  let wantPoint = "";
+  try {
+    wantPoint = partnerOpsKey_({ name: client, matchKey: params.matchKey || "", address: params.address || "" });
+  } catch (eWant) {
+    wantPoint = "";
+  }
+  if (wantPoint && wantPoint.indexOf("ВАРКА ") === 0) {
+    (snap.clients || []).forEach(function (c) {
+      var got = "";
+      try { got = partnerOpsKey_(c); } catch (eGot) { got = ""; }
+      if (got && got === wantPoint) {
+        c[flag] = val;
+        exact = true;
+      }
+    });
+  }
+  if (!exact) {
   (snap.clients || []).forEach(function (c) {
     if (String(c.name || "") === client) {
       c[flag] = val;
       exact = true;
     }
   });
+  }
   // без точного имени (старые карточки) — по matchKey, но не трогать обе собаки разом
   if (!exact) {
     (snap.clients || []).forEach(function (c) {

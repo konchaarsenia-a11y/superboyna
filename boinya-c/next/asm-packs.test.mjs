@@ -197,6 +197,18 @@ test("duplicate row does not double craft", () => {
   assert.equal(res.totals["крафт"], 1);
 });
 
+test("bare Varka title keeps the street", () => {
+  assert.equal(packs.pointLabel({ name: "Варка", matchKey: "ВАРКА ШЕВЧЕНКО 1", address: "Шевченко 1" }), "Варка Шевченко 1");
+  assert.equal(packs.pointLabel({ name: "Варка", matchKey: "ВАРКА ЦВИРКО 100", address: "Цвирко 100" }), "Варка Цвирко 100");
+  assert.equal(packs.pointLabel({ name: "Анна", matchKey: "ANNA", address: "ул 1" }), "");
+  const folded = packs.collapse([
+    { name: "Варка", matchKey: "ВАРКА ШЕВЧЕНКО 1", address: "Шевченко 1", basket: [line("СЕРДЦЕ", 100)] },
+    { name: "Варка", matchKey: "ВАРКА ЦВИРКО 100", address: "Цвирко 100", basket: [line("ЛЁГКОЕ", 200)] }
+  ], "2026-10-27");
+  assert.equal(folded.length, 2);
+  assert.equal(packs.courierStops(folded).length, 2);
+});
+
 test("varka points with one VARKA key stay two assembly cards and two stops", () => {
   const tsv = client({ name: "Varka Цвирко 100", matchKey: "VARKA", address: "Цвирко 100", grams: 200 });
   const shev = client({ name: "Varka Шевченко 1", matchKey: "VARKA", address: "Шевченко 1", grams: 100 });

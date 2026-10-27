@@ -22,6 +22,27 @@
     return want === got;
   }
 
+  /* «Варка» + адрес точки. Голое имя без улицы не подпись. */
+  function pointLabel(c) {
+    c = c || {};
+    function clean(raw) {
+      return String(raw || "")
+        .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+    var name = clean(c.ownerName || c.name || "");
+    var key = name.toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
+    if (key.indexOf("ВАРКА ") === 0) return name;
+    if (key !== "ВАРКА") return "";
+    var addr = clean(c.address || "");
+    if (addr) return "Варка " + addr;
+    var mk = clean(c.matchKey || "");
+    var mkKey = mk.toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
+    if (mkKey.indexOf("ВАРКА ") === 0) return "Варка " + mk.slice(mk.search(/\s/) + 1).trim();
+    return "";
+  }
+
   function partnerFaceKey(c) {
     c = c || {};
     function clean(raw) {
@@ -597,6 +618,7 @@
     tally: tally,
     normDate: normDate,
     courierStops: courierStops,
-    courierDogLine: courierDogLine
+    courierDogLine: courierDogLine,
+    pointLabel: pointLabel
   };
 });
