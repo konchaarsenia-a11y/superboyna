@@ -37,6 +37,16 @@ test("три микса строго по весу, старая пачка не
   assert.equal(scheme.mix3Goods(line("mix3:hypo", 50), 50), 12.5);
   assert.equal(scheme.mix3Goods(line("mix3:hypo", 20), 20), 5);
   assert.equal(scheme.mix3Goods(line("meat", 100), 100), null);
+  assert.equal(scheme.mix4Goods(line("mix4:dress", 100), 100), 19);
+  assert.equal(scheme.mix4Goods(line("mix4:dress", 50), 50), 9.5);
+  assert.equal(scheme.mix4Goods(line("mix4:dress", 20), 20), 3.8);
+  assert.equal(scheme.mix4Goods(line("mix4:veg", 100), 100), 17);
+  assert.equal(scheme.mix4Goods(line("mix4:veg", 50), 50), 8.5);
+  assert.equal(scheme.mix4Goods(line("mix4:veg", 20), 20), 3.4);
+  assert.equal(scheme.mix4Goods(line("mix4:hypo", 100), 100), 22);
+  assert.equal(scheme.mix4Goods(line("mix4:hypo", 50), 50), 11);
+  assert.equal(scheme.mix4Goods(line("mix4:hypo", 20), 20), 4.4);
+  assert.equal(scheme.mix4Goods(line("mix3:hypo", 100), 100), null);
 
   const fresh = line("mix3:mix", 100, ["ЛЁГКОЕ", "ЯБЛОКИ"]);
   const legacy = line("meat", 100, ["РУБЕЦ Т"]);
@@ -51,6 +61,12 @@ test("три микса строго по весу, старая пачка не
   const oldSaved = engine.serializeBasketItem_(legacy);
   assert.equal(oldSaved.crumbKind, "meat");
   assert.equal(engine.calcRetailBasketTotal([oldSaved], { applyDelivery: false }).goods, 12);
+
+  const dress = line("mix4:dress", 100, ["ЛЁГКОЕ", "ПЕЧЕНЬ"]);
+  const veg = line("mix4:veg", 50, ["ЯБЛОКИ"]);
+  const hypo = line("mix4:hypo", 20, ["ИНДЕЙКА"]);
+  const next = engine.calcRetailBasketTotal([dress, veg, hypo, fresh], { applyDelivery: false });
+  assert.equal(next.goods, 19 + 8.5 + 4.4 + 15);
 });
 
 test("worker и Code.gs считают mix3, order-engine не переписан", () => {
@@ -59,7 +75,14 @@ test("worker и Code.gs считают mix3, order-engine не переписа�
   const order = fs.readFileSync(path.join(here, "order-engine.js"), "utf8");
   assert.match(worker, /mix3:\(mix\|meat\|hypo\)/);
   assert.match(gs, /mix3:\(mix\|meat\|hypo\)/);
+  assert.match(worker, /mix4:\(dress\|veg\|hypo\)/);
+  assert.match(gs, /mix4:\(dress\|veg\|hypo\)/);
+  assert.match(worker, /kind === "hypo" \? 22 : \(kind === "veg" \? 17 : 19\)/);
+  assert.match(gs, /kind === "hypo" \? 22 : \(kind === "veg" \? 17 : 19\)/);
+  assert.match(worker, /mixKind === "hypo" \? 25 : \(mixKind === "meat" \? 20 : 15\)/);
+  assert.match(gs, /mixKind === "hypo" \? 25 : \(mixKind === "meat" \? 20 : 15\)/);
   assert.match(worker, /crumbPackGoodsD1_/);
   assert.match(gs, /crumbPackGoodsGs_/);
   assert.doesNotMatch(order, /mix3:/);
+  assert.doesNotMatch(order, /mix4:/);
 });

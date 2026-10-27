@@ -107,7 +107,7 @@
   }
 
   function blankPicker() {
-    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "mix", sources: [], open: false };
+    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "dress", sources: [], open: false };
   }
 
   function esc(s) { return sh().esc(s); }
@@ -1353,16 +1353,13 @@
       return u === "ЛЕГКОЕ" || u === "СЕРДЦЕ" || u === "РУБЕЦ Т" || u === "БАРАНЬЕ ЛЕГКОЕ" || u === "ПОЧКИ";
     }
     function hypo(n) { return /КРОЛИК|ИНДЕЙК|БАРАН/.test(up(n)); }
+    if (kind !== "veg" && kind !== "hypo" && kind !== "dress") kind = "dress";
     return raw.filter(function (p) {
       var n = p.name;
       if (e.isChewProductName_ && e.isChewProductName_(n)) return false;
-      if (kind === "hypo") return hypo(n) || veg(n);
-      if (kind === "meat") {
-        if (veg(n)) return true;
-        if (hypo(n) || dressura(n)) return false;
-        return true;
-      }
-      return dressura(n) || veg(n);
+      if (kind === "veg") return veg(n);
+      if (kind === "hypo") return hypo(n) && !dressura(n);
+      return dressura(n) || (!veg(n) && !hypo(n));
     });
   }
 
@@ -1372,14 +1369,14 @@
     draft = draft || {};
     if (!draft.sources) draft.sources = [];
     if (!draft.grams) draft.grams = [];
-    if (!draft.kind || draft.kind === "veg") draft.kind = "mix";
-    var kinds = [["mix", "Микс"], ["meat", "Микс мясной"], ["hypo", "Микс гипоаллергенный"]];
+    if (draft.kind !== "veg" && draft.kind !== "hypo" && draft.kind !== "dress") draft.kind = "dress";
+    var kinds = [["dress", "Мясные (дрессура)"], ["veg", "Овощи/фрукты"], ["hypo", "Гипоаллергенные"]];
     var html = '<div class="b-chips">' + kinds.map(function (k) {
       return '<button type="button" class="b-chip' + (draft.kind === k[0] ? " b-chip--on" : "") + '" data-act="' + a.kind + '" data-kind="' + k[0] + '">' + esc(k[1]) + "</button>";
     }).join("") + "</div>";
     var pool = crumbMixPool_(draft.kind);
-    var rate = draft.kind === "hypo" ? 25 : (draft.kind === "meat" ? 20 : 15);
-    html += '<p class="b-note">' + rate + " BYN за 100 г, по весу. Овощи цену не меняют.</p>";
+    var rate = draft.kind === "hypo" ? 22 : (draft.kind === "veg" ? 17 : 19);
+    html += '<p class="b-note">' + rate + " BYN за 100 г, строго по весу.</p>";
     html += '<p class="b-lbl">Источники</p>';
     (draft.sources.length ? draft.sources : [""]).forEach(function (src, i) {
       html += '<label class="b-field" style="margin-top:8px"><select class="b-field__input" data-act="' + a.src + '" data-i="' + i + '"><option value="">— позиция —</option>' +
@@ -1446,7 +1443,7 @@
       item: {
         cat: "crumb",
         main: "КРОШКА",
-        crumbKind: "mix3:" + (draft.kind === "meat" || draft.kind === "hypo" ? draft.kind : "mix"),
+        crumbKind: "mix4:" + (draft.kind === "veg" || draft.kind === "hypo" ? draft.kind : "dress"),
         sources: sources,
         ratio: ratio,
         value: sumG,

@@ -1972,6 +1972,13 @@ var ASM_CHEW_PER_BIG = 4;
 
     function crumbClientMessageLine_(item) {
       var mixTag = String((item && item.crumbKind) || "");
+      var mix4Exec = /^mix4:(dress|veg|hypo)$/i.exec(mixTag);
+      if (mix4Exec) {
+        var mix4Kind = String(mix4Exec[1]).toLowerCase();
+        var mix4Title = mix4Kind === "hypo" ? "Гипоаллергенные" : (mix4Kind === "veg" ? "Овощи/фрукты" : "Мясные (дрессура)");
+        var mix4Val = Number(item && (item.val != null ? item.val : item.value)) || 0;
+        return mix4Title + " — " + mix4Val + " г";
+      }
       var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
       if (mixExec || (item && item.crumbScheme === "mix3")) {
         var mixKind = mixExec ? String(mixExec[1]).toLowerCase() : String(item.crumbKind || "mix").toLowerCase();

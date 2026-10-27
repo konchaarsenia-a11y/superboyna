@@ -1398,7 +1398,7 @@
   function pickerCat(cat) {
     markAddCat(cat);
     if (cat === "crumb") {
-      crumbDraft = { kind: "mix", sources: [], grams: [], qty: "" };
+      crumbDraft = { kind: "dress", sources: [], grams: [], qty: "" };
       renderCrumbPicker();
       return;
     }
@@ -1906,7 +1906,7 @@
     if (act === "cl-cat") { pickerCat(node.getAttribute("data-cat")); return true; }
     if (act === "cl-ckind") {
       if (!crumbDraft) return true;
-      crumbDraft.kind = node.getAttribute("data-kind") || "meat";
+      crumbDraft.kind = node.getAttribute("data-kind") || "dress";
       crumbDraft.sources = [];
       crumbDraft.grams = [];
       renderCrumbPicker();
