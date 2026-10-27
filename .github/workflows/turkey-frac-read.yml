@@ -1,10 +1,10 @@
 name: turkey-frac-read
-# Чтение заказа 19.10 с индейкой и карточки подписки. Без записи и без Telegram.
 
 on:
   push:
     paths:
       - .github/workflows/turkey-frac-read.yml
+      - scripts/turkey-frac-read.mjs
 
 permissions:
   contents: read
@@ -18,8 +18,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Read turkey fraction
-        working-directory: boinya-c/proxy
+      - name: Snap sums, leave turkey prices in place
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -28,110 +27,4 @@ jobs:
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             unset CLOUDFLARE_ACCOUNT_ID
           fi
-          mkdir -p "$GITHUB_WORKSPACE/artifacts/turkey-frac"
-          python3 - <<'PY'
-          import json, os, subprocess
-          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/turkey-frac"
-          def run(sql, name):
-              path = root + "/" + name + ".json"
-              subprocess.check_call([
-                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
-              ], stdout=open(path, "w", encoding="utf-8"))
-              return path
-          def rows(path):
-              data = json.loads(open(path, encoding="utf-8").read())
-              out = []
-              blocks = data if isinstance(data, list) else [data]
-              for block in blocks:
-                  if isinstance(block, dict) and isinstance(block.get("results"), list):
-                      out.extend(block["results"])
-              return out
-          orders_sql = (
-              "SELECT id, client, match_key, day_name, date_iso, status, updated_at, basket_json, note "
-              "FROM orders WHERE date_iso = '2026-10-19' OR day_name = 'Будущая неделя' "
-              "ORDER BY updated_at DESC LIMIT 80"
-          )
-          run(orders_sql, "orders-raw")
-          orders = rows(root + "/orders-raw.json")
-          brief = []
-          keys = []
-          for row in orders:
-              basket = []
-              try:
-                  basket = json.loads(row.get("basket_json") or "[]")
-              except Exception:
-                  basket = []
-              turkey = []
-              for it in basket if isinstance(basket, list) else []:
-                  if not isinstance(it, dict):
-                      continue
-                  name = str(it.get("name") or it.get("main") or "")
-                  if "ИНДЕЙ" in name.upper().replace("Ё", "Е"):
-                      turkey.append({
-                          "name": name,
-                          "sub": it.get("sub") or "",
-                          "frac": it.get("frac") or "",
-                          "cat": it.get("cat") or "",
-                          "val": it.get("val") if it.get("val") is not None else it.get("value"),
-                          "unit": it.get("unit") or ""
-                      })
-              item = {
-                  "id": row.get("id"),
-                  "client": row.get("client"),
-                  "match_key": row.get("match_key"),
-                  "day": row.get("day_name"),
-                  "date": row.get("date_iso"),
-                  "status": row.get("status"),
-                  "updated_at": row.get("updated_at"),
-                  "n": len(basket) if isinstance(basket, list) else 0,
-                  "turkey": turkey
-              }
-              brief.append(item)
-              if turkey and row.get("match_key"):
-                  keys.append(str(row.get("match_key")).replace("'", ""))
-          open(root + "/orders-brief.json", "w", encoding="utf-8").write(json.dumps(brief, ensure_ascii=False, indent=2))
-          if keys:
-              inlist = ",".join("'" + k + "'" for k in sorted(set(keys)))
-              subs_sql = (
-                  "SELECT id, match_key, nick, sheet, status, updated_at, basket_json FROM subs "
-                  "WHERE match_key IN (" + inlist + ")"
-              )
-              run(subs_sql, "subs-raw")
-              subs = []
-              for row in rows(root + "/subs-raw.json"):
-                  basket = []
-                  try:
-                      basket = json.loads(row.get("basket_json") or "[]")
-                  except Exception:
-                      basket = []
-                  turkey = []
-                  for it in basket if isinstance(basket, list) else []:
-                      if not isinstance(it, dict):
-                          continue
-                      name = str(it.get("name") or it.get("main") or "")
-                      if "ИНДЕЙ" in name.upper().replace("Ё", "Е"):
-                          turkey.append({
-                              "name": name,
-                              "sub": it.get("sub") or "",
-                              "frac": it.get("frac") or "",
-                              "cat": it.get("cat") or "",
-                              "val": it.get("val") if it.get("val") is not None else it.get("value")
-                          })
-                  subs.append({
-                      "id": row.get("id"),
-                      "match_key": row.get("match_key"),
-                      "nick": row.get("nick"),
-                      "sheet": row.get("sheet"),
-                      "status": row.get("status"),
-                      "updated_at": row.get("updated_at"),
-                      "turkey": turkey
-                  })
-              open(root + "/subs-brief.json", "w", encoding="utf-8").write(json.dumps(subs, ensure_ascii=False, indent=2))
-          else:
-              open(root + "/subs-brief.json", "w", encoding="utf-8").write("[]")
-          print("orders", len(brief), "turkey", sum(1 for x in brief if x["turkey"]))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: turkey-frac-read
-          path: artifacts/turkey-frac/
+          node scripts/turkey-frac-read.mjs --apply
