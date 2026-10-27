@@ -146,21 +146,30 @@ test("грязная сумма дня совпадает с revenueSum", functi
   assert.equal(week.revenueSum(list), 55.5);
 });
 
-test("ячейка дня без сумм, в окне дня одна строка грязная/чистая", function () {
+test("ячейка дня без сумм, в прежнем счётчике суммы текст грязная/чистая", function () {
   const html = fs.readFileSync(new URL("./week.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("./theme.css", import.meta.url), "utf8");
   const app = fs.readFileSync(new URL("./app.css", import.meta.url), "utf8");
   const cell = html.slice(html.indexOf("function monthCal"), html.indexOf("function displayedMonth"));
+  const moneyFn = html.slice(html.indexOf("function summaryMoneyHtml"), html.indexOf("function summaryHtml"));
+  const summary = html.slice(html.indexOf("function summaryHtml"), html.indexOf("function weekOnScreen"));
   assert.equal(cell.includes("cell-sums"), false);
   assert.equal(cell.includes("cell-dirty"), false);
   assert.equal(cell.includes("cell-clean"), false);
   assert.match(cell, /cell-count/);
   assert.equal(css.includes(".cell-sums"), false);
   assert.equal(app.includes("button.cell"), false);
-  assert.match(html, /nx-day-money/);
-  assert.match(html, /moneyText\(summaryMoney\(true\)\) \+ "\/" \+ moneyText\(clean\)/);
+  assert.equal(html.includes("nx-day-money"), false);
+  assert.equal(app.includes(".nx-day-money"), false);
+  assert.equal(app.includes(".nx-calsum .nx-count b"), false);
+  assert.equal(moneyFn.includes("<p"), false);
+  assert.match(moneyFn, /<div class="nx-count"><b/);
+  assert.match(moneyFn, /moneyText\(summaryMoney\(true\)\) \+ "\/" \+ moneyText\(clean\)/);
+  assert.match(moneyFn, /style="color:#fff"/);
+  assert.match(summary, /<div class="nx-counters">/);
+  assert.match(summary, /summaryMoneyHtml\(dayOn\)/);
+  assert.equal(summary.includes("nx-day-money"), false);
   assert.equal(html.includes("Чистые, BYN"), false);
-  assert.match(app, /\.nx-day-money\s*\{[^}]*color:\s*#fff/);
   const worker = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
   assert.match(worker, /dayMoneyReady/);
   assert.match(worker, /rolled\.byDay = statsFormulaByDayD1_/);

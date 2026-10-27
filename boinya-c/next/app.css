@@ -548,28 +548,6 @@ textarea.b-field__input {
   margin-top: 12px;
 }
 
-.nx-calsum .nx-count b {
-  white-space: nowrap;
-  font-size: clamp(15px, 4.8vw, 22px);
-}
-
-.nx-day-money {
-  margin: 10px 0 0;
-  padding: 0;
-  font-family: var(--b-display);
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 1.15;
-  letter-spacing: 0;
-  color: #fff;
-  white-space: nowrap;
-}
-
-.nx-day-money::before,
-.nx-day-money::after {
-  content: none;
-}
-
 .nx-counters {
   display: flex;
   gap: 6px;
