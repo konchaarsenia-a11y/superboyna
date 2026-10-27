@@ -370,14 +370,16 @@
   }
 
   function summaryMoneyHtml(dayOn) {
-    if (!dayOn) {
-      return '<div class="nx-count"><b>' + esc(moneyText(summaryMoney(false))) + "</b><span>Сумма, BYN</span></div>";
+    var shown = moneyText(summaryMoney(dayOn));
+    var white = "";
+    if (dayOn) {
+      var clean = summaryClean(true);
+      if (clean != null) {
+        shown = moneyText(summaryMoney(true)) + "/" + moneyText(clean);
+        white = ' style="color:#fff"';
+      }
     }
-    var clean = summaryClean(true);
-    if (clean == null) {
-      return '<div class="nx-count"><b>' + esc(moneyText(summaryMoney(true))) + "</b><span>Сумма, BYN</span></div>";
-    }
-    return '<p class="nx-day-money" id="nxCalClean">' + esc(moneyText(summaryMoney(true)) + "/" + moneyText(clean)) + "</p>";
+    return '<div class="nx-count"><b' + white + ">" + esc(shown) + "</b><span>Сумма, BYN</span></div>";
   }
 
   function summaryHtml() {
@@ -386,15 +388,12 @@
     var count = people.length;
     if (!count) count = overviewPeople(dayOn ? view.date : "");
     var title = dayOn ? dayCaption(view.date) : monthCaption(displayedMonth());
-    var money = summaryMoneyHtml(dayOn);
-    var moneyInRow = money.indexOf("nx-day-money") < 0;
     return '<article class="b-card nx-calsum" id="nxCalSum">' +
       '<p class="b-lbl" style="margin-top:0">' + esc(title || "Месяц") + "</p>" +
       '<div class="nx-counters">' +
         '<div class="nx-count"><b>' + esc(String(count || 0)) + "</b><span>Люди</span></div>" +
-        (moneyInRow ? money : "") +
+        summaryMoneyHtml(dayOn) +
       "</div>" +
-      (moneyInRow ? "" : money) +
       (function () {
         var slots = logic().countPpSlots(people);
         if (!people.length) return "";
