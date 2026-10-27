@@ -226,47 +226,6 @@
     return null;
   }
 
-  function dayMoneyState() {
-    var pack = monthPeopleCache[displayedMonth()] || null;
-    var peopleReady = logic().monthPeopleReady(pack, view.overview);
-    var rev = peopleReady ? logic().dayRevenueMap(flattenMonth(pack)) : {};
-    var clean = {};
-    var ready = !!(pack && pack.dayMoneyReady);
-    if (ready) {
-      var money = pack.dayMoney || {};
-      Object.keys(money).forEach(function (iso) {
-        var g = grossOf(money[iso]);
-        if (g != null) clean[iso] = g;
-      });
-    }
-    return { rev: rev, clean: clean, ready: ready, peopleReady: peopleReady };
-  }
-
-  function cellMoney(n) {
-    var x = Math.round(Number(n) * 100) / 100;
-    if (!isFinite(x)) return "—";
-    var neg = x < 0;
-    var ax = Math.abs(x);
-    var body = Math.abs(ax - Math.round(ax)) < 0.001 ? String(Math.round(ax)) : String(x);
-    return (neg ? "−" : "") + body.replace(".", ",");
-  }
-
-  function sumsHtml(cur, count, state) {
-    var hasDirty = state.peopleReady && Object.prototype.hasOwnProperty.call(state.rev, cur);
-    var hasClean = state.ready && Object.prototype.hasOwnProperty.call(state.clean, cur);
-    if (!count && !hasDirty && !hasClean) return "";
-    if (!state.peopleReady && !state.ready) return "";
-    var dirty = hasDirty ? state.rev[cur] : (state.peopleReady ? 0 : null);
-    var net = hasClean ? state.clean[cur] : (state.ready ? 0 : null);
-    if (dirty == null && net == null) return "";
-    if (net == null) {
-      return '<span class="cell-sums"><b class="cell-dirty">' + esc(cellMoney(dirty)) + "</b></span>";
-    }
-    if (dirty == null) dirty = 0;
-    return '<span class="cell-sums"><b class="cell-dirty">' + esc(cellMoney(dirty)) +
-      '</b><i class="cell-sum-gap" aria-hidden="true"></i><b class="cell-clean">' + esc(cellMoney(net)) + "</b></span>";
-  }
-
   function monthCal() {
     var iso = view.calCursor || view.date || new Date().toISOString().slice(0, 10);
     var p = iso.split("-");
@@ -277,7 +236,6 @@
     var days = new Date(y, m + 1, 0).getDate();
     var names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
     var by = overviewMap();
-    var sums = dayMoneyState();
     var monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
     var html = '<div class="cal-head b-row"><button type="button" class="b-ib" data-act="wcal-shift" data-dir="-1" aria-label="Предыдущий месяц">‹</button>' +
       '<h2 class="b-grow" style="text-align:center;margin:0;font-size:18px">' + esc(monthNames[m] + " " + y) + "</h2>" +
@@ -297,18 +255,11 @@
       if (n && segs["ПАРТНЁР"]) dots += '<i class="dot dot-p"></i>';
       var loadMark = logic().dayLoadMark ? logic().dayLoadMark(n) : "";
       var cls = "cell" + (n ? " cell--busy" : "") + (loadMark ? " cell--load-" + loadMark : "") + (cur === view.date ? " is-on" : "");
-      var pair = sumsHtml(cur, n, sums);
-      var dirtyBit = "";
-      var cleanBit = "";
-      if (sums.peopleReady && Object.prototype.hasOwnProperty.call(sums.rev, cur)) dirtyBit = ", грязная " + moneyText(sums.rev[cur]);
-      else if (n && sums.peopleReady) dirtyBit = ", грязная 0";
-      if (sums.ready) cleanBit = ", чистая " + moneyText(Object.prototype.hasOwnProperty.call(sums.clean, cur) ? sums.clean[cur] : 0);
-      var label = d + " " + monthNames[m] + (n ? ", " + n + " чел." : ", никого") + dirtyBit + cleanBit + (n >= logic().FULL_FROM ? ", полный день" : "");
+      var label = d + " " + monthNames[m] + (n ? ", " + n + " чел." : ", никого") + (n >= logic().FULL_FROM ? ", полный день" : "");
       html += '<button type="button" class="' + cls + '" data-act="wcal" data-date="' + cur + '" aria-label="' + esc(label) + '"' +
         (cur === view.date ? ' aria-pressed="true"' : "") + ">" +
         '<span class="cell-date">' + d + "</span>" +
         (n ? '<span class="cell-count">' + n + "</span>" : "") +
-        pair +
         (dots ? '<span class="dots">' + dots + "</span>" : "") + "</button>";
     }
     html += "</div>";
@@ -419,14 +370,11 @@
   }
 
   function summaryMoneyHtml(dayOn) {
-    var dirty = summaryMoney(dayOn);
-    var clean = summaryClean(dayOn);
-    if (clean == null) {
-      return '<div class="nx-count"><b>' + esc(moneyText(dirty)) + "</b><span>Сумма, BYN</span></div>";
-    }
-    return '<div class="nx-count"><b class="nx-money-pair"><span class="cell-dirty">' + esc(moneyText(dirty)) +
-      '</span><i class="cell-sum-gap" aria-hidden="true"></i><span class="cell-clean">' + esc(moneyText(clean)) +
-      "</span></b><span>Сумма · чистые</span></div>";
+    var dirty = '<div class="nx-count"><b>' + esc(moneyText(summaryMoney(dayOn))) + "</b><span>Сумма, BYN</span></div>";
+    if (!dayOn) return dirty;
+    var clean = summaryClean(true);
+    if (clean == null) return dirty;
+    return dirty + '<div class="nx-count" id="nxCalClean"><b>' + esc(moneyText(clean)) + "</b><span>Чистые, BYN</span></div>";
   }
 
   function summaryHtml() {
