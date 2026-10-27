@@ -421,6 +421,19 @@ body.nx-kb .nx-sheet__body {
   cursor: pointer;
 }
 
+.nx-cal button.cell {
+  height: auto;
+  min-height: 58px;
+  padding: 2px 0 3px;
+  font-size: 11px;
+  line-height: 1.05;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
 .nx-cal button[aria-pressed="true"] {
   background: var(--b-text);
   color: var(--b-bg);
@@ -580,6 +593,27 @@ button.nx-count {
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.03em;
+}
+
+.nx-count b.nx-money-pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  font-size: 15px;
+  letter-spacing: -0.04em;
+}
+.nx-count b.nx-money-pair .cell-dirty,
+.nx-count b.nx-money-pair .cell-clean {
+  font-size: 15px;
+  white-space: nowrap;
+}
+.nx-count .cell-sum-gap {
+  height: 14px;
+  flex-basis: 6px;
+  width: 6px;
+  margin: 0 2px;
 }
 
 .nx-pp-totals .nx-count {

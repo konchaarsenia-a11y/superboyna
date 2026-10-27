@@ -12352,12 +12352,21 @@ async function getCalendarMonthPeople_(params, env) {
   Object.keys(byDate).forEach(function (k) {
     totalPeople += (byDate[k] || []).length;
   });
+  let dayMoney = null;
+  try {
+    const rolled = await buildStatsFormulaD1_(env, { month: month }, {});
+    if (rolled && rolled.byDay && typeof rolled.byDay === "object") dayMoney = rolled.byDay;
+  } catch (eDayMoney) {
+    dayMoney = null;
+  }
   return {
     status: "success",
     month: month,
     byDate: byDate,
     total: totalPeople,
-    source: "d1"
+    source: "d1",
+    dayMoney: dayMoney || {},
+    dayMoneyReady: dayMoney != null
   };
 }
 
@@ -16164,6 +16173,62 @@ function statsPpMonthCarrierD1_(cycle, from, to) {
   return pick;
 }
 
+/** Себес дня как formulaParts_ / formulaMonth_.gross: выручка − (сырьё + нарезка + сборка + свет + дорога + 0,60×N). */
+function statsFormulaPartsD1_(input) {
+  input = input || {};
+  const S = Number(input.S) || 0;
+  const G = Number(input.G) || 0;
+  const P = Number(input.P) || 0;
+  const N = Number(input.N) || 0;
+  const g = G / 100;
+  const raw = statsKopeckD1_(S);
+  const cut = statsKopeckD1_(2.5 * g + 0.5 * P);
+  const assembly = statsKopeckD1_(3 * N);
+  const light = statsKopeckD1_(0.8 * g + 0.3 * P);
+  const road = statsKopeckD1_(4 * N);
+  const cleanSlice = statsKopeckD1_(0.6 * N);
+  const pack = statsKopeckD1_(Number(input.packages) || 0);
+  const cost = statsKopeckD1_(raw + cut + light + road + assembly + cleanSlice + pack);
+  const revenue = statsKopeckD1_(input.revenue);
+  return {
+    revenue: revenue,
+    cost: cost,
+    clean: statsKopeckD1_(revenue - cost),
+    S: raw,
+    G: G,
+    P: P,
+    N: N
+  };
+}
+
+/** Чистые по дням тем же роллапом, что экран статистики. День = from=to, месяц не длиннее 45 дней. */
+function statsFormulaByDayD1_(events, from, to) {
+  const out = {};
+  from = statsIsoDayD1_(from);
+  to = statsIsoDayD1_(to);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return out;
+  let iso = from;
+  let guard = 0;
+  while (iso <= to && guard < 45) {
+    const roll = statsFormulaRollupD1_(events, { fromIso: iso, toIso: iso });
+    const parts = statsFormulaPartsD1_(roll);
+    if (roll.N > 0 || roll.revenue > 0 || (roll.pending && roll.pending.N > 0)) {
+      out[iso] = {
+        revenue: parts.revenue,
+        cost: parts.cost,
+        clean: parts.clean,
+        S: roll.S,
+        G: roll.G,
+        P: roll.P,
+        N: roll.N
+      };
+    }
+    iso = statsAddDaysD1_(iso, 1);
+    guard++;
+  }
+  return out;
+}
+
 /** Та же формула, что formulaRollup_ в next/formulas.js: партнёр в N, деньги партнёра только при цене > 0, трек = одна поездка. */
 function statsFormulaRollupD1_(rows, opts) {
   opts = opts || {};
@@ -16515,6 +16580,7 @@ async function buildStatsFormulaD1_(env, params, res) {
   for (let ei = 0; ei < evKeys.length; ei++) events.push(byKey[evKeys[ei]]);
   const rolled = statsFormulaRollupD1_(events, { fromIso: from, toIso: to, monthKey: monthRaw });
   rolled.rows = events.length;
+  rolled.byDay = statsFormulaByDayD1_(events, rolled.from || from, rolled.to || to);
   return rolled;
 }
 
