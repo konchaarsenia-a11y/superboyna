@@ -78,6 +78,9 @@
       activeDog: 1,
       dogNames: { 1: "", 2: "" },
       notes: [],
+      notesLoaded: false,
+      notesEdited: false,
+      clearPermanent: false,
       deliveryMethod: null,
       postOffice: "",
       mailOn: false,
@@ -182,6 +185,13 @@
     var mem = loadMemory();
     var key = nick.toUpperCase();
     var prev = mem[key] || {};
+    var perm = "";
+    try { perm = pay().permanentTagged(state.notes, eng()); } catch (ePerm) { perm = ""; }
+    var noteMem = prev.note || "";
+    if (state.notesLoaded || state.clearPermanent) noteMem = perm;
+    else if (perm) {
+      try { noteMem = pay().mergePermanentTagged(prev.note, perm, eng()); } catch (eMerge) { noteMem = perm; }
+    }
     mem[key] = {
       nick: nick,
       address: state.address || prev.address || "",
@@ -191,7 +201,7 @@
       flat: state.flat || prev.flat || "",
       dogNames: state.dogNames || prev.dogNames || null,
       phone: state.phone || prev.phone || "",
-      note: prev.note || "",
+      note: noteMem,
       basket: prev.basket || [],
       orderType: state.orderType,
       ppPartner: state.ppPartner || prev.ppPartner || "",
@@ -788,7 +798,70 @@
     suggest = rows.slice(0, 6);
     paintSuggest();
     clearTimeout(priceTimer);
-    priceTimer = setTimeout(refreshPp, 400);
+    priceTimer = setTimeout(function () {
+      refreshPp();
+      pullPermanentNotes();
+    }, 400);
+  }
+
+  var permReq = 0;
+
+  function applyProfileNotes(raw) {
+    if (state.isEdit || state.notesEdited) return false;
+    var blocks = [];
+    try { blocks = eng().parseOrderNotes(raw) || []; } catch (e) { blocks = []; }
+    blocks = blocks.filter(function (n) { return n && n.permanent && String(n.text || "").trim(); });
+    if (!blocks.length) return false;
+    var have = {};
+    (state.notes || []).forEach(function (n) {
+      if (!n || !String(n.text || "").trim()) return;
+      have[String(n.text).trim() + "|" + String(n.itemKey || "").trim()] = 1;
+    });
+    var add = blocks.filter(function (n) {
+      return !have[String(n.text).trim() + "|" + String(n.itemKey || "").trim()];
+    });
+    if (!add.length) return false;
+    var kept = (state.notes || []).filter(function (n) { return n && String(n.text || "").trim(); });
+    state.notes = kept.concat(add);
+    return true;
+  }
+
+  function pullPermanentNotes() {
+    if (state.isEdit || state.notesEdited) return;
+    var nick = String(state.client || "").trim();
+    if (nick.length < 2) return;
+    var token = ++permReq;
+    var req = { action: "getClientPermanentNotes", nick: nick, _: String(Date.now()) };
+    if (state.orderType) req.orderType = state.orderType;
+    if (state.address) req.address = state.address;
+    api().apiGet(req, { timeoutMs: 12000, cacheTtlMs: 0 }).then(function (res) {
+      if (token !== permReq) return;
+      if (String(state.client || "").trim().toUpperCase() !== nick.toUpperCase()) return;
+      if (state.isEdit || state.notesEdited) return;
+      if (!res || res.status !== "success") return;
+      if (res.cleared) {
+        state.notesLoaded = true;
+        return;
+      }
+      if (res.note) {
+        applyProfileNotes(res.note);
+        state.notesLoaded = true;
+      } else {
+        var mem = loadMemory()[nick.toUpperCase()];
+        if (mem && mem.note) applyProfileNotes(mem.note);
+        if ((state.notes || []).some(function (n) { return n && n.permanent && String(n.text || "").trim(); })) {
+          state.notesLoaded = true;
+        }
+      }
+      if (!sh().sheetOpen()) paint();
+    }).catch(function () {
+      if (token !== permReq || state.isEdit || state.notesEdited) return;
+      var mem = loadMemory()[nick.toUpperCase()];
+      if (mem && mem.note && applyProfileNotes(mem.note)) {
+        state.notesLoaded = true;
+        if (!sh().sheetOpen()) paint();
+      }
+    });
   }
 
   async function refreshPp() {
@@ -2056,6 +2129,12 @@
       if (node && node.id && node.id.indexOf("noteItem") === 0) {
         var ni = Number(node.id.replace("noteItem", ""));
         if (state.notes[ni]) state.notes[ni].itemKey = node.value;
+        state.notesEdited = true;
+      }
+      if (node && node.getAttribute && node.getAttribute("data-act") === "note-text") {
+        var nti = Number(node.getAttribute("data-i"));
+        if (state.notes[nti]) state.notes[nti].text = node.value;
+        state.notesEdited = true;
       }
       return false;
     }
@@ -2088,29 +2167,50 @@
     if (act === "coords") { askCoords(); return true; }
     if (act === "notes") { openNotes(); return true; }
     if (act === "note-role") {
+      flushOrderNotes();
       var n = state.notes[Number(node.getAttribute("data-i"))];
       var role = node.getAttribute("data-role");
       n.roles[role] = !n.roles[role];
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
     if (act === "note-perm") {
-      state.notes[Number(node.getAttribute("data-i"))].permanent = node.getAttribute("data-p") === "1";
+      flushOrderNotes();
+      var pn = state.notes[Number(node.getAttribute("data-i"))];
+      var wantPerm = node.getAttribute("data-p") === "1";
+      if (pn && pn.permanent && !wantPerm && String(pn.text || "").trim() && state.notesLoaded) state.clearPermanent = true;
+      if (pn) pn.permanent = wantPerm;
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
     if (act === "note-add") {
+      flushOrderNotes();
       state.notes.push({ text: "", roles: { cour: true, mgr: false, cut: false }, permanent: false, itemKey: "" });
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
     if (act === "note-del") {
-      state.notes.splice(Number(node.getAttribute("data-i")), 1);
+      flushOrderNotes();
+      var delI = Number(node.getAttribute("data-i"));
+      var gone = state.notes[delI];
+      if (gone && gone.permanent && String(gone.text || "").trim() && state.notesLoaded) state.clearPermanent = true;
+      state.notes.splice(delI, 1);
       if (!state.notes.length) state.notes.push({ text: "", roles: { cour: true }, permanent: false, itemKey: "" });
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
-    if (act === "note-done") { flushOrderNotes(); sh().closeTop("ok"); paint(); return true; }
+    if (act === "note-done") {
+      var notesBefore = JSON.stringify(state.notes || []);
+      flushOrderNotes();
+      if (JSON.stringify(state.notes || []) !== notesBefore) state.notesEdited = true;
+      sh().closeTop("ok");
+      paint();
+      return true;
+    }
     if (act === "add") { openAdd(); return true; }
     if (act === "pcat") {
       picker.cat = node.getAttribute("data-cat");
@@ -2220,6 +2320,7 @@
       suggest = [];
       paint();
       refreshPp();
+      pullPermanentNotes();
       return true;
     }
     if (act === "retry-days") { loadDays(); return true; }
@@ -2415,6 +2516,11 @@
     else if (String(client.note || "").trim()) {
       try { next.notes = eng().parseOrderNotes(client.note) || []; } catch (eNote) { next.notes = []; }
     }
+    next.notesLoaded = (next.notes || []).some(function (n) {
+      return n && n.permanent && String(n.text || "").trim();
+    });
+    next.notesEdited = false;
+    next.clearPermanent = false;
     if (client.geo) next.geo = client.geo;
     try {
       var mail = pay() && pay().mailFromNote_ ? pay().mailFromNote_(client.note || "") : null;

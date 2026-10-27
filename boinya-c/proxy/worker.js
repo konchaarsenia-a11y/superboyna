@@ -13371,6 +13371,10 @@ async function saveOrder_(params, env, asBooking) {
     meta_json: JSON.stringify(meta)
   }, { params: params });
 
+  try {
+    await rememberClientPermanentNotes_(env, matchKey, params);
+  } catch (ePermNotes) {}
+
   // якорь ПП 1/2 в D1 — suggest N≥2 без GAS
   try {
     const slotRaw = meta.ppSlot != null && String(meta.ppSlot).trim() !== ""
@@ -21334,6 +21338,9 @@ async function handleCutover_(a, params, env, ctx) {
   if (isWarehouseD1PrimaryCanon_(env) && a === "checkOrderWarehouse") {
     return checkOrderWarehouseD1_(params, env, ctx);
   }
+  if (a === "getClientPermanentNotes") {
+    return getClientPermanentNotesD1_(params, env);
+  }
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -27753,6 +27760,129 @@ async function saveRetailPricesD1_(params, env) {
 
 
 
+/** Постоянные примечания клиента: только блоки [NOTE:…|perm]. Разовые в карточку клиента не кладём. */
+function permanentNotesTaggedFromRaw_(raw) {
+  const s = String(raw || "");
+  const re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([\s\S]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+  const parts = [];
+  let m;
+  while ((m = re.exec(s))) {
+    if (String(m[2] || "").toLowerCase() !== "perm") continue;
+    const text = String(m[4] || "").trim();
+    if (!text) continue;
+    const item = m[3] ? "|ITEM:" + String(m[3]) : "";
+    parts.push("[NOTE:" + m[1] + "|perm" + item + "] " + text);
+  }
+  return parts.join(" || ");
+}
+
+function mergePermanentNotesTagged_(prevRaw, nextRaw) {
+  const seen = Object.create(null);
+  const parts = [];
+  function take(raw) {
+    const re = /\[NOTE:([^\|\]]+)\|perm(?:\|ITEM:([^\]]+))?\]\s*([\s\S]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+    let m;
+    const s = String(raw || "");
+    while ((m = re.exec(s))) {
+      const text = String(m[3] || "").trim();
+      if (!text) continue;
+      const key = text + "|" + String(m[2] || "").trim();
+      if (seen[key]) continue;
+      seen[key] = true;
+      const item = m[2] ? "|ITEM:" + String(m[2]) : "";
+      parts.push("[NOTE:" + m[1] + "|perm" + item + "] " + text);
+    }
+  }
+  take(prevRaw);
+  take(nextRaw);
+  return parts.join(" || ");
+}
+
+/**
+ * Карточка клиента. Пустой набор не стирает уже лежащее,
+ * пока форма явно не показала постоянные и человек их не убрал.
+ * Предыдущий текст остаётся в snap.prev. Заказы и суммы не трогает.
+ */
+async function rememberClientPermanentNotes_(env, matchKey, params) {
+  if (!env || !env.DB || !matchKey || !params) return;
+  const loaded = String(params.permanentNotesLoaded || "") === "1";
+  const clear = String(params.clearPermanentNotes || "") === "1" && loaded;
+  const tagged = permanentNotesTaggedFromRaw_(params.permanentNotesTagged || params.note || "");
+  if (!loaded && !tagged && !clear) return;
+  const key = "clientPermNotes:" + matchKey;
+  let prev = null;
+  try {
+    prev = await getSnapRaw_(env, key);
+  } catch (ePrev) {
+    prev = null;
+  }
+  let stored = tagged;
+  if (!loaded && !clear) stored = mergePermanentNotesTagged_(prev && prev.tagged, tagged);
+  if (clear) stored = tagged;
+  await putSnap_(env, key, {
+    tagged: stored,
+    cleared: !String(stored || "").trim(),
+    at: Date.now(),
+    prev: prev && prev.tagged ? String(prev.tagged) : ""
+  });
+}
+
+/** Чтение постоянных. Snap, если уже писали; иначе последнее |perm| в заказах. Ничего не пишет. */
+async function readClientPermanentNotes_(env, matchKey, clientName) {
+  const key = "clientPermNotes:" + matchKey;
+  let snap = null;
+  try {
+    snap = await getSnapRaw_(env, key);
+  } catch (eSnap) {
+    snap = null;
+  }
+  if (snap && (snap.cleared === true || snap.tagged != null)) {
+    const note = String(snap.tagged || "");
+    return {
+      note: note,
+      cleared: snap.cleared === true || !note.trim(),
+      source: "snap"
+    };
+  }
+  if (!env || !env.DB || !matchKey) return { note: "", cleared: false, source: "none" };
+  const low = String(clientName || "").trim().toLowerCase();
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT note, updated_at FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 40"
+    )
+      .bind(matchKey, low)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (eQ) {
+    rows = [];
+  }
+  try {
+    const c = await env.DB.prepare("SELECT note FROM clients WHERE match_key = ? LIMIT 1").bind(matchKey).first();
+    if (c && c.note) rows.push({ note: c.note, updated_at: "" });
+  } catch (eC) {}
+  for (let i = 0; i < rows.length; i++) {
+    const tagged = permanentNotesTaggedFromRaw_(rows[i] && rows[i].note);
+    if (tagged) return { note: tagged, cleared: false, source: "order" };
+  }
+  return { note: "", cleared: false, source: "none" };
+}
+
+async function getClientPermanentNotesD1_(params, env) {
+  const nick = String((params && (params.nick || params.client || params.name)) || "").trim();
+  if (!nick) return { status: "error", message: "no_client" };
+  const point = partnerOrderSaveKey_(nick, params || {});
+  const mk = point || normalizeMatchKey_(nick);
+  const found = await readClientPermanentNotes_(env, mk, nick);
+  return {
+    status: "success",
+    note: found.note || "",
+    cleared: !!found.cleared,
+    source: found.source || "none",
+    matchKey: mk
+  };
+}
+
 /** stamp [SCHEME:RAW26] into wishes string (mirror GAS). */
 function stampPpSchemeIntoWishesD1_(wishes, scheme) {
   const base = String(wishes || "")
@@ -27874,6 +28004,11 @@ async function attachOrderFormContact_(res, nick, env) {
     res.cardSubId = c.cardSubId || "";
     res.cardNick = c.cardNick || "";
     res.cardMatch = c.cardMatch || "";
+    const point = partnerOrderSaveKey_(nick, {});
+    const mk = point || normalizeMatchKey_(nick);
+    const perm = await readClientPermanentNotes_(env, mk, nick);
+    res.cardPermanentNote = perm.note || "";
+    res.cardPermanentCleared = !!perm.cleared;
   } catch (eContact) {}
   return res;
 }
