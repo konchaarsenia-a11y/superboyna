@@ -942,6 +942,12 @@
     }, 400);
   }
 
+  function warmProduction() {
+    if (!prod() || !prod().warm || !access) return;
+    if (!ax().tabHas(access, "cuttingScreen") && !ax().tabHas(access, "courierScreen")) return;
+    try { prod().warm(); } catch (eWarm) {}
+  }
+
   async function boot() {
     var ticket = ++bootGen;
     booting = true;
@@ -953,6 +959,7 @@
       access = ax().normalize(cachedAccess);
       settleRoute();
       paintSameOrRender();
+      warmProduction();
     } else if (!access) {
       sh().main(sh().skeleton(4));
     }
@@ -1016,6 +1023,7 @@
     }
     sh().hideGate();
     settleRoute();
+    warmProduction();
     if (ax().tabHas(access, "orderScreen") || ax().tabHas(access, "subsScreen") || ax().tabHas(access, "retailPriceScreen") || ax().tabHas(access, "priceScreen")) {
       try {
         await Promise.race([

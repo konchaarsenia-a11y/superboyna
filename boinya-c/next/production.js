@@ -4,6 +4,10 @@
 
   var access = null;
   var seg = "cut";
+  var showTicket = 0;
+  var warmCut = null;
+  var warmAsm = null;
+  var warmCour = null;
   var cutItems = [];
   var cutDate = "";
   var cutDone = null;
@@ -495,28 +499,45 @@
     return day || dayOf(kind);
   }
 
-  async function loadCut() {
-    var day = currentDay("nxCutDay", "cut");
-    if (!cutItems.length && !cutDone) sh().main(segBar() + dayField("nxCutDay", day) + sh().skeleton(3));
-    var res = null;
-    try {
-      res = await api().apiGet({ action: "getCutting", day: day }, { timeoutMs: 28000, cacheTtlMs: 8000 });
-    } catch (e) {
-      sh().toast("Не обновилось");
-      paintCut();
-      return;
+  function liveSeg(ticket, want) {
+    return ticket === showTicket && seg === want;
+  }
+
+  function warmFresh(box, day) {
+    return !!(box && box.day === day && box.res && Date.now() - box.at < 20000);
+  }
+
+  /* Три экрана Цеха качаются вместе при входе, без смены подвкладки и без отрисовки. */
+  function warm() {
+    var get = api() && api().apiGet;
+    if (!get) return;
+    var cutDay = dayOf("cut");
+    var opsDay = dayOf("route");
+    if (!warmFresh(warmCut, cutDay)) {
+      get({ action: "getCutting", day: cutDay }, { timeoutMs: 28000, cacheTtlMs: 8000 }).then(function (res) {
+        if (res) warmCut = { day: cutDay, res: res, at: Date.now() };
+      }).catch(function () {});
     }
-    if (res && res.fromCalendar && !res.fromGas && !res.fromOrders) {
-      sh().toast("Считаю нарезку по таблице…");
-      return;
+    if (!warmFresh(warmAsm, opsDay)) {
+      get({ action: "getAssembly", day: opsDay }, { timeoutMs: 22000, cacheTtlMs: 15000 }).then(function (res) {
+        if (res) warmAsm = { day: opsDay, res: res, at: Date.now() };
+      }).catch(function () {});
     }
+    if (!warmFresh(warmCour, opsDay)) {
+      get({ action: "getCourier", day: opsDay }, { timeoutMs: 22000, cacheTtlMs: 15000 }).then(function (res) {
+        if (res) warmCour = { day: opsDay, res: res, at: Date.now() };
+      }).catch(function () {});
+    }
+    get({ action: "listWarehouses" }, { timeoutMs: 12000, cacheTtlMs: 15000 }).catch(function () {});
+  }
+
+  function takeCutPayload(res, day) {
     cutDate = (res && res.date) || cutDate;
     cutCutter = (res && res.cutter && (res.cutter.id || res.cutter.name)) ? res.cutter : null;
     if (res && res.completion) {
       cutDone = res.completion;
       cutItems = ((res.items && res.items.length) ? res.items : (cutDone.items || [])).slice();
       cutSession.active = false;
-      paintCut();
       return;
     }
     cutDone = null;
@@ -536,7 +557,39 @@
     cutSession.active = active;
     cutSession.startedAt = active ? started : 0;
     cutSession.day = active ? day : "";
-    paintCut();
+  }
+
+  async function loadCut(ticket) {
+    if (ticket == null) ticket = showTicket;
+    var day = currentDay("nxCutDay", "cut");
+    if (warmFresh(warmCut, day)) {
+      var cached = warmCut.res;
+      if (!(cached && cached.fromCalendar && !cached.fromGas && !cached.fromOrders)) {
+        takeCutPayload(cached, day);
+        if (liveSeg(ticket, "cut")) paintCut();
+        return;
+      }
+    }
+    if (liveSeg(ticket, "cut") && !cutItems.length && !cutDone) {
+      sh().main(segBar() + dayField("nxCutDay", day) + sh().skeleton(3));
+    }
+    var res = null;
+    try {
+      res = await api().apiGet({ action: "getCutting", day: day }, { timeoutMs: 28000, cacheTtlMs: 8000 });
+    } catch (e) {
+      if (liveSeg(ticket, "cut")) {
+        sh().toast("Не обновилось");
+        paintCut();
+      }
+      return;
+    }
+    if (res) warmCut = { day: day, res: res, at: Date.now() };
+    if (res && res.fromCalendar && !res.fromGas && !res.fromOrders) {
+      if (liveSeg(ticket, "cut")) sh().toast("Считаю нарезку по таблице…");
+      return;
+    }
+    takeCutPayload(res, day);
+    if (liveSeg(ticket, "cut")) paintCut();
   }
 
   function findCut(key) {
@@ -1117,25 +1170,9 @@
     sh().main(html);
   }
 
-  async function loadAsm(force) {
-    var day = currentDay("nxAsmDay", "pack");
-    if (asmDaySeen && asmDaySeen !== day) asm = null;
-    asmDaySeen = day;
-    if (force) asmDetail = false;
-    if (!asm) sh().main(segBar() + dayField("nxAsmDay", day) + sh().skeleton(3));
-    var res = null;
-    try {
-      var req = { action: "getAssembly", day: day };
-      if (force) req.force = "1";
-      res = await api().apiGet(req, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 });
-    } catch (e) {
-      sh().toast("Ошибка сети");
-      paintAsm();
-      return;
-    }
+  function takeAsmPayload(res) {
     if (!res || res.status !== "success") {
       asm = { clients: [] };
-      paintAsm();
       return;
     }
     (res.clients || []).forEach(function (c) {
@@ -1146,6 +1183,35 @@
       if (o.printed !== undefined) c.printed = !!o.printed;
     });
     asm = res;
+  }
+
+  async function loadAsm(force, ticket) {
+    if (ticket == null) ticket = showTicket;
+    var day = currentDay("nxAsmDay", "pack");
+    if (asmDaySeen && asmDaySeen !== day) asm = null;
+    asmDaySeen = day;
+    if (force) asmDetail = false;
+    if (!force && warmFresh(warmAsm, day)) {
+      takeAsmPayload(warmAsm.res);
+      if (liveSeg(ticket, "pack")) paintAsm();
+      return;
+    }
+    if (liveSeg(ticket, "pack") && !asm) sh().main(segBar() + dayField("nxAsmDay", day) + sh().skeleton(3));
+    var res = null;
+    try {
+      var req = { action: "getAssembly", day: day };
+      if (force) req.force = "1";
+      res = await api().apiGet(req, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 });
+    } catch (e) {
+      if (liveSeg(ticket, "pack")) {
+        sh().toast("Ошибка сети");
+        paintAsm();
+      }
+      return;
+    }
+    if (res && !force) warmAsm = { day: day, res: res, at: Date.now() };
+    if (!liveSeg(ticket, "pack")) return;
+    takeAsmPayload(res);
     paintAsm();
   }
 
@@ -1403,6 +1469,56 @@
     return { street: parts.street || String(client.address || "").trim(), details: bits.join(", ") };
   }
 
+  function retailClient_(c) {
+    if (clientTypeLabel(c) === "розница") return true;
+    var segName = String((c && (c.segment || c.source || c.orderType)) || "").trim().toUpperCase();
+    return segName === "Р" || segName === "РОЗНИЦА" || segName === "RETAIL" || segName === "R";
+  }
+
+  /* Розница: улица и все дополнения сразу. Кнопка «Этаж и квартира» остаётся. */
+  function courierAddressLine(c) {
+    var bits = addrBits(c);
+    if (!retailClient_(c)) return bits;
+    var pay = root.BoinyaOrderPayload;
+    var full = pay && pay.showAddress ? String(pay.showAddress(c, eng()) || "").trim() : "";
+    var comment = String((c && (c.addressComment || c.addrComment || c.addressNote)) || "").trim();
+    if (comment && full.indexOf(comment) < 0) full = full ? (full + " · " + comment) : comment;
+    var raw = String((c && c.address) || "").trim();
+    if (!full) full = raw || bits.street;
+    else if (raw) {
+      var compact = function (s) {
+        return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/gi, "");
+      };
+      var a = compact(full);
+      var b = compact(raw);
+      if (b && a.indexOf(b) < 0 && b.indexOf(a) < 0) full = full + " · " + raw;
+      else if (b.length > a.length) full = raw;
+    }
+    return { street: full || bits.street, details: bits.details };
+  }
+
+  function partnerOrderMoney_(c) {
+    if (clientTypeLabel(c) !== "партнёр") return null;
+    var raw = null;
+    if (c.orderPrice != null && c.orderPrice !== "") raw = c.orderPrice;
+    else if (c.totalByn != null && c.totalByn !== "") raw = c.totalByn;
+    else if (c.clientPrice != null && c.clientPrice !== "") raw = c.clientPrice;
+    else {
+      var m = String((c && c.note) || "").match(/\[ЦЕНА:\s*([0-9]+(?:[.,][0-9]+)?)/i);
+      if (m) raw = m[1];
+    }
+    if (raw == null || raw === "") return null;
+    var v = Number(String(raw).replace(/\s/g, "").replace(",", "."));
+    if (!isFinite(v) || v < 0) return null;
+    return v;
+  }
+
+  function cardMoney(c) {
+    var due = stopMoney(c);
+    if (due != null) return due;
+    return partnerOrderMoney_(c);
+  }
+
   function mapStreet(c) {
     var pay = root.BoinyaOrderPayload;
     if (pay && pay.mapStreet) return pay.mapStreet(c, eng());
@@ -1525,7 +1641,7 @@
     }
     if (!list.length) html += '<p class="b-note">Нет клиентов на день</p>';
     list.forEach(function (c, idx) {
-      var addr = addrBits(c);
+      var addr = courierAddressLine(c);
       var noteCtx = { note: c.note || "", role: "cour" };
       var note = noteFor(c.note || "", "cour");
       var tel = phoneOf(c);
@@ -1537,7 +1653,7 @@
       var kind = clientTypeLabel(c);
       var slot = slotLabel(c);
       var when = windowLabel(c);
-      var due = stopMoney(c);
+      var due = cardMoney(c);
       var price = due != null ? moneyText(due) : "";
       var accentBits = [];
       if (slot && slot !== kind && /^ПП/.test(slot)) accentBits.push(slot);
@@ -1583,25 +1699,35 @@
     sh().main(html);
   }
 
-  async function loadCour(force) {
+  async function loadCour(force, ticket) {
+    if (ticket == null) ticket = showTicket;
     var day = currentDay("nxCourDay", "route");
     if (force) courDetail = false;
     var regJob = registerCourier();
     var res = null;
     var asmRes = null;
     try {
+      var courReq = { action: "getCourier", day: day };
+      var asmReq = { action: "getAssembly", day: day };
+      if (!force && warmFresh(warmCour, day)) courReq = null;
+      if (!force && warmFresh(warmAsm, day)) asmReq = null;
       var pair = await Promise.all([
         loadDeparture(),
-        api().apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 }),
-        api().apiGet({ action: "getAssembly", day: day }, { timeoutMs: 8000, cacheTtlMs: force ? 0 : 8000 }).catch(function () { return null; })
+        courReq ? api().apiGet(courReq, { timeoutMs: 22000, cacheTtlMs: force ? 0 : 15000 }) : Promise.resolve(warmCour.res),
+        asmReq ? api().apiGet(asmReq, { timeoutMs: 8000, cacheTtlMs: force ? 0 : 8000 }).catch(function () { return null; }) : Promise.resolve(warmAsm.res)
       ]);
       res = pair[1];
       asmRes = pair[2];
     } catch (e) {
-      sh().toast("Ошибка сети");
-      paintRoute();
+      if (liveSeg(ticket, "route")) {
+        sh().toast("Ошибка сети");
+        paintRoute();
+      }
       return;
     }
+    if (res && !force) warmCour = { day: day, res: res, at: Date.now() };
+    if (asmRes && !force) warmAsm = { day: day, res: asmRes, at: Date.now() };
+    if (!liveSeg(ticket, "route")) return;
     if (!res || res.status !== "success" || !(res.clients || []).length) {
       cour = [];
       paintRoute();
@@ -1629,6 +1755,7 @@
     list._date = res.date || day;
     list._day = day;
     cour = list;
+    if (!liveSeg(ticket, "route")) return;
     paintRoute();
     registerCourier();
     startCourAsmPoll();
@@ -2079,13 +2206,14 @@
   async function show(next) {
     var items = segItems();
     if (!items.some(function (s) { return s.id === next; })) next = (items[0] && items[0].id) || "cut";
+    var ticket = ++showTicket;
     seg = next;
     if (seg !== "cut" && cutSession.timer) { clearInterval(cutSession.timer); cutSession.timer = null; }
     if (next !== "route") stopCourAsmPoll();
     paint();
-    if (seg === "cut") await loadCut();
-    else if (seg === "pack") await loadAsm(false);
-    else await loadCour(false);
+    if (seg === "cut") await loadCut(ticket);
+    else if (seg === "pack") await loadAsm(false, ticket);
+    else await loadCour(false, ticket);
   }
 
   function onAct(act, node, ev) {
@@ -2330,6 +2458,9 @@
     },
     pauseBackground: pauseBackground,
     resumeBackground: resumeBackground,
+    warm: warm,
+    previewCardMoney_: cardMoney,
+    previewCourierAddr_: courierAddressLine,
     refreshQuiet: function () {
       var a = document.activeElement;
       if (a && a.closest && a.closest("#nxMain") && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT")) return;
