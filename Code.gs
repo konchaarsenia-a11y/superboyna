@@ -21867,26 +21867,46 @@ function igFractionWordGs_(main, sub) {
     if (/ОБЫЧН/.test(fu) || /^ЦЕЛ/.test(fu)) return "целое";
     return "";
   }
-  if (p === "lung" || p === "lung-lamb") {
+  if (p === "lung") {
+    if (igVerySmallGs_(fu)) return "очень мелкий кубик";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "средний кубик";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") >= 0)) return "мелкий кубик";
+    return "";
+  }
+  if (p === "lung-lamb") {
     if (igVerySmallGs_(fu)) return "";
     if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
     if (/^ПОЛОСК/.test(fu)) return "полоски";
     if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "кубики";
-    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкие кубики";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") >= 0)) return "мелкие кубики";
     return "";
   }
-  if (p === "heart" || p === "rumen" || p === "kidney" || p === "turkey" || p === "liver-lamb") {
+  if (p === "heart" || p === "rumen" || p === "kidney") {
+    if (igVerySmallGs_(fu)) return "очень мелкие кусочки";
+    if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) return "средние кусочки";
+    if (fu.indexOf("МЕЛК") >= 0 && fu.indexOf("КУСОЧ") >= 0) return "мелкие кусочки";
+    if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупные кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "средние кусочки" : "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^СРЕД/.test(fu) && p === "rumen") return "средние кусочки";
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
+  }
+  if (p === "turkey" || p === "liver-lamb") {
     if (igVerySmallGs_(fu)) return "";
     if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) return "кусочки";
-    if (/МЕЛК/.test(fu) && /КУСОЧ/.test(fu)) return "мелкие кусочки";
-    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "кусочки" : "ломтики";
+    if (fu.indexOf("МЕЛК") >= 0 && fu.indexOf("КУСОЧ") >= 0) return "мелкие кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
     if (/^ПОЛОСК/.test(fu)) {
       if (p === "liver-lamb") return "кусочки";
       if (p === "turkey") return "";
       return "полоски";
     }
-    if (/^СРЕД/.test(fu) && p === "rumen") return "кусочки";
     if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
   }
   return "";
 }
