@@ -146,3 +146,49 @@ test("месяц читает заявки с датой и не пишет их
   assert.equal(fn.includes("DELETE"), false);
   assert.equal(fn.includes("INSERT"), false);
 });
+
+test("точки Варки не сходятся в один VARKA на сборке, в счётчике и в маршруте", () => {
+  function grabUntil(name, next) {
+    const start = worker.indexOf("function " + name + "(");
+    assert.ok(start >= 0, name);
+    const end = worker.indexOf("function " + next + "(", start + 1);
+    assert.ok(end > start, next);
+    return worker.slice(start, end);
+  }
+  const src = [
+    grabUntil("normalizeMatchKey_", "matchKeyAliases_"),
+    grabUntil("partnerPointKey_", "partnerOrderSaveKey_"),
+    grabUntil("partnerAddressKey_", "partnerNetworkOnly_"),
+    grabUntil("partnerOpsKey_", "opsPeopleKeySet_")
+  ].join("\n");
+  const api = new Function(src + "\nreturn { ops: opsPersonKey_ };")();
+  const tsv = { name: "Varka Цвирко 100", matchKey: "VARKA", address: "Цвирко 100" };
+  const shev = { name: "Varka Шевченко 1", matchKey: "VARKA", address: "Шевченко 1" };
+  assert.equal(api.ops(tsv), "ВАРКА ЦВИРКО 100");
+  assert.equal(api.ops(shev), "ВАРКА ШЕВЧЕНКО 1");
+  assert.notEqual(api.ops(tsv), api.ops(shev));
+  assert.equal(api.ops({ name: "ЕВГЕНИЯ es_furman", matchKey: "ESFURMAN" }), "ESFURMAN");
+  assert.equal(
+    api.ops({ name: "Varka Цвирко 100 · 2", ownerName: "Varka Цвирко 100", matchKey: "VARKA" }),
+    "ВАРКА ЦВИРКО 100"
+  );
+  assert.notEqual(
+    api.ops({ name: "Варка", matchKey: "ВАРКА", address: "Цвирко 100" }),
+    api.ops({ name: "Варка", matchKey: "ВАРКА", address: "Шевченко 1" })
+  );
+  const logic = require("./week-logic.js");
+  assert.equal(logic.rowKey(tsv), "ВАРКА ЦВИРКО 100");
+  assert.notEqual(logic.rowKey(tsv), logic.rowKey(shev));
+  assert.equal(logic.rowKey({ name: "ЕВГЕНИЯ es_furman", matchKey: "ESFURMAN" }), "ESFURMAN");
+  const packs = require("./asm-packs.js");
+  const cards = [
+    { name: "Varka Цвирко 100", matchKey: "VARKA", address: "", basket: [{ name: "ЛЁГКОЕ", val: 200 }] },
+    { name: "Varka Шевченко 1", matchKey: "VARKA", address: "", basket: [{ name: "СЕРДЦЕ", val: 100 }] }
+  ];
+  assert.equal(packs.collapse(cards, "").length, 2);
+  assert.equal(packs.courierStops(cards).length, 2);
+  const getClients = worker.slice(worker.indexOf("async function getClients_("), worker.indexOf("async function lookupClient_("));
+  assert.equal(getClients.includes("uniqPeople_"), false);
+  assert.match(worker, /opsPeopleSetsDiffer_\(opsPeopleKeySet_\(clients\)/);
+  assert.match(worker, /partnerOpsKey_\(c\) \|\| normalizeMatchKey_/);
+});

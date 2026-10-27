@@ -22,7 +22,34 @@
     return want === got;
   }
 
+  function partnerFaceKey(c) {
+    c = c || {};
+    function clean(raw) {
+      return String(raw || "")
+        .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase()
+        .replace(/Ё/g, "Е")
+        .replace(/\bVARKA\b/g, "ВАРКА");
+    }
+    var name = clean(c.ownerName || c.name || "");
+    var mk = clean(c.matchKey || "");
+    if (name.indexOf("ВАРКА ") === 0) return name;
+    if (mk.indexOf("ВАРКА ") === 0) return mk;
+    if (name === "ВАРКА" || mk === "ВАРКА") {
+      var addr = clean(c.address || "");
+      var id = String(c.partnerOrderId || "").trim();
+      if (addr) return "ВАРКА " + addr;
+      if (id) return "ВАРКА#" + id;
+      return "ВАРКА";
+    }
+    return "";
+  }
+
   function ownerKey(c) {
+    var face = partnerFaceKey(c);
+    if (face) return "pt:" + face;
     c = c || {};
     var name = String(c.ownerName || c.name || "")
       .replace(/\s*[·•#]\s*\d+\s*$/i, "")
@@ -397,6 +424,8 @@
   }
 
   function stopKey(c) {
+    var face = partnerFaceKey(c);
+    if (face) return "pt:" + face;
     var mk = String((c && c.matchKey) || "").trim().toUpperCase();
     if (mk) return "m:" + mk;
     var name = String((c && (c.ownerName || c.name)) || "")
