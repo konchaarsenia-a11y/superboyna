@@ -12596,6 +12596,124 @@ async function refreshCourierAskPaid_(env, snap) {
   return snap;
 }
 
+/* Дата слота курьера. Если снимок недели отстаёт от текущего понедельника, берём дату этой недели. */
+function courierSlotIso_(day, infoIso, mondayIso) {
+  const info = coerceDateIso_(infoIso) || "";
+  const monday = coerceDateIso_(mondayIso) || "";
+  const idx = WEEK_DAYS.indexOf(String(day || ""));
+  let calendar = "";
+  if (monday && idx >= 0 && idx < 7) calendar = isoAddDays_(monday, idx);
+  if (!info) return calendar;
+  if (!calendar || info === calendar) return info;
+  if (info < calendar) return calendar;
+  return info;
+}
+
+function courierIdentityKeys_(c) {
+  const keys = [];
+  if (!c) return keys;
+  const id = String(c.id || c.orderId || "").trim();
+  if (id) keys.push("id:" + id);
+  let point = "";
+  try { point = partnerOpsKey_(c); } catch (eP) { point = ""; }
+  if (point) keys.push("pt:" + point);
+  const person = opsPersonKey_(c);
+  const seg = normalizeSegmentLabel_((c && (c.segment || c.source || c.orderType)) || "");
+  const part = String((c && c.dogPart) || "");
+  if (person) keys.push("p:" + person + "|" + seg + "|" + part);
+  return keys;
+}
+
+/* Снимок дня может помнить прошлый четверг. В ответ входят только заказы этой даты, плюс те, у кого день недели другой. */
+function courierMergeDateRows_(existing, incoming, iso) {
+  const want = coerceDateIso_(iso) || "";
+  const kept = [];
+  const seen = Object.create(null);
+  function mark(c) {
+    courierIdentityKeys_(c).forEach(function (k) { if (k) seen[k] = true; });
+  }
+  (existing || []).forEach(function (c) {
+    if (!c) return;
+    const have = coerceDateIso_(c.dateIso || c.date || "");
+    if (want && have && have !== want) return;
+    kept.push(c);
+    mark(c);
+  });
+  (incoming || []).forEach(function (c) {
+    if (!c) return;
+    const keys = courierIdentityKeys_(c);
+    if (keys.length && keys.some(function (k) { return seen[k]; })) return;
+    mark(c);
+    kept.push(c);
+  });
+  return kept;
+}
+
+/** Чтение: заказы этой даты доставки, даже если day_name = «Будущая неделя». Строки не пишем. */
+async function overlayCourierByDate_(env, day, hit) {
+  if (!hit || !env || !env.DB) return hit;
+  const idx = WEEK_DAYS.indexOf(String(day || ""));
+  if (idx < 0 || idx > 6) return hit;
+  let info = null;
+  try { info = await dayDateInfo_(env, day); } catch (eInfo) { info = null; }
+  const iso = courierSlotIso_(day, info && info.iso, currentMondayIso_());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return hit;
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE status = 'active' AND date_iso = ? ORDER BY client"
+    )
+      .bind(iso)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (eQ) {
+    return hit;
+  }
+  const flags = Object.create(null);
+  try {
+    const dq = await env.DB.prepare(
+      "SELECT match_key, delivered FROM deliveries WHERE date_iso = ?"
+    )
+      .bind(iso)
+      .all();
+    ((dq && dq.results) || []).forEach(function (r) {
+      matchKeyAliases_(r.match_key).forEach(function (k) { flags[k] = !!r.delivered; });
+    });
+  } catch (eFlag) {}
+  const incoming = rows.map(function (r) {
+    const c = clientFromRow_(r);
+    c.id = r.id;
+    c.orderId = r.id;
+    c.dateIso = iso;
+    c.day = day;
+    const aliases = matchKeyAliases_(c.matchKey || c.name);
+    for (let i = 0; i < aliases.length; i++) {
+      if (aliases[i] in flags) {
+        c.delivered = !!flags[aliases[i]];
+        break;
+      }
+    }
+    return c;
+  });
+  let list = courierMergeDateRows_(hit.clients || [], incoming, iso);
+  try {
+    const orders = await openDatedPartnerOrders_(env);
+    orders.forEach(function (o) {
+      if (partnerOrderDate_(o) !== iso) return;
+      if (partnerOrderListed_(list, o)) return;
+      const c = partnerClientFromOrder_(o, day);
+      c.dateIso = iso;
+      list.push(c);
+    });
+  } catch (ePart) {}
+  return Object.assign({}, hit, {
+    clients: list,
+    date: isoToDmy_(iso) || (hit && hit.date) || "",
+    dateIso: iso,
+    day: day
+  });
+}
+
 async function getCourier_(params, env) {
   const day = String(params.day || "Понедельник");
   try {
@@ -12609,6 +12727,7 @@ async function getCourier_(params, env) {
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
   try { await refreshCourierAskPaid_(env, hit); } catch (eAsk) {}
   try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
+  try { hit = await overlayCourierByDate_(env, day, hit); } catch (eDate) {}
   return hit;
 }
 
