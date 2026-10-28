@@ -312,18 +312,37 @@ test("mix without a stored split is not invented", () => {
   assert.doesNotMatch(html, /mix-parts/);
   const items = cutOf([row]);
   assert.equal(items.length, 0);
+});
+
+test("components without a ratio split the order weight evenly", () => {
   const open = {
     cat: "crumb",
     name: "крошка",
+    crumbKind: "mix4:dress",
     value: 100,
     val: 100,
     sub: "ПОЧКИ + РУБЕЦ Т"
   };
   const openHtml = mix.linesHtml([open]);
-  assert.match(openHtml, /почки/);
-  assert.match(openHtml, /рубец/);
-  assert.doesNotMatch(openHtml, /50 г/);
-  assert.equal(cutOf([open]).length, 0);
+  assert.match(openHtml, /Мясные \(дрессура\) — 100 г/);
+  assert.match(openHtml, /почки — 50 г/);
+  assert.match(openHtml, /рубец т — 50 г/);
+  const cut = cutOf([open]);
+  assert.equal(cut.find((it) => /ПОЧКИ/.test(it.name)).dry, 50);
+  assert.equal(cut.find((it) => /РУБЕЦ/.test(it.name)).dry, 50);
+  const three = {
+    cat: "crumb",
+    name: "крошка",
+    value: 100,
+    val: 100,
+    sources: ["ЛЁГКОЕ", "ПОЧКИ", "РУБЕЦ Т"]
+  };
+  const threeHtml = mix.linesHtml([three]);
+  assert.match(threeHtml, /лёгкое — 34 г/);
+  assert.match(threeHtml, /почки — 33 г/);
+  assert.match(threeHtml, /рубец т — 33 г/);
+  const grams = cutOf([three]).reduce((s, it) => s + it.dry, 0);
+  assert.equal(grams, 100);
 });
 
 test("one named crumb keeps the whole weight", () => {

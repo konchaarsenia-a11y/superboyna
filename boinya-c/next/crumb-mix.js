@@ -89,27 +89,91 @@
     return { items: items, rest: rest.join("\n") };
   }
 
-  function partQty(g, src, index, count) {
-    var own = Number(src && (src.val != null ? src.val : src.value));
-    if (isFinite(own) && own > 0) return { qty: own, unit: (src && src.unit) || "г" };
-    if (src && src._ix != null) index = src._ix;
-    var ratio = Array.isArray(g.ratio) ? g.ratio : [];
-    var sumR = 0;
-    var n = ratio.length > count ? ratio.length : count;
+  function ratioIndexOf(g, src, fallback) {
+    if (src && src._ix != null) return src._ix;
+    var list = (g && g.sources) || [];
     var i;
-    for (i = 0; i < n; i++) sumR += Number(ratio[i]) || 0;
-    var grams = Number(g.val != null ? g.val : g.value) || 0;
-    if (!(grams > 0)) return null;
-    if (sumR > 0) {
-      var part = (Number(ratio[index]) || 0) / sumR;
-      if (!(part > 0)) return null;
-      var q = Math.round(grams * part);
-      if (q <= 0) q = 1;
-      return { qty: q, unit: (src && src.unit) || g.unit || "г" };
+    for (i = 0; i < list.length; i++) if (list[i] === src) return i;
+    return fallback;
+  }
+
+  /* Остаток грамма отдаём тем, у кого больше дробная часть. Сумма = заказанный вес долей. */
+  function apportionGrams(exacts) {
+    var n = exacts.length;
+    var floors = [];
+    var used = 0;
+    var target = 0;
+    var i;
+    for (i = 0; i < n; i++) {
+      var x = Number(exacts[i]) || 0;
+      if (x < 0) x = 0;
+      target += x;
+      floors.push(Math.floor(x));
+      used += floors[i];
     }
-    // Один компонент — это весь заказанный вес. Несколько без ratio не делим поровну.
-    if (count === 1) return { qty: Math.round(grams), unit: (src && src.unit) || g.unit || "г" };
-    return null;
+    target = Math.round(target);
+    var rem = target - used;
+    var order = [];
+    for (i = 0; i < n; i++) order.push({ i: i, f: (Number(exacts[i]) || 0) - floors[i] });
+    order.sort(function (a, b) { return b.f - a.f || a.i - b.i; });
+    var k;
+    for (k = 0; k < rem && k < order.length; k++) floors[order[k].i] += 1;
+    return floors;
+  }
+
+  function componentQtyList(g, sources) {
+    var list = sources || [];
+    var n = list.length;
+    var total = Math.round(Number(g && (g.val != null ? g.val : g.value)) || 0);
+    if (!(total > 0) || !n) return list.map(function () { return 0; });
+    var own = [];
+    var ownSum = 0;
+    var ownAll = true;
+    var i;
+    for (i = 0; i < n; i++) {
+      var v = Number(list[i] && (list[i].val != null ? list[i].val : list[i].value));
+      if (isFinite(v) && v > 0) {
+        var r = Math.round(v);
+        own.push(r);
+        ownSum += r;
+      } else {
+        ownAll = false;
+        own.push(0);
+      }
+    }
+    if (ownAll && ownSum === total) return own;
+    var ratio = Array.isArray(g && g.ratio) ? g.ratio : [];
+    var full = 0;
+    for (i = 0; i < ratio.length; i++) full += Number(ratio[i]) || 0;
+    if (full > 0) {
+      var exacts = list.map(function (s, idx) {
+        var ix = ratioIndexOf(g, s, idx);
+        return total * ((Number(ratio[ix]) || 0) / full);
+      });
+      var sumExact = 0;
+      exacts.forEach(function (x) { sumExact += x; });
+      if (sumExact > 0) return apportionGrams(exacts);
+    }
+    var even = [];
+    for (i = 0; i < n; i++) even.push(total / n);
+    return apportionGrams(even);
+  }
+
+  function partQty(g, src, index) {
+    var list = sourcesOf(g);
+    var use = list.length ? list : [src];
+    var at = index || 0;
+    if (list.length) {
+      var found = -1;
+      var i;
+      for (i = 0; i < list.length; i++) if (list[i] === src) found = i;
+      if (found >= 0) at = found;
+      else if (at >= list.length) at = 0;
+    }
+    var qty = componentQtyList(g, use);
+    var q = qty[at] || 0;
+    if (!(q > 0)) return null;
+    return { qty: q, unit: (src && src.unit) || (g && g.unit) || "г" };
   }
 
   function isChewName(name) {
@@ -333,10 +397,10 @@
       var totalM = Number(g.val != null ? g.val : g.value);
       var headM = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
       if (isFinite(totalM) && totalM > 0) headM += " — " + totalM + " " + (g.unit || "г");
-      var partsM = src.map(function (s) {
-        var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
+      var qtyM = componentQtyList(g, src);
+      var partsM = src.map(function (s, si) {
         var label = nominative(s.name || s.main, pretty);
-        var text = q ? (label + " — " + q.qty + " " + (q.unit || "г")) : label;
+        var text = qtyM[si] > 0 ? (label + " — " + qtyM[si] + " г") : label;
         return '<div class="mix-part">' + esc(text) + "</div>";
       }).join("");
       return '<div class="mix"><div class="mix-title">' + esc(headM) + '</div><div class="mix-parts">' + partsM + "</div></div>";
@@ -345,17 +409,17 @@
       var total = Number(g.val != null ? g.val : g.value);
       var head = "Крошка микс";
       if (isFinite(total) && total > 0) head += " — " + total + " " + (g.unit || "г");
-      var parts = src.map(function (s) {
-        var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
+      var qtyMix = componentQtyList(g, src);
+      var parts = src.map(function (s, si) {
         var label = nominative(s.name || s.main, pretty);
-        var text = q ? (label + " — " + q.qty + " " + (q.unit || "г")) : label;
+        var text = qtyMix[si] > 0 ? (label + " — " + qtyMix[si] + " г") : label;
         return '<div class="mix-part">' + esc(text) + "</div>";
       }).join("");
       return '<div class="mix"><div class="mix-title">' + esc(head) + '</div><div class="mix-parts">' + parts + "</div></div>";
     }
     if (isCrumb(g) && src.length === 1) {
-      var q1 = partQty(g, src[0], sourcePos(g, src[0]), sourceCount(g));
-      var grams = q1 ? q1.qty : (g.val != null ? g.val : g.value);
+      var oneQty = componentQtyList(g, src);
+      var grams = oneQty[0] > 0 ? oneQty[0] : (g.val != null ? g.val : g.value);
       return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
     }
     if (isCrumb(g) && schemeKind) {
@@ -531,11 +595,11 @@
       if (!g) return;
       var src = sourcesOf(g);
       if (isCrumb(g) && src.length) {
-        src.forEach(function (s) {
-          var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
+        var qtys = componentQtyList(g, src);
+        src.forEach(function (s, si) {
           var key = organKey(s.name || s.main);
-          if (!key || !q) return;
-          out.push({ key: key, grams: q.qty, sub: s.sub || "крошка", name: s.name || s.main });
+          if (!key || !(qtys[si] > 0)) return;
+          out.push({ key: key, grams: qtys[si], sub: s.sub || "крошка", name: s.name || s.main });
         });
         return;
       }

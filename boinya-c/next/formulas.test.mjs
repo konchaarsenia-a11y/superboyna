@@ -402,6 +402,21 @@ test("партнёр с ценой в обороте, почта по треку
   eq(d1.revenue, s.revenue, "воркер: тот же оборот");
   eq(d1.partnerRevenue, s.partnerRevenue, "воркер: те же деньги партнёра");
   eq(d1.mailN, s.mailN, "воркер: та же почта");
+  const open = [
+    { ck: "P", iso: "2026-10-29", src: "partner", delivered: false, price: 20, S: 1, G: 10, P: 0 },
+    { ck: "Z", iso: "2026-10-30", src: "partner", delivered: false, price: 0, S: 0, G: 0, P: 0 },
+    { ck: "R", iso: "2026-10-29", src: "retail", delivered: false, price: 15, S: 1, G: 0, P: 0 }
+  ];
+  const live = F.formulaRollup_(open, { monthKey: "2026-10" });
+  eq(live.partner.N, 2, "партнёр без галочки всё равно поездка");
+  eq(live.partnerRevenue, 20, "цена партнёра без галочки в обороте");
+  eq(live.N, 2, "розница без отвёз не поездка");
+  eq(live.pending.N, 1, "розница ждёт");
+  eq(live.pending.revenue, 15, "розница в ожидается");
+  const liveD1 = sandbox.statsFormulaRollupD1_(open, { monthKey: "2026-10" });
+  eq(liveD1.partner.N, live.partner.N, "воркер: те же партнёры без галочки");
+  eq(liveD1.partnerRevenue, live.partnerRevenue, "воркер: те же деньги без галочки");
+  eq(liveD1.N, live.N, "воркер: то же число поездок");
 });
 
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {

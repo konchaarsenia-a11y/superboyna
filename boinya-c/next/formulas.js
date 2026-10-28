@@ -769,19 +769,24 @@
     for (i = 0; i < rest.length; i++) {
       var one = rest[i];
       var price = num_(one.price);
+      if (String(one.src) === "partner") {
+        if (one.missingBasket) out.missingBasket++;
+        addU(out, one.S, one.G, one.P, 1);
+        addU(out.partner, one.S, one.G, one.P, 1);
+        if (one.viaMail) out.mailN += 1;
+        if (price > 0) {
+          out.revenue = kopeck_(out.revenue + price);
+          out.partnerRevenue = kopeck_(out.partnerRevenue + price);
+          out.partner.revenue = kopeck_(out.partner.revenue + price);
+        }
+        continue;
+      }
       if (one.delivered && one.missingBasket) out.missingBasket++;
       if (one.delivered) {
         addU(out, one.S, one.G, one.P, 1);
         if (one.viaMail) out.mailN += 1;
         if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
-        else if (String(one.src) === "partner") {
-          addU(out.partner, one.S, one.G, one.P, 1);
-          if (price > 0) {
-            out.revenue = kopeck_(out.revenue + price);
-            out.partnerRevenue = kopeck_(out.partnerRevenue + price);
-            out.partner.revenue = kopeck_(out.partner.revenue + price);
-          }
-        } else {
+        else {
           addU(out.retail, one.S, one.G, one.P, 1);
           if (price > 0) {
             out.revenue = kopeck_(out.revenue + price);

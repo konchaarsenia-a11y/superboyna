@@ -72,10 +72,44 @@ const statusMix = sh(
   "SELECT coalesce(status,'(empty)') AS status, count(*) AS n FROM orders WHERE " + OCT + " AND (" + TAGGED + " OR " + FACE + ") GROUP BY 1"
 );
 
+const partnerSplit = sh(
+  "SELECT count(*) AS rows_n, count(DISTINCT date_iso || '|' || match_key) AS keys_n, " +
+    "sum(CASE WHEN " + DELIV + " OR " + TRACK + " THEN 1 ELSE 0 END) AS delivered_rows, " +
+    "round(sum(CASE WHEN " + PRICE + " > 0 AND (" + DELIV + " OR " + TRACK + ") THEN " + PRICE + " ELSE 0 END), 2) AS rev_if_delivered, " +
+    "round(sum(CASE WHEN " + PRICE + " > 0 THEN " + PRICE + " ELSE 0 END), 2) AS rev_all_prices, " +
+    "sum(CASE WHEN " + PRICE + " > 0 THEN 1 ELSE 0 END) AS priced_rows, " +
+    "sum(CASE WHEN instr(ifnull(note,''), '[ЦЕНА:') > 0 THEN 1 ELSE 0 END) AS note_price_rows, " +
+    "round(sum(CASE WHEN cast(json_extract(meta_json, '$.clientPrice') as real) > 0 THEN cast(json_extract(meta_json, '$.clientPrice') as real) ELSE 0 END), 2) AS client_price_sum " +
+    "FROM orders WHERE " + ALIVE + " AND " + OCT + " AND " + TAGGED
+);
+
+let rabbitOrders = [];
+let rabbitPrice = [];
+try {
+  rabbitOrders = sh(
+    "SELECT date_iso, status, coalesce(segment,'(empty)') AS seg, " +
+      "CASE WHEN upper(coalesce(basket_json,'')) LIKE '%\"КРОЛИК\"%' THEN 'name' ELSE 'text' END AS hit " +
+      "FROM orders WHERE upper(coalesce(basket_json,'')) LIKE '%КРОЛИК%' " +
+      "AND lower(coalesce(status,'')) NOT IN ('cancelled','deleted') ORDER BY date_iso LIMIT 40"
+  );
+} catch (eR) {
+  rabbitOrders = [{ error: "orders" }];
+}
+try {
+  rabbitPrice = sh(
+    "SELECT name, cat, price, unit FROM price_positions WHERE upper(name) LIKE '%КРОЛИК%' LIMIT 20"
+  );
+} catch (eP) {
+  rabbitPrice = [{ error: "no_table" }];
+}
+
 console.log(JSON.stringify({
   octoberBySegment: bySeg,
   taggedPartnerByMonth: partnerMonths,
   octoberFaceNotTagged: faceNotTagged,
   partnerLikeEmptyDate: emptyDate,
-  octoberPartnerLikeByStatus: statusMix
+  octoberPartnerLikeByStatus: statusMix,
+  octoberPartnerSplit: partnerSplit,
+  rabbitOrders: rabbitOrders,
+  rabbitPricePositions: rabbitPrice
 }, null, 2));

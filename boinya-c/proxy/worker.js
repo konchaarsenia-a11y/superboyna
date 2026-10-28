@@ -2817,26 +2817,62 @@ function expandCrumbsForCuttingD1_(basket) {
     });
     return rows;
   }
-  function partGrams(it, row, rows) {
-    var src = row.src;
-    if (src && typeof src === "object") {
-      var own = Number(src.val != null ? src.val : src.value);
-      if (isFinite(own) && own > 0) return Math.round(own);
+  function apportionCutGrams_(exacts) {
+    var floors = [];
+    var used = 0;
+    var target = 0;
+    var i;
+    for (i = 0; i < exacts.length; i++) {
+      var x = Number(exacts[i]) || 0;
+      if (x < 0) x = 0;
+      target += x;
+      floors.push(Math.floor(x));
+      used += floors[i];
     }
+    target = Math.round(target);
+    var rem = target - used;
+    var order = [];
+    for (i = 0; i < exacts.length; i++) order.push({ i: i, f: (Number(exacts[i]) || 0) - floors[i] });
+    order.sort(function (a, b) { return b.f - a.f || a.i - b.i; });
+    var k;
+    for (k = 0; k < rem && k < order.length; k++) floors[order[k].i] += 1;
+    return floors;
+  }
+  function gramsForRows_(it, rows) {
+    var n = rows.length;
+    var total = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+    if (!(total > 0) || !n) return rows.map(function () { return 0; });
+    var own = [];
+    var ownSum = 0;
+    var ownAll = true;
+    var i;
+    for (i = 0; i < n; i++) {
+      var src = rows[i].src;
+      var v = src && typeof src === "object" ? Number(src.val != null ? src.val : src.value) : NaN;
+      if (isFinite(v) && v > 0) {
+        var r = Math.round(v);
+        own.push(r);
+        ownSum += r;
+      } else {
+        ownAll = false;
+        own.push(0);
+      }
+    }
+    if (ownAll && ownSum === total) return own;
     var ratio = Array.isArray(it.ratio) ? it.ratio : [];
-    var sumR = 0;
-    var ri;
-    for (ri = 0; ri < ratio.length; ri++) sumR += Number(ratio[ri]) || 0;
-    var total = Number(it.val != null ? it.val : it.value) || 0;
-    if (sumR > 0 && total > 0) {
-      var share = (Number(ratio[row.i]) || 0) / sumR;
-      if (!(share > 0)) return 0;
-      var g = Math.round(total * share);
-      if (g <= 0) g = 1;
-      return g;
+    var full = 0;
+    for (i = 0; i < ratio.length; i++) full += Number(ratio[i]) || 0;
+    if (full > 0) {
+      var exacts = rows.map(function (row) {
+        return total * ((Number(ratio[row.i]) || 0) / full);
+      });
+      var sumExact = 0;
+      exacts.forEach(function (x) { sumExact += x; });
+      if (sumExact > 0) return apportionCutGrams_(exacts);
     }
-    if (rows.length === 1 && total > 0) return Math.round(total);
-    return 0;
+    var even = [];
+    for (i = 0; i < n; i++) even.push(total / n);
+    return apportionCutGrams_(even);
   }
   var out = [];
   (basket || []).forEach(function (it) {
@@ -2859,8 +2895,9 @@ function expandCrumbsForCuttingD1_(basket) {
       return;
     }
     var emitted = 0;
-    rows.forEach(function (row) {
-      var g = partGrams(it, row, rows);
+    var rowGrams = gramsForRows_(it, rows);
+    rows.forEach(function (row, ri) {
+      var g = rowGrams[ri] || 0;
       if (!(g > 0) || !row.name) return;
       emitted++;
       out.push({
@@ -16677,19 +16714,24 @@ function statsFormulaRollupD1_(rows, opts) {
   for (let i = 0; i < rest.length; i++) {
     const one = rest[i];
     const price = Number(one.price) || 0;
+    if (String(one.src) === "partner") {
+      if (one.missingBasket) out.missingBasket++;
+      addU(out, one.S, one.G, one.P, 1);
+      addU(out.partner, one.S, one.G, one.P, 1);
+      if (one.viaMail) out.mailN += 1;
+      if (price > 0) {
+        out.revenue = statsKopeckD1_(out.revenue + price);
+        out.partnerRevenue = statsKopeckD1_(out.partnerRevenue + price);
+        out.partner.revenue = statsKopeckD1_(out.partner.revenue + price);
+      }
+      continue;
+    }
     if (one.delivered && one.missingBasket) out.missingBasket++;
     if (one.delivered) {
       addU(out, one.S, one.G, one.P, 1);
       if (one.viaMail) out.mailN += 1;
       if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
-      else if (String(one.src) === "partner") {
-        addU(out.partner, one.S, one.G, one.P, 1);
-        if (price > 0) {
-          out.revenue = statsKopeckD1_(out.revenue + price);
-          out.partnerRevenue = statsKopeckD1_(out.partnerRevenue + price);
-          out.partner.revenue = statsKopeckD1_(out.partner.revenue + price);
-        }
-      } else {
+      else {
         addU(out.retail, one.S, one.G, one.P, 1);
         if (price > 0) {
           out.revenue = statsKopeckD1_(out.revenue + price);
