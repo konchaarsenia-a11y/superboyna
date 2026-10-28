@@ -70,6 +70,21 @@ jobs:
               "SELECT cache_key, payload FROM snap_cache WHERE cache_key = 'weekDayCounts'",
               "snap"
           )
+          run(
+              "SELECT id, date_iso, COALESCE(day_name,'') AS day_name, COALESCE(segment,'') AS segment, "
+              "COALESCE(source,'') AS source, COALESCE(status,'') AS status "
+              "FROM orders WHERE date_iso IN ('2026-10-29','2026-10-30') "
+              "OR (status = 'active' AND ("
+              "upper(COALESCE(segment,'')) LIKE '%ПАРТ%' OR upper(COALESCE(source,'')) LIKE '%PARTNER%' "
+              "OR upper(COALESCE(segment,'')) = 'ВАРКА') AND date_iso >= '2026-10-26' AND date_iso <= '2026-11-02') "
+              "ORDER BY date_iso, id",
+              "rows-2930"
+          )
+          run(
+              "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN "
+              "('courier:Четверг','courier:Пятница','partnerOrders')",
+              "courier-snaps"
+          )
           print("ok")
           PY
           node <<'JS'
@@ -121,6 +136,46 @@ jobs:
               "slot " + (it.day || "") + " date=" + (it.date || "") +
               " count=" + it.count + " onDate=" + (it.onDate == null ? "" : it.onDate)
             );
+          });
+          rows("rows-2930.json").forEach((r) => {
+            console.log(
+              "row id=" + (r.id || "") +
+              " date=" + (r.date_iso || "") +
+              " day=" + (r.day_name || "-") +
+              " seg=" + (r.segment || "-") +
+              " src=" + (r.source || "-") +
+              " status=" + (r.status || "-")
+            );
+          });
+          function briefClient(c) {
+            return "id=" + (c.id || c.orderId || "") +
+              " seg=" + (c.segment || "-") +
+              " src=" + (c.source || c.orderType || "-") +
+              " date=" + (c.dateIso || c.date || "") +
+              " day=" + (c.day || "-") +
+              " pid=" + (c.partnerOrderId || "") +
+              " dog=" + (c.dogPart || "");
+          }
+          rows("courier-snaps.json").forEach((r) => {
+            let body = null;
+            try { body = JSON.parse(r.payload || "null"); } catch (e) { body = null; }
+            const key = r.cache_key || "";
+            if (key === "partnerOrders") {
+              const list = (body && body.orders) || [];
+              list.forEach((o) => {
+                const date = String((o && o.deliverDateIso) || "").slice(0, 10);
+                if (date !== "2026-10-29" && date !== "2026-10-30") return;
+                console.log(
+                  "po id=" + (o.id || "") +
+                  " date=" + date +
+                  " status=" + (o.status || o.orderStatus || "-")
+                );
+              });
+              return;
+            }
+            const clients = (body && body.clients) || [];
+            console.log("snap " + key + " n=" + clients.length + " date=" + ((body && (body.dateIso || body.date)) || ""));
+            clients.forEach((c) => console.log("snapc " + key + " " + briefClient(c || {})));
           });
           JS
           rm -rf /tmp/full-day
