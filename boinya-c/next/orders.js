@@ -1429,6 +1429,7 @@
     if (kind !== "veg" && kind !== "hypo" && kind !== "dress") kind = "dress";
     return raw.filter(function (p) {
       var n = p.name;
+      if (up(n) === "КРОЛИК") return false;
       if (e.isChewProductName_ && e.isChewProductName_(n)) return false;
       if (kind === "veg") return veg(n);
       if (kind === "hypo") return hypo(n) && !dressura(n);

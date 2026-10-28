@@ -154,7 +154,7 @@
     html += '<article class="b-card"><p class="b-lbl" style="margin-top:0">Главное</p>';
     if (meta.compare) html += '<p class="b-note">' + esc(meta.compare) + "</p>";
     html += '<p class="b-note">Проценты справа показывают, насколько сумма отличается от этого отрезка</p>';
-    html += '<p class="b-note">Поездка входит, если стоит «отвёз» или есть трек почты. Партнёр в числе поездок. В оборот партнёра входит цена больше нуля</p>';
+    html += '<p class="b-note">Поездка входит, если стоит «отвёз» или есть трек почты. Заказ партнёра входит и без галочки. В его оборот — цена больше нуля</p>';
     if (!now) {
       html += line("Оборот", "нет данных") + line("Прибыль", "нет данных") + line("Себестоимость", "нет данных") + line("Доставки", "нет данных");
     } else {
@@ -185,7 +185,7 @@
       html += shelfMoney("ПП", roll.ppRevenue, prevRoll ? prevRoll.ppRevenue : null);
       html += '<p class="b-note">Розница, разовые заказы</p>';
       html += shelfMoney("Розница", roll.retailRevenue, prevRoll ? prevRoll.retailRevenue : null);
-      html += '<p class="b-note">Партнёр в числе поездок. В деньги входит только цена больше нуля</p>';
+      html += '<p class="b-note">Заказ партнёра входит и без галочки «отвёз». В деньги — только цена больше нуля</p>';
       html += shelfMoney("Партнёры", roll.partnerRevenue || 0, prevRoll ? prevRoll.partnerRevenue : null);
       var bigger = "нет данных";
       var ppR = Number(roll.ppRevenue) || 0;
