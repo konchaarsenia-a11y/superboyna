@@ -150,6 +150,6 @@ test("перезагрузка: кэш остаётся, запрос досту
   assert.match(apiSrc, /tgWebAppData/);
   assert.match(swSrc, /callback=/);
   assert.match(swSrc, /boinya-c\\\/next\\/);
-  assert.match(swSrc, /boinya-c-sw-v17-71125431/);
+  assert.match(swSrc, /boinya-c-sw-v17-71125432/);
   assert.match(apiSrc, /function apiGet\(params, opts\) \{[\s\S]*var action = String\(params\.action \|\| ""\);[\s\S]*WRITE\.test\(action\)/);
 });

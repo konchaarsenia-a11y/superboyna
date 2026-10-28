@@ -92,18 +92,24 @@
   function partQty(g, src, index, count) {
     var own = Number(src && (src.val != null ? src.val : src.value));
     if (isFinite(own) && own > 0) return { qty: own, unit: (src && src.unit) || "г" };
+    if (src && src._ix != null) index = src._ix;
     var ratio = Array.isArray(g.ratio) ? g.ratio : [];
     var sumR = 0;
+    var n = ratio.length > count ? ratio.length : count;
     var i;
-    for (i = 0; i < count; i++) sumR += Number(ratio[i]) || 0;
-    if (!(sumR > 0)) return null;
+    for (i = 0; i < n; i++) sumR += Number(ratio[i]) || 0;
     var grams = Number(g.val != null ? g.val : g.value) || 0;
     if (!(grams > 0)) return null;
-    var part = (Number(ratio[index]) || 0) / sumR;
-    if (!(part > 0)) return null;
-    var q = Math.round(grams * part);
-    if (q <= 0) q = 1;
-    return { qty: q, unit: (src && src.unit) || g.unit || "г" };
+    if (sumR > 0) {
+      var part = (Number(ratio[index]) || 0) / sumR;
+      if (!(part > 0)) return null;
+      var q = Math.round(grams * part);
+      if (q <= 0) q = 1;
+      return { qty: q, unit: (src && src.unit) || g.unit || "г" };
+    }
+    // Один компонент — это весь заказанный вес. Несколько без ratio не делим поровну.
+    if (count === 1) return { qty: Math.round(grams), unit: (src && src.unit) || g.unit || "г" };
+    return null;
   }
 
   function isChewName(name) {
@@ -120,16 +126,44 @@
     return isChewName(s.name || s.main || "");
   }
 
+  function isTierOrFractionSub(sub) {
+    var t = String(sub || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+    if (!t || t === "крошка") return true;
+    if (t.indexOf("+") >= 0) return false;
+    if (/^(микс|мясные|гипоаллерген|овощи|фрукты|дрессура)\b/.test(t)) return true;
+    if (/мясные \(дрессура\)|овощи\/фрукты|микс мясной|микс гипо/.test(t)) return true;
+    if (/^(очень мелкое|мелкое|среднее|крупное|целое|ломтики|полоски|кусочки|кубики|мелкий кубик|очень мелкий кубик|крупный кубик|средний кубик|мелкие кусочки|очень мелкие кусочки|средние кусочки|крупные кусочки|пластинки|половинки|палочки)$/.test(t)) return true;
+    return false;
+  }
+
   function sourcesOf(g) {
     var out = [];
     if (g && Array.isArray(g.sources)) {
-      g.sources.forEach(function (s) {
-        if (!s || isChewSource(s)) return;
+      g.sources.forEach(function (s, i) {
+        if (s == null || s === "") return;
+        if (typeof s === "string") {
+          var sn = String(s).trim();
+          if (!sn || isChewName(sn)) return;
+          out.push({ name: sn, main: sn, _ix: i });
+          return;
+        }
+        if (isChewSource(s)) return;
         var name = String(s.name || s.main || "").trim();
         if (!name || isChewName(name)) return;
         out.push(s);
       });
     }
+    if (out.length) return out;
+    var hadSources = g && Array.isArray(g.sources) && g.sources.length;
+    if (hadSources) return out;
+    var sub = String((g && g.sub) || "").trim();
+    if (!sub || isTierOrFractionSub(sub)) return out;
+    var parts = sub.indexOf("+") >= 0 ? sub.split(/\s*\+\s*/) : [sub];
+    parts.forEach(function (p, i) {
+      var bit = String(p || "").trim();
+      if (!bit || isTierOrFractionSub(bit) || isChewName(bit)) return;
+      out.push({ name: bit, main: bit, _ix: i });
+    });
     return out;
   }
 
@@ -323,6 +357,12 @@
       var q1 = partQty(g, src[0], sourcePos(g, src[0]), sourceCount(g));
       var grams = q1 ? q1.qty : (g.val != null ? g.val : g.value);
       return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
+    }
+    if (isCrumb(g) && schemeKind) {
+      var totalTier = Number(g.val != null ? g.val : g.value);
+      var headTier = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
+      if (isFinite(totalTier) && totalTier > 0) headTier += " — " + totalTier + " " + (g.unit || "г");
+      return "<div>" + esc(headTier) + "</div>";
     }
     if (isCrumb(g)) {
       var val = g.val != null ? g.val : g.value;

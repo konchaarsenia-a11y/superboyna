@@ -31,6 +31,8 @@ function cuttingFixture() {
   const names = [
     "catalogAliasNameD1_",
     "isCrumbBasketItemD1_",
+    "crumbTierOrFractionSubD1_",
+    "crumbCanonCutNameD1_",
     "expandCrumbsForCuttingD1_",
     "isPieceSku_",
     "chewSubToken_",
