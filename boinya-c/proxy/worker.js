@@ -2733,42 +2733,148 @@ function crumbRawCostD1_(it, costs, val, opts) {
   return Math.round((val / 100) * parentUnit * 100) / 100;
 }
 
-/** Нарезка: крошка → обычные исходные позиции (граммы по ratio). */
+function crumbTierOrFractionSubD1_(sub) {
+  var t = String(sub || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  if (!t || t === "крошка") return true;
+  if (t.indexOf("+") >= 0) return false;
+  if (/^(микс|мясные|гипоаллерген|овощи|фрукты|дрессура)\b/.test(t)) return true;
+  if (/мясные \(дрессура\)|овощи\/фрукты|микс мясной|микс гипо/.test(t)) return true;
+  if (/^(очень мелкое|мелкое|среднее|крупное|целое|ломтики|полоски|кусочки|кубики|мелкий кубик|очень мелкий кубик|крупный кубик|средний кубик|мелкие кусочки|очень мелкие кусочки|средние кусочки|крупные кусочки|пластинки|половинки|палочки)$/.test(t)) return true;
+  return false;
+}
+
+function crumbCanonCutNameD1_(name) {
+  var n = catalogAliasNameD1_(name) || String(name || "").trim();
+  var u = String(n).toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  var map = {
+    "ЛЕГКОЕ": "ЛЁГКОЕ",
+    "ПОЧКИ": "ПОЧКИ",
+    "РУБЕЦ": "РУБЕЦ Т",
+    "РУБЕЦ Т": "РУБЕЦ Т",
+    "СЕРДЦЕ": "СЕРДЦЕ",
+    "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+    "ПЕЧЕНЬ": "ПЕЧЕНЬ",
+    "БАРАНЬЯ ПЕЧЕНЬ": "БАРАНЬЯ ПЕЧЕНЬ",
+    "ИНДЕЙКА": "ИНДЕЙКА",
+    "КРОЛИК": "КРОЛИК",
+    "ЯБЛОКИ": "ЯБЛОКИ",
+    "ЯБЛОКО": "ЯБЛОКИ",
+    "ТЫКВА": "ТЫКВА",
+    "МОРКОВЬ": "МОРКОВЬ",
+    "БАНАНЫ": "БАНАНЫ",
+    "БАНАН": "БАНАНЫ",
+    "ГРУШИ": "ГРУШИ",
+    "ГРУША": "ГРУШИ",
+    "БАТАТ": "БАТАТ",
+    "КАБАЧОК": "КАБАЧОК",
+    "КАБАЧКИ": "КАБАЧОК",
+    "ВЫМЯ": "ВЫМЯ",
+    "СЕМЕННИКИ": "СЕМЕННИКИ",
+    "МЯСНЫЕ ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ"
+  };
+  if (map[u]) return map[u];
+  if (/БАРАН/.test(u) && /ЛЕГК/.test(u)) return "БАРАНЬЕ ЛЁГКОЕ";
+  if (/БАРАН/.test(u) && /ПЕЧЕН/.test(u)) return "БАРАНЬЯ ПЕЧЕНЬ";
+  return n;
+}
+
+/**
+ * Нарезка: крошка → исходные позиции.
+ * Граммы только из val источника или ratio заказа. Долю поровну не выдумываем.
+ * Прайс микса — ставка, не рецепт.
+ */
 function expandCrumbsForCuttingD1_(basket) {
+  function sourceBits(s) {
+    if (s == null || s === "") return null;
+    if (typeof s === "string") return { name: crumbCanonCutNameD1_(s), cat: "dressura", sub: "" };
+    var raw = s.name || s.main || "";
+    var name = crumbCanonCutNameD1_(raw);
+    if (!name) return null;
+    return { name: name, cat: s.cat || "dressura", sub: s.sub || "" };
+  }
+  function rowsFromSources(it) {
+    var sources = Array.isArray(it.sources) ? it.sources : [];
+    var rows = [];
+    sources.forEach(function (s, i) {
+      if (!s || isChewCrumbSourceD1_(s)) return;
+      var bit = sourceBits(s);
+      if (!bit || !bit.name || isChewProductNameD1_(bit.name)) return;
+      rows.push({ name: bit.name, cat: bit.cat, sub: bit.sub, src: s, i: i });
+    });
+    return { had: sources.filter(Boolean).length > 0, rows: rows };
+  }
+  function rowsFromSub(it) {
+    var sub = String(it.sub || "").trim();
+    if (!sub || crumbTierOrFractionSubD1_(sub)) return [];
+    var parts = sub.indexOf("+") >= 0 ? sub.split(/\s*\+\s*/) : [sub];
+    var rows = [];
+    parts.forEach(function (p, i) {
+      var bit = String(p || "").trim();
+      if (!bit || crumbTierOrFractionSubD1_(bit) || isChewProductNameD1_(bit)) return;
+      var name = crumbCanonCutNameD1_(bit);
+      if (!name || isChewProductNameD1_(name)) return;
+      rows.push({ name: name, cat: "dressura", sub: "", src: null, i: i });
+    });
+    return rows;
+  }
+  function partGrams(it, row, rows) {
+    var src = row.src;
+    if (src && typeof src === "object") {
+      var own = Number(src.val != null ? src.val : src.value);
+      if (isFinite(own) && own > 0) return Math.round(own);
+    }
+    var ratio = Array.isArray(it.ratio) ? it.ratio : [];
+    var sumR = 0;
+    var ri;
+    for (ri = 0; ri < ratio.length; ri++) sumR += Number(ratio[ri]) || 0;
+    var total = Number(it.val != null ? it.val : it.value) || 0;
+    if (sumR > 0 && total > 0) {
+      var share = (Number(ratio[row.i]) || 0) / sumR;
+      if (!(share > 0)) return 0;
+      var g = Math.round(total * share);
+      if (g <= 0) g = 1;
+      return g;
+    }
+    if (rows.length === 1 && total > 0) return Math.round(total);
+    return 0;
+  }
   var out = [];
   (basket || []).forEach(function (it) {
     if (!isCrumbBasketItemD1_(it)) {
       out.push(it);
       return;
     }
-    var sources = Array.isArray(it.sources) ? it.sources.filter(Boolean) : [];
-    var grams = Number(it.val != null ? it.val : it.value) || 0;
-    var ratio = Array.isArray(it.ratio) ? it.ratio : [];
-    if (!sources.length) {
+    var fromSrc = rowsFromSources(it);
+    var rows = fromSrc.rows;
+    if (!rows.length && !fromSrc.had) rows = rowsFromSub(it);
+    if (!rows.length && !fromSrc.had) {
+      var parent = crumbParentFromBasketName_(String((it && (it.name || it.main)) || ""));
+      if (!parent && it && it.sub && !crumbTierOrFractionSubD1_(it.sub)) {
+        parent = crumbParentFromBasketName_("КРОШКА " + String(it.sub));
+      }
+      if (parent) rows = [{ name: parent, cat: "dressura", sub: "", src: null, i: 0 }];
+    }
+    if (!rows.length) {
       out.push(it);
       return;
     }
-    var n = sources.length;
-    var sumR = 0;
-    for (var ri = 0; ri < n; ri++) sumR += Number(ratio[ri]) || 0;
-    sources.forEach(function (s, i) {
-      if (isChewCrumbSourceD1_(s)) return;
-      var part = sumR > 0 ? (Number(ratio[i]) || 0) / sumR : 1 / n;
-      var g = Math.round(grams * part);
-      if (g <= 0 && grams > 0) g = 1;
-      var name = catalogAliasNameD1_(s.name || s.main || "") || String(s.name || s.main || "").trim();
-      if (!name || isChewProductNameD1_(name) || g <= 0) return;
+    var emitted = 0;
+    rows.forEach(function (row) {
+      var g = partGrams(it, row, rows);
+      if (!(g > 0) || !row.name) return;
+      emitted++;
       out.push({
-        cat: s.cat || "dressura",
-        name: name,
-        main: name,
-        sub: s.sub || "",
+        cat: row.cat || "dressura",
+        name: row.name,
+        main: row.name,
+        sub: row.sub || "",
         val: g,
         value: g,
         unit: "гр",
         dog: it.dog
       });
     });
+    if (!emitted) out.push(it);
   });
   return out;
 }
@@ -12749,6 +12855,48 @@ function crumbBelongsToCard_(it, card) {
   return true;
 }
 
+function crumbPartCountD1_(it) {
+  var n = 0;
+  (Array.isArray(it && it.sources) ? it.sources : []).forEach(function (s) {
+    var name = typeof s === "string" ? s : (s && (s.name || s.main));
+    if (String(name || "").trim()) n++;
+  });
+  if (n) return n;
+  var sub = String((it && it.sub) || "");
+  if (sub.indexOf("+") >= 0 && !crumbTierOrFractionSubD1_(sub)) {
+    return sub.split(/\s*\+\s*/).filter(function (p) { return String(p || "").trim(); }).length;
+  }
+  return 0;
+}
+
+/** Снимок сборки без состава: подставить sources/ratio из живого заказа. Заказы не пишем. */
+function enrichAssemblyCrumbBasket_(basket, liveBasket, card) {
+  var changed = false;
+  var next = (basket || []).map(function (it) {
+    if (!it || !isCrumbBasketItemD1_(it) || crumbPartCountD1_(it) > 0) return it;
+    var grams = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+    if (!(grams > 0)) return it;
+    var hit = null;
+    (liveBasket || []).forEach(function (live) {
+      if (hit || !live || !isCrumbBasketItemD1_(live) || crumbPartCountD1_(live) < 1) return;
+      if (!crumbBelongsToCard_(live, card)) return;
+      if (it.crumbKind && live.crumbKind && String(it.crumbKind) !== String(live.crumbKind)) return;
+      var g2 = Math.round(Number(live.val != null ? live.val : live.value) || 0);
+      if (g2 !== grams) return;
+      hit = live;
+    });
+    if (!hit) return it;
+    changed = true;
+    var copy = Object.assign({}, it);
+    copy.sources = hit.sources;
+    copy.ratio = hit.ratio;
+    if (hit.sub) copy.sub = hit.sub;
+    if (hit.crumbKind) copy.crumbKind = hit.crumbKind;
+    return copy;
+  });
+  return changed ? next : (basket || []);
+}
+
 function crumbsMissingFromCard_(card, liveBasket) {
   const have = Object.create(null);
   ((card && card.basket) || []).forEach(function (it) {
@@ -12782,9 +12930,11 @@ async function overlayAssemblyCrumbs_(env, day, hit) {
     if (!card) return card;
     const liveC = lookupByMatchAliases_(by, card.matchKey || card.ownerName || card.name);
     if (!liveC) return card;
-    const overlay = crumbsMissingFromCard_(card, liveC.basket || []);
-    if (!overlay.length) return card;
-    return Object.assign({}, card, { crumbOverlay: overlay });
+    const basket = enrichAssemblyCrumbBasket_(card.basket, liveC.basket || [], card);
+    const next = basket === card.basket ? card : Object.assign({}, card, { basket: basket });
+    const overlay = crumbsMissingFromCard_(next, liveC.basket || []);
+    if (!overlay.length) return next;
+    return Object.assign({}, next, { crumbOverlay: overlay });
   });
   return Object.assign({}, hit, { clients: clients });
 }
@@ -12891,13 +13041,13 @@ async function getAssembly_(params, env) {
   }
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
   try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
+  try { hit = await overlayAssemblyCrumbs_(env, day, hit); } catch (eCrumb) {}
   let dryWeights = [];
   try {
     dryWeights = await assemblyDryWeightsForDay_(env, day, hit.clients || []);
   } catch (eDry) {
     dryWeights = [];
   }
-  try { hit = await overlayAssemblyCrumbs_(env, day, hit); } catch (eCrumb) {}
   return Object.assign({}, hit, { dryWeights: dryWeights });
 }
 

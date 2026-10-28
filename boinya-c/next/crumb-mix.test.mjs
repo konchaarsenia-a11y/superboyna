@@ -27,7 +27,12 @@ function cuttingFixture() {
   const names = [
     "catalogAliasNameD1_",
     "isCrumbBasketItemD1_",
+    "crumbTierOrFractionSubD1_",
+    "crumbCanonCutNameD1_",
     "expandCrumbsForCuttingD1_",
+    "crumbPartCountD1_",
+    "crumbBelongsToCard_",
+    "enrichAssemblyCrumbBasket_",
     "isPieceSku_",
     "chewSubToken_",
     "crumbParentFromBasketName_",
@@ -249,4 +254,115 @@ test("lung slices are not a crumb", () => {
   assert.equal(items.length, 1);
   assert.match(String(items[0].main || ""), /ЛЁГКОЕ|ЛЕГКОЕ/);
   assert.equal(Number(items[0].value), 200);
+});
+
+test("string sources show grams and enter raw", () => {
+  const row = {
+    cat: "crumb",
+    name: "крошка",
+    main: "крошка",
+    crumbKind: "mix4:dress",
+    value: 70,
+    val: 70,
+    ratio: [20, 50],
+    sources: ["ПОЧКИ", "РУБЕЦ Т"]
+  };
+  const html = mix.linesHtml([row]);
+  assert.match(html, /Мясные \(дрессура\) — 70 г/);
+  assert.match(html, /почки — 20 г/);
+  assert.match(html, /рубец т — 50 г/);
+  const items = cutOf([row]);
+  assert.equal(items.find((it) => /ПОЧКИ/.test(it.name)).dry, 20);
+  assert.equal(items.find((it) => /РУБЕЦ/.test(it.name)).dry, 50);
+});
+
+test("sub mix with ratio enters raw and assembly", () => {
+  const row = {
+    cat: "crumb",
+    name: "крошка",
+    main: "крошка",
+    crumbKind: "mix4:veg",
+    value: 70,
+    val: 70,
+    sub: "ЯБЛОКИ + МОРКОВЬ",
+    ratio: [20, 50]
+  };
+  const html = mix.linesHtml([row]);
+  assert.match(html, /Овощи\/фрукты — 70 г/);
+  assert.match(html, /яблоки — 20 г/);
+  assert.match(html, /морковь — 50 г/);
+  const items = cutOf([row]);
+  assert.equal(items.find((it) => /ЯБЛОК/.test(it.name)).dry, 20);
+  assert.equal(items.find((it) => /МОРКОВ/.test(it.name)).dry, 50);
+});
+
+test("mix without a stored split is not invented", () => {
+  const row = {
+    cat: "crumb",
+    name: "крошка",
+    main: "крошка",
+    crumbKind: "mix4:dress",
+    value: 100,
+    val: 100,
+    sub: "Мясные (дрессура)"
+  };
+  const html = mix.linesHtml([row]);
+  assert.match(html, /Мясные \(дрессура\) — 100 г/);
+  assert.doesNotMatch(html, /лёгк|почк|рубец|сердц/i);
+  assert.doesNotMatch(html, /mix-parts/);
+  const items = cutOf([row]);
+  assert.equal(items.length, 0);
+  const open = {
+    cat: "crumb",
+    name: "крошка",
+    value: 100,
+    val: 100,
+    sub: "ПОЧКИ + РУБЕЦ Т"
+  };
+  const openHtml = mix.linesHtml([open]);
+  assert.match(openHtml, /почки/);
+  assert.match(openHtml, /рубец/);
+  assert.doesNotMatch(openHtml, /50 г/);
+  assert.equal(cutOf([open]).length, 0);
+});
+
+test("one named crumb keeps the whole weight", () => {
+  const row = {
+    cat: "crumb",
+    name: "КРОШКА ЛЁГКОГО",
+    main: "КРОШКА ЛЁГКОГО",
+    value: 80,
+    val: 80
+  };
+  const items = cutOf([row]);
+  assert.equal(items.length, 1);
+  assert.match(items[0].name, /ЛЁГКОЕ|ЛЕГКОЕ/);
+  assert.equal(items[0].dry, 80);
+});
+
+test("assembly card takes live crumb parts before raw", () => {
+  const fx = cuttingFixture();
+  const card = { dogPart: 0, basket: [{ cat: "crumb", name: "крошка", val: 70, value: 70, crumbKind: "mix4:dress" }] };
+  const live = [{
+    cat: "crumb",
+    name: "крошка",
+    val: 70,
+    value: 70,
+    crumbKind: "mix4:dress",
+    ratio: [20, 50],
+    sources: [
+      { name: "ПОЧКИ", main: "ПОЧКИ", cat: "dressura" },
+      { name: "РУБЕЦ Т", main: "РУБЕЦ Т", cat: "dressura" }
+    ]
+  }];
+  const basket = fx.enrichAssemblyCrumbBasket_(card.basket, live, card);
+  assert.equal(basket[0].sources.length, 2);
+  const items = fx.cuttingItemsFromPeople_([{ basket: basket }], []);
+  assert.equal(items.find((it) => /ПОЧКИ/.test(it.name)).dry, 20);
+  assert.equal(items.find((it) => /РУБЕЦ/.test(it.name)).dry, 50);
+  const src = readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
+  const asm = src.slice(src.indexOf("async function getAssembly_"));
+  const overlayAt = asm.indexOf("overlayAssemblyCrumbs_");
+  const dryAt = asm.indexOf("assemblyDryWeightsForDay_");
+  assert.ok(overlayAt > 0 && dryAt > overlayAt);
 });
