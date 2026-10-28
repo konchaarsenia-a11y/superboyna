@@ -79,4 +79,5 @@ test("наложение курьера только читает заказы �
   assert.equal(overlay.includes("UPDATE"), false);
   assert.equal(overlay.includes("putSnap_"), false);
   assert.match(src, /hit = await overlayCourierByDate_\(env, day, hit\)/);
+  assert.match(src, /a !== "getCourier" && a !== "getAssembly"/);
 });

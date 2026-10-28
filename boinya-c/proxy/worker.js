@@ -21591,14 +21591,8 @@ async function handleCutover_(a, params, env, ctx) {
         if (!(sheet && !isWeekSkewed_(sheet))) {
           const cal = await applyCalendarWeekIfSkewed_(a, params, env, liveLike || counts);
           // нарезку из календаря не отдаём — без фракций (трахея мал/сред…) и с дублями
-          if (cal && a !== "getCutting") {
-            if (a === "getAssembly") {
-              try {
-                cal.dryWeights = await assemblyDryWeightsForDay_(env, String((params && params.day) || ""), cal.clients || []);
-              } catch (eDryCal) {
-                cal.dryWeights = [];
-              }
-            }
+          // Курьер и сборка: viewDate короче заказов D1 (ручной партнёр и часть ПП туда не попали).
+          if (cal && a !== "getCutting" && a !== "getCourier" && a !== "getAssembly") {
             return cal;
           }
         }

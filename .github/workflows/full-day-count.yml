@@ -70,10 +70,34 @@ jobs:
               "SELECT cache_key, payload FROM snap_cache WHERE cache_key = 'weekDayCounts'",
               "snap"
           )
+          run(
+              "SELECT id, date_iso, COALESCE(day_name,'') AS day_name, COALESCE(segment,'') AS segment, "
+              "COALESCE(source,'') AS source, COALESCE(status,'') AS status, match_key, "
+              "CASE WHEN length(trim(COALESCE(address,'')))=0 THEN 0 ELSE 1 END AS has_addr, "
+              "length(COALESCE(basket_json,'[]')) AS basket_len, "
+              "CASE WHEN instr(COALESCE(note,''),'[ЕВРОПОЧТА]')>0 OR instr(COALESCE(note,''),'[БЕЛПОЧТА]')>0 "
+              "OR instr(COALESCE(note,''),'[ПОЧТА]')>0 THEN 1 ELSE 0 END AS mail "
+              "FROM orders WHERE date_iso IN ('2026-10-29','2026-10-30') "
+              "OR (status = 'active' AND ("
+              "upper(COALESCE(segment,'')) LIKE '%ПАРТ%' OR upper(COALESCE(source,'')) LIKE '%PARTNER%' "
+              "OR upper(COALESCE(segment,'')) = 'ВАРКА') AND date_iso >= '2026-10-26' AND date_iso <= '2026-11-02') "
+              "ORDER BY date_iso, id",
+              "rows-2930"
+          )
+          run(
+              "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN "
+              "('courier:Четверг','courier:Пятница','partnerOrders','weekDayCountsSheet',"
+              "'viewDate:2026-10-29','viewDate:2026-10-30')",
+              "courier-snaps"
+          )
           print("ok")
           PY
           node <<'JS'
           const fs = require("fs");
+          const crypto = require("crypto");
+          function h(s) {
+            return crypto.createHash("sha256").update(String(s || "")).digest("hex").slice(0, 8);
+          }
           function rows(name) {
             const data = JSON.parse(fs.readFileSync("/tmp/full-day/" + name, "utf8"));
             const blocks = Array.isArray(data) ? data : [data];
@@ -121,6 +145,109 @@ jobs:
               "slot " + (it.day || "") + " date=" + (it.date || "") +
               " count=" + it.count + " onDate=" + (it.onDate == null ? "" : it.onDate)
             );
+          });
+          rows("rows-2930.json").forEach((r) => {
+            console.log(
+              "row id=" + (r.id || "") +
+              " mk=" + h(r.match_key || r.id || "") +
+              " date=" + (r.date_iso || "") +
+              " day=" + (r.day_name || "-") +
+              " seg=" + (r.segment || "-") +
+              " src=" + (r.source || "-") +
+              " status=" + (r.status || "-") +
+              " addr=" + (r.has_addr == null ? "" : r.has_addr) +
+              " basket=" + (r.basket_len == null ? "" : r.basket_len) +
+              " mail=" + (r.mail == null ? "" : r.mail)
+            );
+          });
+          function faceKey(c) {
+            function clean(raw) {
+              return String(raw || "")
+                .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toUpperCase()
+                .replace(/Ё/g, "Е")
+                .replace(/\bVARKA\b/g, "ВАРКА");
+            }
+            const name = clean(c.ownerName || c.name || "");
+            const mk = clean(c.matchKey || "");
+            if (name.indexOf("ВАРКА ") === 0) return name;
+            if (mk.indexOf("ВАРКА ") === 0) return mk;
+            if (name === "ВАРКА" || mk === "ВАРКА") {
+              const addr = clean(c.address || "");
+              const id = String(c.partnerOrderId || "").trim();
+              if (addr) return "ВАРКА " + addr;
+              if (id) return "ВАРКА#" + id;
+              return "ВАРКА";
+            }
+            return "";
+          }
+          function briefClient(c) {
+            c = c || {};
+            const face = faceKey(c);
+            const stop = face
+              ? "pt:" + (face.indexOf("ВАРКА") === 0 ? face : "h:" + h(face))
+              : "m:" + h(c.matchKey || c.name || "");
+            return "id=" + (c.id || c.orderId || "") +
+              " seg=" + (c.segment || "-") +
+              " src=" + (c.source || c.orderType || "-") +
+              " date=" + (c.dateIso || c.date || "") +
+              " day=" + (c.day || "-") +
+              " pid=" + (c.partnerOrderId || "") +
+              " dog=" + (c.dogPart || "") +
+              " del=" + (c.delivered ? "1" : "0") +
+              " stop=" + stop +
+              " nameLen=" + String(c.name || "").length +
+              " mkLen=" + String(c.matchKey || "").length +
+              " addr=" + (String(c.address || "").trim() ? 1 : 0) +
+              " basket=" + ((c.basket && c.basket.length) || 0);
+          }
+          rows("courier-snaps.json").forEach((r) => {
+            let body = null;
+            try { body = JSON.parse(r.payload || "null"); } catch (e) { body = null; }
+            const key = r.cache_key || "";
+            if (key === "weekDayCountsSheet") {
+              ((body && body.items) || []).forEach((it) => {
+                console.log(
+                  "sheet " + (it.day || "") + " date=" + (it.date || "") +
+                  " count=" + (it.count == null ? "" : it.count)
+                );
+              });
+              return;
+            }
+            if (key.indexOf("viewDate:") === 0) {
+              const people = []
+                .concat((body && body.week) || [])
+                .concat((body && body.month) || [])
+                .concat((body && body.clients) || []);
+              console.log("view " + key + " n=" + people.length);
+              people.forEach((p) => {
+                console.log(
+                  "viewc " + key +
+                  " seg=" + (p.segment || p.source || "-") +
+                  " mk=" + h(p.matchKey || p.name || p.client || "") +
+                  " day=" + (p.day || p.dayName || "-")
+                );
+              });
+              return;
+            }
+            if (key === "partnerOrders") {
+              const list = (body && body.orders) || [];
+              list.forEach((o) => {
+                const date = String((o && o.deliverDateIso) || "").slice(0, 10);
+                if (date !== "2026-10-29" && date !== "2026-10-30") return;
+                console.log(
+                  "po id=" + (o.id || "") +
+                  " date=" + date +
+                  " status=" + (o.status || o.orderStatus || "-")
+                );
+              });
+              return;
+            }
+            const clients = (body && body.clients) || [];
+            console.log("snap " + key + " n=" + clients.length + " date=" + ((body && (body.dateIso || body.date)) || ""));
+            clients.forEach((c) => console.log("snapc " + key + " " + briefClient(c || {})));
           });
           JS
           rm -rf /tmp/full-day
