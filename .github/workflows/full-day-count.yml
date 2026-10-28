@@ -72,7 +72,11 @@ jobs:
           )
           run(
               "SELECT id, date_iso, COALESCE(day_name,'') AS day_name, COALESCE(segment,'') AS segment, "
-              "COALESCE(source,'') AS source, COALESCE(status,'') AS status "
+              "COALESCE(source,'') AS source, COALESCE(status,'') AS status, match_key, "
+              "CASE WHEN length(trim(COALESCE(address,'')))=0 THEN 0 ELSE 1 END AS has_addr, "
+              "length(COALESCE(basket_json,'[]')) AS basket_len, "
+              "CASE WHEN instr(COALESCE(note,''),'[ЕВРОПОЧТА]')>0 OR instr(COALESCE(note,''),'[БЕЛПОЧТА]')>0 "
+              "OR instr(COALESCE(note,''),'[ПОЧТА]')>0 THEN 1 ELSE 0 END AS mail "
               "FROM orders WHERE date_iso IN ('2026-10-29','2026-10-30') "
               "OR (status = 'active' AND ("
               "upper(COALESCE(segment,'')) LIKE '%ПАРТ%' OR upper(COALESCE(source,'')) LIKE '%PARTNER%' "
@@ -82,13 +86,18 @@ jobs:
           )
           run(
               "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN "
-              "('courier:Четверг','courier:Пятница','partnerOrders')",
+              "('courier:Четверг','courier:Пятница','partnerOrders','weekDayCountsSheet',"
+              "'viewDate:2026-10-29','viewDate:2026-10-30')",
               "courier-snaps"
           )
           print("ok")
           PY
           node <<'JS'
           const fs = require("fs");
+          const crypto = require("crypto");
+          function h(s) {
+            return crypto.createHash("sha256").update(String(s || "")).digest("hex").slice(0, 8);
+          }
           function rows(name) {
             const data = JSON.parse(fs.readFileSync("/tmp/full-day/" + name, "utf8"));
             const blocks = Array.isArray(data) ? data : [data];
@@ -140,17 +149,17 @@ jobs:
           rows("rows-2930.json").forEach((r) => {
             console.log(
               "row id=" + (r.id || "") +
+              " mk=" + h(r.match_key || r.id || "") +
               " date=" + (r.date_iso || "") +
               " day=" + (r.day_name || "-") +
               " seg=" + (r.segment || "-") +
               " src=" + (r.source || "-") +
-              " status=" + (r.status || "-")
+              " status=" + (r.status || "-") +
+              " addr=" + (r.has_addr == null ? "" : r.has_addr) +
+              " basket=" + (r.basket_len == null ? "" : r.basket_len) +
+              " mail=" + (r.mail == null ? "" : r.mail)
             );
           });
-          const crypto = require("crypto");
-          function h(s) {
-            return crypto.createHash("sha256").update(String(s || "")).digest("hex").slice(0, 8);
-          }
           function faceKey(c) {
             function clean(raw) {
               return String(raw || "")
@@ -190,12 +199,39 @@ jobs:
               " del=" + (c.delivered ? "1" : "0") +
               " stop=" + stop +
               " nameLen=" + String(c.name || "").length +
-              " mkLen=" + String(c.matchKey || "").length;
+              " mkLen=" + String(c.matchKey || "").length +
+              " addr=" + (String(c.address || "").trim() ? 1 : 0) +
+              " basket=" + ((c.basket && c.basket.length) || 0);
           }
           rows("courier-snaps.json").forEach((r) => {
             let body = null;
             try { body = JSON.parse(r.payload || "null"); } catch (e) { body = null; }
             const key = r.cache_key || "";
+            if (key === "weekDayCountsSheet") {
+              ((body && body.items) || []).forEach((it) => {
+                console.log(
+                  "sheet " + (it.day || "") + " date=" + (it.date || "") +
+                  " count=" + (it.count == null ? "" : it.count)
+                );
+              });
+              return;
+            }
+            if (key.indexOf("viewDate:") === 0) {
+              const people = []
+                .concat((body && body.week) || [])
+                .concat((body && body.month) || [])
+                .concat((body && body.clients) || []);
+              console.log("view " + key + " n=" + people.length);
+              people.forEach((p) => {
+                console.log(
+                  "viewc " + key +
+                  " seg=" + (p.segment || p.source || "-") +
+                  " mk=" + h(p.matchKey || p.name || p.client || "") +
+                  " day=" + (p.day || p.dayName || "-")
+                );
+              });
+              return;
+            }
             if (key === "partnerOrders") {
               const list = (body && body.orders) || [];
               list.forEach((o) => {
