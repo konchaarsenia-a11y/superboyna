@@ -30911,34 +30911,99 @@ async function costsForCalcD1_(env, costs, params) {
   return overlayRawCostsD1_(costs, versions, asOf);
 }
 
+function ppCostNameVariantsD1_(name) {
+  const raw = String(name || "").trim();
+  const canon = String(retailNormalizeNameD1_(raw) || raw).trim();
+  const upper = canon.toUpperCase().replace(/Ё/g, "Е");
+  const out = [];
+  [canon, raw, upper].forEach(function (n) {
+    n = String(n || "").trim();
+    if (n && out.indexOf(n) < 0) out.push(n);
+  });
+  return out;
+}
+
+function rawCostBuiltinInfoD1_(name) {
+  const wants = Object.create(null);
+  ppCostNameVariantsD1_(name).forEach(function (n) {
+    wants[String(n).toUpperCase().replace(/Ё/g, "Е")] = true;
+  });
+  for (let i = 0; i < RAW_COST_BUILTIN_.length; i++) {
+    const row = RAW_COST_BUILTIN_[i] || {};
+    const sku = String(row.sku || "").trim();
+    const key = sku.toUpperCase().replace(/Ё/g, "Е");
+    if (!wants[key]) continue;
+    const cost = Number(row.cost);
+    if (!(isFinite(cost) && cost > 0)) return null;
+    const piece = /шт/i.test(sku) || isPieceSkuNameD1_(sku);
+    return {
+      name: sku,
+      sub: "",
+      unitPrice: cost,
+      per100: cost,
+      piece: piece,
+      builtin: true
+    };
+  }
+  return null;
+}
+
 function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   costs = costs || {};
+  const names = ppCostNameVariantsD1_(name);
   const key = name + (sub ? " / " + sub : "");
-  if (costs[key] && ppCostUnitD1_(costs[key]) > 0) return costs[key];
+  function positiveAt(k) {
+    return costs[k] && ppCostUnitD1_(costs[k]) > 0 ? costs[k] : null;
+  }
+  let hit = positiveAt(key);
+  if (hit) return hit;
   const aliases = ppCostFractionAliasesD1_(sub);
   for (let a = 0; a < aliases.length; a++) {
     if (!aliases[a] || aliases[a] === sub) continue;
     const ak = name + " / " + aliases[a];
-    if (costs[ak] && ppCostUnitD1_(costs[ak]) > 0) return costs[ak];
+    hit = positiveAt(ak);
+    if (hit) return hit;
   }
-  if (zeroKeys && zeroKeys[key]) {
-    return { name: name, sub: sub, unitPrice: 0, per100: 0, knownZero: true };
+  for (let vi = 0; vi < names.length; vi++) {
+    const vn = names[vi];
+    if (vn === name) continue;
+    hit = positiveAt(vn + (sub ? " / " + sub : ""));
+    if (hit) return hit;
+    if (!sub) {
+      hit = positiveAt(vn);
+      if (hit) return hit;
+    }
   }
-  if (costs[key]) return costs[key];
+  let knownZero = !!(zeroKeys && zeroKeys[key]);
+  let explicitZero = null;
+  if (costs[key] && !(ppCostUnitD1_(costs[key]) > 0)) explicitZero = costs[key];
+  if (costs[key] && !knownZero) return costs[key];
   const keys = Object.keys(costs);
+  const wantU = String(names[0] || name || "").toUpperCase().replace(/Ё/g, "Е");
   for (let i = 0; i < keys.length; i++) {
     const info = costs[keys[i]];
     if (!info) continue;
-    if (info.name === name && (!sub || info.sub === sub)) return info;
+    const nm = String(info.name || "").trim();
+    const nmU = nm.toUpperCase().replace(/Ё/g, "Е");
+    const same = nm === name || nm === names[0] || nmU === wantU;
+    if (!same) continue;
+    if (sub && info.sub && info.sub !== sub) continue;
+    if (ppCostUnitD1_(info) > 0) return info;
+    if (info.unitPrice === 0 || info.per100 === 0) {
+      knownZero = true;
+      if (!explicitZero) explicitZero = info;
+    }
   }
-  if (!sub && costs[name]) return costs[name];
+  if (!sub && costs[name] && ppCostUnitD1_(costs[name]) > 0) return costs[name];
   // УХО К = те же unit costs, что УХО Г (пока нет отдельной строки в priceCostsPp)
   if (/^УХО\s*К$/i.test(String(name || "").trim())) {
     return lookupPpCostInfoD1_(costs, "УХО Г", sub, zeroKeys);
   }
-  // priceCostsPp без бараньего лёгкого / индейки: сырьё из RAW_COST_BUILTIN_ (8.40 / 7.50 за 100 г).
+  // Нет положительной строки в priceCostsPp: штуки и граммы из RAW_COST_BUILTIN_.
+  const builtinInfo = rawCostBuiltinInfoD1_(name);
+  if (builtinInfo && !explicitZero) return builtinInfo;
   const builtinUnit = rawCostBuiltinGramD1_(name);
-  if (builtinUnit > 0) {
+  if (builtinUnit > 0 && !explicitZero) {
     return {
       name: name,
       sub: sub || "",
@@ -30951,6 +31016,8 @@ function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   // «ТРАХЕЯ / СРЕД» закроется ценой «БОЛ», missing останется 0 и GAS не допишет ключ.
   const meatParent = meatFracParentCostD1_(costs, name, sub);
   if (meatParent) return meatParent;
+  if (explicitZero) return explicitZero;
+  if (knownZero) return { name: name, sub: sub || "", unitPrice: 0, per100: 0, knownZero: true };
   return null;
 }
 
