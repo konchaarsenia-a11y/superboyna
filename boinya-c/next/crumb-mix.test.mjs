@@ -45,7 +45,11 @@ function cuttingFixture() {
     "normalizeBasketItemAliasesD1_"
   ];
   const ctx = createContext({});
-  runInContext(names.map((n) => extractFn(src, n)).join("\n"), ctx);
+  runInContext(
+    names.map((n) => extractFn(src, n)).join("\n") +
+      "\nfunction fracGridWordD1_(){return \"\";}\nfunction igFractionWordD1_(){return \"\";}\n",
+    ctx
+  );
   return ctx;
 }
 
@@ -343,6 +347,36 @@ test("components without a ratio split the order weight evenly", () => {
   assert.match(threeHtml, /рубец т — 33 г/);
   const grams = cutOf([three]).reduce((s, it) => s + it.dry, 0);
   assert.equal(grams, 100);
+});
+
+test("chew fraction is not a crumb", () => {
+  const basket = [
+    { cat: "dressura", name: "СЕРДЦЕ", main: "СЕРДЦЕ", sub: "Ломтики", val: 30, value: 30 },
+    { cat: "dressura", name: "РУБЕЦ Т", main: "РУБЕЦ Т", sub: "крупные кусочки", val: 100, value: 100 },
+    { cat: "dressura", name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", sub: "средний кубик", val: 300, value: 300 },
+    { cat: "chew", name: "УХО Г", main: "УХО Г", sub: "Обычное", val: 2, value: 2, unit: "шт" },
+    { cat: "chew", name: "ТРАХЕЯ", main: "ТРАХЕЯ", sub: "СРЕД", val: 3, value: 3, unit: "шт" },
+    { cat: "chew", name: "УТИНЫЕ ШЕИ шт.", main: "УТИНЫЕ ШЕИ шт.", sub: "", val: 2, value: 2 },
+    { cat: "chew", name: "КОЛЕНИ шт.", main: "КОЛЕНИ шт.", sub: "", val: 1, value: 1 },
+    { cat: "crumb", name: "крошка", main: "крошка", crumbKind: "mix4:dress", val: 100, value: 100, sub: "ПОЧКИ + РУБЕЦ Т" }
+  ];
+  const html = mix.linesHtml(basket);
+  assert.doesNotMatch(html, /Крошка обычное/i);
+  assert.doesNotMatch(html, /Крошка сред/i);
+  assert.match(html, /Жевалки/);
+  assert.match(html, /Утиные шеи/i);
+  assert.match(html, /Колени/i);
+  assert.match(html, /Мясо/);
+  assert.match(html, /Сердце 30/);
+  assert.match(html, /почки — 50 г/);
+  assert.match(html, /рубец т — 50 г/);
+  assert.equal(mix.isCrumb(basket[3]), false);
+  assert.equal(mix.isCrumb(basket[4]), false);
+  assert.equal(mix.isCrumb(basket[7]), true);
+  const cut = cutOf(basket);
+  assert.equal(cut.some((it) => /^ОБЫЧН/i.test(it.name) || /^СРЕД$/i.test(it.name)), false);
+  assert.equal(cut.find((it) => /ПОЧКИ/.test(it.name)).dry, 50);
+  assert.ok(cut.some((it) => /УХО|ТРАХЕ|ШЕИ|КОЛЕН/.test(it.name)));
 });
 
 test("one named crumb keeps the whole weight", () => {
