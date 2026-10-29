@@ -197,7 +197,17 @@
     if (/^(микс|мясные|гипоаллерген|овощи|фрукты|дрессура)\b/.test(t)) return true;
     if (/мясные \(дрессура\)|овощи\/фрукты|микс мясной|микс гипо/.test(t)) return true;
     if (/^(очень мелкое|мелкое|среднее|крупное|целое|ломтики|полоски|кусочки|кубики|мелкий кубик|очень мелкий кубик|крупный кубик|средний кубик|мелкие кусочки|очень мелкие кусочки|средние кусочки|крупные кусочки|пластинки|половинки|палочки)$/.test(t)) return true;
+    if (/^(обычное|обычная|обычный|сред|мал|бол|огр|пласт|палк|половинка|оч мал)$/.test(t)) return true;
     return false;
+  }
+
+  function isCrumb(g) {
+    if (!g) return false;
+    var cat = String(g.cat || "").toLowerCase();
+    if (cat === "chew" || cat === "chews") return false;
+    if (cat === "crumb" || g.crumbKind) return true;
+    if (/^крошк/i.test(String(g.sub || "").trim())) return true;
+    return /крошк/i.test(String(g.name || g.main || ""));
   }
 
   function sourcesOf(g) {
@@ -220,6 +230,7 @@
     if (out.length) return out;
     var hadSources = g && Array.isArray(g.sources) && g.sources.length;
     if (hadSources) return out;
+    if (!isCrumb(g)) return out;
     var sub = String((g && g.sub) || "").trim();
     if (!sub || isTierOrFractionSub(sub)) return out;
     var parts = sub.indexOf("+") >= 0 ? sub.split(/\s*\+\s*/) : [sub];
@@ -241,14 +252,6 @@
   function sourceCount(g) {
     var n = (g && g.sources && g.sources.length) || 0;
     return n || sourcesOf(g).length;
-  }
-
-  function isCrumb(g) {
-    if (!g) return false;
-    if (String(g.cat || "").toLowerCase() === "crumb" || g.crumbKind) return true;
-    if (sourcesOf(g).length) return true;
-    if (/^крошк/i.test(String(g.sub || "").trim())) return true;
-    return /крошк/i.test(String(g.name || g.main || ""));
   }
 
   function esc(s) {
