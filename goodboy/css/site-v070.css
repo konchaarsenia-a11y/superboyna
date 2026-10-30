@@ -1963,10 +1963,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   .phone-toast {
     transition: none !important;
   }
-  .reveal {
+  .reveal,
+  .vitrine-card,
+  html.gb-vitrine-anim .vitrine-card {
     opacity: 1 !important;
     transform: none !important;
     transition: none !important;
+    will-change: auto !important;
   }
   .photo-duo--wide figure:hover img {
     transform: none;
@@ -2046,10 +2049,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   opacity: 0.85;
 }
 
-/* Hero entrance choreography */
+/* Hero entrance choreography (copy only; cards → scroll vitrine) */
 .site-hero .promise-hero,
-.site-hero .tagline,
-.site-hero .hf-card {
+.site-hero .tagline {
   opacity: 0;
   transform: translate3d(0, 22px, 0);
   transition:
@@ -2058,14 +2060,34 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .site-hero .promise-hero { transition-delay: 0.08s; }
 .site-hero .tagline { transition-delay: 0.22s; }
-.site-hero .hf-card {
-  transition-delay: var(--hf-delay, 0.4s);
-}
 .site-hero.is-ready .promise-hero,
-.site-hero.is-ready .tagline,
-.site-hero.is-ready .hf-card {
+.site-hero.is-ready .tagline {
   opacity: 1;
   transform: translate3d(0, 0, 0);
+}
+
+/*
+ * Витрина: карточки появляются при скролле.
+ * Без JS и при reduced-motion — сразу видны (класс gb-vitrine-anim не вешаем).
+ */
+.vitrine-card {
+  opacity: 1;
+  transform: none;
+}
+html.gb-vitrine-anim .vitrine-card {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 0.36s var(--ease),
+    transform 0.36s var(--ease);
+  transition-delay: var(--vitrine-delay, 0s);
+  will-change: opacity, transform;
+}
+html.gb-vitrine-anim .vitrine-card.is-in {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition-delay: 0s;
+  will-change: auto;
 }
 
 .hf-ico {
@@ -2153,17 +2175,20 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   .scroll-progress { display: none; }
   .site-hero .promise-hero,
   .site-hero .tagline,
-  .site-hero .hf-card,
   .promise-hero .promise-accent::after {
     opacity: 1 !important;
     transform: none !important;
     transition: none !important;
     filter: none !important;
   }
-  .reveal {
+  .reveal,
+  .vitrine-card,
+  html.gb-vitrine-anim .vitrine-card {
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
+    transition: none !important;
+    will-change: auto !important;
   }
 }
 
