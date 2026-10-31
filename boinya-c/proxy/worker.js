@@ -81,10 +81,10 @@ const GOODBOY_CORS_ORIGINS = [
   "https://konchaarsenia-a11y.github.io",
   "https://goodboy.by",
   "https://www.goodboy.by",
-  // CF Pages: имя проекта goodboy → субдомен goodboy-5s4 (goodboy.pages.dev занят чужим).
+  // CF Pages: основной goodboy-by; goodboy-5s4 (проект goodboy) оставляем; goodboy.pages.dev занят чужим.
+  "https://goodboy-by.pages.dev",
   "https://goodboy-5s4.pages.dev",
   "https://goodboy.pages.dev",
-  "https://goodboy-by.pages.dev",
   "https://goodboy-minsk.pages.dev"
 ];
 
