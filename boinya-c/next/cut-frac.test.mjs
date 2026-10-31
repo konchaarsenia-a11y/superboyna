@@ -99,6 +99,10 @@ test("catalog word matches humanFraction", () => {
   });
   assert.equal(cut.catalogWord("УХО Г", "Обычное"), "");
   assert.equal(cut.catalogWord("ЛЁГКОЕ", "Мелкое"), "мелкий кубик");
+  assert.equal(cut.catalogWord("ЛЁГКОЕ", "Полоски"), "палочки");
+  assert.equal(cut.catalogWord("БАРАНЬЕ ЛЁГКОЕ", "Полоски"), "палочки");
+  assert.equal(cut.catalogWord("ИНДЕЙКА", "Полоски"), "полоски");
+  assert.equal(cut.catalogWord("СЕРДЦЕ", "Полоски"), "полоски");
   assert.equal(cut.catalogWord("СЕРДЦЕ", "Среднее"), "среднее");
   assert.equal(cut.catalogWord("ТРАХЕЯ", "СРЕД"), "средние");
 });

@@ -10218,7 +10218,7 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
     if (f) {
       if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) word = "очень мелкое";
       else if (/^ЛОМТ/.test(fu)) word = "ломтики";
-      else if (/^ПОЛОСК/.test(fu)) word = "полоски";
+      else if (/^ПОЛОСК/.test(fu)) word = /Л[ЁЕ]ГК/.test(m) ? "палочки" : "полоски";
       else if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) word = "мелкий кубик";
       else if (fu === "ПЛАСТ") word = "пластинки";
       else if (/ПОЛОВИН/.test(fu)) word = "половинки";
@@ -27709,7 +27709,7 @@ function igFractionWordD1_(main, sub) {
   if (p === "lung") {
     if (igVerySmallD1_(fu)) return "очень мелкий кубик";
     if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
-    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
     if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
     if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "средний кубик";
     if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкий кубик";
@@ -27718,7 +27718,7 @@ function igFractionWordD1_(main, sub) {
   if (p === "lung-lamb") {
     if (igVerySmallD1_(fu)) return "";
     if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
-    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
     if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return "кубики";
     if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return "мелкие кубики";
     return "";
@@ -27776,13 +27776,14 @@ function igRelabelTextD1_(main, text) {
   if (p === "lung") {
     if (t === "очень мелкое" || t === "очень мелкий кубик") return "очень мелкий кубик";
     if (t === "целое" || t === "ломтики") return "ломтики";
-    if (t === "полоски") return "полоски";
+    if (t === "полоски" || t === "палочки") return "палочки";
     if (t === "крупное" || t === "крупный кубик") return "крупный кубик";
     if (t === "среднее" || t === "кубики" || t === "средний кубик") return "средний кубик";
     if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкий кубик";
   }
   if (p === "lung-lamb") {
     if (t === "целое" || t === "ломтики") return "ломтики";
+    if (t === "полоски" || t === "палочки") return "палочки";
     if (t === "среднее" || t === "кубики") return "кубики";
     if (t === "мелкое" || t === "мелкий кубик" || t === "мелкие кубики") return "мелкие кубики";
   }
