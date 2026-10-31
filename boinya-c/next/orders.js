@@ -1420,7 +1420,7 @@
     function up(n) {
       return String(n || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
     }
-    function veg(n) { return /ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(up(n)); }
+    function veg(n) { return /ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН/.test(up(n)); }
     function dressura(n) {
       var u = up(n);
       return u === "ЛЕГКОЕ" || u === "СЕРДЦЕ" || u === "РУБЕЦ Т" || u === "БАРАНЬЕ ЛЕГКОЕ" || u === "ПОЧКИ";
@@ -1430,6 +1430,7 @@
     return raw.filter(function (p) {
       var n = p.name;
       if (up(n) === "КРОЛИК") return false;
+      if (/^КАБАЧ/.test(up(n))) return false;
       if (e.isChewProductName_ && e.isChewProductName_(n)) return false;
       if (kind === "veg") return veg(n);
       if (kind === "hypo") return hypo(n) && !dressura(n);
