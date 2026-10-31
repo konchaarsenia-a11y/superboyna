@@ -114,10 +114,14 @@ assert.deepEqual(api.catalogFractionsForUi_("dressura", "РУБЕЦ Т"), ["Ло
 assert.deepEqual(api.catalogFractionsForUi_("dressura", "ПОЧКИ"), ["Ломтики", "Мелкое"]);
 assert.equal(api.catalogFractionsForUi_("dressura", "БАРАНЬЕ ЛЁГКОЕ").includes("Очень мелкое"), false);
 assert.deepEqual(api.catalogFractionsForUi_("other", "ПЕЧЕНЬ"), ["Кусочки", "Мелкое", "Крошка"]);
-assert.deepEqual(api.catalogFractionsForUi_("other", "ИНДЕЙКА"), ["Ломтики", "Полоски", "Кусочки", "Мелкое"]);
+assert.deepEqual(api.catalogFractionsForUi_("other", "ИНДЕЙКА"), ["Ломтики", "Кусочки", "Мелкое"]);
 assert.equal(api.retailLineCost("СЕРДЦЕ", "Очень мелкое", 100).cost, 15);
-assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", "Среднее", 100).cost, 18);
-assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", "Мелкое", 100).cost, 19);
+assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", "Среднее", 100).cost, 19);
+assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", "Мелкое", 100).cost, 20);
+assert.equal(api.retailLineCost("ЛЁГКОЕ", "Крупное", 100).cost, 11);
+assert.equal(api.retailLineCost("ЛЁГКОЕ", "Среднее", 100).cost, 12);
+assert.equal(api.retailLineCost("ЛЁГКОЕ", "Мелкое", 100).cost, 13);
+assert.equal(api.retailLineCost("ЛЁГКОЕ", "Очень мелкое", 100).cost, 14);
 assert.equal(api.retailLineCost("ПЕЧЕНЬ", "Кусочки", 100).cost, 11);
 assert.equal(api.retailLineCost("ПЕЧЕНЬ", "Мелкое", 100).cost, 12);
 assert.equal(api.retailLineCost("ВЫМЯ", "Кусочки", 100).cost, 10);
@@ -243,6 +247,13 @@ assert.equal(wctx.fracGridNameD1_("МЯСНЫЕ ЛОМТИКИ"), "Говяди�
 assert.equal(wctx.fracGridPer100D1_("ПЕЧЕНЬ", "Кусочки", 100).cost, 11);
 assert.equal(wctx.fracGridPer100D1_("КРОШКА ЛЁГКОГО", "Мелкое", 100), null);
 assert.equal(wctx.fracGridPer100D1_("ИНДЕЙКА", "Мелкое", 100), null);
+assert.equal(wctx.fracGridPer100D1_("ЛЁГКОЕ", "Крупное", 100).cost, 11);
+assert.equal(wctx.fracGridPer100D1_("ЛЁГКОЕ", "Среднее", 100).cost, 12);
+assert.equal(wctx.fracGridPer100D1_("ЛЁГКОЕ", "Мелкое", 100).cost, 13);
+assert.equal(wctx.fracGridPer100D1_("ЛЁГКОЕ", "Очень мелкое", 100).cost, 14);
+assert.equal(wctx.fracGridPer100D1_("БАРАНЬЕ ЛЁГКОЕ", "Крупное", 100).cost, 18);
+assert.equal(wctx.fracGridPer100D1_("БАРАНЬЕ ЛЁГКОЕ", "Среднее", 100).cost, 19);
+assert.equal(wctx.fracGridPer100D1_("БАРАНЬЕ ЛЁГКОЕ", "Мелкое", 100).cost, 20);
 assert.equal(wctx.igFractionWordD1_("РУБЕЦ Т", "Очень мелкое"), "очень мелкие кусочки");
 assert.equal(wctx.igFractionWordD1_("ИНДЕЙКА", "Кусочки"), "кусочки");
 assert.equal(wctx.igFractionWordD1_("ПОЧКИ", "Ломтики"), "средние кусочки");
@@ -320,7 +331,7 @@ function offer(cat, name) {
     .filter((f) => !/^крошк/i.test(String(f)))
     .map((f) => String(live.humanFraction(name, f)) + " " + live.retailLineCost(name, f, 100).per);
 }
-assert.deepEqual(offer("dressura", "ЛЁГКОЕ"), ["ломтики 9", "палочки 10", "крупный кубик 10", "средний кубик 11", "мелкий кубик 12", "очень мелкий кубик 13"]);
+assert.deepEqual(offer("dressura", "ЛЁГКОЕ"), ["ломтики 9", "палочки 10", "крупный кубик 11", "средний кубик 12", "мелкий кубик 13", "очень мелкий кубик 14"]);
 assert.deepEqual(offer("dressura", "СЕРДЦЕ"), ["ломтики 12", "кусочки 13", "мелкие кусочки 14", "очень мелкие кусочки 15"]);
 assert.deepEqual(offer("dressura", "РУБЕЦ Т"), ["ломтики 12", "кусочки 13", "мелкие кусочки 14", "очень мелкие кусочки 15"]);
 assert.deepEqual(offer("dressura", "ПОЧКИ"), ["кусочки 11", "мелкие кусочки 12"]);
@@ -329,8 +340,9 @@ assert.deepEqual(offer("other", "ПЕЧЕНЬ"), ["кусочки 11", "мелк
 assert.deepEqual(offer("other", "ВЫМЯ"), ["кусочки 10", "мелкие кусочки 11"]);
 assert.deepEqual(offer("other", "СЕМЕННИКИ"), ["кусочки 13", "мелкие кусочки 14"]);
 assert.deepEqual(offer("other", "МЯСНЫЕ ЛОМТИКИ"), ["кусочки 16", "мелкие кусочки 17"]);
-assert.deepEqual(offer("other", "ИНДЕЙКА"), ["ломтики 16", "полоски 17", "кусочки 17", "мелкие кусочки 18"]);
-assert.deepEqual(offer("dressura", "БАРАНЬЕ ЛЁГКОЕ"), ["ломтики 16", "палочки 17", "крупный кубик 17", "средний кубик 18", "мелкий кубик 19"]);
+assert.deepEqual(offer("other", "ИНДЕЙКА"), ["ломтики 16", "кусочки 17", "мелкие кусочки 18"]);
+assert.equal(live.retailLineCost("ИНДЕЙКА", "Полоски", 100).per, 17);
+assert.deepEqual(offer("dressura", "БАРАНЬЕ ЛЁГКОЕ"), ["ломтики 16", "палочки 17", "крупный кубик 18", "средний кубик 19", "мелкий кубик 20"]);
 assert.deepEqual(offer("other", "БАРАНЬЯ ПЕЧЕНЬ"), ["ломтики 17", "кусочки 18", "мелкие кусочки 19"]);
 assert.equal(offer("other", "КРОЛИК").length, 0);
 assert.equal(real.BoinyaCutFrac.phrase({ cat: "dressura", name: "СЕРДЦЕ", sub: "Полоски" }), "полоски");
