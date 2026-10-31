@@ -11,11 +11,11 @@ import { parseFirstJson } from "./ig-price-align.mjs";
 import { sumSubscriptions } from "./crumb-mix3-verify.mjs";
 
 export const BACKUP_KEY = "retailPricesBackup:frac-grid:20261027";
-export const MONEY_KEY = "fracGridMoney:20261027";
+export const MONEY_KEY = "fracGridMoney:20261031";
 export const GRID = {
   "СЕРДЦЕ|Очень мелкое": 15,
-  "БАРАНЬЕ ЛЁГКОЕ|Среднее": 18,
-  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 19,
+  "БАРАНЬЕ ЛЁГКОЕ|Среднее": 19,
+  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 20,
   "ПЕЧЕНЬ|Кусочки": 11,
   "ПЕЧЕНЬ|Мелкое": 12,
   "ВЫМЯ|Кусочки": 10,
