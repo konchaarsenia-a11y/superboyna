@@ -1286,7 +1286,7 @@
       var fu = f.toUpperCase().replace(/\s+/g, " ");
       if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "очень мелкое";
       if (/^ЛОМТ/.test(fu)) return "ломтики";
-      if (/^ПОЛОСК/.test(fu)) return "полоски";
+      if (/^ПОЛОСК/.test(fu)) return /Л[ЁЕ]ГК/.test(m) ? "палочки" : "полоски";
       if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) return "мелкий кубик";
       if (fu === "ПЛАСТ") return "пластинки";
       if (/ПОЛОВИН/.test(fu)) return "половинки";

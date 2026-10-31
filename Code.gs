@@ -21913,7 +21913,7 @@ function igFractionWordGs_(main, sub) {
   if (p === "lung") {
     if (igVerySmallGs_(fu)) return "очень мелкий кубик";
     if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
-    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
     if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
     if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "средний кубик";
     if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") >= 0)) return "мелкий кубик";
@@ -21922,7 +21922,7 @@ function igFractionWordGs_(main, sub) {
   if (p === "lung-lamb") {
     if (igVerySmallGs_(fu)) return "";
     if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
-    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
     if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "кубики";
     if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") >= 0)) return "мелкие кубики";
     return "";
