@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Собрать статику goodboy/ и залить на Cloudflare Pages.
-# Имя: goodboy/.cf-pages-project или первое свободное goodboy → goodboy-by → goodboy-minsk.
+# Имя: goodboy/.cf-pages-project (сейчас goodboy-by) или кандидаты goodboy-by → goodboy → goodboy-minsk.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/goodboy"
 DIST="$ROOT/.goodboy-pages-dist"
 PIN_FILE="$SRC/.cf-pages-project"
-CANDIDATES=(goodboy goodboy-by goodboy-minsk)
+CANDIDATES=(goodboy-by goodboy goodboy-minsk)
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
@@ -131,8 +131,10 @@ if [ -z "$prod_host" ]; then
   prod_host="$(echo "$deploy_out" | sed -n 's/.*https:\/\/[a-f0-9]\{6,\}\.\([a-zA-Z0-9.-]*\.pages\.dev\).*/\1/p' | tail -1)"
 fi
 if [ -z "$prod_host" ]; then
-  # Известный alias для проекта goodboy в этом аккаунте.
-  if [ "$pick" = "goodboy" ]; then
+  # Известные production-хосты в этом аккаунте.
+  if [ "$pick" = "goodboy-by" ]; then
+    prod_host="goodboy-by.pages.dev"
+  elif [ "$pick" = "goodboy" ]; then
     prod_host="goodboy-5s4.pages.dev"
   else
     prod_host="${pick}.pages.dev"
