@@ -76,6 +76,38 @@ const CORS = {
   "Access-Control-Max-Age": "86400"
 };
 
+/** Известные фронты Goodboy. CORS по умолчанию `*`; для Origin из списка отражаем его явно. */
+const GOODBOY_CORS_ORIGINS = [
+  "https://konchaarsenia-a11y.github.io",
+  "https://goodboy.by",
+  "https://www.goodboy.by",
+  "https://goodboy.pages.dev",
+  "https://goodboy-by.pages.dev",
+  "https://goodboy-minsk.pages.dev"
+];
+
+function corsHeadersForRequest_(request) {
+  const headers = Object.assign({}, CORS);
+  try {
+    const origin = String((request && request.headers && request.headers.get("Origin")) || "").trim();
+    if (origin && GOODBOY_CORS_ORIGINS.indexOf(origin) >= 0) {
+      headers["Access-Control-Allow-Origin"] = origin;
+    }
+  } catch (eCors) {}
+  return headers;
+}
+
+function goodboyLoginDomainFromRequest_(request) {
+  try {
+    const origin = String((request && request.headers && request.headers.get("Origin")) || "").trim();
+    if (!origin) return "konchaarsenia-a11y.github.io";
+    if (GOODBOY_CORS_ORIGINS.indexOf(origin) < 0) return "konchaarsenia-a11y.github.io";
+    return new URL(origin).hostname;
+  } catch (eDom) {
+    return "konchaarsenia-a11y.github.io";
+  }
+}
+
 const WEEK_DAYS = [
   "Понедельник",
   "Вторник",
@@ -768,7 +800,7 @@ function desktopAuthToken_() {
 }
 
 /** Публичный старт входа с компьютера: username для Login Widget + ссылка /start gbi_. */
-async function startDesktopAuth_(env) {
+async function startDesktopAuth_(env, request) {
   const username = await telegramBotUsername_(env);
   if (!username) {
     return { status: "error", message: "no_bot_username", desktopAuth: "tg-login-widget" };
@@ -780,7 +812,7 @@ async function startDesktopAuth_(env) {
     botUsername: username,
     token: token,
     startUrl: "https://t.me/" + username + "?start=gbi_" + token,
-    loginDomain: "konchaarsenia-a11y.github.io"
+    loginDomain: goodboyLoginDomainFromRequest_(request)
   };
 }
 
@@ -1197,7 +1229,7 @@ export default {
   },
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS });
+      return new Response(null, { status: 204, headers: corsHeadersForRequest_(request) });
     }
 
     const url = new URL(request.url);
@@ -1293,11 +1325,11 @@ export default {
         params._varkaAdminAuth = "1";
       }
       const cb = params.callback;
-      const result = await handleAction_(act, params, env, url, ctx);
+      const result = await handleAction_(act, params, env, url, ctx, request);
       if (cb) {
         return new Response(String(cb) + "(" + JSON.stringify(result) + ")", {
           headers: {
-            ...CORS,
+            ...corsHeadersForRequest_(request),
             "Content-Type": "text/javascript; charset=utf-8"
           }
         });
@@ -1594,7 +1626,7 @@ const AUTH_ACTOR_AS_TID_RE = /^(getStats|getExpectedProfit|exportStats|listStats
  * Точка входа: AUTH gate (initData HMAC → actor → роль/вкладки) → handleActionInner_.
  * Клиентские _actorTid/_wk/_authVerified всегда вычищаются.
  */
-async function handleAction_(action, params, env, url, ctx) {
+async function handleAction_(action, params, env, url, ctx, request) {
   const a = String(action || "");
   params = params && typeof params === "object" ? params : {};
   // Кнопка «Отправить трэк код» и список «Подбейте даты» приходят из Code.gs с секретом GAS↔Worker.
@@ -1634,7 +1666,7 @@ async function handleAction_(action, params, env, url, ctx) {
     }
     return pr;
   }
-  if (a === "startDesktopAuth") return startDesktopAuth_(env);
+  if (a === "startDesktopAuth") return startDesktopAuth_(env, request);
   if (a === "pollDesktopAuth") return pollDesktopAuth_(params, env);
   const actor = await resolveActor_(params, env);
   if (actor.tid) {
