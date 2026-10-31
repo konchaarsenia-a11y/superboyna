@@ -247,9 +247,23 @@
     var fu = norm(sub);
     if (!p || !fu || isCrumbLine(main, sub)) return null;
     if (p === "heart" && verySmall(fu)) return 15;
-    if (p === "lung-lamb" && !verySmall(fu)) {
-      if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu) && !/КРУП/.test(fu))) return 18;
-      if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return 19;
+    if (p === "lung") {
+      if (verySmall(fu)) return 14;
+      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return 9;
+      if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return 10;
+      if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return 11;
+      if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return 12;
+      if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return 13;
+      return null;
+    }
+    if (p === "lung-lamb") {
+      if (verySmall(fu)) return 20;
+      if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return 16;
+      if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return 17;
+      if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return 18;
+      if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return 19;
+      if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return 20;
+      return null;
     }
     if (p === "liver" || p === "udder" || p === "testis" || p === "beef") {
       var coarse = /^КУСОЧК/.test(fu) && !/МЕЛК/.test(fu);

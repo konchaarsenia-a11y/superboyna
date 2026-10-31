@@ -47,12 +47,12 @@ test("расчёт предлагает те же фракции, что зак�
 test("новый расчёт считает сетку, крошку и индейку", () => {
   assert.equal(goods([row("ЛЁГКОЕ", "Ломтики", 100)]), 9);
   assert.equal(goods([row("ЛЁГКОЕ", "Полоски", 100)]), 10);
-  assert.equal(goods([row("ЛЁГКОЕ", "Среднее", 100)]), 11);
+  assert.equal(goods([row("ЛЁГКОЕ", "Среднее", 100)]), 12);
   assert.equal(goods([row("СЕРДЦЕ", "Кусочки", 100)]), 13);
   assert.equal(goods([row("СЕРДЦЕ", "Очень мелкое", 100)]), 15);
   assert.equal(goods([row("РУБЕЦ Т", "Очень мелкое", 100)]), 15);
-  assert.equal(goods([row("БАРАНЬЕ ЛЁГКОЕ", "Среднее", 100)]), 18);
-  assert.equal(goods([row("БАРАНЬЕ ЛЁГКОЕ", "Мелкое", 100)]), 19);
+  assert.equal(goods([row("БАРАНЬЕ ЛЁГКОЕ", "Среднее", 100)]), 19);
+  assert.equal(goods([row("БАРАНЬЕ ЛЁГКОЕ", "Мелкое", 100)]), 20);
   assert.equal(goods([row("ПЕЧЕНЬ", "Кусочки", 100, "other")]), 11);
   assert.equal(goods([row("МЯСНЫЕ ЛОМТИКИ", "Мелкое", 100, "other")]), 17);
   assert.equal(goods([row("ИНДЕЙКА", "Ломтики", 100, "other")]), 16);
@@ -63,6 +63,33 @@ test("новый расчёт считает сетку, крошку и инд�
   assert.equal(goods([{ cat: "crumb", name: "Крошка", main: "Крошка", val: 50, value: 50, crumbKind: "mix4:veg" }]), 8.5);
   assert.equal(goods([{ cat: "crumb", name: "Крошка", main: "Крошка", val: 20, value: 20, crumbKind: "mix4:hypo" }]), 4.4);
   assert.equal(goods([{ cat: "crumb", name: "Крошка", main: "Крошка", val: 100, value: 100, crumbKind: "mix3:mix" }]), 15);
+});
+
+test("лёгкое и баранье лёгкое: 11 фракций по новой сетке", () => {
+  const lung = [
+    ["Ломтики", 9],
+    ["Полоски", 10],
+    ["Крупное", 11],
+    ["Среднее", 12],
+    ["Мелкое", 13],
+    ["Очень мелкое", 14]
+  ];
+  const sheep = [
+    ["Ломтики", 16],
+    ["Полоски", 17],
+    ["Крупное", 18],
+    ["Среднее", 19],
+    ["Мелкое", 20]
+  ];
+  lung.forEach(function (pair) {
+    assert.equal(goods([row("ЛЁГКОЕ", pair[0], 100)]), pair[1], "ЛЁГКОЕ|" + pair[0]);
+    assert.equal(api.retailLineCost("ЛЁГКОЕ", pair[0], 100, "dressura").per, pair[1]);
+  });
+  sheep.forEach(function (pair) {
+    assert.equal(goods([row("БАРАНЬЕ ЛЁГКОЕ", pair[0], 100)]), pair[1], "БАРАНЬЕ|" + pair[0]);
+    assert.equal(api.retailLineCost("БАРАНЬЕ ЛЁГКОЕ", pair[0], 100, "dressura").per, pair[1]);
+  });
+  assert.equal(lung.length + sheep.length, 11);
 });
 
 test("чеклист нового расчёта не оставляет скрытые фракции", () => {
