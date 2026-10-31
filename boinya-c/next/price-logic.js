@@ -163,7 +163,7 @@ var ASM_CHEW_PER_BIG = 4;
         { cat: "dressura", main: "СЕРДЦЕ", name: "СЕРДЦЕ", sub: "Ломтики", value: 50, val: 50 },
         { cat: "chew", main: "БЫЧИЙ КОРЕНЬ", name: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", value: 1, val: 1 },
         { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", value: 1, val: 1 },
-        { cat: "veg", main: "КАБАЧОК", name: "КАБАЧОК", sub: "", value: 50, val: 50 }
+        { cat: "veg", main: "ЯБЛОКИ", name: "ЯБЛОКИ", sub: "", value: 50, val: 50 }
       ];
     }
 
