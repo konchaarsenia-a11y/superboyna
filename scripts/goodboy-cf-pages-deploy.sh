@@ -52,11 +52,14 @@ sys.exit(0 if '$name' in names else 1)
   fi
 done
 
+prod_host=""
 if [ -z "$pick" ]; then
   for name in "${CANDIDATES[@]}"; do
     echo "Trying create Pages project: $name"
-    if npx --yes wrangler@4 pages project create "$name" --production-branch main; then
+    create_out="$(npx --yes wrangler@4 pages project create "$name" --production-branch main 2>&1 | tee /dev/stderr || true)"
+    if echo "$create_out" | grep -q "Successfully created"; then
       pick="$name"
+      prod_host="$(echo "$create_out" | sed -n 's/.*https:\/\/\([a-zA-Z0-9.-]*\.pages\.dev\).*/\1/p' | head -1)"
       break
     fi
     echo "Create failed for $name — next candidate"
@@ -70,8 +73,16 @@ fi
 
 echo "Deploying to project=$pick"
 out="$(npx --yes wrangler@4 pages deploy "$DIST" --project-name "$pick" --branch main --commit-dirty=true 2>&1 | tee /dev/stderr)"
-url="$(echo "$out" | sed -n 's/.*\(https:\/\/[a-zA-Z0-9.-]*\.pages\.dev\).*/\1/p' | tail -1)"
-if [ -z "$url" ]; then
+# Предпочитаем стабильный production host (без хэша деплоя).
+if [ -z "$prod_host" ]; then
+  prod_host="$(echo "$out" | sed -n 's/.*https:\/\/[a-f0-9]\{6,\}.\([a-zA-Z0-9.-]*\.pages\.dev\).*/\1/p' | tail -1)"
+fi
+if [ -z "$prod_host" ]; then
+  prod_host="$(echo "$out" | sed -n 's/.*https:\/\/\([a-zA-Z0-9.-]*\.pages\.dev\).*/\1/p' | grep -v '^[a-f0-9]\{6,\}\.' | tail -1 || true)"
+fi
+if [ -n "$prod_host" ]; then
+  url="https://${prod_host}"
+else
   url="https://${pick}.pages.dev"
 fi
 echo "GOODBOY_PAGES_URL=$url"

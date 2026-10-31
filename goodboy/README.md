@@ -23,7 +23,7 @@
 
 **Cloudflare Pages** (зеркало, CI `goodboy-cf-pages`):
 
-`https://goodboy.pages.dev/` (если имя занято — `goodboy-by` / `goodboy-minsk`)
+`https://goodboy-5s4.pages.dev/` (проект `goodboy`; `goodboy.pages.dev` занят чужим аккаунтом)
 
 **Legacy (GitHub Pages)** — не отключаем; для старых ссылок/купонов:
 
