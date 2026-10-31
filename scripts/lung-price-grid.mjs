@@ -3,6 +3,7 @@
  * Перед записью кладёт копию снимка и сумм, если их ещё нет.
  * Заказы и подписки не переписывает. Чужие ключи и крошки не меняет.
  * node scripts/lung-price-grid.mjs --apply
+ * Re-apply after frac-grid races if needed.
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
