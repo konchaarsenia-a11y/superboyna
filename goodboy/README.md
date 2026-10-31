@@ -21,7 +21,11 @@
 | **Кабинет (кнопка на сайте)** | https://goodboy.by/app.html |
 | **Mini App (для BotFather)** | https://goodboy.by/app.html |
 
-**Legacy (GitHub Pages)** — до cutover и для старых ссылок/купонов:
+**Cloudflare Pages** (зеркало, CI `goodboy-cf-pages`):
+
+`https://goodboy.pages.dev/` (если имя занято — `goodboy-by` / `goodboy-minsk`)
+
+**Legacy (GitHub Pages)** — не отключаем; для старых ссылок/купонов:
 
 `https://konchaarsenia-a11y.github.io/superboyna/goodboy/`
 
