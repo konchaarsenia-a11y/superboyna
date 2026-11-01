@@ -8537,6 +8537,13 @@ function handleTelegramUpdate_(update) {
         handleMailTrackCallback_(cq0);
         return;
       }
+      if (/^mpay:/i.test(cqData)) {
+        // Оплата почты живёт на worker webhook; здесь только ack, чтобы не висела крутилка.
+        try {
+          telegramAnswerCallback_(cq0.id, "Открой то же сообщение в @boyniaGB_bot");
+        } catch (eMpay) {}
+        return;
+      }
       if (cqData === "costpub") {
         handleCostPublishCallback_(cq0);
         return;
@@ -35240,8 +35247,25 @@ function tickDeferredReminders_() {
       var fromLabel = remindPersonLabel_(fromTid, payload.createdByName);
       var toLabel = remindPersonLabel_(notifyTid, payload.targetName);
       var text;
+      var mailPayTok = "";
+      var mailPayMarkup = null;
       if (mode === "remind" && payload.mailPayCheck && payload.mailPayText) {
         text = String(payload.mailPayText);
+        mailPayTok = String(payload.mailTrackToken || payload.token || "").trim();
+        if (!mailPayTok) {
+          var idRow = String(data[r][0] || "");
+          var idm = idRow.match(/^mailpay_([A-Za-z0-9]+)_\d+$/i);
+          if (idm) mailPayTok = idm[1];
+        }
+        if (mailPayTok) {
+          if (!payload.mailTrackToken) payload.mailTrackToken = mailPayTok;
+          mailPayMarkup = {
+            inline_keyboard: [[
+              { text: "✅ Оплатил", callback_data: ("mpay:y:" + mailPayTok).slice(0, 64) },
+              { text: "❌ Не оплатил", callback_data: ("mpay:n:" + mailPayTok).slice(0, 64) }
+            ]]
+          };
+        }
       } else if (mode === "remind") {
         text = "⏰ Напоминание\n" + title;
         if (fromTid && notifyTid && fromTid !== notifyTid) {
@@ -35269,8 +35293,13 @@ function tickDeferredReminders_() {
       var sentOk = false;
       if (notifyTid) {
         try {
-          var res = telegramSendText_(notifyTid, text);
+          var res = telegramSendText_(notifyTid, text, mailPayMarkup);
           sentOk = !!(res && res.ok);
+          if (!sentOk && mailPayMarkup) {
+            res = telegramSendText_(notifyTid, text, null);
+            sentOk = !!(res && res.ok);
+          }
+          if (sentOk && mailPayMarkup) payload.mailPayButtonsSent = true;
         } catch (eSend) {
           sentOk = false;
         }

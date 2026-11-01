@@ -52,13 +52,14 @@ export function botCallbackKind_(data) {
   if (s === "costpub") return "costpub";
   if (/^svsent:/i.test(s)) return "svsent";
   if (/^mtrack:/i.test(s)) return "mtrack";
+  if (/^mpay:/i.test(s)) return "mpay";
   if (/^ppafk:/i.test(s)) return "ppafk";
   if (/^defdone:/i.test(s)) return "defdone";
   if (/^vrc:/i.test(s)) return "vrc";
   return "";
 }
 
-/** «Обновить прайс», дефицит, опрос, «В АФК» и трек в личке того же бота. */
+/** «Обновить прайс», дефицит, опрос, «В АФК», трек и оплата почты в личке того же бота. */
 export function botStaffButtonInDm_(cq) {
   const kind = botCallbackKind_(cq && cq.data);
   if (!kind || kind === "vrc") return false;

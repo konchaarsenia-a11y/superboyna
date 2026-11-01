@@ -77,6 +77,8 @@ test("callback kinds leave the partner button alone", function () {
   assert.equal(botCallbackKind_("costpub"), "costpub");
   assert.equal(botCallbackKind_("svsent:abc"), "svsent");
   assert.equal(botCallbackKind_("mtrack:tok"), "mtrack");
+  assert.equal(botCallbackKind_("mpay:y:tok"), "mpay");
+  assert.equal(botCallbackKind_("mpay:n:tok"), "mpay");
   assert.equal(botCallbackKind_("ppafk:tok"), "ppafk");
   assert.equal(botCallbackKind_("defdone:d1"), "defdone");
   assert.equal(botCallbackKind_("vrc:paid"), "vrc");
@@ -92,6 +94,7 @@ test("staff buttons work in a private chat", function () {
   assert.equal(botStaffButtonInDm_(cq), true);
   assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "defdone:d1" })), true);
   assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "mtrack:tok" })), true);
+  assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "mpay:y:tok" })), true);
   assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "ppafk:tok" })), true);
   assert.equal(botStaffButtonInDm_(Object.assign({}, cq, { data: "svsent:abc" })), true);
   assert.equal(botStaffButtonInDm_({

@@ -1694,6 +1694,8 @@
         '<label class="nx-check nx-check--lg"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> Доставлен</label>" +
         (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '" style="margin-top:8px">Карта</button>' : "") +
         (!c.delivered ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-miss" data-i="' + idx + '" style="margin-top:8px">Не получил</button>' : "") +
+        (mailPayAsk(c) ? '<button type="button" class="b-btn" data-act="pr-mail-pay" data-i="' + idx + '" style="margin-top:8px">Оплата</button>' : "") +
+        (mailPaidLabel(c) ? '<p class="b-note" style="margin-top:8px">' + esc(mailPaidLabel(c)) + "</p>" : "") +
         "</article>";
     });
     sh().main(html);
@@ -2040,6 +2042,67 @@
     }
     if (sendRes && sendRes.status === "success") sh().toast("Отправлено: " + (c.name || id));
     else sh().toast("Не дошло: " + ((sendRes && sendRes.message) || "ошибка"));
+  }
+
+  function mailPayAsk(c) {
+    if (!c || !c.delivered) return false;
+    var logic = root.BoinyaWeekLogic;
+    var mail = (logic && logic.courierMailMethod && logic.courierMailMethod(c)) || c.mailMethod || "";
+    if (!mail && !c.mailTrack) return false;
+    var p = String(c.paid || "").toLowerCase();
+    return p !== "yes" && p !== "no";
+  }
+
+  function mailPaidLabel(c) {
+    if (!c || !c.delivered) return "";
+    var logic = root.BoinyaWeekLogic;
+    var mail = (logic && logic.courierMailMethod && logic.courierMailMethod(c)) || c.mailMethod || "";
+    if (!mail && !c.mailTrack) return "";
+    var p = String(c.paid || "").toLowerCase();
+    if (p === "yes") return "Оплачено";
+    if (p === "no") return "Не оплачено";
+    return "";
+  }
+
+  async function markMailPaid(index) {
+    var day = currentDay("nxCourDay", "route");
+    var client = cour[index];
+    if (!client || !mailPayAsk(client)) return;
+    var picked = await sh().choice({
+      title: "Оплата почтой",
+      text: "Клиент " + client.name + ". Оплачено?",
+      options: [
+        { label: "Да, оплачено", value: "yes" },
+        { label: "Нет", value: "no" },
+        { label: "Отмена", value: "cancel" }
+      ]
+    });
+    if (!picked || picked === "cancel") return;
+    var prev = client.paid;
+    client.paid = picked;
+    paintRoute();
+    try {
+      var body = {
+        action: "setDelivered",
+        day: day,
+        client: client.name,
+        delivered: true,
+        paid: picked
+      };
+      if (cour && cour._date) body.date = cour._date;
+      if (client.matchKey) body.matchKey = client.matchKey;
+      if (client.phone) body.phone = client.phone;
+      var logic = root.BoinyaWeekLogic;
+      var mail = (logic && logic.courierMailMethod && logic.courierMailMethod(client)) || client.mailMethod || "";
+      if (mail) body.mail = mail;
+      var delRes = await api().apiPost(body);
+      if (!delRes || (delRes.status !== "success" && delRes.status !== "sent_opaque")) throw new Error("save");
+      sh().toast(picked === "yes" ? "Оплачено" : "Не оплачено");
+    } catch (e) {
+      client.paid = prev;
+      paintRoute();
+      sh().toast("Не закрепилось");
+    }
   }
 
   async function toggleDelivered(index, delivered) {
@@ -2389,6 +2452,7 @@
     if (act === "pr-tel") { dialPhone(node.getAttribute("data-phone") || "", ev); return true; }
     if (act === "pr-map") { openMap(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-miss") { missed(Number(node.getAttribute("data-i"))); return true; }
+    if (act === "pr-mail-pay") { markMailPaid(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-ymap") {
       var url = maps() && maps().buildYandexRouteUrl ? maps().buildYandexRouteUrl(pointsOf(Number(node.getAttribute("data-r")))) : "";
       if (url) openLink(url);
