@@ -11624,6 +11624,31 @@ function mailTrackToken_() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
+/** Inline «Оплатил / Не оплатил» для напоминания оплаты почтой (@boyniaGB_bot). */
+function mailPayMarkupD1_(token) {
+  const tok = String(token || "").trim();
+  if (!tok) return null;
+  return {
+    inline_keyboard: [[
+      { text: "✅ Оплатил", callback_data: ("mpay:y:" + tok).slice(0, 64) },
+      { text: "❌ Не оплатил", callback_data: ("mpay:n:" + tok).slice(0, 64) }
+    ]]
+  };
+}
+
+function mailPayTokenFromDeferredId_(id) {
+  const s = String(id || "");
+  const m = s.match(/^mailpay_([A-Za-z0-9]+)_\d+$/i);
+  return m ? m[1] : "";
+}
+
+function mailPayTokenFromPayload_(payload, item) {
+  const p = payload || {};
+  const direct = String(p.mailTrackToken || p.token || "").trim();
+  if (direct) return direct;
+  return mailPayTokenFromDeferredId_((item && item.id) || "");
+}
+
 async function enrichCourierClientPp_(c, env, dateIso) {
   if (!c) return c;
   const seg = normalizeSegmentLabel_(c.segment || "");
@@ -15905,7 +15930,10 @@ async function notifyMailTrackAndRemind_(params, env, ctxInfo) {
       track: track,
       mailPayCheck: true,
       mailPayText: payText,
+      mailTrackToken: token,
       client: client,
+      matchKey: mk,
+      dateIso: iso,
       skipAck: "1"
     };
     try {
@@ -16002,6 +16030,130 @@ async function fulfillMailTrack_(params, env) {
   }
   await toast("Клиенту бот не пишет. Скопируйте текст в Instagram");
   return { status: "success", sent: false, clientNotified: false, answered: !!cb };
+}
+
+async function telegramEditMessageTextWorker_(env, chatId, messageId, text, markup) {
+  const token = getTelegramTokenWorker_(env);
+  if (!token || !chatId || !messageId) return { ok: false };
+  const payload = {
+    chat_id: String(chatId),
+    message_id: Number(messageId),
+    text: String(text || "").slice(0, 3500),
+    disable_web_page_preview: true
+  };
+  if (markup) payload.reply_markup = markup;
+  else payload.reply_markup = { inline_keyboard: [] };
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/editMessageText", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+async function markMailPayDeferredDoneD1_(env, token, paid) {
+  const tok = String(token || "").trim();
+  if (!tok || !env) return;
+  const list = (await getSnapRaw_(env, "listDeferred")) || { items: [] };
+  const items = Array.isArray(list.items) ? list.items : [];
+  let changed = false;
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i] || {};
+    const payload = it.payload && typeof it.payload === "object" ? it.payload : {};
+    it.payload = payload;
+    const hitTok = mailPayTokenFromPayload_(payload, it);
+    if (!payload.mailPayCheck && !/^mailpay_/i.test(String(it.id || ""))) continue;
+    if (hitTok !== tok) continue;
+    payload.mailPayAnswered = paid;
+    payload.mailPayAnsweredAt = nowIso;
+    payload.mailPayButtonsSent = true;
+    if (String(it.status || "open").toLowerCase() === "open") it.status = "done";
+    changed = true;
+  }
+  if (changed) {
+    try { await putSnap_(env, "listDeferred", list); } catch (ePut) {}
+  }
+}
+
+/**
+ * Callback mpay:y|n:token — та же отметка paid, что setDelivered / курьер.
+ * Сообщение в Telegram правим, кнопки снимаем.
+ */
+async function fulfillMailPay_(params, env) {
+  const raw = String((params && params.data) || (params && params.token) || "").trim();
+  const m = raw.match(/^mpay:([yn]):(.+)$/i) || raw.match(/^([yn]):(.+)$/i);
+  const paid = m ? (String(m[1]).toLowerCase() === "y" ? "yes" : "no") : "";
+  const token = m ? String(m[2] || "").trim() : String((params && params.token) || "").replace(/^mpay:[yn]:/i, "").trim();
+  const cb = String((params && params.callbackQueryId) || "").trim();
+  const cq = params && params.callbackQuery;
+  async function toast(text) {
+    if (!cb) return;
+    try { await telegramAnswerCallbackWorker_(env, cb, text); } catch (eT) {}
+  }
+  if (!token || (paid !== "yes" && paid !== "no")) {
+    await toast("Нет данных");
+    return { status: "error", message: "bad_payload", answered: !!cb };
+  }
+  let rec = null;
+  try { rec = await getSnapRaw_(env, "mailTrack:" + token); } catch (eRec) { rec = null; }
+  if (!rec) {
+    await toast("Заказ не найден");
+    return { status: "error", message: "not_found", answered: !!cb };
+  }
+  const client = String(rec.client || "").trim();
+  const iso = coerceDateIso_(rec.dateIso || "") || String(rec.dateIso || "");
+  const mk = normalizeMatchKey_(rec.matchKey || client);
+  const aliases = matchKeyAliases_(mk).concat(matchKeyAliases_(client));
+  if (iso) {
+    try { await stampOrderPaidOnDateD1_(env, iso, aliases, paid); } catch (ePaid) {}
+  }
+  const day = String(rec.day || "").trim();
+  if (day) {
+    try {
+      const snap = await getCourier_({ day: day }, env);
+      (snap.clients || []).forEach(function (c) {
+        const hit =
+          !!lookupByMatchAliases_(
+            indexByMatchAliases_([{ matchKey: mk, name: client }]),
+            c.matchKey || c.name
+          ) ||
+          c.name === client;
+        if (hit) c.paid = paid;
+      });
+      snap.flagsTouchedAt = Date.now();
+      await putSnap_(env, "courier:" + day, snap);
+    } catch (eCour) {}
+  }
+  try {
+    rec.paid = paid;
+    rec.paidAt = new Date().toISOString();
+    await putSnap_(env, "mailTrack:" + token, rec);
+  } catch (eRecW) {}
+  try { await markMailPayDeferredDoneD1_(env, token, paid); } catch (eDef) {}
+  const label = paid === "yes" ? "✅ Оплатил" : "❌ Не оплатил";
+  const who = cq && cq.from
+    ? [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" ").trim()
+    : "";
+  const baseText =
+    String((params && params.messageText) || "").trim() ||
+    ("Оплата почтой\nКлиент: " + (client || "—") + "\nТрек: " + String(rec.track || "") + "\nПрошло 2 дня. Клиент оплатил?");
+  const newText = baseText.replace(/\nПрошло 2 дня\. Клиент оплатил\?\s*$/, "") +
+    "\n\n" + label + (who ? (" · " + who) : "");
+  const msg = cq && cq.message;
+  if (msg && msg.chat && msg.message_id) {
+    try {
+      await telegramEditMessageTextWorker_(env, msg.chat.id, msg.message_id, newText, null);
+    } catch (eEd) {
+      try { await stageNClearMarkup_(env, cq); } catch (eClr) {}
+    }
+  }
+  await toast(paid === "yes" ? "Оплачено" : "Не оплачено");
+  return { status: "success", paid: paid, token: token, client: client, answered: !!cb };
 }
 
 /**
@@ -37592,6 +37744,15 @@ async function botCallbackApply_(env, cq, send) {
     }, env);
     return { kind: "mtrack", sent: false, reply: (out && out.toast) || "" };
   }
+  if (kind === "mpay") {
+    const out = await fulfillMailPay_({
+      data: String(cq.data || ""),
+      callbackQueryId: cq.id,
+      callbackQuery: cq,
+      messageText: cq && cq.message ? cq.message.text : ""
+    }, env);
+    return { kind: "mpay", sent: true, reply: (out && out.paid) || "", ok: !!(out && out.status === "success") };
+  }
   if (kind === "costpub") {
     try { await telegramAnswerCallbackWorker_(env, cq.id, "Обновляю прайс"); } catch (eA) {}
     let pub = null;
@@ -38163,7 +38324,16 @@ async function stageNDeferred_(env, opts) {
     }
     const due = stageNDue_(item);
     if (!due || due > now) continue;
-    if ((payload.remindSent || item.remindSent) && !payload.remindSendError) continue;
+    const isMailPay = !!(payload.mailPayCheck && payload.mailPayText);
+    const mailTokEarly = isMailPay ? mailPayTokenFromPayload_(payload, item) : "";
+    const needMailPayButtons =
+      isMailPay &&
+      !!mailTokEarly &&
+      !payload.mailPayAnswered &&
+      !payload.mailPayButtonsSent &&
+      !!(payload.remindSent || item.remindSent) &&
+      !payload.remindSendError;
+    if ((payload.remindSent || item.remindSent) && !payload.remindSendError && !needMailPayButtons) continue;
     const fails = Number(payload.remindFailCount) || 0;
     if (fails >= 12) continue;
     const notifyTid = String(payload.targetTelegramId || payload.forTelegramId || item.targetTelegramId || item.telegramId || "").trim();
@@ -38174,7 +38344,7 @@ async function stageNDeferred_(env, opts) {
       to: notifyTid,
       due: new Date(due).toISOString()
     };
-    if (due < cutoff) {
+    if (due < cutoff && !needMailPayButtons) {
       overdue.push(row);
       continue;
     }
@@ -38182,6 +38352,9 @@ async function stageNDeferred_(env, opts) {
     row.text = stageNPreview_(text);
     would.push(row);
     if (!send || !notifyTid) continue;
+    const mailTok = isMailPay ? mailPayTokenFromPayload_(payload, item) : "";
+    if (isMailPay && mailTok && !payload.mailTrackToken) payload.mailTrackToken = mailTok;
+    const markup = isMailPay && mailTok ? mailPayMarkupD1_(mailTok) : null;
     payload.remindSent = true;
     payload.remindSentAt = new Date(now).toISOString();
     delete payload.remindSendError;
@@ -38189,8 +38362,12 @@ async function stageNDeferred_(env, opts) {
     changed = true;
     let ok = false;
     try {
-      const res = await telegramSendTextWorker_(env, notifyTid, text, null);
+      const res = await telegramSendTextWorker_(env, notifyTid, text, markup);
       ok = !!(res && res.ok);
+      if (!ok && markup) {
+        const again = await telegramSendTextWorker_(env, notifyTid, text, null);
+        ok = !!(again && again.ok);
+      }
     } catch (eSend) {
       ok = false;
     }
@@ -38202,6 +38379,7 @@ async function stageNDeferred_(env, opts) {
       delete payload.remindSentAt;
     } else {
       delete payload.remindFailCount;
+      if (isMailPay && markup) payload.mailPayButtonsSent = true;
     }
   }
   if (changed && send) await putSnap_(env, "listDeferred", list);
