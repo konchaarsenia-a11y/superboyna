@@ -85,12 +85,18 @@
     };
   }
 
+  var PP_COEF_PRESETS = ["2.0", "2.3", "2.5", "2.6"];
+  var PP_COEF_MIN = 1;
+  var PP_COEF_MAX = 5;
+  var PP_COEF_DEFAULT = "2.6";
+
   function blankCard() {
     return {
       nick: "", label: "", subId: "", sheet: "ПП", deliveries: "2", status: "",
       wishes: "", address: "", phone: "", basket: [], basket2: [],
       factCost: "", statedCost: "", calcFactCost: "", statedTouched: false,
-      coef: "2.6", scheme: "RAW26", dogName: "", dogBreed: "", dogWeight: "",
+      coef: PP_COEF_DEFAULT, scheme: "RAW26", coefSaved: false, coefTouched: false,
+      dogName: "", dogBreed: "", dogWeight: "",
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
       surveyBp2Due: "", surveyFinalDue: "", ownerTelegramId: "", ownerName: "",
       basketBp1: [], basketBp2: [], bpTab: 1, slot: 1, econ: null,
@@ -237,13 +243,9 @@
     if (line) line.textContent = delivLine(raw);
   }
 
-  var PP_COEF_PRESETS = ["2.0", "2.3", "2.5", "2.6"];
-  var PP_COEF_MIN = 1;
-  var PP_COEF_MAX = 5;
-
-  /** Любой коэффициент 1–5; точка или запятая. */
+  /** Любой коэффициент 1–5; точка или запятая. Пустое/битое → 2.6. */
   function parsePpCoefInput_(raw, fallback) {
-    var fb = Number(String(fallback != null ? fallback : "2.6").replace(",", "."));
+    var fb = Number(String(fallback != null ? fallback : PP_COEF_DEFAULT).replace(",", "."));
     if (!isFinite(fb) || fb <= 0) fb = 2.6;
     var s = String(raw == null ? "" : raw).trim().replace(",", ".");
     var v = Number(s);
@@ -251,6 +253,11 @@
     if (v < PP_COEF_MIN) v = PP_COEF_MIN;
     if (v > PP_COEF_MAX) v = PP_COEF_MAX;
     return String(Math.round(v * 1000) / 1000);
+  }
+
+  /** Эффективный coef для UI/расчёта: не задан → 2.6. */
+  function effectivePpCoef_(raw) {
+    return parsePpCoefInput_(raw, PP_COEF_DEFAULT);
   }
 
   function coefMatchesPreset_(coef, preset) {
@@ -262,7 +269,7 @@
   function applyPpCoef_(raw, opts) {
     opts = opts || {};
     var soft = !!opts.soft;
-    var fallback = opts.fallback != null ? opts.fallback : (price.coef || (card && card.coef) || "2.6");
+    var fallback = opts.fallback != null ? opts.fallback : (price.coef || (card && card.coef) || PP_COEF_DEFAULT);
     var typed = String(raw == null ? "" : raw).trim();
     if (soft) {
       if (!typed) return false;
@@ -275,6 +282,7 @@
       if (softN === 2.6) price.scheme = "RAW26";
       if (card) {
         card.coef = softNext;
+        card.coefTouched = true;
         if (softN === 2.6) card.scheme = "RAW26";
       }
       schedulePpMessage();
@@ -289,6 +297,7 @@
     if (Number(next) === 2.6) price.scheme = "RAW26";
     if (card) {
       card.coef = next;
+      card.coefTouched = true;
       if (Number(next) === 2.6) card.scheme = "RAW26";
     }
     schedulePpMessage();
@@ -296,13 +305,14 @@
   }
 
   function coefBlockHtml_(coef) {
+    var shown = effectivePpCoef_(coef);
     var html = '<p class="b-lbl">Коэффициент</p><div class="b-row">';
     PP_COEF_PRESETS.forEach(function (v) {
-      html += '<button type="button" class="b-chip' + (coefMatchesPreset_(coef, v) ? " b-chip--on" : "") + '" data-act="cl-coef" data-v="' + v + '">' + v + "</button>";
+      html += '<button type="button" class="b-chip' + (coefMatchesPreset_(shown, v) ? " b-chip--on" : "") + '" data-act="cl-coef" data-v="' + v + '">' + v + "</button>";
     });
     html += "</div>";
-    html += field("cxCoef", coef, "свой, напр. 2.4", 'inputmode="decimal"');
-    html += '<p class="b-note">Свой: от 1 до 5, точка или запятая. Заготовки сверху — быстрый выбор.</p>';
+    html += field("cxCoef", shown, "свой, напр. 2.4", 'inputmode="decimal"');
+    html += '<p class="b-note">По умолчанию 2.6. Свой: от 1 до 5, точка или запятая. Заготовки — быстрый выбор.</p>';
     return html;
   }
 
@@ -1094,7 +1104,7 @@
       /* soft: true на input (черновик), false на change/blur (кламп 1–5 и пересчёт) */
       applyPpCoef_(v, {
         soft: !!opts.soft,
-        fallback: price.coef || (card && card.coef) || "2.6"
+        fallback: price.coef || (card && card.coef) || PP_COEF_DEFAULT
       });
       if (!opts.soft) {
         var elCoef = document.getElementById("cxCoef");
@@ -1569,9 +1579,18 @@
       if (!card.basketBp1.length && card.basket.length) card.basketBp1 = card.basket.slice();
     }
     card.scheme = P().parsePpSchemeFromWishes_(res.wishes || "") || res.ppScheme || res.scheme || (card.sheet === "ПП" ? "LEGACY" : "");
+    /* Сохранённый coef — только тег [COEF:] в wishes.
+       Без тега UI показывает 2.6, но не пишет его, пока пользователь не тронул. */
     var coef = P().parsePpCoefFromWishes_(res.wishes || "");
+    card.coefTouched = false;
+    if (coef != null && isFinite(Number(coef)) && Number(coef) > 0) {
+      card.coef = String(coef);
+      card.coefSaved = true;
+    } else {
+      card.coef = PP_COEF_DEFAULT;
+      card.coefSaved = false;
+    }
     card.serviceGeo = serviceGeoOf_(res.wishes || "", res.serviceGeo);
-    if (coef) card.coef = String(coef);
     var parsedBp = W() ? W().parseWishes(res.wishes || "") : null;
     card.wishes = staffWishes_(res.wishes || "");
     if (parsedBp && parsedBp.bpWeeksSet) {
@@ -1624,8 +1643,15 @@
     flushClientNotes();
     if (!card) return;
     var wishes = staffWishes_(card.wishes || "");
+    var persistCoef = card.sheet === "ПП" && !!(card.coefSaved || card.coefTouched);
+    var coefOut = persistCoef ? effectivePpCoef_(card.coef) : "";
     if (card.sheet === "ПП") {
-      wishes = P().stampPpCoefIntoWishes_(wishes, card.coef);
+      if (persistCoef) {
+        wishes = P().stampPpCoefIntoWishes_(wishes, coefOut);
+        card.coef = coefOut;
+        card.coefSaved = true;
+        card.coefTouched = false;
+      }
       if (card.scheme === "RAW26" || P().parsePpSchemeFromWishes_(wishes)) wishes = P().stampPpSchemeIntoWishes_(wishes, card.scheme);
     }
     var ownerName = "";
@@ -1654,7 +1680,8 @@
       statedTouched: card.statedTouched ? "1" : "0",
       basket: card.sheet === "БП" ? card.basketBp1 : card.basket,
       basket2: Number(card.deliveries) >= 2 ? card.basket2 : undefined,
-      coef: card.sheet === "ПП" ? String(card.coef || "") : "",
+      /* Пустой coef → GAS/D1 не штампует [COEF:] на старые карточки без тега. */
+      coef: card.sheet === "ПП" ? coefOut : "",
       scheme: card.sheet === "ПП" ? (card.scheme || "") : "",
       dogName: card.dogName || "",
       dogBreed: card.dogBreed || "",
@@ -1965,7 +1992,7 @@
     if (act === "cl-slot") { if (card) card.slot = Number(node.getAttribute("data-n")) || 1; paint(); return true; }
     if (act === "cl-deep") { deep = !deep; paint(); return true; }
     if (act === "cl-coef") {
-      applyPpCoef_(node.getAttribute("data-v"), { soft: false, fallback: "2.6" });
+      applyPpCoef_(node.getAttribute("data-v"), { soft: false, fallback: PP_COEF_DEFAULT });
       paint();
       return true;
     }

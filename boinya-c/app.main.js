@@ -23624,6 +23624,14 @@
     var _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
     var _subDetailOpenedFp = "";
     var _subDetailStatedTouched = false;
+    var _subDetailCoefSaved = false;
+    var _subDetailCoefTouched = false;
+    window._subDetailCoefTouched = false;
+    function markSubDetailCoefTouched_() {
+      _subDetailCoefTouched = true;
+      window._subDetailCoefTouched = true;
+    }
+    window.markSubDetailCoefTouched_ = markSubDetailCoefTouched_;
 
     function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
       var fact = Number(factCost);
@@ -23734,7 +23742,7 @@
     function setSubDetailCoef_(v) {
       var el = document.getElementById("subDetailCoef");
       if (el) el.value = String(v);
-
+      markSubDetailCoefTouched_();
       recalcSubDetailFactCost_();
     }
     window.setSubDetailCoef_ = setSubDetailCoef_;
@@ -24153,8 +24161,7 @@
 
     function subDetailCoefValue_() {
       var el = document.getElementById("subDetailCoef");
-      var scheme = subDetailSchemeValue_();
-      var def = scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
+      var def = PP_RAW26_COEF_DEFAULT;
       var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
       if (!isFinite(v) || v <= 0) v = def;
       if (v < 1) v = 1;
@@ -24728,12 +24735,15 @@
       _lastPpCostFact = null;
       setSubDetailStatedPrice_("");
       _subDetailStatedTouched = false;
+      _subDetailCoefSaved = coef0 != null;
+      _subDetailCoefTouched = false;
+      window._subDetailCoefTouched = false;
       syncSubDetailPpPriceUi_(sheet);
       var coefEl0 = document.getElementById("subDetailCoef");
       if (coefEl0) {
         coefEl0.value = (coef0 != null)
           ? String(coef0)
-          : String(sch0 === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
+          : String(PP_RAW26_COEF_DEFAULT);
       }
       _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
       _subDetailOpenedFp = "";
@@ -24783,8 +24793,11 @@
         document.getElementById("subDetailStatus").value = res.ppStatus || s.status || "";
         applyBpStatusUi_(res.sheet || sheet, res.ppStatus || s.status || "");
         var wishesRaw = res.wishes || s.wishes || "";
-        var cParsed = (res.coef != null && res.coef !== "") ? Number(res.coef) : parsePpCoefFromWishes_(wishesRaw);
-        if (!(isFinite(cParsed) && cParsed > 0)) cParsed = parsePpCoefFromWishes_(wishesRaw);
+        var cParsed = parsePpCoefFromWishes_(wishesRaw);
+        if (!(isFinite(cParsed) && cParsed > 0)) cParsed = null;
+        _subDetailCoefSaved = cParsed != null;
+        _subDetailCoefTouched = false;
+        window._subDetailCoefTouched = false;
         var schParsed = normalizePpSchemeLocal_(res.ppScheme || res.scheme) ||
           parsePpSchemeFromWishes_(wishesRaw) || "LEGACY";
         currentSubDetail.ppScheme = schParsed;
@@ -24842,7 +24855,7 @@
         if (coefEl && sheetNow === "ПП") {
           coefEl.value = (cParsed != null && isFinite(cParsed) && cParsed > 0)
             ? String(cParsed)
-            : String(schParsed === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
+            : String(PP_RAW26_COEF_DEFAULT);
         }
         try { syncSubDetailSchemeUi_(); } catch (eSch) {}
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
@@ -25250,7 +25263,14 @@
         var wishesSave = wishesForStaffField_((document.getElementById("subDetailWishes").value || "").trim());
         wishesSave = stampDogIntoWishes_(wishesSave, readSubDetailDogFields_());
         if (sheet === "ПП") {
-          wishesSave = stampPpCoefIntoWishes_(wishesSave, subDetailCoefValue_());
+          var persistCoef = !!( _subDetailCoefSaved || _subDetailCoefTouched || window._subDetailCoefTouched );
+          var coefSave = persistCoef ? subDetailCoefValue_() : "";
+          if (persistCoef) {
+            wishesSave = stampPpCoefIntoWishes_(wishesSave, coefSave);
+            _subDetailCoefSaved = true;
+            _subDetailCoefTouched = false;
+            window._subDetailCoefTouched = false;
+          }
           var schSave = subDetailSchemeValue_();
           // не вешаем [SCHEME:LEGACY] на старые карточки без тега — только RAW26 или уже был тег
           if (schSave === "RAW26" || parsePpSchemeFromWishes_((currentSubDetail && currentSubDetail.wishes) || "")) {
@@ -25298,7 +25318,9 @@
           statedTouched: sheet === "ПП" && _subDetailStatedTouched ? "1" : "0",
           basket: basketPayload,
           basket2: basket2Payload,
-          coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
+          coef: sheet === "ПП" && (_subDetailCoefSaved || _subDetailCoefTouched || window._subDetailCoefTouched)
+            ? String(subDetailCoefValue_())
+            : (sheet === "ПП" ? "" : ""),
           scheme: sheet === "ПП" ? subDetailSchemeValue_() : "",
           dogName: dogSave.name,
           dogBreed: dogSave.breed,
