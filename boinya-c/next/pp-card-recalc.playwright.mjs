@@ -263,7 +263,7 @@ if (!results[0] || !results[0].coefChangedQuick) {
   console.error("FAIL: coef chip did not change stated immediately (local quote)");
   process.exitCode = 2;
 }
-if (!results[0] || !results[0].gramsUi) {
-  console.error("FAIL: gram steppers missing on PP card");
+if (!results[1] || !results[1].coefChangedQuick) {
+  console.error("FAIL: coef chip must work even when calcPrice fails (local seed)");
   process.exitCode = 2;
 }

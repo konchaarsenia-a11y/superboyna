@@ -396,9 +396,9 @@
     var val = it.val != null ? it.val : it.value;
     var mix = root.BoinyaCrumbMix;
     var body;
-    /* На карточке ПП граммы должны правиться — иначе при потолке 92% coef/пакеты
-       не двигают цену, а состав «заморожен» без степперов. */
-    var grams = lineGramHtml_(it, i, "cl-gqty");
+    /* Состав на карточке — текстом; граммы правятся через +Позиция / deep.
+       Цена от coef обновляется отдельно (coefBlock на основной карточке). */
+    var grams = view === "card" ? "" : lineGramHtml_(it, i, "cl-gqty");
     if (mix && mix.isCrumb(it) && mix.rowHtml) {
       body = '<div class="b-grow">' + mix.rowHtml(it, function (name) {
         return (eng() && eng().prettyProductName) ? eng().prettyProductName(name) : name;
