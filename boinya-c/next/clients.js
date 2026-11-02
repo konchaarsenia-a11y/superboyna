@@ -97,6 +97,8 @@
       factCost: "", statedCost: "", calcFactCost: "", statedTouched: false,
       coef: PP_COEF_DEFAULT, scheme: "RAW26", coefSaved: false, coefTouched: false,
       priceDirty: false,
+      _rawCost: null,
+      priceCapNote: "",
       dogName: "", dogBreed: "", dogWeight: "",
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
       surveyBp2Due: "", surveyFinalDue: "", ownerTelegramId: "", ownerName: "",
@@ -272,6 +274,8 @@
     var soft = !!opts.soft;
     var fallback = opts.fallback != null ? opts.fallback : (price.coef || (card && card.coef) || PP_COEF_DEFAULT);
     var typed = String(raw == null ? "" : raw).trim();
+    /* До смены coef запоминаем сырьё по текущей указанной — иначе liveCalc/кап съедают пересчёт. */
+    if (view === "card" && card && card.sheet === "ПП") seedCardRawCostIfNeeded_();
     if (soft) {
       if (!typed) return false;
       if (/[.,]$/.test(typed)) return true;
@@ -392,6 +396,8 @@
     var val = it.val != null ? it.val : it.value;
     var mix = root.BoinyaCrumbMix;
     var body;
+    /* Состав на карточке — текстом; граммы правятся через +Позиция / deep.
+       Цена от coef обновляется отдельно (coefBlock на основной карточке). */
     var grams = view === "card" ? "" : lineGramHtml_(it, i, "cl-gqty");
     if (mix && mix.isCrumb(it) && mix.rowHtml) {
       body = '<div class="b-grow">' + mix.rowHtml(it, function (name) {
@@ -814,9 +820,11 @@
     }
     priceBits += basketBlock();
     if (c.sheet === "ПП") {
+      /* Коэффициент на основной карточке (не только в «Глубоком») — иначе смена M «не видна». */
+      priceBits += coefBlockHtml_(c.coef);
       priceBits += '<p class="b-lbl">Факт (расчёт)</p>' + field("cxFact", c.calcFactCost || c.factCost, "факт", "readonly");
       priceBits += '<p class="b-lbl">Указанная стоимость</p>' + field("cxStated", c.statedCost, "указанная");
-      priceBits += '<p class="b-note">' + esc(c.scheme === "RAW26" ? "схема сырьё×2.6" : "старая схема ×2.3+11+6N") + "</p>";
+      priceBits += '<p class="b-note" id="cxPriceCapNote">' + esc(c.priceCapNote || (c.scheme === "RAW26" ? "схема сырьё×coef + recover + 7.60×N" : "старая схема ×2.3+11+6N")) + "</p>";
       if (access && access.role === "owner") {
         priceBits += '<button type="button" class="b-btn b-btn--sec" data-act="cl-econ" style="margin-top:8px">Экономика</button>';
       }
@@ -848,7 +856,9 @@
 
   function deepHtml() {
     var coef = view === "card" ? card.coef : price.coef;
-    var html = '<article class="b-card" style="margin-top:8px">' + coefBlockHtml_(coef);
+    /* На карточке ПП coef уже в основном блоке — в deep не дублируем (два #cxCoef ломают ввод). */
+    var html = '<article class="b-card" style="margin-top:8px">';
+    if (!(view === "card" && card && card.sheet === "ПП")) html += coefBlockHtml_(coef);
     html += '<p class="b-lbl">Пакеты У1–УП4</p>';
     var pc = (view === "card" ? card.packCounts : null) || { u1: price.packs.small, u2: price.packs.medium, u3: price.packs.large, up4: price.packs.legs };
     html += packsHtml("cxU", pc, [["u1", "У1"], ["u2", "У2"], ["u3", "У3"], ["up4", "УП4"]]);
@@ -1086,7 +1096,12 @@
     if (k === "cxBreed" && card) card.dogBreed = v;
     if (k === "cxWeight" && card) card.dogWeight = v;
     if (k === "cxSubId" && card) card.subId = v;
-    if (k === "cxN" && card) { card.deliveries = v; paintDelivLine(v); scheduleCardPpRecalc_(); }
+    if (k === "cxN" && card) {
+      if (card.sheet === "ПП") seedCardRawCostIfNeeded_();
+      card.deliveries = v;
+      paintDelivLine(v);
+      scheduleCardPpRecalc_();
+    }
     if (k === "cxStatus" && card) card.status = v;
     if (k === "cxWishes" && card) card.wishes = v;
     if (k === "cxAddress" && card) { card.addrStreet = v; joinAddr(); }
@@ -1147,11 +1162,13 @@
     }
     if (k.indexOf("cxF") === 0) {
       var fk = k.slice(3);
+      if (view === "card" && card && card.sheet === "ПП") seedCardRawCostIfNeeded_();
       price.fracs[fk] = Number(v);
       if (card) { card.fracs = card.fracs || Object.assign({}, price.fracs); card.fracs[fk] = Number(v); }
       schedulePpMessage();
     }
     if (k.indexOf("cxU") === 0 && card) {
+      if (card.sheet === "ПП") seedCardRawCostIfNeeded_();
       card.packCounts[k.slice(3)] = Number(v) || 0;
       scheduleCardPpRecalc_();
     }
@@ -1374,11 +1391,21 @@
     card.priceDirty = true;
   }
 
-  function scheduleCardPpRecalc_() {
+  function scheduleCardPpRecalc_(opts) {
+    opts = opts || {};
     if (!(view === "card" && card && card.sheet === "ПП")) return;
+    if (opts.basketChanged) card._rawCost = null;
     markCardPriceDirty_();
     clearTimeout(cardPriceTimer);
-    cardPriceTimer = setTimeout(function () { refreshCardPpPrice_(); }, 280);
+    /* force: true — не пропускать, если предыдущий async уже сбросил priceDirty. */
+    cardPriceTimer = setTimeout(function () { refreshCardPpPrice_({ force: true }); }, 120);
+    /* Синхронно только если есть кэш сырья (coef/пакеты/N). Состав → ждём liveCalc. */
+    if (!opts.basketChanged) {
+      try { seedCardRawCostIfNeeded_(); } catch (eSeed) {}
+      if (Number(card._rawCost) > 0) {
+        try { applyCardPpQuoteLocal_({ overwriteStated: true }); } catch (eSync) {}
+      }
+    }
   }
 
   function paintCardPriceFields_() {
@@ -1387,19 +1414,66 @@
     if (factEl) factEl.value = card.calcFactCost != null && card.calcFactCost !== "" ? String(card.calcFactCost) : "";
     var stEl = document.getElementById("cxStated");
     if (stEl) stEl.value = card.statedCost != null && card.statedCost !== "" ? String(card.statedCost) : "";
+    var noteEl = document.getElementById("cxPriceCapNote");
+    if (noteEl) {
+      noteEl.textContent = card.priceCapNote || (
+        card.scheme === "RAW26" ? "схема сырьё×coef + recover + 7.60×N" : "старая схема ×2.3+11+6N"
+      );
+    }
+  }
+
+  function cardBasketList_() {
+    /* Как econ(): себес одной доставки; N учитывается формулой (+7.60×N), не суммой двух слотов. */
+    return card ? (card.basket || []).slice() : [];
   }
 
   /**
-   * Пересчёт fact/указанной по RAW26 (live calcPrice + quotePp).
-   * Не вызывать при одном только открытии карточки — иначе массово перепишет старые цены.
+   * Инверсия сырьё S из указанной по uncapped-формуле.
+   * Старые карточки часто выше сегодняшнего 0.92×R — кап при инверсии не стопим,
+   * иначе seed не срабатывает и UI снова «заморожен» до liveCalc.
    */
-  async function refreshCardPpPrice_(opts) {
+  function invertCardRawCost_(stated, coef, nDel, list, packagesByn, fracRatesOpt) {
+    var st = Number(String(stated == null ? "" : stated).replace(",", "."));
+    var m = Number(String(coef == null ? "" : coef).replace(",", "."));
+    if (!(st > 0) || !(m > 0)) return 0;
+    var n = monthN(nDel);
+    var recover = P().recoverBynFromBasketLocal_(list || []) || 0;
+    var frac = 0;
+    try {
+      frac = Number(P().calcDressuraFractionMarkup(list || [], fracRatesOpt || fracRates()).total) || 0;
+    } catch (eF) { frac = 0; }
+    var packs = Number(packagesByn) || 0;
+    var delivery = 7.60 * n;
+    var rest = st - recover - delivery - packs - frac;
+    if (!(rest > 0)) return 0;
+    return Math.round((rest / m) * 100) / 100;
+  }
+
+  function seedCardRawCostIfNeeded_() {
+    if (!(card && card.sheet === "ПП")) return;
+    if (Number(card._rawCost) > 0) return;
+    var list = cardBasketList_();
+    if (!list.length) return;
+    var pc = card.packCounts || {};
+    var packsByn = P().packagesBynFromUCountsLocal_(pc);
+    var inv = invertCardRawCost_(
+      card.statedCost || card.calcFactCost,
+      card.coef,
+      card.deliveries,
+      list,
+      packsByn,
+      card.fracs || fracRates()
+    );
+    if (inv > 0) card._rawCost = inv;
+  }
+
+  function applyCardPpQuoteLocal_(opts) {
     opts = opts || {};
     if (!(card && card.sheet === "ПП")) return null;
-    if (!opts.force && !card.priceDirty) return null;
     var list = cardBasketList_();
     if (!list.length) {
       card.calcFactCost = "";
+      card.priceCapNote = "";
       if (opts.overwriteStated !== false) {
         card.statedCost = "";
         card.statedTouched = false;
@@ -1407,14 +1481,13 @@
       paintCardPriceFields_();
       return null;
     }
-    var seq = ++cardPriceSeq;
     var nDel = monthN((document.getElementById("cxN") || {}).value || card.deliveries || 1);
     card.deliveries = String(nDel);
     var scheme = card.scheme || "RAW26";
     var coef = card.coef;
-    var res = await liveCalc(list, { scheme: scheme, coef: coef, deliveriesN: nDel, forNew: 0 });
-    if (seq !== cardPriceSeq) return null;
-    var cost = res ? P().recalcPpCostSum(res, list) : 0;
+    var cost = Number(card._rawCost) || 0;
+    /* Без сырья не затираем указанную «голым» recover — ждём liveCalc. */
+    if (!(cost > 0) && opts.allowZeroCost !== true) return null;
     var pc = card.packCounts || {};
     var packagesByn = P().packagesBynFromUCountsLocal_(pc);
     var q = P().quotePp({
@@ -1426,12 +1499,88 @@
       packagesByn: packagesByn,
       fracRates: card.fracs || fracRates()
     });
-    if (seq !== cardPriceSeq) return null;
     var total = Math.round(Number(q.total) * 100) / 100;
     if (!(total > 0) && !(cost > 0)) return null;
     card.calcFactCost = total > 0 ? total : "";
     card.econ = q.fact || null;
-    /* Любое прайсовое изменение владельца → указанная = новый факт (без ручного «заморозить»). */
+    if (q.fact && q.fact.retailCapped) {
+      card.priceCapNote = "потолок 92% розницы — coef/пакеты не двигают цену, пока сумма выше капа; меняйте граммы/состав";
+    } else if (scheme === "RAW26") {
+      card.priceCapNote = "схема сырьё×coef + recover + 7.60×N";
+    } else {
+      card.priceCapNote = "старая схема ×2.3+11+6N";
+    }
+    if (opts.overwriteStated !== false) {
+      card.statedCost = total > 0 ? total : "";
+      card.statedTouched = false;
+    }
+    paintCardPriceFields_();
+    return q;
+  }
+
+  /**
+   * Пересчёт fact/указанной по RAW26: сразу локально (кэш/_rawCost), затем уточнение live calcPrice.
+   * Не вызывать при одном только открытии карточки — иначе массово перепишет старые цены.
+   */
+  async function refreshCardPpPrice_(opts) {
+    opts = opts || {};
+    if (!(card && card.sheet === "ПП")) return null;
+    if (!opts.force && !card.priceDirty) return null;
+    seedCardRawCostIfNeeded_();
+    var list = cardBasketList_();
+    if (!list.length) {
+      card.calcFactCost = "";
+      card._rawCost = null;
+      card.priceCapNote = "";
+      if (opts.overwriteStated !== false) {
+        card.statedCost = "";
+        card.statedTouched = false;
+      }
+      paintCardPriceFields_();
+      card.priceDirty = false;
+      return null;
+    }
+    var seq = ++cardPriceSeq;
+    var localQ = applyCardPpQuoteLocal_({ overwriteStated: opts.overwriteStated });
+    var nDel = monthN((document.getElementById("cxN") || {}).value || card.deliveries || 1);
+    card.deliveries = String(nDel);
+    var scheme = card.scheme || "RAW26";
+    var coef = card.coef;
+    var res = null;
+    try {
+      res = await liveCalc(list, { scheme: scheme, coef: coef, deliveriesN: nDel, forNew: 0 });
+    } catch (eLive) { res = null; }
+    if (seq !== cardPriceSeq) return localQ;
+    var cost = res ? P().recalcPpCostSum(res, list) : 0;
+    if (cost > 0) card._rawCost = cost;
+    else if (!(Number(card._rawCost) > 0)) cost = 0;
+    else cost = Number(card._rawCost);
+    var pc = card.packCounts || {};
+    var packagesByn = P().packagesBynFromUCountsLocal_(pc);
+    var q = P().quotePp({
+      scheme: scheme,
+      coef: coef,
+      deliveriesN: nDel,
+      costSum: cost,
+      list: list,
+      packagesByn: packagesByn,
+      fracRates: card.fracs || fracRates()
+    });
+    if (seq !== cardPriceSeq) return localQ;
+    var total = Math.round(Number(q.total) * 100) / 100;
+    if (!(total > 0) && !(cost > 0)) {
+      card.priceDirty = false;
+      return localQ;
+    }
+    card.calcFactCost = total > 0 ? total : "";
+    card.econ = q.fact || null;
+    if (q.fact && q.fact.retailCapped) {
+      card.priceCapNote = "потолок 92% розницы — coef/пакеты не двигают цену, пока сумма выше капа; меняйте граммы/состав";
+    } else if (scheme === "RAW26") {
+      card.priceCapNote = "схема сырьё×coef + recover + 7.60×N";
+    } else {
+      card.priceCapNote = "старая схема ×2.3+11+6N";
+    }
     if (opts.overwriteStated !== false) {
       card.statedCost = total > 0 ? total : "";
       card.statedTouched = false;
@@ -1439,11 +1588,6 @@
     card.priceDirty = false;
     paintCardPriceFields_();
     return q;
-  }
-
-  function cardBasketList_() {
-    /* Как econ(): себес одной доставки; N учитывается формулой (+7.60×N), не суммой двух слотов. */
-    return card ? (card.basket || []).slice() : [];
   }
 
   function paintMessage(text) {
@@ -1595,7 +1739,8 @@
     crumbDraft = null;
     sh().closeTop("ok");
     paint();
-    schedulePpMessage();
+    if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
+    else schedulePpMessage();
   }
 
   function previewCardFromList(nick, subId, sheet) {
@@ -1975,7 +2120,11 @@
     var parsed = root.BoinyaOrders.parseGramText_(node.value);
     if (parsed.n) {
       writeLineGrams_(it, parsed.n);
-      if (kind === "cl-gqty-in" && (seg === "calc" || view === "card")) schedulePpMessage();
+      if (kind === "cl-gqty-in" && view === "card" && card && card.sheet === "ПП") {
+        scheduleCardPpRecalc_({ basketChanged: true });
+      } else if (kind === "cl-gqty-in" && (seg === "calc" || view === "card")) {
+        schedulePpMessage();
+      }
     } else if (commit) {
       sh().toast(parsed.bad === "frac" ? "Только целые граммы" : "Нужны граммы");
       node.value = String(it.val != null ? it.val : (it.value || ""));
@@ -1997,7 +2146,8 @@
     if (fromPick) paintPick();
     else {
       paint();
-      if (seg === "calc" || view === "card") schedulePpMessage();
+      if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
+      else if (seg === "calc" || view === "card") schedulePpMessage();
     }
   }
 
@@ -2089,6 +2239,7 @@
     if (act === "cl-deep") { deep = !deep; paint(); return true; }
     if (act === "cl-coef") {
       applyPpCoef_(node.getAttribute("data-v"), { soft: false, fallback: PP_COEF_DEFAULT });
+      /* schedule уже сделал локальный quote в card.statedCost — paint покажет новую цену сразу. */
       paint();
       return true;
     }
@@ -2138,7 +2289,8 @@
       list.splice(Number(node.getAttribute("data-i")), 1);
       setActiveBasket(list);
       paint();
-      schedulePpMessage();
+      if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
+      else schedulePpMessage();
       return true;
     }
     if (act === "cl-clear") {
@@ -2148,7 +2300,8 @@
         price.message = "";
       }
       paint();
-      if (view === "card" || seg === "calc") schedulePpMessage();
+      if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
+      else if (view === "card" || seg === "calc") schedulePpMessage();
       return true;
     }
     if (act === "cl-save") { saveCard(); return true; }
@@ -2365,7 +2518,8 @@
     setActiveBasket(list);
     sh().closeTop("ok");
     paint();
-    schedulePpMessage();
+    if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
+    else schedulePpMessage();
   }
 
   async function delCard() {
