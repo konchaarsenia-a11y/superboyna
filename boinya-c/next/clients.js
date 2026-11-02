@@ -820,6 +820,8 @@
     }
     priceBits += basketBlock();
     if (c.sheet === "ПП") {
+      /* Коэффициент на основной карточке (не только в «Глубоком») — иначе смена M «не видна». */
+      priceBits += coefBlockHtml_(c.coef);
       priceBits += '<p class="b-lbl">Факт (расчёт)</p>' + field("cxFact", c.calcFactCost || c.factCost, "факт", "readonly");
       priceBits += '<p class="b-lbl">Указанная стоимость</p>' + field("cxStated", c.statedCost, "указанная");
       priceBits += '<p class="b-note" id="cxPriceCapNote">' + esc(c.priceCapNote || (c.scheme === "RAW26" ? "схема сырьё×coef + recover + 7.60×N" : "старая схема ×2.3+11+6N")) + "</p>";
@@ -854,7 +856,9 @@
 
   function deepHtml() {
     var coef = view === "card" ? card.coef : price.coef;
-    var html = '<article class="b-card" style="margin-top:8px">' + coefBlockHtml_(coef);
+    /* На карточке ПП coef уже в основном блоке — в deep не дублируем (два #cxCoef ломают ввод). */
+    var html = '<article class="b-card" style="margin-top:8px">';
+    if (!(view === "card" && card && card.sheet === "ПП")) html += coefBlockHtml_(coef);
     html += '<p class="b-lbl">Пакеты У1–УП4</p>';
     var pc = (view === "card" ? card.packCounts : null) || { u1: price.packs.small, u2: price.packs.medium, u3: price.packs.large, up4: price.packs.legs };
     html += packsHtml("cxU", pc, [["u1", "У1"], ["u2", "У2"], ["u3", "У3"], ["up4", "УП4"]]);

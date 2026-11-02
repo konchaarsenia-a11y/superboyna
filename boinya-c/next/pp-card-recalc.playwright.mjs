@@ -167,8 +167,10 @@ async function openPpCard(page) {
   await page.getByRole("button", { name: /zzz_test/ }).first().click();
   await page.getByRole("button", { name: "Сохранить" }).waitFor({ timeout: 15000 });
   await page.waitForSelector("#cxStated", { timeout: 10000 });
-  await page.getByRole("button", { name: "Глубокий редактор" }).click();
+  /* Coef на основной карточке — без «Глубокого редактора». */
   await page.waitForSelector('[data-act="cl-coef"]', { timeout: 10000 });
+  const deepVisible = await page.getByRole("button", { name: "Глубокий редактор" }).count();
+  if (!deepVisible) throw new Error("expected collapsed deep editor on main card");
 }
 
 async function runCase(name, failCalc) {
