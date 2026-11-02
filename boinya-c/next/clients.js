@@ -1427,13 +1427,21 @@
     return card ? (card.basket || []).slice() : [];
   }
 
+  /** Указанная/факт > 0; строки «0» / 0 с листа — как пусто (нельзя инвертировать сырьё). */
+  function ppPositiveMoney_(v) {
+    var n = Number(String(v == null ? "" : v).replace(",", ".").replace(/\s/g, ""));
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+
   /**
    * Инверсия сырьё S из указанной по uncapped-формуле.
    * Старые карточки часто выше сегодняшнего 0.92×R — кап при инверсии не стопим,
    * иначе seed не срабатывает и UI снова «заморожен» до liveCalc.
+   * Отравленный stated ≈ recover+доставка+пакеты (после liveCalc с cost=0) не сидим —
+   * иначе coef «заморожен» на ~56.
    */
   function invertCardRawCost_(stated, coef, nDel, list, packagesByn, fracRatesOpt) {
-    var st = Number(String(stated == null ? "" : stated).replace(",", "."));
+    var st = ppPositiveMoney_(stated);
     var m = Number(String(coef == null ? "" : coef).replace(",", "."));
     if (!(st > 0) || !(m > 0)) return 0;
     var n = monthN(nDel);
@@ -1444,8 +1452,11 @@
     } catch (eF) { frac = 0; }
     var packs = Number(packagesByn) || 0;
     var delivery = 7.60 * n;
-    var rest = st - recover - delivery - packs - frac;
+    var fixed = recover + delivery + packs + frac;
+    var rest = st - fixed;
     if (!(rest > 0)) return 0;
+    /* Сырьё×coef должно быть заметной долей цены; иначе это recover-only яд. */
+    if (fixed > 0 && rest < fixed * 0.35) return 0;
     return Math.round((rest / m) * 100) / 100;
   }
 
@@ -1456,8 +1467,12 @@
     if (!list.length) return;
     var pc = card.packCounts || {};
     var packsByn = P().packagesBynFromUCountsLocal_(pc);
+    var statedSeed = ppPositiveMoney_(card.statedCost)
+      ? card.statedCost
+      : (ppPositiveMoney_(card.calcFactCost) ? card.calcFactCost : "");
+    if (!ppPositiveMoney_(statedSeed)) return;
     var inv = invertCardRawCost_(
-      card.statedCost || card.calcFactCost,
+      statedSeed,
       card.coef,
       card.deliveries,
       list,
@@ -1465,6 +1480,36 @@
       card.fracs || fracRates()
     );
     if (inv > 0) card._rawCost = inv;
+  }
+
+  /**
+   * Тихо подтянуть сырьё с liveCalc при открытии карточки — без перезаписи указанной.
+   * Нужно когда на листе stated/fact = 0: иначе invert не сидит _rawCost и coef «не двигает цену».
+   */
+  async function seedCardRawFromLiveQuiet_() {
+    if (!(card && card.sheet === "ПП")) return;
+    if (Number(card._rawCost) > 0) return;
+    var list = cardBasketList_();
+    if (!list.length) return;
+    var gen = cardOpenGen;
+    var nick = card.nick;
+    var res = null;
+    try {
+      res = await liveCalc(list, {
+        scheme: card.scheme || "RAW26",
+        coef: card.coef,
+        deliveriesN: card.deliveries,
+        forNew: 0
+      });
+    } catch (eLive) { res = null; }
+    if (gen !== cardOpenGen || !card || card.nick !== nick) return;
+    if (Number(card._rawCost) > 0) return;
+    var cost = 0;
+    if (res) {
+      cost = P().recalcPpCostSum(res, list) || 0;
+      if (!(cost > 0)) cost = Number(res.rawCost != null ? res.rawCost : res.cost) || 0;
+    }
+    if (cost > 0) card._rawCost = cost;
   }
 
   function applyCardPpQuoteLocal_(opts) {
@@ -1521,6 +1566,7 @@
   /**
    * Пересчёт fact/указанной по RAW26: сразу локально (кэш/_rawCost), затем уточнение live calcPrice.
    * Не вызывать при одном только открытии карточки — иначе массово перепишет старые цены.
+   * Без сырья (cost=0) указанную не трогаем: иначе recover+пакеты (~56) «замораживают» coef.
    */
   async function refreshCardPpPrice_(opts) {
     opts = opts || {};
@@ -1551,10 +1597,17 @@
       res = await liveCalc(list, { scheme: scheme, coef: coef, deliveriesN: nDel, forNew: 0 });
     } catch (eLive) { res = null; }
     if (seq !== cardPriceSeq) return localQ;
-    var cost = res ? P().recalcPpCostSum(res, list) : 0;
+    var cost = 0;
+    if (res) {
+      cost = P().recalcPpCostSum(res, list) || 0;
+      if (!(cost > 0)) cost = Number(res.rawCost != null ? res.rawCost : res.cost) || 0;
+    }
     if (cost > 0) card._rawCost = cost;
-    else if (!(Number(card._rawCost) > 0)) cost = 0;
-    else cost = Number(card._rawCost);
+    else if (Number(card._rawCost) > 0) cost = Number(card._rawCost);
+    else {
+      /* Нет сырья — не пишем recover-only в указанную (яд для следующих coef). */
+      return localQ;
+    }
     var pc = card.packCounts || {};
     var packagesByn = P().packagesBynFromUCountsLocal_(pc);
     var q = P().quotePp({
@@ -1852,11 +1905,18 @@
     card.calcFactCost = res.calcFactCost || res.factCost || "";
     card.fracs = Object.assign({}, price.fracs);
     if (!card.packCounts) card.packCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
+    card._rawCost = null;
+    card.priceDirty = false;
     view = "card";
     deep = false;
     sh().resetScroll();
     sh().hideToast();
     paint();
+    /* Сырьё в кэш без смены указанной — иначе coef на нулевой цене с листа «не едет». */
+    if (card.sheet === "ПП" && (card.basket || []).length) {
+      seedCardRawCostIfNeeded_();
+      seedCardRawFromLiveQuiet_().catch(function () {});
+    }
     loadPeople().then(function () {
       if (gen !== cardOpenGen) return;
       if (view === "card" && card) paint();
