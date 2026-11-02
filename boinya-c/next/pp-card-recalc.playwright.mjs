@@ -245,11 +245,100 @@ async function runCase(name, failCalc) {
   };
 }
 
+async function runZeroStatedFailCalc() {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(function () {
+    window.Telegram = {
+      WebApp: {
+        initData: "query_id=test&user=" + encodeURIComponent(JSON.stringify({ id: 4242, first_name: "Арсений" })),
+        initDataUnsafe: { user: { id: 4242, first_name: "Арсений" } },
+        ready() {}, expand() {}, openLink() {}
+      }
+    };
+    window.__PP_RECALC_PROBE__ = { calcCalls: [] };
+    window.__NEXT_API_HOOK__ = function (params) {
+      var a = String((params && params.action) || "");
+      if (a === "getMyAccess") return { status: "success", role: "owner", name: "Арсений" };
+      if (a === "getWeekDayCounts") {
+        return { status: "success", items: [{ day: "Среда", short: "Ср", count: 1, date: "30.09.2026" }] };
+      }
+      if (a === "listDeferred" || a === "listBpIdle") return { status: "success", items: [], idle: [] };
+      if (a === "getWeekBannerState") return { status: "success", finished: false, pulled: false };
+      if (a === "unlockSubs") return { status: "success", unlocked: true };
+      if (a === "listSubscriptions") {
+        return {
+          status: "success",
+          subscriptions: [{
+            nick: "zzz_zero", label: "zzz_zero", sheet: "ПП", status: "Дом", subId: "s-zero",
+            deliveries: 1, statedCost: "0", factCost: "0", scheme: "RAW26", coef: "2.6",
+            wishes: "[COEF:2.6] [SCHEME:RAW26]",
+            basket: [
+              { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 500 },
+              { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", val: 2 }
+            ],
+            packCounts: { u1: 0, u2: 0, u3: 8, up4: 2 }
+          }]
+        };
+      }
+      if (a === "getSubscription") {
+        return {
+          status: "success", found: true, nick: "zzz_zero", label: "zzz_zero", sheet: "ПП",
+          subId: "s-zero", deliveries: 1, ppStatus: "Дом", wishes: "[COEF:2.6] [SCHEME:RAW26]",
+          statedCost: "0", factCost: "0", calcFactCost: "0", scheme: "RAW26", ppScheme: "RAW26",
+          coef: "2.6",
+          basket: [
+            { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 500 },
+            { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", val: 2 }
+          ],
+          packCounts: { u1: 0, u2: 0, u3: 8, up4: 2 }
+        };
+      }
+      if (a === "listAccess") return { status: "success", people: [{ telegramId: "4242", name: "Арсений", role: "owner" }] };
+      if (a === "calcPrice") {
+        window.__PP_RECALC_PROBE__.calcCalls.push({ fail: true, coef: params.coef });
+        return { status: "error", message: "auth_required" };
+      }
+      if (a === "getRetailPriceList") return { status: "success", items: [], delivery: { fee: 9, freeFrom: 80 } };
+      return { status: "success" };
+    };
+  });
+  const page = await context.newPage();
+  await page.goto("http://127.0.0.1:" + PORT + "/next.html?as=owner&tab=clients&seg=pp", { waitUntil: "domcontentloaded" });
+  await wait(600);
+  await page.getByRole("button", { name: "Клиенты" }).click();
+  await page.getByText("zzz_zero").first().waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: /zzz_zero/ }).first().click();
+  await page.getByRole("button", { name: "Сохранить" }).waitFor({ timeout: 15000 });
+  await page.waitForSelector("#cxStated", { timeout: 10000 });
+  const before = await page.locator("#cxStated").inputValue();
+  await page.locator('[data-act="cl-coef"][data-v="2.6"]').click();
+  await wait(1500);
+  const afterChip = await page.locator("#cxStated").inputValue();
+  await page.locator("#cxCoef").fill("3");
+  await page.locator("#cxCoef").dispatchEvent("change");
+  await wait(1500);
+  const after3 = await page.locator("#cxStated").inputValue();
+  await page.locator('[data-act="cl-coef"][data-v="2.5"]').click();
+  await wait(1500);
+  const after25 = await page.locator("#cxStated").inputValue();
+  await page.screenshot({ path: path.join(outDir, "pp-recalc-zero-fail.png"), fullPage: true });
+  await browser.close();
+  return {
+    name: "zero-stated-calc-fail",
+    before, afterChip, after3, after25,
+    /* Нельзя травить recover-only (~56) и «замораживать» coef. */
+    noPoison: afterChip === "0" || afterChip === "" || Number(afterChip) === 0,
+    frozenWrong: Number(afterChip) > 40 && afterChip === after3 && after3 === after25
+  };
+}
+
 await ready();
 const results = [];
 try {
   results.push(await runCase("calc-ok", false));
   results.push(await runCase("calc-fail", true));
+  results.push(await runZeroStatedFailCalc());
 } finally {
   try {
     server.kill("SIGTERM");
@@ -265,5 +354,9 @@ if (!results[0] || !results[0].coefChangedQuick) {
 }
 if (!results[1] || !results[1].coefChangedQuick) {
   console.error("FAIL: coef chip must work even when calcPrice fails (local seed)");
+  process.exitCode = 2;
+}
+if (!results[2] || !results[2].noPoison || results[2].frozenWrong) {
+  console.error("FAIL: zero-stated + failed calc must not poison/freeze stated at recover-only");
   process.exitCode = 2;
 }
