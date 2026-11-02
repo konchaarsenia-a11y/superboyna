@@ -24157,7 +24157,9 @@
       var def = scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
       var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
       if (!isFinite(v) || v <= 0) v = def;
-      return v;
+      if (v < 1) v = 1;
+      if (v > 5) v = 5;
+      return Math.round(v * 1000) / 1000;
     }
 
     function applySubDetailFact_(factCost, hintText) {
@@ -25582,9 +25584,11 @@
     function getPricePpCoef() {
       var el = document.getElementById("pricePpCoef");
       var def = pricePpScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PRICE_PP_COEF_DEFAULT;
-      var v = el ? Number(el.value) : def;
+      var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
       if (!isFinite(v) || v <= 0) v = def;
-      return v;
+      if (v < 1) v = 1;
+      if (v > 5) v = 5;
+      return Math.round(v * 1000) / 1000;
     }
 
     function syncPricePpSchemeDefaults_() {

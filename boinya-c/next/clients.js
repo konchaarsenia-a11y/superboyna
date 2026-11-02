@@ -237,6 +237,75 @@
     if (line) line.textContent = delivLine(raw);
   }
 
+  var PP_COEF_PRESETS = ["2.0", "2.3", "2.5", "2.6"];
+  var PP_COEF_MIN = 1;
+  var PP_COEF_MAX = 5;
+
+  /** Любой коэффициент 1–5; точка или запятая. */
+  function parsePpCoefInput_(raw, fallback) {
+    var fb = Number(String(fallback != null ? fallback : "2.6").replace(",", "."));
+    if (!isFinite(fb) || fb <= 0) fb = 2.6;
+    var s = String(raw == null ? "" : raw).trim().replace(",", ".");
+    var v = Number(s);
+    if (!isFinite(v) || v <= 0) v = fb;
+    if (v < PP_COEF_MIN) v = PP_COEF_MIN;
+    if (v > PP_COEF_MAX) v = PP_COEF_MAX;
+    return String(Math.round(v * 1000) / 1000);
+  }
+
+  function coefMatchesPreset_(coef, preset) {
+    var a = Number(String(coef || "").replace(",", "."));
+    var b = Number(preset);
+    return isFinite(a) && isFinite(b) && Math.abs(a - b) < 0.0005;
+  }
+
+  function applyPpCoef_(raw, opts) {
+    opts = opts || {};
+    var soft = !!opts.soft;
+    var fallback = opts.fallback != null ? opts.fallback : (price.coef || (card && card.coef) || "2.6");
+    var typed = String(raw == null ? "" : raw).trim();
+    if (soft) {
+      if (!typed) return false;
+      if (/[.,]$/.test(typed)) return true;
+      var softN = Number(typed.replace(",", "."));
+      if (!isFinite(softN) || softN <= 0) return false;
+      if (softN < PP_COEF_MIN || softN > PP_COEF_MAX) return true;
+      var softNext = String(Math.round(softN * 1000) / 1000);
+      price.coef = softNext;
+      if (softN === 2.6) price.scheme = "RAW26";
+      if (card) {
+        card.coef = softNext;
+        if (softN === 2.6) card.scheme = "RAW26";
+      }
+      schedulePpMessage();
+      return true;
+    }
+    var next = parsePpCoefInput_(typed, fallback);
+    var before = Number(String(typed).replace(",", "."));
+    if (isFinite(before) && before > 0 && (before < PP_COEF_MIN || before > PP_COEF_MAX)) {
+      sh().toast("Коэффициент от 1 до 5");
+    }
+    price.coef = next;
+    if (Number(next) === 2.6) price.scheme = "RAW26";
+    if (card) {
+      card.coef = next;
+      if (Number(next) === 2.6) card.scheme = "RAW26";
+    }
+    schedulePpMessage();
+    return true;
+  }
+
+  function coefBlockHtml_(coef) {
+    var html = '<p class="b-lbl">Коэффициент</p><div class="b-row">';
+    PP_COEF_PRESETS.forEach(function (v) {
+      html += '<button type="button" class="b-chip' + (coefMatchesPreset_(coef, v) ? " b-chip--on" : "") + '" data-act="cl-coef" data-v="' + v + '">' + v + "</button>";
+    });
+    html += "</div>";
+    html += field("cxCoef", coef, "свой, напр. 2.4", 'inputmode="decimal"');
+    html += '<p class="b-note">Свой: от 1 до 5, точка или запятая. Заготовки сверху — быстрый выбор.</p>';
+    return html;
+  }
+
   function field(id, value, placeholder, extra) {
     return '<label class="b-field"><input class="b-field__input" id="' + id + '" data-k="' + id + '" value="' + esc(value || "") + '" placeholder="' + esc(placeholder || "") + '" ' + (extra || "") + "></label>";
   }
@@ -768,11 +837,7 @@
 
   function deepHtml() {
     var coef = view === "card" ? card.coef : price.coef;
-    var html = '<article class="b-card" style="margin-top:8px"><p class="b-lbl">Коэффициент</p><div class="b-row">';
-    ["2.0", "2.3", "2.5", "2.6"].forEach(function (v) {
-      html += '<button type="button" class="b-chip' + (String(coef) === v ? " b-chip--on" : "") + '" data-act="cl-coef" data-v="' + v + '">' + v + "</button>";
-    });
-    html += "</div>";
+    var html = '<article class="b-card" style="margin-top:8px">' + coefBlockHtml_(coef);
     html += '<p class="b-lbl">Пакеты У1–УП4</p>';
     var pc = (view === "card" ? card.packCounts : null) || { u1: price.packs.small, u2: price.packs.medium, u3: price.packs.large, up4: price.packs.legs };
     html += packsHtml("cxU", pc, [["u1", "У1"], ["u2", "У2"], ["u3", "У3"], ["up4", "УП4"]]);
@@ -829,11 +894,7 @@
           '<button type="button" class="b-seg__item' + (price.slot === 1 ? " b-seg__item--on" : "") + '" data-act="cl-pslot" data-n="1">1</button>' +
           '<button type="button" class="b-seg__item' + (price.slot === 2 ? " b-seg__item--on" : "") + '" data-act="cl-pslot" data-n="2">2</button></div>';
       }
-      html += '<p class="b-lbl">Коэффициент</p><div class="b-row">';
-      ["2.0", "2.3", "2.5", "2.6"].forEach(function (v) {
-        html += '<button type="button" class="b-chip' + (String(price.coef) === v ? " b-chip--on" : "") + '" data-act="cl-coef" data-v="' + v + '">' + v + "</button>";
-      });
-      html += "</div>";
+      html += coefBlockHtml_(price.coef);
       html += '<p class="b-lbl">Наценка фракций</p>' + fracHtml("cxF", price.fracs);
       html += '<p class="b-lbl">Пакеты <span class="b-note" data-pack-byn>' + esc(rubShort_(packagesBynNow())) + " р в цене</span></p>" + packsHtml("cxP", price.packs, [["small", "мал"], ["medium", "ср"], ["large", "бол"], ["legs", "ножк"]]);
       html += '<button type="button" class="b-btn b-btn--sec" data-act="cl-repack" style="margin-top:8px">Пересчитать пакеты</button>';
@@ -988,7 +1049,8 @@
     }
   }
 
-  function readNode(node) {
+  function readNode(node, opts) {
+    opts = opts || {};
     if (!node || !node.getAttribute) return false;
     var k = node.getAttribute("data-k") || "";
     if (!k) return false;
@@ -1028,6 +1090,18 @@
     if (k === "cxOwner" && card) card.ownerTelegramId = v;
     if (k === "cxDogName") price.dogNames[price.activeDog] = v;
     if (k === "cxDelN") { price.deliveriesN = monthN(v); paintDelivLine(v); schedulePpMessage(); }
+    if (k === "cxCoef") {
+      /* soft: true на input (черновик), false на change/blur (кламп 1–5 и пересчёт) */
+      applyPpCoef_(v, {
+        soft: !!opts.soft,
+        fallback: price.coef || (card && card.coef) || "2.6"
+      });
+      if (!opts.soft) {
+        var elCoef = document.getElementById("cxCoef");
+        if (elCoef) elCoef.value = String(price.coef || "");
+        paint();
+      }
+    }
     if (k === "cxNote") {
       var prevNote = price.note;
       price.note = v;
@@ -1845,7 +1919,7 @@
         applyClientGrams_(node, act === "change");
         return true;
       }
-      return readNode(node);
+      return readNode(node, { soft: act === "input" });
     }
     if (!node || String(act || "").indexOf("cl-") !== 0 && act !== "cseg") {
       if (act !== "cl-open") return false;
@@ -1891,12 +1965,8 @@
     if (act === "cl-slot") { if (card) card.slot = Number(node.getAttribute("data-n")) || 1; paint(); return true; }
     if (act === "cl-deep") { deep = !deep; paint(); return true; }
     if (act === "cl-coef") {
-      var cv = node.getAttribute("data-v");
-      price.coef = cv;
-      price.scheme = cv === "2.6" ? "RAW26" : price.scheme;
-      if (card) { card.coef = cv; if (cv === "2.6") card.scheme = "RAW26"; }
+      applyPpCoef_(node.getAttribute("data-v"), { soft: false, fallback: "2.6" });
       paint();
-      schedulePpMessage();
       return true;
     }
     if (act === "cl-migrate") { migrateRaw(); return true; }
