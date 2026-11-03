@@ -59,6 +59,7 @@
       phone: "",
       address: "",
       entrance: "",
+      doorCode: "",
       floor: "",
       flat: "",
       deliveryDate: "",
@@ -77,6 +78,9 @@
       activeDog: 1,
       dogNames: { 1: "", 2: "" },
       notes: [],
+      notesLoaded: false,
+      notesEdited: false,
+      clearPermanent: false,
       deliveryMethod: null,
       postOffice: "",
       mailOn: false,
@@ -106,7 +110,7 @@
   }
 
   function blankPicker() {
-    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "meat", sources: [], open: false };
+    return { cat: "chew", q: "", name: "", sub: "", qty: 1, kind: "dress", sources: [], open: false };
   }
 
   function esc(s) { return sh().esc(s); }
@@ -181,11 +185,23 @@
     var mem = loadMemory();
     var key = nick.toUpperCase();
     var prev = mem[key] || {};
+    var perm = "";
+    try { perm = pay().permanentTagged(state.notes, eng()); } catch (ePerm) { perm = ""; }
+    var noteMem = prev.note || "";
+    if (state.notesLoaded || state.clearPermanent) noteMem = perm;
+    else if (perm) {
+      try { noteMem = pay().mergePermanentTagged(prev.note, perm, eng()); } catch (eMerge) { noteMem = perm; }
+    }
     mem[key] = {
       nick: nick,
       address: state.address || prev.address || "",
+      entrance: state.entrance || prev.entrance || "",
+      doorCode: state.doorCode || prev.doorCode || "",
+      floor: state.floor || prev.floor || "",
+      flat: state.flat || prev.flat || "",
+      dogNames: state.dogNames || prev.dogNames || null,
       phone: state.phone || prev.phone || "",
-      note: prev.note || "",
+      note: noteMem,
       basket: prev.basket || [],
       orderType: state.orderType,
       ppPartner: state.ppPartner || prev.ppPartner || "",
@@ -278,9 +294,17 @@
     return " nx-day-load--" + mark;
   }
 
+  function slotShown(it) {
+    var L = root.BoinyaWeekLogic;
+    if (L && L.slotDateCount) return L.slotDateCount(it);
+    if (!it || String(it.day || "") === "Будущая неделя") return null;
+    return isFinite(Number(it.count)) ? Number(it.count) : null;
+  }
+
   function dayMeta(dayName) {
     var it = weekItem(dayName);
-    var num = it && isFinite(Number(it.count)) ? Number(it.count) : null;
+    var shown = it ? slotShown(it) : null;
+    var num = shown == null ? null : shown;
     var dateIso = it ? isoFromAny(it.date) : "";
     var dom = dateIso ? Number(dateIso.slice(8, 10)) : "";
     var mon = dateIso ? MONTHS[Number(dateIso.slice(5, 7)) - 1] : "";
@@ -326,8 +350,9 @@
         '<span class="num">' + (m.num == null ? "" : esc(String(m.num))) + "</span></button>";
     });
     var fut = weekItem("Будущая неделя");
-    var futN = fut && isFinite(Number(fut.count)) ? String(fut.count) : "";
-    html += '<button type="button" class="sheet-act' + dayLoadCls(fut && fut.count) + '" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
+    var futShown = fut ? slotShown(fut) : null;
+    var futN = futShown == null ? "" : String(futShown);
+    html += '<button type="button" class="sheet-act' + dayLoadCls(futShown) + '" data-act="future">Будущая неделя <span class="num">' + esc(futN) + "</span></button>";
     html += '<button type="button" class="sheet-act" data-act="cal">Другая дата</button>';
     html += '<p class="b-note">Полный день от ' + FULL_FROM + " человек</p>";
     return html;
@@ -349,7 +374,10 @@
   }
 
   function numFullHint() {
-    return (week.items || []).some(function (it) { return Number(it && it.count) >= FULL_FROM; });
+    return (week.items || []).some(function (it) {
+      var n = slotShown(it);
+      return n != null && Number(n) >= FULL_FROM;
+    });
   }
 
   function itemGroup(it) {
@@ -521,7 +549,7 @@
       html += '<p class="kicker">Телефон</p>' + field("phone", state.phone, "+375", 'inputmode="tel"');
       html += '<button type="button" class="nx-link" data-act="fold-details">' + (folds.details ? "Скрыть подъезд" : "Подъезд и детали") + "</button>";
       if (folds.details) {
-        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
+        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("doorCode", state.doorCode, "код подъезда") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
       }
       html += '<p class="kicker">Почта</p><div class="b-row"><span class="b-grow b-note" style="margin:0">Отправка почтой</span><div class="b-seg" style="flex:none">' +
         segBtn("mail0", "Нет", !state.mailOn) + segBtn("mail1", "Да", !!state.mailOn) + "</div></div>";
@@ -748,9 +776,14 @@
     if (k !== "pq" && k.indexOf("noteItem") !== 0) persistDraft();
     if (k === "client") scheduleSuggest();
     if (k === "address") scheduleAddress();
-    if (k === "address" || k === "entrance" || k === "floor" || k === "flat") {
-      var parsed = eng().parseDeliveryAddress(state.address);
-      if (parsed && parsed.entrance && !state.entrance) state.entrance = parsed.entrance;
+    if (k === "address" && pay() && pay().absorbGluedAddress) {
+      var beforeAddr = state.address;
+      pay().absorbGluedAddress(state, eng());
+      if (state.address !== beforeAddr && node.value !== state.address) node.value = state.address;
+      ["entrance", "doorCode", "floor", "flat"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = state[id] || "";
+      });
     }
   }
 
@@ -765,7 +798,70 @@
     suggest = rows.slice(0, 6);
     paintSuggest();
     clearTimeout(priceTimer);
-    priceTimer = setTimeout(refreshPp, 400);
+    priceTimer = setTimeout(function () {
+      refreshPp();
+      pullPermanentNotes();
+    }, 400);
+  }
+
+  var permReq = 0;
+
+  function applyProfileNotes(raw) {
+    if (state.isEdit || state.notesEdited) return false;
+    var blocks = [];
+    try { blocks = eng().parseOrderNotes(raw) || []; } catch (e) { blocks = []; }
+    blocks = blocks.filter(function (n) { return n && n.permanent && String(n.text || "").trim(); });
+    if (!blocks.length) return false;
+    var have = {};
+    (state.notes || []).forEach(function (n) {
+      if (!n || !String(n.text || "").trim()) return;
+      have[String(n.text).trim() + "|" + String(n.itemKey || "").trim()] = 1;
+    });
+    var add = blocks.filter(function (n) {
+      return !have[String(n.text).trim() + "|" + String(n.itemKey || "").trim()];
+    });
+    if (!add.length) return false;
+    var kept = (state.notes || []).filter(function (n) { return n && String(n.text || "").trim(); });
+    state.notes = kept.concat(add);
+    return true;
+  }
+
+  function pullPermanentNotes() {
+    if (state.isEdit || state.notesEdited) return;
+    var nick = String(state.client || "").trim();
+    if (nick.length < 2) return;
+    var token = ++permReq;
+    var req = { action: "getClientPermanentNotes", nick: nick, _: String(Date.now()) };
+    if (state.orderType) req.orderType = state.orderType;
+    if (state.address) req.address = state.address;
+    api().apiGet(req, { timeoutMs: 12000, cacheTtlMs: 0 }).then(function (res) {
+      if (token !== permReq) return;
+      if (String(state.client || "").trim().toUpperCase() !== nick.toUpperCase()) return;
+      if (state.isEdit || state.notesEdited) return;
+      if (!res || res.status !== "success") return;
+      if (res.cleared) {
+        state.notesLoaded = true;
+        return;
+      }
+      if (res.note) {
+        applyProfileNotes(res.note);
+        state.notesLoaded = true;
+      } else {
+        var mem = loadMemory()[nick.toUpperCase()];
+        if (mem && mem.note) applyProfileNotes(mem.note);
+        if ((state.notes || []).some(function (n) { return n && n.permanent && String(n.text || "").trim(); })) {
+          state.notesLoaded = true;
+        }
+      }
+      if (!sh().sheetOpen()) paint();
+    }).catch(function () {
+      if (token !== permReq || state.isEdit || state.notesEdited) return;
+      var mem = loadMemory()[nick.toUpperCase()];
+      if (mem && mem.note && applyProfileNotes(mem.note)) {
+        state.notesLoaded = true;
+        if (!sh().sheetOpen()) paint();
+      }
+    });
   }
 
   async function refreshPp() {
@@ -789,6 +885,25 @@
     }
     if (!state.priceInput && (res.statedCost != null || res.factCost != null)) {
       state.priceInput = String(res.statedCost != null ? res.statedCost : res.factCost);
+    }
+    var filled = false;
+    if (res.cardMatch !== "ambiguous" && pay() && pay().fillEmptyContact) {
+      filled = pay().fillEmptyContact(state, {
+        address: res.cardAddress || "",
+        phone: res.cardPhone || "",
+        dogName: res.cardDogName || "",
+        dogName2: res.cardDogName2 || ""
+      }, eng());
+    }
+    if (filled) {
+      ["address", "entrance", "doorCode", "floor", "flat", "phone", "dog1", "dog2"].forEach(function (id) {
+        var el = document.getElementById(id);
+        var value = id === "dog1" ? (state.dogNames && state.dogNames[1]) : id === "dog2" ? (state.dogNames && state.dogNames[2]) : state[id];
+        if (el && document.activeElement !== el) el.value = value || "";
+      });
+      if (state.entrance || state.doorCode || state.floor || state.flat) folds.details = true;
+      var active = document.activeElement;
+      if (!active || (active.id !== "client" && active.id !== "address")) paint();
     }
     var box = document.getElementById("nxExtras");
     if (box && !sh().sheetOpen()) box.innerHTML = typeExtras();
@@ -911,8 +1026,9 @@
       var it = weekItem(day);
       if (it) {
         var itIso = isoFromAny(it.date);
-        if (day === "Будущая неделя" || !iso || !itIso || itIso === iso) {
-          if (isFinite(Number(it.count))) return Number(it.count);
+        if (!iso || !itIso || itIso === iso) {
+          var nSlot = slotShown(it);
+          if (nSlot != null && isFinite(Number(nSlot))) return Number(nSlot);
         }
       }
     }
@@ -1298,18 +1414,44 @@
     };
   }
 
+  function crumbMixPool_(kind) {
+    var e = eng();
+    var raw = e.crumbSourcePool_("meat") || [];
+    function up(n) {
+      return String(n || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    }
+    function veg(n) { return /ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН/.test(up(n)); }
+    function dressura(n) {
+      var u = up(n);
+      return u === "ЛЕГКОЕ" || u === "СЕРДЦЕ" || u === "РУБЕЦ Т" || u === "БАРАНЬЕ ЛЕГКОЕ" || u === "ПОЧКИ";
+    }
+    function hypo(n) { return /КРОЛИК|ИНДЕЙК|БАРАН/.test(up(n)); }
+    if (kind !== "veg" && kind !== "hypo" && kind !== "dress") kind = "dress";
+    return raw.filter(function (p) {
+      var n = p.name;
+      if (up(n) === "КРОЛИК") return false;
+      if (/^КАБАЧ/.test(up(n))) return false;
+      if (e.isChewProductName_ && e.isChewProductName_(n)) return false;
+      if (kind === "veg") return veg(n);
+      if (kind === "hypo") return hypo(n) && !dressura(n);
+      return dressura(n) || (!veg(n) && !hypo(n));
+    });
+  }
+
   function crumbBuilderHtml(draft, acts) {
     var e = eng();
     var a = crumbActNames_(acts);
     draft = draft || {};
     if (!draft.sources) draft.sources = [];
     if (!draft.grams) draft.grams = [];
-    if (!draft.kind) draft.kind = "meat";
-    var kinds = [["meat", "мясные"], ["veg", "овощи"], ["hypo", "гипоаллергенные"]];
+    if (draft.kind !== "veg" && draft.kind !== "hypo" && draft.kind !== "dress") draft.kind = "dress";
+    var kinds = [["dress", "Мясные (дрессура)"], ["veg", "Овощи/фрукты"], ["hypo", "Гипоаллергенные"]];
     var html = '<div class="b-chips">' + kinds.map(function (k) {
       return '<button type="button" class="b-chip' + (draft.kind === k[0] ? " b-chip--on" : "") + '" data-act="' + a.kind + '" data-kind="' + k[0] + '">' + esc(k[1]) + "</button>";
     }).join("") + "</div>";
-    var pool = e.crumbSourcePool_(draft.kind);
+    var pool = crumbMixPool_(draft.kind);
+    var rate = draft.kind === "hypo" ? 22 : (draft.kind === "veg" ? 17 : 19);
+    html += '<p class="b-note">' + rate + " BYN за 100 г, строго по весу.</p>";
     html += '<p class="b-lbl">Источники</p>';
     (draft.sources.length ? draft.sources : [""]).forEach(function (src, i) {
       html += '<label class="b-field" style="margin-top:8px"><select class="b-field__input" data-act="' + a.src + '" data-i="' + i + '"><option value="">— позиция —</option>' +
@@ -1347,7 +1489,7 @@
     var multi = (draft.sources || []).filter(Boolean).length >= 2;
     (draft.sources || []).forEach(function (name, i) {
       if (!name) return;
-      var pool = e.crumbSourcePool_(draft.kind);
+      var pool = crumbMixPool_(draft.kind);
       var hit = null;
       pool.forEach(function (p) { if (p.name === name) hit = p; });
       var src = { cat: hit ? hit.cat : "", name: name, main: name, sub: "" };
@@ -1376,7 +1518,7 @@
       item: {
         cat: "crumb",
         main: "КРОШКА",
-        crumbKind: draft.kind,
+        crumbKind: "mix4:" + (draft.kind === "veg" || draft.kind === "hypo" ? draft.kind : "dress"),
         sources: sources,
         ratio: ratio,
         value: sumG,
@@ -1439,12 +1581,16 @@
     if (!res || res.status !== "success") { sh().toast("Не удалось прочитать лист ПП"); return; }
     state.deliveriesN = Number(res.deliveriesN) || state.deliveriesN;
     if (res.needManualSlot && !(state.ppSlotManual >= 1)) { sh().toast("Выбери ПП 1 или ПП 2"); paint(); return; }
-    if (res.address && !state.address) {
-      var parsed = eng().parseDeliveryAddress(res.address);
-      state.address = parsed.street || res.address;
-      if (parsed.entrance) state.entrance = parsed.entrance;
-      if (parsed.floor) state.floor = parsed.floor;
-      if (parsed.flat) state.flat = parsed.flat;
+    if (res.cardMatch !== "ambiguous" && pay() && pay().fillEmptyContact) {
+      pay().fillEmptyContact(state, {
+        address: res.address || res.cardAddress || "",
+        phone: res.phone || res.cardPhone || "",
+        dogName: res.cardDogName || "",
+        dogName2: res.cardDogName2 || ""
+      }, eng());
+    } else if (res.address && !state.address) {
+      state.address = res.address;
+      if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     }
     if (res.phone && !state.phone) state.phone = res.phone;
     var proposed = eng().mapApiBasketToLocal(res.proposedBasket || []);
@@ -1615,7 +1761,8 @@
       matchKey: state.editOriginalMatchKey || "",
       day: state.editOriginalDay || state.day || "",
       date: when,
-      calendarOnly: !state.editOriginalDay && !!when
+      calendarOnly: !state.editOriginalDay && !!when,
+      partnerOrderId: state.partnerOrderId || ""
     });
     var res = null;
     try {
@@ -1651,6 +1798,7 @@
   async function save() {
     if (saving) return;
     var clientName = String(state.client || "").trim();
+    if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     var street = eng().formatStreetHouse(state.address) || String(state.address || "").trim();
     state.address = street;
     if (!state.geo) {
@@ -1983,6 +2131,12 @@
       if (node && node.id && node.id.indexOf("noteItem") === 0) {
         var ni = Number(node.id.replace("noteItem", ""));
         if (state.notes[ni]) state.notes[ni].itemKey = node.value;
+        state.notesEdited = true;
+      }
+      if (node && node.getAttribute && node.getAttribute("data-act") === "note-text") {
+        var nti = Number(node.getAttribute("data-i"));
+        if (state.notes[nti]) state.notes[nti].text = node.value;
+        state.notesEdited = true;
       }
       return false;
     }
@@ -2015,29 +2169,50 @@
     if (act === "coords") { askCoords(); return true; }
     if (act === "notes") { openNotes(); return true; }
     if (act === "note-role") {
+      flushOrderNotes();
       var n = state.notes[Number(node.getAttribute("data-i"))];
       var role = node.getAttribute("data-role");
       n.roles[role] = !n.roles[role];
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
     if (act === "note-perm") {
-      state.notes[Number(node.getAttribute("data-i"))].permanent = node.getAttribute("data-p") === "1";
+      flushOrderNotes();
+      var pn = state.notes[Number(node.getAttribute("data-i"))];
+      var wantPerm = node.getAttribute("data-p") === "1";
+      if (pn && pn.permanent && !wantPerm && String(pn.text || "").trim() && state.notesLoaded) state.clearPermanent = true;
+      if (pn) pn.permanent = wantPerm;
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
     if (act === "note-add") {
+      flushOrderNotes();
       state.notes.push({ text: "", roles: { cour: true, mgr: false, cut: false }, permanent: false, itemKey: "" });
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
     if (act === "note-del") {
-      state.notes.splice(Number(node.getAttribute("data-i")), 1);
+      flushOrderNotes();
+      var delI = Number(node.getAttribute("data-i"));
+      var gone = state.notes[delI];
+      if (gone && gone.permanent && String(gone.text || "").trim() && state.notesLoaded) state.clearPermanent = true;
+      state.notes.splice(delI, 1);
       if (!state.notes.length) state.notes.push({ text: "", roles: { cour: true }, permanent: false, itemKey: "" });
+      state.notesEdited = true;
       sh().replaceTop({ html: picker._notes() });
       return true;
     }
-    if (act === "note-done") { flushOrderNotes(); sh().closeTop("ok"); paint(); return true; }
+    if (act === "note-done") {
+      var notesBefore = JSON.stringify(state.notes || []);
+      flushOrderNotes();
+      if (JSON.stringify(state.notes || []) !== notesBefore) state.notesEdited = true;
+      sh().closeTop("ok");
+      paint();
+      return true;
+    }
     if (act === "add") { openAdd(); return true; }
     if (act === "pcat") {
       picker.cat = node.getAttribute("data-cat");
@@ -2131,17 +2306,23 @@
       if (!row) return true;
       state.client = row.nick;
       if (row.phone) state.phone = row.phone;
-      if (row.address) {
-        var p = eng().parseDeliveryAddress(row.address);
-        state.address = p.street || row.address;
-        if (p.entrance) state.entrance = p.entrance;
-        if (p.floor) state.floor = p.floor;
-        if (p.flat) state.flat = p.flat;
+      if (row.address || row.entrance || row.floor || row.flat || row.doorCode) {
+        state.address = row.address || "";
+        state.entrance = row.entrance || "";
+        state.doorCode = row.doorCode || "";
+        state.floor = row.floor || "";
+        state.flat = row.flat || "";
+        if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
+      }
+      if (row.dogNames && state.dogNames) {
+        if (row.dogNames[1] || row.dogNames["1"]) state.dogNames[1] = row.dogNames[1] || row.dogNames["1"];
+        if (row.dogNames[2] || row.dogNames["2"]) state.dogNames[2] = row.dogNames[2] || row.dogNames["2"];
       }
       if (row.ppPartner && state.orderType === "bp") state.ppPartner = row.ppPartner;
       suggest = [];
       paint();
       refreshPp();
+      pullPermanentNotes();
       return true;
     }
     if (act === "retry-days") { loadDays(); return true; }
@@ -2232,7 +2413,7 @@
             return p && !/^крошка$/i.test(p);
           });
           if (names.length) {
-            var pool = e.crumbSourcePool_(row.crumbKind || "meat") || [];
+            var pool = e.crumbSourcePool_("meat") || [];
             row.sources = names.map(function (n) {
               var hit = null;
               pool.forEach(function (p) {
@@ -2289,6 +2470,16 @@
     next.client = client.name || client.client || "";
     next.phone = client.phone || "";
     next.address = client.address || "";
+    next.entrance = client.entrance || "";
+    next.doorCode = client.doorCode || "";
+    next.floor = client.floor || "";
+    next.flat = client.flat || "";
+    if (client.dogNames && (client.dogNames[1] || client.dogNames["1"] || client.dogNames[2] || client.dogNames["2"])) {
+      next.dogNames[1] = client.dogNames[1] || client.dogNames["1"] || "";
+      next.dogNames[2] = client.dogNames[2] || client.dogNames["2"] || "";
+    } else if (client.dogName) {
+      next.dogNames[1] = client.dogName;
+    }
     next.deliveryAfter = client.deliveryAfter || "";
     next.deliveryBefore = client.deliveryBefore || "";
     next.ppPartner = client.ppPartner || "";
@@ -2327,6 +2518,11 @@
     else if (String(client.note || "").trim()) {
       try { next.notes = eng().parseOrderNotes(client.note) || []; } catch (eNote) { next.notes = []; }
     }
+    next.notesLoaded = (next.notes || []).some(function (n) {
+      return n && n.permanent && String(n.text || "").trim();
+    });
+    next.notesEdited = false;
+    next.clearPermanent = false;
     if (client.geo) next.geo = client.geo;
     try {
       var mail = pay() && pay().mailFromNote_ ? pay().mailFromNote_(client.note || "") : null;
@@ -2347,7 +2543,9 @@
     } catch (eMail) {}
     state = next;
     eng().applyState(state);
+    if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     paint();
+    if (next.orderType === "pp") refreshPp();
   }
 
   function loadDeferred(payload, id) {
@@ -2359,6 +2557,7 @@
       state.phone = payload.phone || "";
       state.address = payload.address || "";
       state.entrance = payload.entrance || "";
+      state.doorCode = payload.doorCode || "";
       state.floor = payload.floor || "";
       state.flat = payload.flat || "";
       state.deliveryDate = payload.deliveryDate || "";

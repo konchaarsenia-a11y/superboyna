@@ -49,14 +49,30 @@
     return true;
   }
 
-  function partnerHubOrders_(items) {
+  function partnerMinskToday_(nowMs) {
+    var t = new Date((nowMs == null ? Date.now() : nowMs) + 3 * 3600 * 1000);
+    var y = t.getUTCFullYear();
+    var m = String(t.getUTCMonth() + 1);
+    var day = String(t.getUTCDate());
+    return y + "-" + (m.length < 2 ? "0" + m : m) + "-" + (day.length < 2 ? "0" + day : day);
+  }
+
+  function partnerHubOrders_(items, opts) {
+    var today = (opts && opts.today) || partnerMinskToday_();
     var list = (items || []).filter(function (it) {
-      if (!it || String(it.status || "open").toLowerCase() === "done") return false;
+      if (!it) return false;
       var pl = it.payload || {};
       var isPartner = String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
         String(pl.orderType || "") === "partner";
       if (!isPartner) return false;
-      if (String(pl.orderStatus || "new").toLowerCase() === "delivered") return false;
+      var orderSt = String(pl.orderStatus || "new").toLowerCase();
+      if (orderSt === "delivered" || orderSt === "cancelled" || orderSt === "canceled") return false;
+      var rowSt = String(it.status || "open").toLowerCase();
+      if (rowSt === "cancelled") return false;
+      var date = String(pl.deliverDateIso || "").trim();
+      // Прошедшая дата и закрытая заявка без будущей даты — не очередь. Строка в D1 остаётся.
+      if (date && date < today) return false;
+      if ((rowSt === "done" || rowSt === "cancelled") && (!date || date < today)) return false;
       return true;
     });
     var seenPo = Object.create(null);
@@ -79,6 +95,39 @@
     });
   }
 
+  function partnerPayload_(it) {
+    var pl = it && it.payload;
+    if (typeof pl === "string") {
+      try { pl = JSON.parse(pl); } catch (ePl) { pl = null; }
+    }
+    return pl && typeof pl === "object" ? pl : {};
+  }
+
+  function partnerItem_(it) {
+    var pl = partnerPayload_(it);
+    var mode = String((it && it.mode) || pl.mode || "").toLowerCase();
+    return mode === "partner" || String(pl.orderType || "") === "partner";
+  }
+
+  function partnerOrderNeedsDate_(it) {
+    if (!partnerItem_(it)) return false;
+    var pl = partnerPayload_(it);
+    var st = String(pl.orderStatus || "new").toLowerCase();
+    if (st === "delivered" || st === "cancelled" || st === "canceled") return false;
+    var rowSt = String((it && it.status) || "").toLowerCase();
+    if (rowSt === "cancelled") return false;
+    return !/^\d{4}-\d{2}-\d{2}$/.test(String(pl.deliverDateIso || "").trim());
+  }
+
+  function partnerTaskOpen_(it) {
+    if (!it) return false;
+    if (partnerItem_(it) && !partnerOrderNeedsDate_(it)) {
+      var pl = partnerPayload_(it);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(pl.deliverDateIso || "").trim())) return false;
+    }
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }
+
   function partnerOrderDayName_(iso) {
     try {
       var p = String(iso || "").split("-");
@@ -95,7 +144,10 @@
     partnerPointHidden_: partnerPointHidden_,
     partnerPointFace_: partnerPointFace_,
     partnerAccessOpen_: partnerAccessOpen_,
+    partnerMinskToday_: partnerMinskToday_,
     partnerHubOrders_: partnerHubOrders_,
+    partnerOrderNeedsDate_: partnerOrderNeedsDate_,
+    partnerTaskOpen_: partnerTaskOpen_,
     partnerOrderDayName_: partnerOrderDayName_
   };
 });

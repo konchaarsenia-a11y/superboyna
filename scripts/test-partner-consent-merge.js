@@ -93,7 +93,9 @@ const hook = worker.slice(worker.indexOf("async function handleGoodboyTelegramWe
 if (hook.indexOf(".catch(function () { return null; })") >= 0) fail("callback mirror must not swallow the result");
 if (hook.indexOf('console.log("partnerBroadcastCallback"') < 0) fail("callback result must be logged");
 if (hook.indexOf('console.log("varka broadcast reply"') < 0) fail("thank-you sendMessage must be logged");
-if (hook.indexOf('gasProxy_("partnerSetPointConsent"') < 0) fail("click must fall back to partnerSetPointConsent");
+if (hook.indexOf('gasProxy_("partnerSetPointConsent"') >= 0) fail("click must not write consent to Sheets");
+if (hook.indexOf("partnerRememberBroadcastReply_") < 0) fail("click must store partnerBroadcastReplies");
+if (hook.indexOf("partnerApplyConsentOnAdmin_") < 0) fail("click must write paidConsent in D1");
 if (!/if \(_gasSecret\) clean\._wk = _gasSecret;/.test(worker)) fail("gasProxy_ must set the Worker marker");
 const setFn = extractFn(gas, "partnerSetVarkaConsentForRecipient_");
 if (setFn.indexOf("ensureSheetHeadersAppend_") < 0 || setFn.indexOf("setValue(consent)") < 0) {

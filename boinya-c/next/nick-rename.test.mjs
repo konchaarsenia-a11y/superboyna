@@ -43,6 +43,7 @@ const wNames = [
   "isDistinctPetPair_",
   "sameSubscriptionPerson_",
   "subscriptionSheetKey_",
+  "sheetsEqual_",
   "subscriptionNickKeys_",
   "subscriptionMatch_",
   "findSubscriptionIndex_",

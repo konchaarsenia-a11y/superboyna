@@ -1348,7 +1348,7 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "КРОЛИК", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
+        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
         fractions: {
           "ИНДЕЙКА": ["Ломтики", "Полоски", "Мелкое"],
           "БАРАНЬЯ ПЕЧЕНЬ": ["Ломтики", "Полоски", "Мелкое"]
@@ -1361,7 +1361,7 @@
       },
       veg: {
         title: "Овощи/Фрукты",
-        items: ["БАНАНЫ", "ЯБЛОКИ", "ГРУШЫ", "МОРКОВЬ", "ТЫКВА", "БАТАТ", "КАБАЧОК"],
+        items: ["БАНАНЫ", "ЯБЛОКИ", "ГРУШЫ", "МОРКОВЬ", "ТЫКВА", "БАТАТ"],
         fractions: {}
       },
       crumb: {
@@ -1672,11 +1672,11 @@
       "ЛЁГКОЕ|Ломтики": { per100: 9 },
       "ЛЁГКОЕ|Целое": { per100: 9 },
       "ЛЁГКОЕ|Полоски": { per100: 10 },
-      "ЛЁГКОЕ|Крупное": { per100: 10 },
-      "ЛЁГКОЕ|Большое": { per100: 10 },
-      "ЛЁГКОЕ|Среднее": { per100: 11 },
-      "ЛЁГКОЕ|Мелкое": { per100: 12 },
-      "ЛЁГКОЕ|Очень мелкое": { per100: 13 },
+      "ЛЁГКОЕ|Крупное": { per100: 11 },
+      "ЛЁГКОЕ|Большое": { per100: 11 },
+      "ЛЁГКОЕ|Среднее": { per100: 12 },
+      "ЛЁГКОЕ|Мелкое": { per100: 13 },
+      "ЛЁГКОЕ|Очень мелкое": { per100: 14 },
       "СЕРДЦЕ|Ломтики": { per100: 12 },
       "СЕРДЦЕ|Целое": { per100: 12 },
       "СЕРДЦЕ|Полоски": { per100: 12 },
@@ -1697,10 +1697,10 @@
       "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
       "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
       "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
-      "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 17 },
-      "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 17 },
-      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
-      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 19 },
+      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 20 },
       "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 20 },
       "ИНДЕЙКА": { per100: 16 },
       "ИНДЕЙКА|Ломтики": { per100: 16 },
@@ -1935,7 +1935,7 @@
       "ЛЁГКОЕ":
         "Сушёное говяжье лёгкое — лёгкое по калорийности лакомство с выраженным запахом и хрустом.\n" +
         "Идеально для дрессуры и поощрения: собака быстро съедает и возвращается к работе.\n" +
-        "Мало жира, хорошо заходит щенкам и взрослым. Резы: ломтики (база), полоски, крупное, среднее, мелкое, очень мелкое.",
+        "Мало жира, хорошо заходит щенкам и взрослым. Резы: ломтики (база), палочки, крупное, среднее, мелкое, очень мелкое.",
       "СЕРДЦЕ":
         "Сушёное сердце — плотный белок, насыщенный мясной вкус.\n" +
         "Удобно как «валюта» на тренировке: ломтики — база; полоски; мелкое — в карман и на кликер.\n" +
@@ -1951,7 +1951,7 @@
       "БАРАНЬЕ ЛЁГКОЕ":
         "Баранье лёгкое — мягче и часто «нежнее» по вкусу, чем говяжье.\n" +
         "Хороший вариант, если говядина заходит слабо или нужна ротация белков.\n" +
-        "Ломтики — база; полоски/крупное/среднее/мелкое — дрессура. Лёгкое по ощущению, мало жира.",
+        "Ломтики — база; палочки/крупное/среднее/мелкое — дрессура. Лёгкое по ощущению, мало жира.",
       "БАРАНЬЯ ПЕЧЕНЬ":
         "Баранья печень — яркий органный вкус, ротация к говяжьей печени.\n" +
         "Резы: ломтики (база, без наценки), полоски (как база), мелкое (+3 за 100 г).\n" +
@@ -2506,8 +2506,14 @@
         "ИНДЕЙКА|Кусочки": { per100: 17 },
         "ИНДЕЙКА|Мелкое": { per100: 18 },
         "ИНДЕЙКА|Мелкие кусочки": { per100: 18 },
-        "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
-        "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
+        "ЛЁГКОЕ|Крупное": { per100: 11 },
+        "ЛЁГКОЕ|Большое": { per100: 11 },
+        "ЛЁГКОЕ|Среднее": { per100: 12 },
+        "ЛЁГКОЕ|Мелкое": { per100: 13 },
+        "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 18 },
+        "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 18 },
+        "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 19 },
+        "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 20 },
         "БАРАНЬЯ ПЕЧЕНЬ": { per100: 17 },
         "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 17 },
         "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 18 },
@@ -20159,7 +20165,7 @@
         { cat: "dressura", main: "СЕРДЦЕ", name: "СЕРДЦЕ", sub: "Ломтики", value: 50, val: 50 },
         { cat: "chew", main: "БЫЧИЙ КОРЕНЬ", name: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", value: 1, val: 1 },
         { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", value: 1, val: 1 },
-        { cat: "veg", main: "КАБАЧОК", name: "КАБАЧОК", sub: "", value: 50, val: 50 }
+        { cat: "veg", main: "ЯБЛОКИ", name: "ЯБЛОКИ", sub: "", value: 50, val: 50 }
       ];
     }
 
@@ -23618,6 +23624,14 @@
     var _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
     var _subDetailOpenedFp = "";
     var _subDetailStatedTouched = false;
+    var _subDetailCoefSaved = false;
+    var _subDetailCoefTouched = false;
+    window._subDetailCoefTouched = false;
+    function markSubDetailCoefTouched_() {
+      _subDetailCoefTouched = true;
+      window._subDetailCoefTouched = true;
+    }
+    window.markSubDetailCoefTouched_ = markSubDetailCoefTouched_;
 
     function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
       var fact = Number(factCost);
@@ -23728,7 +23742,7 @@
     function setSubDetailCoef_(v) {
       var el = document.getElementById("subDetailCoef");
       if (el) el.value = String(v);
-
+      markSubDetailCoefTouched_();
       recalcSubDetailFactCost_();
     }
     window.setSubDetailCoef_ = setSubDetailCoef_;
@@ -24147,11 +24161,12 @@
 
     function subDetailCoefValue_() {
       var el = document.getElementById("subDetailCoef");
-      var scheme = subDetailSchemeValue_();
-      var def = scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
+      var def = PP_RAW26_COEF_DEFAULT;
       var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
       if (!isFinite(v) || v <= 0) v = def;
-      return v;
+      if (v < 1) v = 1;
+      if (v > 5) v = 5;
+      return Math.round(v * 1000) / 1000;
     }
 
     function applySubDetailFact_(factCost, hintText) {
@@ -24720,12 +24735,15 @@
       _lastPpCostFact = null;
       setSubDetailStatedPrice_("");
       _subDetailStatedTouched = false;
+      _subDetailCoefSaved = coef0 != null;
+      _subDetailCoefTouched = false;
+      window._subDetailCoefTouched = false;
       syncSubDetailPpPriceUi_(sheet);
       var coefEl0 = document.getElementById("subDetailCoef");
       if (coefEl0) {
         coefEl0.value = (coef0 != null)
           ? String(coef0)
-          : String(sch0 === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
+          : String(PP_RAW26_COEF_DEFAULT);
       }
       _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
       _subDetailOpenedFp = "";
@@ -24775,8 +24793,11 @@
         document.getElementById("subDetailStatus").value = res.ppStatus || s.status || "";
         applyBpStatusUi_(res.sheet || sheet, res.ppStatus || s.status || "");
         var wishesRaw = res.wishes || s.wishes || "";
-        var cParsed = (res.coef != null && res.coef !== "") ? Number(res.coef) : parsePpCoefFromWishes_(wishesRaw);
-        if (!(isFinite(cParsed) && cParsed > 0)) cParsed = parsePpCoefFromWishes_(wishesRaw);
+        var cParsed = parsePpCoefFromWishes_(wishesRaw);
+        if (!(isFinite(cParsed) && cParsed > 0)) cParsed = null;
+        _subDetailCoefSaved = cParsed != null;
+        _subDetailCoefTouched = false;
+        window._subDetailCoefTouched = false;
         var schParsed = normalizePpSchemeLocal_(res.ppScheme || res.scheme) ||
           parsePpSchemeFromWishes_(wishesRaw) || "LEGACY";
         currentSubDetail.ppScheme = schParsed;
@@ -24834,7 +24855,7 @@
         if (coefEl && sheetNow === "ПП") {
           coefEl.value = (cParsed != null && isFinite(cParsed) && cParsed > 0)
             ? String(cParsed)
-            : String(schParsed === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
+            : String(PP_RAW26_COEF_DEFAULT);
         }
         try { syncSubDetailSchemeUi_(); } catch (eSch) {}
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
@@ -25242,7 +25263,14 @@
         var wishesSave = wishesForStaffField_((document.getElementById("subDetailWishes").value || "").trim());
         wishesSave = stampDogIntoWishes_(wishesSave, readSubDetailDogFields_());
         if (sheet === "ПП") {
-          wishesSave = stampPpCoefIntoWishes_(wishesSave, subDetailCoefValue_());
+          var persistCoef = !!( _subDetailCoefSaved || _subDetailCoefTouched || window._subDetailCoefTouched );
+          var coefSave = persistCoef ? subDetailCoefValue_() : "";
+          if (persistCoef) {
+            wishesSave = stampPpCoefIntoWishes_(wishesSave, coefSave);
+            _subDetailCoefSaved = true;
+            _subDetailCoefTouched = false;
+            window._subDetailCoefTouched = false;
+          }
           var schSave = subDetailSchemeValue_();
           // не вешаем [SCHEME:LEGACY] на старые карточки без тега — только RAW26 или уже был тег
           if (schSave === "RAW26" || parsePpSchemeFromWishes_((currentSubDetail && currentSubDetail.wishes) || "")) {
@@ -25290,7 +25318,9 @@
           statedTouched: sheet === "ПП" && _subDetailStatedTouched ? "1" : "0",
           basket: basketPayload,
           basket2: basket2Payload,
-          coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
+          coef: sheet === "ПП" && (_subDetailCoefSaved || _subDetailCoefTouched || window._subDetailCoefTouched)
+            ? String(subDetailCoefValue_())
+            : (sheet === "ПП" ? "" : ""),
           scheme: sheet === "ПП" ? subDetailSchemeValue_() : "",
           dogName: dogSave.name,
           dogBreed: dogSave.breed,
@@ -25576,9 +25606,11 @@
     function getPricePpCoef() {
       var el = document.getElementById("pricePpCoef");
       var def = pricePpScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PRICE_PP_COEF_DEFAULT;
-      var v = el ? Number(el.value) : def;
+      var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
       if (!isFinite(v) || v <= 0) v = def;
-      return v;
+      if (v < 1) v = 1;
+      if (v > 5) v = 5;
+      return Math.round(v * 1000) / 1000;
     }
 
     function syncPricePpSchemeDefaults_() {
@@ -26014,7 +26046,7 @@
       var fu = f.toUpperCase().replace(/\s+/g, " ");
       if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "очень мелкое";
       if (/^ЛОМТ/.test(fu)) return "ломтики";
-      if (/^ПОЛОСК/.test(fu)) return "полоски";
+      if (/^ПОЛОСК/.test(fu)) return /Л[ЁЕ]ГК/.test(m) ? "палочки" : "полоски";
       if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) return "мелкий кубик";
       if (fu === "ПЛАСТ") return "пластинки";
       if (/ПОЛОВИН/.test(fu)) return "половинки";

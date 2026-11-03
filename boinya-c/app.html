@@ -15,11 +15,11 @@
         if (q.get("sandbox") !== "1" && q.get("cutover") !== "0" && !q.get("cutover") && q.get("mode") !== "live" && q.get("live") !== "1") {
           q.set("cutover", "1");
         }
-        q.set("v", "71125393");
+        q.set("v", "71125448");
         location.replace("next.html?" + q.toString() + (u.hash || ""));
       } catch (e) {
         if (!/[?&]legacy=1(?:&|$)/.test(location.search || "")) {
-          location.replace("next.html?cutover=1&v=71125393" + (location.hash || ""));
+          location.replace("next.html?cutover=1&v=71125448" + (location.hash || ""));
         }
       }
     })();
@@ -49,7 +49,7 @@
     /* Снести залипший SW cache-first (v11), иначе delete/move вечно на старом JS */
     (function () {
       if (!("serviceWorker" in navigator)) return;
-      var WANT = "boinya-c-sw-v17-71125344";
+      var WANT = "boinya-c-sw-v18-71125448";
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         regs.forEach(function (reg) {
           try {
@@ -2342,9 +2342,9 @@
             <div class="form-group" id="subDetailCoefWrap" style="margin-bottom:8px;">
               <label>Коэффициент</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <input type="number" id="subDetailCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal"
+                <input type="number" id="subDetailCoef" value="2.6" min="1" max="5" step="0.1" inputmode="decimal"
                   style="flex:1;min-width:90px;"
-                  oninput="recalcSubDetailFactCost_()" onchange="recalcSubDetailFactCost_()" onblur="recalcSubDetailFactCost_()">
+                  oninput="markSubDetailCoefTouched_();recalcSubDetailFactCost_()" onchange="markSubDetailCoefTouched_();recalcSubDetailFactCost_()" onblur="recalcSubDetailFactCost_()">
                 <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2)">2.0</button>
                 <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.3)">2.3</button>
                 <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.5)">2.5</button>
@@ -2583,7 +2583,7 @@
           </div>
           <div class="form-group">
             <label>Коэффициент <span class="muted" id="pricePpSchemeHint" style="font-size:11px;"></span></label>
-            <input type="number" id="pricePpCoef" value="2.6" min="0.1" max="10" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+            <input type="number" id="pricePpCoef" value="2.6" min="1" max="5" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
           </div>
           <div class="form-group">
             <label>Пакеты <span class="muted" id="pricePackTotalLabel">(0 BYN)</span>

@@ -1,0 +1,37 @@
+name: afk-pp-diag
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/afk-pp-diag.yml
+      - scripts/afk-pp-diag.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read AFK and PP rows
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AFK_DIAG_OUT: ${{ github.workspace }}/artifacts/afk-pp-diag
+        run: |
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/afk-pp-diag.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: afk-pp-diag
+          path: artifacts/afk-pp-diag/
+          if-no-files-found: warn

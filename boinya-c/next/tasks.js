@@ -26,7 +26,9 @@
   }
 
   function openItems() {
+    var logic = root.BoinyaPartnersLogic;
     return (items || []).filter(function (it) {
+      if (logic && logic.partnerTaskOpen_) return logic.partnerTaskOpen_(it);
       return String((it && it.status) || "open").toLowerCase() === "open";
     });
   }
@@ -97,8 +99,8 @@
       light: "1"
     }, { timeoutMs: 12000, cacheTtlMs: 8000 });
     items = (res && res.items) || [];
-    if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
-      return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
+    if (root.__nxTasksCount) root.__nxTasksCount(openItems().filter(function (it) {
+      return allowed(L().tasksSub(it));
     }).length);
     var title = document.getElementById("nxSheetTitle");
     if (title && String(title.textContent || "").indexOf("Задачи") === 0) paintSheet();
@@ -140,7 +142,7 @@
     }
     if (mode === "partner") {
       var st = String(pl.orderStatus || "new").toLowerCase();
-      var needSlot = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+      var needSlot = !String(pl.deliverDateIso || "").trim();
       var po = esc(pl.partnerOrderId || "");
       if (needSlot) {
         buttons += '<button class="b-btn b-btn--main" type="button" data-act="task-slot" data-id="' + esc(id) + '" data-po="' + po + '">Назначить дату</button>';
@@ -298,8 +300,8 @@
       items = items.filter(function (it) { return String(it.id) !== hideId; });
       sh().closeTop("ok");
       paintSheet();
-      if (root.__nxTasksCount) root.__nxTasksCount(items.filter(function (it) {
-        return String((it.status || "open")).toLowerCase() === "open" && allowed(L().tasksSub(it));
+      if (root.__nxTasksCount) root.__nxTasksCount(openItems().filter(function (it) {
+        return allowed(L().tasksSub(it));
       }).length);
       return true;
     }

@@ -551,7 +551,54 @@
     return cycles;
   }
 
+  function ppRowCopy_(row, price) {
+    var copy = {};
+    var k;
+    for (k in row) {
+      if (Object.prototype.hasOwnProperty.call(row, k)) copy[k] = row[k];
+    }
+    copy.price = price;
+    return copy;
+  }
+
+  /* Неоплата ПП1 + ПП2 того же месяца: сумма один раз на ПП2.
+     payDue важнее. Нет второй в месяце — сумма остаётся на ПП1.
+     payMoved без второй в этом окне не считается здесь (она на ПП2). */
+  function ppMovedCarrier_(cycle) {
+    var due = null;
+    var i;
+    for (i = 0; i < cycle.length; i++) {
+      var d = Number(cycle[i].payDue);
+      if (isFinite(d) && d > 0) {
+        due = cycle[i];
+        break;
+      }
+    }
+    if (due) return { row: due, amount: Math.round(Number(due.payDue) * 100) / 100 };
+    var yes = false;
+    var first = null;
+    var second = null;
+    for (i = 0; i < cycle.length; i++) {
+      var row = cycle[i];
+      var paid = String(row.paid || "");
+      if (paid === "yes") yes = true;
+      var slot = ppSlot_(row);
+      if (!first && slot < 2 && paid === "no") first = row;
+      if (!second && slot >= 2) second = row;
+    }
+    if (yes || !first) return null;
+    var amount = num_(first.price);
+    if (!(amount > 0)) return null;
+    var fm = isoDay_(first.iso).slice(0, 7);
+    var sm = second ? isoDay_(second.iso).slice(0, 7) : "";
+    if (second && fm && fm === sm) return { row: second, amount: amount };
+    if (String(first.payMoved || "") === "pp2") return null;
+    return { row: first, amount: amount };
+  }
+
   function ppPayRow_(cycle) {
+    var moved = ppMovedCarrier_(cycle);
+    if (moved) return ppRowCopy_(moved.row, moved.amount);
     var yes = [];
     var open = [];
     var i;
@@ -627,6 +674,14 @@
         b.N += 1;
         if (sig) seen[mk][sig] = true;
       }
+      var movedPay = ppMovedCarrier_(cycle);
+      if (movedPay) {
+        var mrow = movedPay.row;
+        if (mrow.delivered && movedPay.amount > 0) {
+          var mmk = isoDay_(mrow.iso).slice(0, 7);
+          if (/^\d{4}-\d{2}$/.test(mmk)) bucket(mmk).revenue = kopeck_(bucket(mmk).revenue + movedPay.amount);
+        }
+      } else {
       var priced = {};
       for (ri = 0; ri < cycle.length; ri++) {
         var prow = cycle[ri];
@@ -641,6 +696,7 @@
       var pi;
       for (pi = 0; pi < pkeys.length; pi++) {
         bucket(pkeys[pi]).revenue = kopeck_(bucket(pkeys[pi]).revenue + num_(priced[pkeys[pi]].price));
+      }
       }
     }
     return by;
@@ -713,19 +769,24 @@
     for (i = 0; i < rest.length; i++) {
       var one = rest[i];
       var price = num_(one.price);
+      if (String(one.src) === "partner") {
+        if (one.missingBasket) out.missingBasket++;
+        addU(out, one.S, one.G, one.P, 1);
+        addU(out.partner, one.S, one.G, one.P, 1);
+        if (one.viaMail) out.mailN += 1;
+        if (price > 0) {
+          out.revenue = kopeck_(out.revenue + price);
+          out.partnerRevenue = kopeck_(out.partnerRevenue + price);
+          out.partner.revenue = kopeck_(out.partner.revenue + price);
+        }
+        continue;
+      }
       if (one.delivered && one.missingBasket) out.missingBasket++;
       if (one.delivered) {
         addU(out, one.S, one.G, one.P, 1);
         if (one.viaMail) out.mailN += 1;
         if (String(one.src) === "bp") addU(out.bp, one.S, one.G, one.P, 1);
-        else if (String(one.src) === "partner") {
-          addU(out.partner, one.S, one.G, one.P, 1);
-          if (price > 0) {
-            out.revenue = kopeck_(out.revenue + price);
-            out.partnerRevenue = kopeck_(out.partnerRevenue + price);
-            out.partner.revenue = kopeck_(out.partner.revenue + price);
-          }
-        } else {
+        else {
           addU(out.retail, one.S, one.G, one.P, 1);
           if (price > 0) {
             out.revenue = kopeck_(out.revenue + price);
@@ -782,6 +843,40 @@
           out.pending.ppRevenue = kopeck_(out.pending.ppRevenue + payPrice);
         } else if (pay.delivered && !(payPrice > 0)) out.missingPrice++;
       }
+    }
+    return out;
+  }
+
+  /* Чистые каждого дня: тот же роллап, что статистика, день = from=to. Валовая = выручка − себес. */
+  function formulaDayMap_(rows, fromIso, toIso) {
+    var from = isoDay_(fromIso);
+    var to = isoDay_(toIso);
+    var out = {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return out;
+    var iso = from;
+    var guard = 0;
+    while (iso <= to && guard < 45) {
+      var roll = formulaRollup_(rows, { fromIso: iso, toIso: iso });
+      var month = formulaMonth_({
+        revenue: roll.revenue,
+        S: roll.S,
+        G: roll.G,
+        P: roll.P,
+        N: roll.N
+      });
+      if (roll.N > 0 || roll.revenue > 0 || (roll.pending && roll.pending.N > 0)) {
+        out[iso] = {
+          revenue: month.revenue,
+          cost: month.cost,
+          clean: month.gross,
+          S: roll.S,
+          G: roll.G,
+          P: roll.P,
+          N: roll.N
+        };
+      }
+      iso = addDaysIso_(iso, 1);
+      guard++;
     }
     return out;
   }
@@ -1011,6 +1106,7 @@
     courierDayPay_: courierDayPay_,
     courierDayPayOf_: courierDayPayOf_,
     formulaRollup_: formulaRollup_,
+    formulaDayMap_: formulaDayMap_,
     formulaPpClientMonths_: formulaPpClientMonths_,
     monthBoundsIso_: monthBoundsIso_
   };

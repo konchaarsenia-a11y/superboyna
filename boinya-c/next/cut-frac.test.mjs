@@ -31,6 +31,8 @@ function cuttingFixture() {
   const names = [
     "catalogAliasNameD1_",
     "isCrumbBasketItemD1_",
+    "crumbTierOrFractionSubD1_",
+    "crumbCanonCutNameD1_",
     "expandCrumbsForCuttingD1_",
     "isPieceSku_",
     "chewSubToken_",
@@ -97,6 +99,10 @@ test("catalog word matches humanFraction", () => {
   });
   assert.equal(cut.catalogWord("УХО Г", "Обычное"), "");
   assert.equal(cut.catalogWord("ЛЁГКОЕ", "Мелкое"), "мелкий кубик");
+  assert.equal(cut.catalogWord("ЛЁГКОЕ", "Полоски"), "палочки");
+  assert.equal(cut.catalogWord("БАРАНЬЕ ЛЁГКОЕ", "Полоски"), "палочки");
+  assert.equal(cut.catalogWord("ИНДЕЙКА", "Полоски"), "полоски");
+  assert.equal(cut.catalogWord("СЕРДЦЕ", "Полоски"), "полоски");
   assert.equal(cut.catalogWord("СЕРДЦЕ", "Среднее"), "среднее");
   assert.equal(cut.catalogWord("ТРАХЕЯ", "СРЕД"), "средние");
 });
@@ -350,4 +356,16 @@ test("губы не в выборе жевалок, старый текст уз
   assert.equal(items.indexOf("ГУБЫ шт."), -1);
   assert.equal(eng.isChewProductName_("ГУБЫ шт."), true);
   assert.match(eng.prettyProductName("ГУБЫ шт."), /Губ/);
+});
+
+test("кролик и кабачок не в выборе, ухо К и старые имена на месте", () => {
+  assert.equal(eng.catalogItemsForUi_("other").indexOf("КРОЛИК"), -1);
+  assert.equal(eng.catalogItemsForUi_("veg").indexOf("КАБАЧОК"), -1);
+  assert.ok(eng.catalogItemsForUi_("chew").indexOf("УХО К") >= 0);
+  assert.match(eng.prettyProductName("КРОЛИК"), /кролик/i);
+  assert.match(eng.prettyProductName("КАБАЧОК"), /кабачок/i);
+  assert.equal(eng.retailLineCost("ЛЁГКОЕ", "Полоски", 100, "dressura").cost, 10);
+  const pool = eng.crumbSourcePool_("meat") || [];
+  assert.equal(pool.some((p) => p.name === "КРОЛИК"), false);
+  assert.equal(pool.some((p) => p.name === "КАБАЧОК"), false);
 });

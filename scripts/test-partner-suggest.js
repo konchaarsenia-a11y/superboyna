@@ -189,8 +189,8 @@ if (/getPartnerBotToken_|PARTNER_BOT_TOKEN|GOODBOY_BOT_TOKEN/.test(gasNotify)) {
   fail("GAS suggest notify must not use partner bot");
 }
 const gasIds = extractFn_(gasSrc, "partnerSuggestNotifyIds_");
-if (!/650923866/.test(gasIds) || !/getPartnerOrderNotifyIds_/.test(gasIds)) {
-  fail("GAS notify ids must include Arseniy and order recipients");
+if (!/notifyRecipients_\(\s*"partner_suggest"/.test(gasIds)) {
+  fail("GAS notify ids must use partner_suggest recipients");
 }
 const gasHandler = extractFn_(gasSrc, "handlePartnerSuggestPartner");
 if (!/skipPartnerNotify/.test(gasHandler)) fail("GAS suggest must honor skipPartnerNotify");
@@ -200,10 +200,12 @@ console.log("OK: Code.gs sheet + TG");
 
 const runIds = new Function(
   extractFn_(gasSrc, "partnerSuggestNotifyIds_") +
-    "\nfunction getPartnerOrderNotifyIds_(){ return ['111','650923866']; }" +
+    "\nfunction readPartnerNotifyRecipients_(){ return [{telegramId:'111'}]; }" +
+    "\nfunction notifyRecipients_(key, legacy){ return legacy.slice(); }" +
+    "\nfunction getOwnerTelegramIds_(){ return ['650923866']; }" +
     "\nreturn partnerSuggestNotifyIds_();"
 )();
-if (runIds.join(",") !== "111,650923866") fail("dedupe Arseniy got " + runIds.join(","));
+if (runIds.join(",") !== "111") fail("suggest recipients got " + runIds.join(","));
 const sent = [];
 new Function(
   extractFn_(gasSrc, "partnerSuggestNotifyText_") + "\n" +
@@ -224,7 +226,9 @@ const sentOut = new Function(
     extractFn_(gasSrc, "partnerSuggestTypeLabel_") + "\n" +
     extractFn_(gasSrc, "partnerSuggestNotifyIds_") + "\n" +
     extractFn_(gasSrc, "partnerNotifySuggestion_") + "\n" +
-    "function getPartnerOrderNotifyIds_(){ return ['222']; }" +
+    "function readPartnerNotifyRecipients_(){ return []; }" +
+    "\nfunction notifyRecipients_(){ return ['222']; }" +
+    "\nfunction getOwnerTelegramIds_(){ return ['650923866']; }" +
     "\nfunction partnerTelegramSendMany_(ids, text){ return { ids: ids.slice(), text: text }; }" +
     "\nvar box = [];" +
     "\nvar orig = partnerTelegramSendMany_;" +
@@ -232,7 +236,7 @@ const sentOut = new Function(
     "\npartnerNotifySuggestion_({ typeLabel:'Мой второй проект', name:'Кафе', cityAddress:'Минск', contact:'tg', authorNick:'anya' });" +
     "\nreturn box;"
 )();
-if (!sentOut.length || sentOut[0].ids.join(",") !== "222,650923866") {
+if (!sentOut.length || sentOut[0].ids.join(",") !== "222") {
   fail("GAS send ids " + JSON.stringify(sentOut));
 }
 if (!String(sentOut[0].text).startsWith("Новое предложение партнёра:")) fail("GAS send text");
@@ -244,13 +248,17 @@ if (/telegramSendPartnerBot_|getPartnerBotTokenWorker_|PARTNER_BOT_TOKEN|GOODBOY
   fail("Worker suggest notify must not use partner bot");
 }
 const wIds = extractFn_(workerSrc, "partnerSuggestNotifyIdsWorker_");
-if (!/PARTNER_ARSENIY_TID/.test(wIds) || !/notifyRecipients/.test(wIds)) {
-  fail("Worker notify ids must include Arseniy and notifyRecipients");
+if (!/notifyRecipientsWorker_/.test(wIds) || !/authOwnerIds_/.test(wIds)) {
+  fail("Worker notify ids must use partner_suggest recipients");
 }
 const wSubmit = extractFn_(workerSrc, "partnerSuggestPartnerWorker_");
-if (!/skipPartnerNotify/.test(wSubmit)) fail("Worker must pass skipPartnerNotify when it will send");
-if (!/gasProxy_\(\s*"partnerSuggestPartner"/.test(wSubmit)) fail("Worker must write sheet via GAS");
-if (!/partnerNotifySuggestionWorker_/.test(wSubmit)) fail("Worker must send TG after sheet success");
+if (/gasProxy_/.test(wSubmit)) fail("Worker suggest must not write the sheet");
+if (!/partnerSuggestionsUpsertSnap_/.test(wSubmit)) fail("Worker suggest must store D1");
+if (!/partnerNotifySuggestionWorker_/.test(wSubmit)) fail("Worker must send TG after D1 save");
+const wStatus = extractFn_(workerSrc, "partnerSetSuggestionStatusWorker_");
+if (/gasProxy_/.test(wStatus)) fail("suggestion status must stay in D1");
+const wList = extractFn_(workerSrc, "partnerListSuggestionsWorker_");
+if (/gasProxy_|partnerSuggestionsRefreshFromGas_/.test(wList)) fail("suggestion list must not reload the sheet");
 if (!/a === "partnerListSuggestions"/.test(workerSrc)) fail("list action must be a read");
 if (!/partnerSuggestPartnerWorker_/.test(workerSrc) || !/partnerSetSuggestionStatusWorker_/.test(workerSrc)) {
   fail("write routes missing");

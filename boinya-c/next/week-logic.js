@@ -49,7 +49,16 @@
     return "";
   }
 
+  // varka-point-key-h1: «Varka Цвирко» и «Varka Шевченко» не сходятся в один VARKA. Адрес точки входит в ключ. live v71125409.
+  function partnerPointMatchKey(raw) {
+    var s = String(raw || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
+    if (s.indexOf("ВАРКА ") === 0) return s;
+    return "";
+  }
+
   function viewClientKey(raw) {
+    var point = partnerPointMatchKey(raw);
+    if (point) return point;
     var s = String(raw || "").replace(/\s+/g, " ").trim();
     if (!s) return "";
     var at = s.match(/@([A-Za-z0-9._]{2,})/);
@@ -112,7 +121,12 @@
     var val = it.val != null ? it.val : it.value;
     var unit = it.unit ? String(it.unit) : "";
     var bit = name;
-    if (sub) bit += " / " + sub;
+    var word = "";
+    var ig = typeof globalThis !== "undefined" ? globalThis.BoinyaIgLabels : null;
+    if (ig && ig.igFractionWord && sub && !/^крошк/i.test(name) && !/^крошк/i.test(sub)) {
+      word = ig.igFractionWord(name, sub) || "";
+    }
+    if (sub) bit += " / " + (word || sub);
     if (val != null && val !== "") bit += " " + val + (unit ? " " + unit : "");
     return bit || "позиция";
   }
@@ -206,8 +220,9 @@
 
   function deleteParams(opts) {
     opts = opts || {};
+    var params;
     if (opts.calendarOnly && opts.date) {
-      return {
+      params = {
         action: "removeCalendarClient",
         client: opts.client,
         date: opts.date,
@@ -215,16 +230,18 @@
         _explicitDelete: "1",
         _userDelete: "1"
       };
+    } else {
+      params = {
+        action: "deleteClient",
+        client: opts.client,
+        day: opts.day || "",
+        _explicitDelete: "1",
+        _userDelete: "1"
+      };
+      if (opts.date) params.date = opts.date;
+      if (opts.matchKey) params.matchKey = opts.matchKey;
     }
-    var params = {
-      action: "deleteClient",
-      client: opts.client,
-      day: opts.day || "",
-      _explicitDelete: "1",
-      _userDelete: "1"
-    };
-    if (opts.date) params.date = opts.date;
-    if (opts.matchKey) params.matchKey = opts.matchKey;
+    if (opts.partnerOrderId) params.partnerOrderId = String(opts.partnerOrderId);
     return params;
   }
 
@@ -423,13 +440,26 @@
     return cycles;
   }
 
-  /* Цена подписки один раз на цикл: на слоте с paid=yes (ПП1 или ПП2).
-     Если отметки ещё нет — на слоте 1 / без номера, где оплату ждут.
-     ПП2 без paid=yes в сумму не входит, даже если это единственная доставка месяца.
-     Следующая ПП1 в том же месяце — новый цикл и своя сумма.
-     Явный paid=no в сумму не входит. Доставка при этом остаётся. */
+  var PAY_MOVE_NOTE_ = "перенесено на доставку 2";
+
+  function payDueOf_(c) {
+    var n = Number(c && c.payDue);
+    if (!isFinite(n) || !(n > 0)) return 0;
+    return Math.round(n * 100) / 100;
+  }
+
+  function movedAway_(c) {
+    return String(c && c.payMoved || "") === "pp2";
+  }
+
+  /* Цена подписки один раз на цикл.
+     paid=yes на ПП1 — сумма там, ПП2 её не забирает.
+     paid=no на ПП1 и ПП2 в том же месяце — сумма один раз на ПП2, на ПП1 ноль и пометка.
+     ПП2 в этом месяце нет — сумма остаётся на ПП1.
+     Пометки payDue / payMoved важнее догадки, чтобы день без соседней строки совпал. */
   function attributePpRevenue(list) {
     var amount = {};
+    var notes = {};
     var doubled = [];
     var groups = {};
     (list || []).forEach(function (c, i) {
@@ -457,8 +487,6 @@
             prices: priced.map(function (i) { return orderMoney_(list[i]); })
           });
         }
-        var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
-        var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
         function bySlot(a, b) {
           var as = paySlotOf_(list[a]) || 9;
           var bs = paySlotOf_(list[b]) || 9;
@@ -467,6 +495,43 @@
           var bi = rowIso_(list[b]);
           return ai < bi ? -1 : ai > bi ? 1 : 0;
         }
+        var dueIdx = idxs.filter(function (i) { return payDueOf_(list[i]) > 0; });
+        if (dueIdx.length) {
+          dueIdx.forEach(function (i) { amount[i] = payDueOf_(list[i]); });
+          idxs.forEach(function (i) {
+            if (movedAway_(list[i])) notes[i] = PAY_MOVE_NOTE_;
+          });
+          return;
+        }
+        var movedIdx = idxs.filter(function (i) { return movedAway_(list[i]); });
+        if (movedIdx.length) {
+          movedIdx.forEach(function (i) { notes[i] = PAY_MOVE_NOTE_; });
+          var host = idxs.filter(function (i) { return paySlotOf_(list[i]) >= 2; }).sort(bySlot)[0];
+          if (host != null) {
+            var mv = Number(list[movedIdx[0]].payMovedAmount);
+            if (!(mv > 0)) mv = orderMoney_(list[movedIdx[0]]);
+            if (mv > 0) amount[host] = mv;
+          }
+          return;
+        }
+        var unpaid = idxs.filter(function (i) {
+          return paidFlag_(list[i]) === "no" && paySlotOf_(list[i]) < 2;
+        });
+        var seconds = idxs.filter(function (i) { return paySlotOf_(list[i]) >= 2; });
+        if (unpaid.length && seconds.length) {
+          unpaid.forEach(function (i) { notes[i] = PAY_MOVE_NOTE_; });
+          var host2 = seconds.slice().sort(bySlot)[0];
+          var movedMoney = orderMoney_(list[unpaid[0]]);
+          if (movedMoney != null && movedMoney > 0) amount[host2] = movedMoney;
+          return;
+        }
+        if (unpaid.length) {
+          var stay = orderMoney_(list[unpaid[0]]);
+          if (stay != null && stay > 0) amount[unpaid[0]] = stay;
+          return;
+        }
+        var yes = idxs.filter(function (i) { return paidFlag_(list[i]) === "yes"; });
+        var open = idxs.filter(function (i) { return paidFlag_(list[i]) !== "no"; });
         var poolSrc = yes.length ? yes : open.filter(function (i) { return paySlotOf_(list[i]) < 2; });
         var pool = poolSrc.slice().sort(bySlot);
         var chosen = pool.length ? pool[0] : -1;
@@ -475,19 +540,22 @@
         if (money != null && money > 0) amount[chosen] = money;
       });
     });
-    return { amount: amount, doubled: doubled };
+    return { amount: amount, doubled: doubled, notes: notes };
   }
 
-  /* На строке ПП показываем только ту цену, которая входит в сумму месяца. */
+  /* На строке ПП — только сумма, которая входит в месяц. Перенос пишет пометку. pp-unpaid-move-h1 */
   function stampPpPay(list) {
     var attr = attributePpRevenue(list);
     (list || []).forEach(function (c, i) {
       if (!c) return;
       if (!isPpRow_(c)) {
         if (c._pay != null) delete c._pay;
+        if (c._payNote) delete c._payNote;
         return;
       }
       c._pay = attr.amount[i] || 0;
+      if (attr.notes && attr.notes[i]) c._payNote = attr.notes[i];
+      else if (c._payNote) delete c._payNote;
     });
     return list;
   }
@@ -509,6 +577,43 @@
     });
     if (!seen) return null;
     return Math.round(sum * 100) / 100;
+  }
+
+  /* Грязная сумма по дням: те же доли, что revenueSum, без второго прохода атрибуции. */
+  function dayRevenueMap(list) {
+    var attr = attributePpRevenue(list);
+    var map = {};
+    (list || []).forEach(function (c, i) {
+      if (attr.amount[i] == null) return;
+      var iso = String((c && (c._sumDate || c.dateIso || c.date)) || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      if (!Object.prototype.hasOwnProperty.call(map, iso)) map[iso] = 0;
+      map[iso] = Math.round((map[iso] + attr.amount[i]) * 100) / 100;
+    });
+    return map;
+  }
+
+  /* Себес окна дня: те же заказы и то же правило ПП, что грязная сумма. «Отвезено» не смотрит. */
+  function dayPlanUnits(list) {
+    var attr = attributePpRevenue(list);
+    var map = {};
+    var rows = list || [];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      if (attr.amount[i] == null) continue;
+      var c = rows[i];
+      if (!c || c.costReady !== true) return null;
+      var iso = String((c._sumDate || c.dateIso || c.date) || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+      if (!map[iso]) map[iso] = { revenue: 0, S: 0, G: 0, P: 0, N: 0 };
+      var bucket = map[iso];
+      bucket.revenue = Math.round((bucket.revenue + attr.amount[i]) * 100) / 100;
+      bucket.S = Math.round((bucket.S + (Number(c.costS) || 0)) * 100) / 100;
+      bucket.G += Number(c.costG) || 0;
+      bucket.P += Number(c.costP) || 0;
+      bucket.N += 1;
+    }
+    return map;
   }
 
   function fracPaySlot_(raw) {
@@ -540,8 +645,8 @@
     return 0;
   }
 
-  /* Курьер сегодня: цена на первой доставке. Слот 2+ в сбор не входит —
-     оплата второй доставки уже внутри первой. paid=no не входит.
+  /* Курьер сегодня: цена на первой доставке. Слот 2+ входит в сбор только
+     с переносом payDue. paid=no и «перенесено на доставку 2» в сбор не входят.
      БП и партнёр курьеру не платят. Розница платит здесь. */
   function courierStopMoney(c) {
     if (!c) return null;
@@ -549,8 +654,10 @@
     try { ot = resolveOrderType(c); } catch (eOt) { ot = ""; }
     if (!ot && isPpRow_(c)) ot = "pp";
     if (ot === "bp" || ot === "partner") return null;
+    var dueN = payDueOf_(c);
+    if (ot === "pp" && dueN > 0) return dueN;
     var slot = courierPaySlot_(c);
-    if (ot === "pp" && slot >= 2) return null;
+    if (ot === "pp" && (slot >= 2 || movedAway_(c))) return null;
     var money = orderMoney_(c);
     if (money == null || !(money > 0)) return null;
     if (ot !== "pp") return money;
@@ -776,6 +883,14 @@
     return "ok";
   }
 
+  function slotDateCount(it) {
+    if (!it) return null;
+    if (it.onDate != null && it.onDate !== "" && isFinite(Number(it.onDate))) return Number(it.onDate);
+    if (String(it.day || "") === "Будущая неделя") return null;
+    if (isFinite(Number(it.count))) return Number(it.count);
+    return null;
+  }
+
   function fullDayPrompt(count) {
     var n = Number(count);
     if (!isFinite(n) || n < FULL_FROM) return "";
@@ -894,6 +1009,17 @@
 
   function rowKey(c) {
     if (!c) return "";
+    var namePoint = partnerPointMatchKey(c.name || c.client || "");
+    var mkPoint = partnerPointMatchKey(c.matchKey || "");
+    if (namePoint) return namePoint;
+    if (mkPoint) return mkPoint;
+    function bare(raw) {
+      return String(raw || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\bVARKA\b/g, "ВАРКА");
+    }
+    if (bare(c.name || c.client || "") === "ВАРКА" || bare(c.matchKey || "") === "ВАРКА") {
+      var addr = String(c.address || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е");
+      if (addr) return "ВАРКА " + addr;
+    }
     return viewClientKey(c.matchKey || "") || viewClientKey(c.name || c.client || "");
   }
 
@@ -1228,6 +1354,7 @@
     WEEK: WEEK,
     FULL_FROM: FULL_FROM,
     dayLoadMark: dayLoadMark,
+    slotDateCount: slotDateCount,
     fullDayPrompt: fullDayPrompt,
     countFromMonth: countFromMonth,
     monthPeopleReady: monthPeopleReady,
@@ -1243,6 +1370,8 @@
     orderTypeToSegment: orderTypeToSegment,
     resolveOrderType: resolveOrderType,
     viewClientKey: viewClientKey,
+    partnerPointMatchKey: partnerPointMatchKey,
+    rowKey: rowKey,
     clientGaps: clientGaps,
     currentWeekKey: currentWeekKey,
     peopleToast: peopleToast,
@@ -1257,6 +1386,8 @@
     attributePpRevenue: attributePpRevenue,
     stampPpPay: stampPpPay,
     revenueSum: revenueSum,
+    dayRevenueMap: dayRevenueMap,
+    dayPlanUnits: dayPlanUnits,
     courierStopMoney: courierStopMoney,
     courierCollectSum: courierCollectSum,
     courierMailMethod: courierMailMethod,

@@ -1,3 +1,4 @@
+// gb-phone-toast-h1 / gb-try-guest-h1 / gb-cabinet-desk-h1: toast, guest cabinet, desktop layout. Touches next so next-undef runs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -149,6 +150,7 @@ test("перезагрузка: кэш остаётся, запрос досту
   assert.match(apiSrc, /tgWebAppData/);
   assert.match(swSrc, /callback=/);
   assert.match(swSrc, /boinya-c\\\/next\\/);
-  assert.match(swSrc, /boinya-c-sw-v17-71125393/);
+  assert.match(swSrc, /boinya-c-sw-v18-71125448/);
+  assert.match(swSrc, /cache:\s*"no-store"/);
   assert.match(apiSrc, /function apiGet\(params, opts\) \{[\s\S]*var action = String\(params\.action \|\| ""\);[\s\S]*WRITE\.test\(action\)/);
 });

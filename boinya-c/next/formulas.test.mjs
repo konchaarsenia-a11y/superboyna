@@ -193,6 +193,40 @@ test("чистые перешедших и партнёры: себес §3, ц�
   assert.match(eco.attribution, /кто привёл/);
 });
 
+test("неоплата ПП1 в статистике один раз на ПП2 того же месяца", () => {
+  const rows = [
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" },
+    { ck: "R", iso: "2026-10-17", src: "pp", slot: 2, paid: "", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" }
+  ];
+  const s = F.formulaRollup_(rows, { monthKey: "2026-10" });
+  eq(s.ppRevenue, 80, "один раз на второй");
+  eq(s.revenue, 80, "без двойного");
+  eq(s.N, 2, "обе доставки");
+  const stay = F.formulaRollup_([
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" }
+  ], { monthKey: "2026-10" });
+  eq(stay.ppRevenue, 80, "без ПП2 сумма на первой");
+  const later = F.formulaRollup_([
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" },
+    { ck: "R", iso: "2026-11-03", src: "pp", slot: 2, paid: "", price: 80, delivered: true, S: 1, G: 0, P: 0, sig: "r" }
+  ], { monthKey: "2026-10" });
+  eq(later.ppRevenue, 80, "ПП2 следующего месяца не забирает октябрь");
+  const flagged = F.formulaRollup_([
+    { ck: "R", iso: "2026-10-03", src: "pp", slot: 1, paid: "no", price: 80, payMoved: "pp2", delivered: true, S: 1, G: 0, P: 0, sig: "r" },
+    { ck: "R", iso: "2026-10-17", src: "pp", slot: 2, paid: "", price: 80, payDue: 80, delivered: false, S: 1, G: 0, P: 0, sig: "r" }
+  ], { monthKey: "2026-10" });
+  eq(flagged.ppRevenue, 0, "ещё не отвезено");
+  eq(flagged.pending.ppRevenue, 80, "ожидается на второй");
+  const workerSrc = fs.readFileSync(path.resolve(here, "../proxy/worker.js"), "utf8");
+  const start = workerSrc.indexOf("function statsKopeckD1_");
+  const end = workerSrc.indexOf("function statsOrderPriceD1_");
+  const sandbox = { Math, Number, String, Object, isFinite };
+  vm.runInNewContext(workerSrc.slice(start, end), sandbox);
+  const d1 = sandbox.statsFormulaRollupD1_(rows, { monthKey: "2026-10" });
+  eq(d1.ppRevenue, 80, "воркер: та же одна сумма");
+  eq(d1.revenue, 80, "воркер: без двойного");
+});
+
 test("сверка: меньше попадает в чистое, больше вычитается, коридор 5% и минимум 5", () => {
   const under = F.reconcile_(100, 80, true, "свет");
   eq(under.gap, 20, "меньше");
@@ -368,6 +402,21 @@ test("партнёр с ценой в обороте, почта по треку
   eq(d1.revenue, s.revenue, "воркер: тот же оборот");
   eq(d1.partnerRevenue, s.partnerRevenue, "воркер: те же деньги партнёра");
   eq(d1.mailN, s.mailN, "воркер: та же почта");
+  const open = [
+    { ck: "P", iso: "2026-10-29", src: "partner", delivered: false, price: 20, S: 1, G: 10, P: 0 },
+    { ck: "Z", iso: "2026-10-30", src: "partner", delivered: false, price: 0, S: 0, G: 0, P: 0 },
+    { ck: "R", iso: "2026-10-29", src: "retail", delivered: false, price: 15, S: 1, G: 0, P: 0 }
+  ];
+  const live = F.formulaRollup_(open, { monthKey: "2026-10" });
+  eq(live.partner.N, 2, "партнёр без галочки всё равно поездка");
+  eq(live.partnerRevenue, 20, "цена партнёра без галочки в обороте");
+  eq(live.N, 2, "розница без отвёз не поездка");
+  eq(live.pending.N, 1, "розница ждёт");
+  eq(live.pending.revenue, 15, "розница в ожидается");
+  const liveD1 = sandbox.statsFormulaRollupD1_(open, { monthKey: "2026-10" });
+  eq(liveD1.partner.N, live.partner.N, "воркер: те же партнёры без галочки");
+  eq(liveD1.partnerRevenue, live.partnerRevenue, "воркер: те же деньги без галочки");
+  eq(liveD1.N, live.N, "воркер: то же число поездок");
 });
 
 test("код: формула только по отвезено, прежний слот оплаты на месте", () => {

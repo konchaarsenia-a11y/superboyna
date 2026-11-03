@@ -27,19 +27,29 @@ function cuttingFixture() {
   const names = [
     "catalogAliasNameD1_",
     "isCrumbBasketItemD1_",
+    "crumbTierOrFractionSubD1_",
+    "crumbCanonCutNameD1_",
     "expandCrumbsForCuttingD1_",
+    "crumbPartCountD1_",
+    "crumbBelongsToCard_",
+    "enrichAssemblyCrumbBasket_",
     "isPieceSku_",
     "chewSubToken_",
     "crumbParentFromBasketName_",
     "cuttingNameFromBasketItem_",
     "cuttingAggKey_",
+    "basketForCutting_",
     "cuttingItemsFromPeople_",
     "isChewProductNameD1_",
     "isChewCrumbSourceD1_",
     "normalizeBasketItemAliasesD1_"
   ];
   const ctx = createContext({});
-  runInContext(names.map((n) => extractFn(src, n)).join("\n"), ctx);
+  runInContext(
+    names.map((n) => extractFn(src, n)).join("\n") +
+      "\nfunction fracGridWordD1_(){return \"\";}\nfunction igFractionWordD1_(){return \"\";}\n",
+    ctx
+  );
   return ctx;
 }
 
@@ -101,7 +111,7 @@ test("cutting splits 20 and 50", () => {
 
 test("assembly lines name both sources", () => {
   const html = mix.linesHtml(savedBasket("крошка почки 20 рубец 50"));
-  assert.match(html, /Крошка микс — 70 г/);
+  assert.match(html, /Мясные \(дрессура\) — 70 г/);
   assert.match(html, /почки — 20 г/);
   assert.match(html, /рубец т — 50 г/);
   assert.match(html, /mix-parts/);
@@ -248,4 +258,164 @@ test("lung slices are not a crumb", () => {
   assert.equal(items.length, 1);
   assert.match(String(items[0].main || ""), /ЛЁГКОЕ|ЛЕГКОЕ/);
   assert.equal(Number(items[0].value), 200);
+});
+
+test("string sources show grams and enter raw", () => {
+  const row = {
+    cat: "crumb",
+    name: "крошка",
+    main: "крошка",
+    crumbKind: "mix4:dress",
+    value: 70,
+    val: 70,
+    ratio: [20, 50],
+    sources: ["ПОЧКИ", "РУБЕЦ Т"]
+  };
+  const html = mix.linesHtml([row]);
+  assert.match(html, /Мясные \(дрессура\) — 70 г/);
+  assert.match(html, /почки — 20 г/);
+  assert.match(html, /рубец т — 50 г/);
+  const items = cutOf([row]);
+  assert.equal(items.find((it) => /ПОЧКИ/.test(it.name)).dry, 20);
+  assert.equal(items.find((it) => /РУБЕЦ/.test(it.name)).dry, 50);
+});
+
+test("sub mix with ratio enters raw and assembly", () => {
+  const row = {
+    cat: "crumb",
+    name: "крошка",
+    main: "крошка",
+    crumbKind: "mix4:veg",
+    value: 70,
+    val: 70,
+    sub: "ЯБЛОКИ + МОРКОВЬ",
+    ratio: [20, 50]
+  };
+  const html = mix.linesHtml([row]);
+  assert.match(html, /Овощи\/фрукты — 70 г/);
+  assert.match(html, /яблоки — 20 г/);
+  assert.match(html, /морковь — 50 г/);
+  const items = cutOf([row]);
+  assert.equal(items.find((it) => /ЯБЛОК/.test(it.name)).dry, 20);
+  assert.equal(items.find((it) => /МОРКОВ/.test(it.name)).dry, 50);
+});
+
+test("mix without a stored split is not invented", () => {
+  const row = {
+    cat: "crumb",
+    name: "крошка",
+    main: "крошка",
+    crumbKind: "mix4:dress",
+    value: 100,
+    val: 100,
+    sub: "Мясные (дрессура)"
+  };
+  const html = mix.linesHtml([row]);
+  assert.match(html, /Мясные \(дрессура\) — 100 г/);
+  assert.doesNotMatch(html, /лёгк|почк|рубец|сердц/i);
+  assert.doesNotMatch(html, /mix-parts/);
+  const items = cutOf([row]);
+  assert.equal(items.length, 0);
+});
+
+test("components without a ratio split the order weight evenly", () => {
+  const open = {
+    cat: "crumb",
+    name: "крошка",
+    crumbKind: "mix4:dress",
+    value: 100,
+    val: 100,
+    sub: "ПОЧКИ + РУБЕЦ Т"
+  };
+  const openHtml = mix.linesHtml([open]);
+  assert.match(openHtml, /Мясные \(дрессура\) — 100 г/);
+  assert.match(openHtml, /почки — 50 г/);
+  assert.match(openHtml, /рубец т — 50 г/);
+  const cut = cutOf([open]);
+  assert.equal(cut.find((it) => /ПОЧКИ/.test(it.name)).dry, 50);
+  assert.equal(cut.find((it) => /РУБЕЦ/.test(it.name)).dry, 50);
+  const three = {
+    cat: "crumb",
+    name: "крошка",
+    value: 100,
+    val: 100,
+    sources: ["ЛЁГКОЕ", "ПОЧКИ", "РУБЕЦ Т"]
+  };
+  const threeHtml = mix.linesHtml([three]);
+  assert.match(threeHtml, /лёгкое — 34 г/);
+  assert.match(threeHtml, /почки — 33 г/);
+  assert.match(threeHtml, /рубец т — 33 г/);
+  const grams = cutOf([three]).reduce((s, it) => s + it.dry, 0);
+  assert.equal(grams, 100);
+});
+
+test("chew fraction is not a crumb", () => {
+  const basket = [
+    { cat: "dressura", name: "СЕРДЦЕ", main: "СЕРДЦЕ", sub: "Ломтики", val: 30, value: 30 },
+    { cat: "dressura", name: "РУБЕЦ Т", main: "РУБЕЦ Т", sub: "крупные кусочки", val: 100, value: 100 },
+    { cat: "dressura", name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", sub: "средний кубик", val: 300, value: 300 },
+    { cat: "chew", name: "УХО Г", main: "УХО Г", sub: "Обычное", val: 2, value: 2, unit: "шт" },
+    { cat: "chew", name: "ТРАХЕЯ", main: "ТРАХЕЯ", sub: "СРЕД", val: 3, value: 3, unit: "шт" },
+    { cat: "chew", name: "УТИНЫЕ ШЕИ шт.", main: "УТИНЫЕ ШЕИ шт.", sub: "", val: 2, value: 2 },
+    { cat: "chew", name: "КОЛЕНИ шт.", main: "КОЛЕНИ шт.", sub: "", val: 1, value: 1 },
+    { cat: "crumb", name: "крошка", main: "крошка", crumbKind: "mix4:dress", val: 100, value: 100, sub: "ПОЧКИ + РУБЕЦ Т" }
+  ];
+  const html = mix.linesHtml(basket);
+  assert.doesNotMatch(html, /Крошка обычное/i);
+  assert.doesNotMatch(html, /Крошка сред/i);
+  assert.match(html, /Жевалки/);
+  assert.match(html, /Утиные шеи/i);
+  assert.match(html, /Колени/i);
+  assert.match(html, /Мясо/);
+  assert.match(html, /Сердце 30/);
+  assert.match(html, /почки — 50 г/);
+  assert.match(html, /рубец т — 50 г/);
+  assert.equal(mix.isCrumb(basket[3]), false);
+  assert.equal(mix.isCrumb(basket[4]), false);
+  assert.equal(mix.isCrumb(basket[7]), true);
+  const cut = cutOf(basket);
+  assert.equal(cut.some((it) => /^ОБЫЧН/i.test(it.name) || /^СРЕД$/i.test(it.name)), false);
+  assert.equal(cut.find((it) => /ПОЧКИ/.test(it.name)).dry, 50);
+  assert.ok(cut.some((it) => /УХО|ТРАХЕ|ШЕИ|КОЛЕН/.test(it.name)));
+});
+
+test("one named crumb keeps the whole weight", () => {
+  const row = {
+    cat: "crumb",
+    name: "КРОШКА ЛЁГКОГО",
+    main: "КРОШКА ЛЁГКОГО",
+    value: 80,
+    val: 80
+  };
+  const items = cutOf([row]);
+  assert.equal(items.length, 1);
+  assert.match(items[0].name, /ЛЁГКОЕ|ЛЕГКОЕ/);
+  assert.equal(items[0].dry, 80);
+});
+
+test("assembly card takes live crumb parts before raw", () => {
+  const fx = cuttingFixture();
+  const card = { dogPart: 0, basket: [{ cat: "crumb", name: "крошка", val: 70, value: 70, crumbKind: "mix4:dress" }] };
+  const live = [{
+    cat: "crumb",
+    name: "крошка",
+    val: 70,
+    value: 70,
+    crumbKind: "mix4:dress",
+    ratio: [20, 50],
+    sources: [
+      { name: "ПОЧКИ", main: "ПОЧКИ", cat: "dressura" },
+      { name: "РУБЕЦ Т", main: "РУБЕЦ Т", cat: "dressura" }
+    ]
+  }];
+  const basket = fx.enrichAssemblyCrumbBasket_(card.basket, live, card);
+  assert.equal(basket[0].sources.length, 2);
+  const items = fx.cuttingItemsFromPeople_([{ basket: basket }], []);
+  assert.equal(items.find((it) => /ПОЧКИ/.test(it.name)).dry, 20);
+  assert.equal(items.find((it) => /РУБЕЦ/.test(it.name)).dry, 50);
+  const src = readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
+  const asm = src.slice(src.indexOf("async function getAssembly_"));
+  const overlayAt = asm.indexOf("overlayAssemblyCrumbs_");
+  const dryAt = asm.indexOf("assemblyDryWeightsForDay_");
+  assert.ok(overlayAt > 0 && dryAt > overlayAt);
 });

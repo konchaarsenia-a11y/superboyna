@@ -14,7 +14,7 @@
         <p class="gate-wordmark">GOOD&nbsp;BOY</p>
       </div>
       <h1 class="gate-title">Кабинет питомца</h1>
-      <p class="gate-lead">Подписка, карта города и скидки партнёров&nbsp;— в одном месте.</p>
+      <p class="gate-lead">Подписка и скидки партнёров&nbsp;— в одном месте.</p>
 
       <div class="gate-paths" role="group" aria-label="С чего начать">
         <button type="button" class="gate-path" data-gate-path="pp">
@@ -29,7 +29,7 @@
           <strong>Хочу попробовать</strong>
           <span>Заполнить анкету на тестовый набор</span>
         </button>
-        <button type="button" class="gate-path gate-path--soft" data-gate-path="city">
+        <button type="button" class="gate-path gate-path--soft" data-gate-path="city" hidden>
           <strong>Посмотреть город</strong>
           <span>Только карта — без аккаунта</span>
         </button>
@@ -65,19 +65,8 @@
     <div class="gate-panel" data-gate-view="register" id="gateRegister" hidden>
       <button type="button" class="gate-back" data-gate-back aria-label="Назад">←</button>
       <h1 class="gate-title">Регистрация</h1>
-      <p class="gate-lead">Сначала скажите, есть ли у вас подписка.</p>
+      <p class="gate-lead">Имя, телефон, ник Instagram и собаки.</p>
       <form id="gateRegisterForm" class="gate-form" novalidate>
-        <fieldset class="gate-fieldset">
-          <legend>Есть подписка GOOD&nbsp;BOY?</legend>
-          <label class="gate-radio">
-            <input type="radio" name="hasSub" value="yes" required />
-            <span>Да — полный кабинет после входа</span>
-          </label>
-          <label class="gate-radio">
-            <input type="radio" name="hasSub" value="no" />
-            <span>Нет — аккаунт с ограниченным доступом</span>
-          </label>
-        </fieldset>
         <div class="field">
           <label for="gateRegName">Как к вам обращаться</label>
           <input id="gateRegName" name="name" required autocomplete="name" placeholder="Имя" />
@@ -87,15 +76,61 @@
           <input id="gateRegPhone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+375…" required />
         </div>
         <div class="field">
-          <label for="gateRegNick">Ник <span class="gate-opt">(необязательно)</span></label>
-          <input id="gateRegNick" name="nick" autocomplete="username" placeholder="@nick" />
+          <label for="gateRegNick">Ник Instagram</label>
+          <input id="gateRegNick" name="nick" autocomplete="username" placeholder="@nick" required />
         </div>
-        <p class="gate-hint" id="gateRegHint">Без подписки доступны профиль и карта. Скидки и доставка — после оформления.</p>
+        <fieldset class="gate-fieldset">
+          <legend>Собака</legend>
+          <div class="field">
+            <label for="dog1name">Кличка</label>
+            <input id="dog1name" name="dog1name" required placeholder="Бим" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="dog1breed">Порода</label>
+              <input id="dog1breed" name="dog1breed" required placeholder="Корги" />
+            </div>
+            <div class="field">
+              <label for="dog1weight">Вес, кг</label>
+              <input id="dog1weight" name="dog1weight" required inputmode="decimal" placeholder="12" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="dog1allergies">Аллергии</label>
+            <input id="dog1allergies" name="dog1allergies" placeholder="Курица, если есть" />
+          </div>
+        </fieldset>
+        <details class="gate-details">
+          <summary>Вторая собака</summary>
+          <div class="field">
+            <label for="dog2name">Кличка</label>
+            <input id="dog2name" name="dog2name" placeholder="Лада" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="dog2breed">Порода</label>
+              <input id="dog2breed" name="dog2breed" placeholder="Такса" />
+            </div>
+            <div class="field">
+              <label for="dog2weight">Вес, кг</label>
+              <input id="dog2weight" name="dog2weight" inputmode="decimal" placeholder="8" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="dog2allergies">Аллергии</label>
+            <input id="dog2allergies" name="dog2allergies" placeholder="Если есть" />
+          </div>
+        </details>
         <p class="gate-error" id="gateRegisterError" hidden></p>
         <button type="submit" class="btn">Создать аккаунт</button>
       </form>
       <button type="button" class="gate-link" data-gate-path="pp">Уже есть аккаунт — войти</button>
       <button type="button" class="gate-link" data-gate-path="try">Нет подписки? Хочу попробовать</button>
+    </div>
+
+    <div class="gate-panel" data-gate-view="accepted" id="gateAccepted" hidden>
+      <h1 class="gate-title">Заявка принята, менеджер свяжется с вами</h1>
+      <button type="button" class="btn" data-gate-path="try">Хочу попробовать</button>
     </div>
   </section>
 

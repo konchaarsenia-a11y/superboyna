@@ -21,7 +21,11 @@
 | **Кабинет (кнопка на сайте)** | https://goodboy.by/app.html |
 | **Mini App (для BotFather)** | https://goodboy.by/app.html |
 
-**Legacy (GitHub Pages)** — до cutover и для старых ссылок/купонов:
+**Cloudflare Pages** (зеркало, CI `goodboy-cf-pages`):
+
+`https://goodboy-by.pages.dev/` (проект `goodboy-by`; запасной `https://goodboy-5s4.pages.dev/` не удаляем)
+
+**Legacy (GitHub Pages)** — не отключаем; для старых ссылок/купонов:
 
 `https://konchaarsenia-a11y.github.io/superboyna/goodboy/`
 
@@ -52,6 +56,10 @@ Menu Button / Web App URL →
 
 Пока Mini App ещё на Pages (до смены URL в BotFather):  
 `https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html`
+
+Бот кабинета @klientGB_bot открывает короткий URL  
+`https://boinya-c.konchaarsenia.workers.dev/k`  
+(тот же `app.html` с GitHub Pages). В BotFather для него: `/setdomain` → `boinya-c.konchaarsenia.workers.dev`, Main App — этот же `/k`. Сайт goodboy.by этот URL не использует.
 
 ## Режим
 

@@ -165,7 +165,16 @@ export function weekCloseBoardNicks_(orders, mondayIso) {
   return board;
 }
 
-/** Счётчики слотов как у месяца: число активных заказов по date_iso, не по листу. */
+/** Число для «на этот день»: дата слота. У «Будущая неделя» это понедельник, не вся следующая неделя. */
+export function weekSlotCountOnDate_(it) {
+  if (!it) return null;
+  if (it.onDate != null && it.onDate !== "" && isFinite(Number(it.onDate))) return Number(it.onDate);
+  if (String(it.day || "") === "Будущая неделя") return null;
+  if (isFinite(Number(it.count))) return Number(it.count);
+  return null;
+}
+
+/** Счётчики слотов. count «Будущая неделя» — живые заказы пн–вс следующей недели. onDate — только дата слота. */
 export function weekSlotCountsFromOrders_(orders, mondayIso) {
   const monday = weekCloseCoerceIso_(mondayIso);
   const futureMonday = weekCloseAddDays_(monday, 7);
@@ -173,18 +182,20 @@ export function weekSlotCountsFromOrders_(orders, mondayIso) {
   return WEEK_CLOSE_DAYS_.concat(["Будущая неделя"]).map(function (day, idx) {
     const iso = idx < 7 ? weekCloseAddDays_(monday, idx) : futureMonday;
     let count = 0;
+    let onDate = 0;
     (orders || []).forEach(function (o) {
       const st = o && o.status != null && String(o.status) !== "" ? String(o.status) : "active";
       if (st !== "active") return;
       const rowIso = weekCloseCoerceIso_(o.date || o.date_iso);
       if (!rowIso) return;
+      if (rowIso === iso) onDate += 1;
       if (idx < 7) {
         if (rowIso === iso) count += 1;
       } else if (futureMonday && futureEnd && rowIso >= futureMonday && rowIso <= futureEnd) {
         count += 1;
       }
     });
-    return { day: day, short: day, date: weekCloseDmy_(iso), count: count, dateIso: iso };
+    return { day: day, short: day, date: weekCloseDmy_(iso), count: count, onDate: onDate, dateIso: iso };
   });
 }
 

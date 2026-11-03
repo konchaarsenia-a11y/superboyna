@@ -1,0 +1,26 @@
+name: varka-save-read
+
+on:
+  workflow_dispatch:
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read partner save around 14:35 UTC
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OUT: ${{ github.workspace }}/artifacts/varka-save
+        run: node scripts/varka-save-read.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: varka-save-read
+          path: artifacts/varka-save/
+          if-no-files-found: warn

@@ -1,0 +1,27 @@
+name: notify-dm-roster
+
+on:
+  workflow_dispatch:
+
+jobs:
+  roster:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Names without Start
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN ('listAccess','boinya_tg_chats','partnerListAdmin')" > /tmp/notify-snaps.json
+          npx wrangler@4 d1 execute boinya-c --remote --json --command "SELECT key, value FROM meta WHERE key = 'notify_dm_probe_ok' OR key LIKE 'tg_start_ts:%'" > /tmp/notify-meta.json
+          node ../../scripts/notify-dm-roster.mjs /tmp/notify-snaps.json /tmp/notify-meta.json
+          rm -f /tmp/notify-snaps.json /tmp/notify-meta.json

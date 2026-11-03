@@ -1,0 +1,35 @@
+name: pp-pay-move
+# Один раз: неоплата ПП1 → пометки на ПП2 того же месяца.
+# Копия ppPayMoveBackup:2026-10-23. orderPrice, paid, updated_at не меняются.
+# Повтор не шлёт второе уведомление.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pp-pay-move.yml"
+      - "scripts/pp-pay-move.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Backup, move unpaid PP1 onto PP2, compare orders
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/pp-pay-move.mjs

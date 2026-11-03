@@ -369,6 +369,13 @@ function main() {
     fs.writeFileSync(path.join(outDir, "result.json"), JSON.stringify(result, null, 2));
     throw new Error("guard " + allowed.reason);
   }
+  if (String(plan.oldMonday || "") !== "2026-10-12") {
+    result.ok = true;
+    result.skipped = "not_target_week";
+    fs.writeFileSync(path.join(outDir, "result.json"), JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ ok: true, skipped: "not_target_week", oldMonday: plan.oldMonday || "" }));
+    return;
+  }
   const expected = weekCloseCalendarNicks_(state.orders, plan.newMonday, plan.newEnd);
   const activeSashin = result.sashinBefore.filter(function (row) {
     return row.status === "active";

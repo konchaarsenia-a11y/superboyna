@@ -84,10 +84,28 @@
     articles.forEach(function (el, i) {
       el.style.transitionDelay = (0.05 + i * 0.08).toFixed(2) + "s";
     });
-    var cards = document.querySelectorAll(".hero-features .hf-card");
+  }
+
+  /** Карточки витрины: лёгкое появление при скролле (~360 мс + stagger). */
+  function initVitrineCards() {
+    var cards = document.querySelectorAll(".vitrine-card");
+    if (!cards.length) return;
+    if (reduced() || !("IntersectionObserver" in global)) {
+      cards.forEach(function (n) { n.classList.add("is-in"); });
+      return;
+    }
+    document.documentElement.classList.add("gb-vitrine-anim");
     cards.forEach(function (el, i) {
-      el.style.setProperty("--hf-delay", (0.42 + i * 0.09).toFixed(2) + "s");
+      el.style.setProperty("--vitrine-delay", (i * 0.07).toFixed(2) + "s");
     });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        en.target.classList.add("is-in");
+        io.unobserve(en.target);
+      });
+    }, { rootMargin: "0px 0px -6% 0px", threshold: 0.12 });
+    cards.forEach(function (n) { io.observe(n); });
   }
 
   function initPointerLight() {
@@ -432,15 +450,21 @@
     });
 
     if (toast && !reduced()) {
-      var toastOn = false;
-      global.setTimeout(function () {
-        toast.classList.add("is-on");
-        toastOn = true;
-      }, 1800);
-      global.setInterval(function () {
-        toastOn = !toastOn;
-        toast.classList.toggle("is-on", toastOn);
-      }, 5200);
+      var phoneToastNarrow = false;
+      try {
+        phoneToastNarrow = !!(global.matchMedia && global.matchMedia("(max-width: 768px)").matches);
+      } catch (eToast) {}
+      if (!phoneToastNarrow) {
+        var toastOn = false;
+        global.setTimeout(function () {
+          toast.classList.add("is-on");
+          toastOn = true;
+        }, 1800);
+        global.setInterval(function () {
+          toastOn = !toastOn;
+          toast.classList.toggle("is-on", toastOn);
+        }, 5200);
+      }
     }
   }
 
@@ -448,6 +472,7 @@
     initNav();
     initProgress();
     initFeatureStagger();
+    initVitrineCards();
     initHeroEntrance();
     initReveal();
     initPointerLight();

@@ -80,6 +80,20 @@ test("полный день с 8, неделя как в старом списк
   assert.equal(L.countFromMonth({ days: [] }, "2026-09-30"), 0);
   assert.deepEqual(L.WEEK.slice(0, 3), ["Понедельник", "Вторник", "Среда"]);
   assert.equal(L.WEEK[L.WEEK.length - 1], "Будущая неделя");
+  assert.equal(L.slotDateCount({ day: "Понедельник", count: 5, onDate: 5 }), 5);
+  assert.equal(L.slotDateCount({ day: "Будущая неделя", count: 15, onDate: 5 }), 5);
+  assert.equal(L.slotDateCount({ day: "Будущая неделя", count: 15 }), null);
+  assert.equal(L.slotDateCount({ day: "Вторник", count: 4 }), 4);
+  assert.equal(L.fullDayPrompt(L.slotDateCount({ day: "Будущая неделя", count: 15, onDate: 5 })), "");
+  assert.equal(
+    L.fullDayPrompt(L.slotDateCount({ day: "Будущая неделя", count: 15, onDate: 8 })),
+    "На этот день уже 8 записей Добавить ещё?"
+  );
+  const orders = fs.readFileSync(path.join(dir, "orders.js"), "utf8");
+  const week = fs.readFileSync(path.join(dir, "week.js"), "utf8");
+  assert.match(orders, /slotShown/);
+  assert.match(week, /shownCount/);
+  assert.doesNotMatch(orders, /day === "Будущая неделя" \|\| !iso/);
 });
 
 test("ключ недели — понедельник, воскресенье относится к той же неделе", () => {

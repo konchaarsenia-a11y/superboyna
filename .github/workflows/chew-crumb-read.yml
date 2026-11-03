@@ -1,0 +1,33 @@
+name: chew-crumb-read
+# Только чтение. Жевалка с фракцией не должна рисоваться крошкой. Имена не печатает.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/chew-crumb-read.yml
+      - scripts/chew-crumb-read.mjs
+      - boinya-c/next/crumb-mix.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check live baskets are not chew-as-crumb
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          node scripts/chew-crumb-read.mjs

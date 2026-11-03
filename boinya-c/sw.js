@@ -1,19 +1,13 @@
 /**
  * Бойня C — SW.
- * ВАЖНО: app.main.js / app.html / bridge / config — network-first.
- * Старый cache-first + ignoreSearch залипал на мёртвом JS → delete/move «не работают».
+ * ВАЖНО: next.html / next/*.js / bridge / config — только сеть (no-store).
+ * Старый cache-first + ignoreSearch залипал на мёртвом JS → delete/move / PP coef «не работают».
  */
-const SW_VER = "boinya-c-sw-v17-71125393";
-const SHELL = "boinya-c-shell-v17";
-const API_CACHE = "boinya-c-api-v17";
+const SW_VER = "boinya-c-sw-v18-71125448";
+const SHELL = "boinya-c-shell-v18-71125448";
+const API_CACHE = "boinya-c-api-v18-71125448";
 
-const PRECACHE = [
-  "./",
-  "./index.html",
-  "./app.html",
-  "./client/config.js",
-  "./sw.js"
-];
+const PRECACHE = ["./sw.js"];
 
 self.addEventListener("install", function (e) {
   e.waitUntil(
@@ -42,7 +36,6 @@ self.addEventListener("activate", function (e) {
       .then(function (keys) {
         return Promise.all(
           keys.map(function (k) {
-            // снести ВСЕ старые shell/api кэши Бойни
             if (k === SHELL || k === API_CACHE) return null;
             if (k.indexOf("boinya-c") === 0 || k.indexOf("boinya-fast") === 0) {
               return caches.delete(k);
@@ -66,13 +59,14 @@ function isAppShellPath_(path) {
   );
 }
 
-/** JS/HTML приложения — всегда сначала сеть, иначе TG вечно на старом delete/move. */
+/** JS/HTML приложения — всегда сеть; иначе TG вечно на старом delete/move / PP. */
 function isCriticalAppAsset_(path) {
   return (
-    /\/boinya-c\/(index|app|next)\.html$/.test(path) ||
+    /\/boinya-c\/(index|app|next|reset)\.html$/.test(path) ||
     /\/boinya-c\/next\//.test(path) ||
     /\/boinya-c\/(app\.main|bridge|seed-inline|sw)\.js$/.test(path) ||
-    /\/boinya-c\/client\/config\.js$/.test(path)
+    /\/boinya-c\/client\/config\.js$/.test(path) ||
+    /\/boinya-c\/(ds|courier-maps|courier-asm)\.(css|js)$/.test(path)
   );
 }
 
@@ -89,25 +83,17 @@ self.addEventListener("fetch", function (event) {
 
   var path = url.pathname || "";
 
-  // Критичные файлы UI: network-first (не ignoreSearch-cache)
+  // Критичные файлы UI: только сеть (без ignoreSearch-cache)
   if (isCriticalAppAsset_(path) && url.origin === self.location.origin) {
     event.respondWith(
-      fetch(req)
+      fetch(new Request(req, { cache: "no-store" }))
         .then(function (res) {
-          if (res && res.ok) {
-            var clone = res.clone();
-            caches.open(SHELL).then(function (cache) {
-              try {
-                cache.put(req, clone);
-              } catch (ePut) {}
-            });
-          }
           return res;
         })
         .catch(function () {
           return caches.open(SHELL).then(function (cache) {
             return cache.match(req).then(function (hit) {
-              return hit || cache.match(req, { ignoreSearch: true });
+              return hit || Response.error();
             });
           });
         })

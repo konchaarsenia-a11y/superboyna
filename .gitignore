@@ -22,3 +22,4 @@ native/android/local.properties
 
 # roles-audit: локальные снимки (PII/статистика) не коммитим — GitHub Pages публикует репозиторий целиком
 boinya-c/data/
+.goodboy-pages-dist/

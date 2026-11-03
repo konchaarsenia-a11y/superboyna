@@ -1,0 +1,253 @@
+name: full-day-count
+# Только чтение: живые заказы 26.10–01.11. Данные не меняет.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/full-day-count.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Count live rows by date
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p /tmp/full-day
+          python3 - <<'PY'
+          import json, os, subprocess
+          root = "/tmp/full-day"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              subprocess.check_call([
+                  "npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json", "--command", sql
+              ], stdout=open(path, "w", encoding="utf-8"))
+
+          run(
+              "SELECT date_iso, COALESCE(status,'') AS status, COUNT(*) AS rows, "
+              "COUNT(DISTINCT match_key) AS people FROM orders "
+              "WHERE date_iso >= '2026-10-26' AND date_iso <= '2026-11-01' "
+              "GROUP BY date_iso, status ORDER BY date_iso, status",
+              "by-status"
+          )
+          run(
+              "SELECT date_iso, COALESCE(day_name,'') AS day_name, COALESCE(segment,'') AS segment, "
+              "COALESCE(source,'') AS source, COUNT(*) AS rows, COUNT(DISTINCT match_key) AS people "
+              "FROM orders WHERE status = 'active' AND date_iso >= '2026-10-26' AND date_iso <= '2026-11-01' "
+              "GROUP BY date_iso, day_name, segment, source ORDER BY date_iso, day_name, segment",
+              "active-split"
+          )
+          run(
+              "SELECT COALESCE(date_iso,'') AS date_iso, COALESCE(status,'') AS status, "
+              "COUNT(*) AS rows, COUNT(DISTINCT match_key) AS people FROM orders "
+              "WHERE day_name = 'Будущая неделя' GROUP BY date_iso, status ORDER BY date_iso, status",
+              "future-label"
+          )
+          run(
+              "SELECT COUNT(*) AS dup_groups FROM ("
+              "SELECT match_key FROM orders WHERE status = 'active' AND date_iso = '2026-10-26' "
+              "AND match_key != '' GROUP BY match_key HAVING COUNT(*) > 1)",
+              "dup26"
+          )
+          run(
+              "SELECT cache_key, payload FROM snap_cache WHERE cache_key = 'weekDayCounts'",
+              "snap"
+          )
+          run(
+              "SELECT id, date_iso, COALESCE(day_name,'') AS day_name, COALESCE(segment,'') AS segment, "
+              "COALESCE(source,'') AS source, COALESCE(status,'') AS status, match_key, "
+              "CASE WHEN length(trim(COALESCE(address,'')))=0 THEN 0 ELSE 1 END AS has_addr, "
+              "length(COALESCE(basket_json,'[]')) AS basket_len, "
+              "CASE WHEN instr(COALESCE(note,''),'[ЕВРОПОЧТА]')>0 OR instr(COALESCE(note,''),'[БЕЛПОЧТА]')>0 "
+              "OR instr(COALESCE(note,''),'[ПОЧТА]')>0 THEN 1 ELSE 0 END AS mail "
+              "FROM orders WHERE date_iso IN ('2026-10-29','2026-10-30') "
+              "OR (status = 'active' AND ("
+              "upper(COALESCE(segment,'')) LIKE '%ПАРТ%' OR upper(COALESCE(source,'')) LIKE '%PARTNER%' "
+              "OR upper(COALESCE(segment,'')) = 'ВАРКА') AND date_iso >= '2026-10-26' AND date_iso <= '2026-11-02') "
+              "ORDER BY date_iso, id",
+              "rows-2930"
+          )
+          run(
+              "SELECT cache_key, payload FROM snap_cache WHERE cache_key IN "
+              "('courier:Четверг','courier:Пятница','partnerOrders','weekDayCountsSheet',"
+              "'viewDate:2026-10-29','viewDate:2026-10-30')",
+              "courier-snaps"
+          )
+          print("ok")
+          PY
+          node <<'JS'
+          const fs = require("fs");
+          const crypto = require("crypto");
+          function h(s) {
+            return crypto.createHash("sha256").update(String(s || "")).digest("hex").slice(0, 8);
+          }
+          function rows(name) {
+            const data = JSON.parse(fs.readFileSync("/tmp/full-day/" + name, "utf8"));
+            const blocks = Array.isArray(data) ? data : [data];
+            const out = [];
+            blocks.forEach((b) => { if (b && Array.isArray(b.results)) out.push(...b.results); });
+            return out;
+          }
+          const by = rows("by-status.json");
+          let activeRows = 0;
+          let activePeople = 0;
+          const on26 = { rows: 0, people: 0 };
+          by.forEach((r) => {
+            const line = r.date_iso + " " + (r.status || "-") + " rows=" + r.rows + " people=" + r.people;
+            console.log("date " + line);
+            if (r.status === "active") {
+              activeRows += Number(r.rows) || 0;
+              if (r.date_iso === "2026-10-26") {
+                on26.rows = Number(r.rows) || 0;
+                on26.people = Number(r.people) || 0;
+              }
+            }
+          });
+          console.log("active-range-rows " + activeRows);
+          console.log("active-2026-10-26 rows=" + on26.rows + " people=" + on26.people);
+          rows("active-split.json").forEach((r) => {
+            console.log(
+              "split " + r.date_iso + " day=" + (r.day_name || "-") +
+              " seg=" + (r.segment || "-") + " src=" + (r.source || "-") +
+              " rows=" + r.rows + " people=" + r.people
+            );
+          });
+          rows("future-label.json").forEach((r) => {
+            console.log(
+              "label " + (r.date_iso || "-") + " " + (r.status || "-") +
+              " rows=" + r.rows + " people=" + r.people
+            );
+          });
+          const dup = rows("dup26.json")[0] || {};
+          console.log("dup-groups-2026-10-26 " + (dup.dup_groups || 0));
+          const snap = rows("snap.json")[0] || {};
+          let payload = null;
+          try { payload = JSON.parse(snap.payload || "null"); } catch (e) { payload = null; }
+          ((payload && payload.items) || []).forEach((it) => {
+            console.log(
+              "slot " + (it.day || "") + " date=" + (it.date || "") +
+              " count=" + it.count + " onDate=" + (it.onDate == null ? "" : it.onDate)
+            );
+          });
+          rows("rows-2930.json").forEach((r) => {
+            console.log(
+              "row id=" + (r.id || "") +
+              " mk=" + h(r.match_key || r.id || "") +
+              " date=" + (r.date_iso || "") +
+              " day=" + (r.day_name || "-") +
+              " seg=" + (r.segment || "-") +
+              " src=" + (r.source || "-") +
+              " status=" + (r.status || "-") +
+              " addr=" + (r.has_addr == null ? "" : r.has_addr) +
+              " basket=" + (r.basket_len == null ? "" : r.basket_len) +
+              " mail=" + (r.mail == null ? "" : r.mail)
+            );
+          });
+          function faceKey(c) {
+            function clean(raw) {
+              return String(raw || "")
+                .replace(/\s*[·•#]\s*\d+\s*$/i, "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toUpperCase()
+                .replace(/Ё/g, "Е")
+                .replace(/\bVARKA\b/g, "ВАРКА");
+            }
+            const name = clean(c.ownerName || c.name || "");
+            const mk = clean(c.matchKey || "");
+            if (name.indexOf("ВАРКА ") === 0) return name;
+            if (mk.indexOf("ВАРКА ") === 0) return mk;
+            if (name === "ВАРКА" || mk === "ВАРКА") {
+              const addr = clean(c.address || "");
+              const id = String(c.partnerOrderId || "").trim();
+              if (addr) return "ВАРКА " + addr;
+              if (id) return "ВАРКА#" + id;
+              return "ВАРКА";
+            }
+            return "";
+          }
+          function briefClient(c) {
+            c = c || {};
+            const face = faceKey(c);
+            const stop = face
+              ? "pt:" + (face.indexOf("ВАРКА") === 0 ? face : "h:" + h(face))
+              : "m:" + h(c.matchKey || c.name || "");
+            return "id=" + (c.id || c.orderId || "") +
+              " seg=" + (c.segment || "-") +
+              " src=" + (c.source || c.orderType || "-") +
+              " date=" + (c.dateIso || c.date || "") +
+              " day=" + (c.day || "-") +
+              " pid=" + (c.partnerOrderId || "") +
+              " dog=" + (c.dogPart || "") +
+              " del=" + (c.delivered ? "1" : "0") +
+              " stop=" + stop +
+              " nameLen=" + String(c.name || "").length +
+              " mkLen=" + String(c.matchKey || "").length +
+              " addr=" + (String(c.address || "").trim() ? 1 : 0) +
+              " basket=" + ((c.basket && c.basket.length) || 0);
+          }
+          rows("courier-snaps.json").forEach((r) => {
+            let body = null;
+            try { body = JSON.parse(r.payload || "null"); } catch (e) { body = null; }
+            const key = r.cache_key || "";
+            if (key === "weekDayCountsSheet") {
+              ((body && body.items) || []).forEach((it) => {
+                console.log(
+                  "sheet " + (it.day || "") + " date=" + (it.date || "") +
+                  " count=" + (it.count == null ? "" : it.count)
+                );
+              });
+              return;
+            }
+            if (key.indexOf("viewDate:") === 0) {
+              const people = []
+                .concat((body && body.week) || [])
+                .concat((body && body.month) || [])
+                .concat((body && body.clients) || []);
+              console.log("view " + key + " n=" + people.length);
+              people.forEach((p) => {
+                console.log(
+                  "viewc " + key +
+                  " seg=" + (p.segment || p.source || "-") +
+                  " mk=" + h(p.matchKey || p.name || p.client || "") +
+                  " day=" + (p.day || p.dayName || "-")
+                );
+              });
+              return;
+            }
+            if (key === "partnerOrders") {
+              const list = (body && body.orders) || [];
+              list.forEach((o) => {
+                const date = String((o && o.deliverDateIso) || "").slice(0, 10);
+                if (date !== "2026-10-29" && date !== "2026-10-30") return;
+                console.log(
+                  "po id=" + (o.id || "") +
+                  " date=" + date +
+                  " status=" + (o.status || o.orderStatus || "-")
+                );
+              });
+              return;
+            }
+            const clients = (body && body.clients) || [];
+            console.log("snap " + key + " n=" + clients.length + " date=" + ((body && (body.dateIso || body.date)) || ""));
+            clients.forEach((c) => console.log("snapc " + key + " " + briefClient(c || {})));
+          });
+          JS
+          rm -rf /tmp/full-day

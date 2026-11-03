@@ -12,8 +12,18 @@
   /** Какие вкладки видны при уровне доступа */
   function allowedPages(access) {
     if (access === "city") return ["map"];
+    if (access === "lead") return ["profile"];
     if (access === "limited") return ["profile", "map"];
     return PAGES.slice();
+  }
+
+  function inBot() {
+    try {
+      var tg = global.Telegram && global.Telegram.WebApp;
+      return !!(tg && tg.initData);
+    } catch (e) {
+      return false;
+    }
   }
 
   function currentAccess(st) {
@@ -21,6 +31,7 @@
     var u = st && st.user;
     if (!u) return "full";
     if (u.access) return u.access;
+    if (u.access === "lead" || u.intent === "try") return "lead";
     if (u.isGuest || u.intent === "city") return "city";
     if (u.hasSubscription === false || u.intent === "limited") return "limited";
     return "full";
@@ -37,19 +48,15 @@
     diet: "Без курицы"
   };
 
-  var DEMO_PLACES = [
-    { id: "p1", cat: "play", name: "Площадка у Свислочи", meta: "Dog-friendly · вода · тень", dist: "1.2 км", x: 28, y: 36, hot: false },
-    { id: "p2", cat: "vet", name: "Ветклиника «Хвост»", meta: "Открыто до 21:00", dist: "0.8 км", x: 58, y: 48, hot: true },
-    { id: "p3", cat: "cafe", name: "VARKA · Карского 23", meta: "Кофейня · лакомства на витрине", dist: "1.5 км", x: 72, y: 28, hot: false },
-    { id: "p4", cat: "groom", name: "Груминг SoftPaw", meta: "−10% по карточке GOOD BOY", dist: "2.1 км", x: 40, y: 68, hot: false }
-  ];
-
   var MAP_FILTERS = [
     { id: "all", label: "Все" },
-    { id: "play", label: "Площадки" },
+    { id: "cafe", label: "Кафе" },
+    { id: "shop", label: "Зоомагазины" },
     { id: "vet", label: "Вет" },
     { id: "groom", label: "Груминг" },
-    { id: "cafe", label: "Кафе" }
+    { id: "play", label: "Площадки" },
+    { id: "park", label: "Парки" },
+    { id: "partner", label: "Партнёры" }
   ];
 
   function toast(msg) {
@@ -71,6 +78,22 @@
 
   function petView(pet) {
     return pet || DEMO_PET;
+  }
+
+  function deskGrid(left, right) {
+    return "<div class=\"cabinet-desk-grid\"><div class=\"cabinet-desk-col\">" + left +
+      "</div><div class=\"cabinet-desk-col\">" + right + "</div></div>";
+  }
+
+  function dogCardsHtml(dogs) {
+    return (dogs || []).filter(function (d) { return d && d.name; }).map(function (d) {
+      var subLine = [d.breed, d.weightKg ? d.weightKg + " кг" : ""].filter(Boolean).join(" · ");
+      return "<div class=\"cabinet-pet-hero\">" +
+        "<div class=\"ps-avatar cabinet-pet-avatar\">" + esc(petInitial(d.name)) + "</div>" +
+        "<div class=\"cabinet-pet-copy\"><h2>" + esc(d.name) + "</h2>" +
+        (subLine ? "<p>" + esc(subLine) + "</p>" : "") +
+        "</div></div>";
+    }).join("");
   }
 
   function petInitial(name) {
@@ -102,8 +125,26 @@
     var limitBanner = access === "limited"
       ? "<div class=\"cabinet-access-banner\">Ограниченный доступ · <a href=\"try.html\">оформить подписку</a></div>"
       : "";
+    if (access === "lead") {
+      var dogs = (st.pets || []).filter(function (d) { return d && d.name; });
+      var dogCards = dogCardsHtml(dogs);
+      return "<div class=\"cabinet-access-banner\">Заявка принята, менеджер свяжется с вами</div>" +
+        deskGrid(
+          "<div class=\"cabinet-block\">" +
+            "<h3 class=\"cabinet-block-title\">Собаки</h3>" +
+            (dogCards || "<p class=\"cabinet-hint\">Кличка не указана</p>") +
+          "</div>",
+          "<div class=\"cabinet-block\">" +
+            "<h3 class=\"cabinet-block-title\">Ваш аккаунт</h3>" +
+            "<div class=\"cabinet-kv\"><span>Имя</span><strong>" + esc(user.name || "") + "</strong></div>" +
+            "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
+            "<button type=\"button\" class=\"btn btn-ghost\" id=\"lockGoLogin\" style=\"margin-top:14px;\">У меня есть подписка — войти</button>" +
+          "</div>"
+        );
+    }
     return (
       limitBanner +
+      deskGrid(
       "<div class=\"cabinet-block\">" +
         (hasPet
           ? "<div class=\"cabinet-pet-hero\">" +
@@ -137,8 +178,7 @@
           "<b>Подсказка недели</b>" +
           "<span>После прогулки&nbsp;— 2&nbsp;шт сушёного лёгкого, не&nbsp;натощак.</span>" +
         "</div>" +
-      "</div>" +
-
+      "</div>",
       "<details class=\"cabinet-details\" id=\"petEditDetails\"" + (hasPet ? "" : " open") + ">" +
         "<summary>Редактировать питомца</summary>" +
         "<form id=\"petForm\" class=\"cabinet-form\">" +
@@ -159,27 +199,16 @@
         "<div class=\"cabinet-kv\"><span>Имя</span><strong>" + esc(user.name || "Гость") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Telegram</span><strong>" + esc(user.username ? "@" + user.username : "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
-        "<button type=\"button\" class=\"btn btn-ghost\" id=\"gbLogout\" style=\"margin-top:14px;\">Выйти</button>" +
+        (inBot() ? "" : "<button type=\"button\" class=\"btn btn-ghost\" id=\"gbLogout\" style=\"margin-top:14px;\">Выйти</button>") +
       "</div>"
+      )
     );
   }
 
   function renderMapPage(st) {
     var access = currentAccess(st);
     var filter = st.mapFilter || "all";
-    var activeId = st.mapPlaceId || "p2";
-    var places = DEMO_PLACES.filter(function (pl) {
-      return filter === "all" || pl.cat === filter;
-    });
-    if (!places.some(function (pl) { return pl.id === activeId; })) {
-      activeId = places[0] ? places[0].id : "";
-    }
-    var pins = places.map(function (pl) {
-      var cls = "ps-pin" + (pl.hot ? " ps-pin--hot" : "") + (pl.id === activeId ? " is-active" : "");
-      return "<button type=\"button\" class=\"" + cls + "\" data-place=\"" + pl.id + "\" style=\"--x:" + pl.x + "%;--y:" + pl.y + "%\" aria-label=\"" + esc(pl.name) + "\"></button>";
-    }).join("");
-    var nearest = places.find(function (pl) { return pl.id === activeId; }) || places[0];
-    var cityBar = access === "city"
+    var cityBar = access === "city" && !inBot()
       ? "<div class=\"cabinet-access-banner cabinet-access-banner--row\">" +
           "<span>Только карта</span>" +
           "<button type=\"button\" class=\"btn\" id=\"gbLogout\" style=\"width:auto;padding:8px 12px;font-size:0.8rem;\">Войти</button>" +
@@ -189,25 +218,24 @@
       cityBar +
       "<div class=\"cabinet-filters\" role=\"tablist\" aria-label=\"Фильтр мест\">" +
         MAP_FILTERS.map(function (f) {
-          return "<button type=\"button\" class=\"cabinet-chip" + (filter === f.id ? " is-on" : "") + "\" data-map-filter=\"" + f.id + "\">" + esc(f.label) + "</button>";
+          return "<button type=\"button\" class=\"cabinet-chip" + (filter === f.id ? " is-on" : "") + "\" data-map-filter=\"" + f.id + "\" role=\"tab\" aria-selected=\"" + (filter === f.id ? "true" : "false") + "\">" + esc(f.label) + "</button>";
         }).join("") +
       "</div>" +
+      deskGrid(
       "<div class=\"cabinet-map-wrap\">" +
-        "<div class=\"ps-map cabinet-map\" id=\"cabinetMap\">" + pins +
-          "<div class=\"ps-map-label\">" + esc(nearest ? "рядом " + nearest.dist : "Минск") + "</div>" +
-        "</div>" +
-      "</div>" +
-      "<div class=\"cabinet-place-list\">" +
-        places.map(function (pl) {
-          return (
-            "<button type=\"button\" class=\"cabinet-place" + (pl.id === activeId ? " is-active" : "") + "\" data-place=\"" + pl.id + "\">" +
-              "<div><strong>" + esc(pl.name) + "</strong><span>" + esc(pl.meta) + "</span></div>" +
-              "<em>" + esc(pl.dist) + "</em>" +
-            "</button>"
-          );
-        }).join("") +
-      "</div>"
+        "<div class=\"cabinet-map\" id=\"cabinetMap\" role=\"application\" aria-label=\"Карта Минска\"></div>" +
+      "</div>",
+      "<article class=\"cabinet-place-card\" id=\"cabinetPlaceCard\"><p class=\"cabinet-hint\">Открываем места…</p></article>" +
+      "<div class=\"cabinet-place-list\" id=\"cabinetPlaceList\"></div>"
+      )
     );
+  }
+
+  function lineText(it) {
+    var name = (it && (it.name || it.main)) || "Позиция";
+    var grams = it && (it.grams != null ? it.grams : (it.val != null ? it.val : it.value));
+    var unit = (it && it.unit) || "г";
+    return name + (grams != null && grams !== "" ? " · " + grams + " " + unit : "");
   }
 
   function renderSubscriptionPage(st) {
@@ -222,49 +250,83 @@
         "</div>"
       );
     }
-    var sub = st.subscription || {};
-    var link = st.link || {};
-    var linked = link.status === "linked";
-    var items = (sub.basket && sub.basket.length)
-      ? sub.basket.map(function (b) {
-          return (b.name || b.main || "Позиция") + (b.val || b.value ? " · " + (b.val || b.value) + (b.unit || " г") : "");
-        })
-      : ["Лёгкое говяжье · 100 г", "Рубец · 80 г", "Треска сушёная · 60 г"];
-    var badge = linked && sub.status === "active" ? "в пути" : (linked ? esc(sub.status || "активна") : "не привязана");
-    var when = linked
-      ? esc(sub.nextDateLabel || sub.nextDate || "Дата уточняется") + (link.address || sub.address ? " · " + esc(link.address || sub.address) : "")
-      : "Привяжите заказ — покажем дату и состав";
-    var progress = linked ? 78 : 12;
-
-    return (
-      "<div class=\"cabinet-block\">" +
+    var cab = st.cabinet || {};
+    var linked = !!cab.linked || (st.link && st.link.status === "linked");
+    var deliveries = cab.deliveries || [];
+    var nearest = null;
+    deliveries.forEach(function (d) { if (d.nearest) nearest = d; });
+    if (!nearest && deliveries.length) nearest = deliveries[0];
+    var dogs = (cab.dogs || []).map(function (d) { return d.name; }).filter(Boolean).join(", ");
+    var addr = cab.address || {};
+    var cards = deliveries.map(function (d) {
+      var lines = (d.lines || []).map(function (it) { return "<span>" + esc(lineText(it)) + "</span>"; }).join("");
+      return (
         "<div class=\"ps-card ps-card--rich cabinet-sub-card\">" +
-          "<div class=\"ps-row\"><strong>Месячный набор</strong><em class=\"ps-badge\">" + badge + "</em></div>" +
-          "<span>" + when + "</span>" +
-          "<div class=\"ps-bar\"><i style=\"--w:" + progress + "%\"></i></div>" +
-          "<div class=\"ps-list\">" + items.map(function (line) {
-            return "<span>" + esc(line) + "</span>";
-          }).join("") + "</div>" +
-        "</div>" +
-        (linked
-          ? "<div class=\"ps-tip\"><b>Осталось 8 дней</b><span>Следующий набор соберём автоматически&nbsp;— можно поменять состав до&nbsp;среды.</span></div>"
-          : "<p class=\"cabinet-hint\">Введите телефон или ник из заказа Бойни.</p>") +
+          "<div class=\"ps-row\"><strong>" + esc(d.date || "Дата") + "</strong><em class=\"ps-badge\">" + esc(d.type || "") + "</em></div>" +
+          (d.pair ? "<span>" + esc(d.pair) + "</span>" : "") +
+          (dogs ? "<span>Собаки: " + esc(dogs) + "</span>" : "") +
+          "<span>" + esc(d.address || addr.line || "") + "</span>" +
+          "<div class=\"ps-list\">" + (lines || "<span>Состав пуст</span>") + "</div>" +
+          (d.payText ? "<strong>" + esc(d.payText) + "</strong>" : "") +
+        "</div>"
+      );
+    }).join("");
+    var editLines = nearest && nearest.lines ? nearest.lines.map(lineText).join("\n") : "";
+    var warn = st.stockWarn ? "<p class=\"cabinet-hint\">" + esc(st.stockWarn) + "</p>" : "";
+    var dogBlock = dogCardsHtml(cab.dogs || []);
+    var dogsHtml = dogBlock
+      ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Собаки</h3>" + dogBlock + "</div>"
+      : "";
+    var left = "<div class=\"cabinet-block\">" +
+      "<h3 class=\"cabinet-block-title\">Следующая доставка</h3>" +
+      "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(cab.nick || (st.link && st.link.clientNick) || "—") + "</strong></div>" +
+      (cards || "<p class=\"cabinet-hint\">" + (linked ? "В этом месяце доставок нет." : "Привяжите клиента по нику или телефону.") + "</p>") +
       "</div>" +
-
+      (linked && nearest
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Состав</h3>" + warn +
+            "<form id=\"orderForm\" class=\"cabinet-form\">" +
+              "<input type=\"hidden\" id=\"orderId\" value=\"" + esc(nearest.id || "") + "\" />" +
+              "<div class=\"field\"><label>Состав, строка = название и граммы</label><textarea id=\"orderBasket\" rows=\"4\">" + esc(editLines) + "</textarea></div>" +
+              "<div class=\"field\"><label>Дата</label><input id=\"orderDate\" type=\"date\" value=\"" + esc(nearest.date || "") + "\" /></div>" +
+              "<label class=\"cabinet-hint\"><input id=\"confirmOnly\" type=\"checkbox\" /> Только после подтверждения</label>" +
+              "<button type=\"submit\" class=\"btn\">Сохранить заказ</button>" +
+              (st.stockWarn ? "<button type=\"button\" class=\"btn btn-ghost\" id=\"keepMissing\" style=\"margin-top:8px;\">Оставить своё изменение</button>" : "") +
+            "</form></div>"
+        : "");
+    var right = dogsHtml +
+      (linked && nearest
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Адрес</h3>" +
+            "<form id=\"addrForm\" class=\"cabinet-form\">" +
+              "<div class=\"field\"><label>Улица и дом</label><input id=\"addrStreet\" value=\"" + esc(addr.street || "") + "\" /></div>" +
+              "<div class=\"field-row\">" +
+                "<div class=\"field\"><label>Подъезд</label><input id=\"addrEntrance\" value=\"" + esc(addr.entrance || "") + "\" /></div>" +
+                "<div class=\"field\"><label>Код домофона</label><input id=\"addrDoor\" value=\"" + esc(addr.doorCode || "") + "\" /></div>" +
+              "</div>" +
+              "<div class=\"field-row\">" +
+                "<div class=\"field\"><label>Этаж</label><input id=\"addrFloor\" value=\"" + esc(addr.floor || "") + "\" /></div>" +
+                "<div class=\"field\"><label>Квартира</label><input id=\"addrFlat\" value=\"" + esc(addr.flat || "") + "\" /></div>" +
+              "</div>" +
+              "<button type=\"submit\" class=\"btn\">Сохранить адрес</button>" +
+            "</form></div>"
+        : "") +
+      (linked || (nearest && nearest.payText)
+        ? "<div class=\"cabinet-block\"><h3 class=\"cabinet-block-title\">Оплата</h3>" +
+            (nearest && nearest.payText ? "<p class=\"cabinet-pay\">" + esc(nearest.payText) + "</p>" : "") +
+            (linked
+              ? "<button type=\"button\" class=\"btn btn-ghost\" id=\"pauseSub\">Пауза</button>" +
+                "<p class=\"cabinet-hint\">Будущий заказ снимется, подписка уйдёт в АФК.</p>"
+              : "") +
+          "</div>"
+        : "") +
       "<div class=\"cabinet-block\">" +
-        "<h3 class=\"cabinet-block-title\">" + (linked ? "Детали подписки" : "Привязать заказ") + "</h3>" +
-        (linked
-          ? "<div class=\"cabinet-kv\"><span>Сегмент</span><strong>" + esc(sub.segment || "—") + "</strong></div>" +
-            "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(link.clientNick || "—") + "</strong></div>" +
-            "<div class=\"cabinet-kv\"><span>Адрес</span><strong>" + esc(link.address || sub.address || "—") + "</strong></div>"
-          : "") +
+        "<h3 class=\"cabinet-block-title\">Привязать</h3>" +
         "<form id=\"linkForm\" class=\"cabinet-form\">" +
+          "<div class=\"field\"><label>Ник</label><input id=\"linkNick\" name=\"nick\" placeholder=\"@nick\" autocomplete=\"off\" /></div>" +
           "<div class=\"field\"><label>Телефон</label><input id=\"linkPhone\" name=\"phone\" placeholder=\"+375…\" inputmode=\"tel\" autocomplete=\"tel\" /></div>" +
-          "<div class=\"field\"><label>Ник / Instagram</label><input id=\"linkNick\" name=\"nick\" placeholder=\"@nick\" autocomplete=\"off\" /></div>" +
-          "<button type=\"submit\" class=\"btn\">" + (linked ? "Обновить привязку" : "Найти и привязать") + "</button>" +
+          "<button type=\"submit\" class=\"btn\">Найти</button>" +
         "</form>" +
-      "</div>"
-    );
+      "</div>";
+    return deskGrid(left, right);
   }
 
   function renderPartnersPage(st) {
@@ -283,7 +345,7 @@
     var code = pr.eligible && pr.code ? pr.code : "";
     var partnerName = (partners[0] && partners[0].name) || "VARKA";
 
-    return (
+    return deskGrid(
       "<div class=\"cabinet-block\">" +
         "<div class=\"privilege-card\" id=\"privilegeCard\">" +
           "<p class=\"badge\">" + esc(pr.title || "Скидка VARKA") + "</p>" +
@@ -294,8 +356,7 @@
             : "<p class=\"hint\">Нужна активная подписка ПП — привяжите заказ во вкладке «Подписка».</p>") +
         "</div>" +
         "<div class=\"ps-tip\"><b>Как пользоваться</b><span>Покажите карточку в&nbsp;кабинете&nbsp;— скидка на&nbsp;кассе.</span></div>" +
-      "</div>" +
-
+      "</div>",
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">Партнёры рядом</h3>" +
         "<div class=\"cabinet-partner-list\">" +
@@ -316,7 +377,7 @@
     var app = document.getElementById("cabinet");
     if (nav) {
       nav.classList.toggle("is-city-only", access === "city");
-      nav.classList.toggle("is-limited", access === "limited");
+      nav.classList.toggle("is-limited", access === "limited" || access === "lead");
       document.querySelectorAll(".cabinet-nav [data-page]").forEach(function (btn) {
         var page = btn.getAttribute("data-page");
         var ok = allow.indexOf(page) >= 0;
@@ -324,12 +385,13 @@
         btn.style.display = ok ? "" : "none";
       });
       if (access === "city") nav.style.gridTemplateColumns = "1fr";
+      else if (access === "lead") nav.style.gridTemplateColumns = "1fr";
       else if (access === "limited") nav.style.gridTemplateColumns = "1fr 1fr";
       else nav.style.gridTemplateColumns = "repeat(4, 1fr)";
     }
     if (app) {
       app.classList.toggle("access-city", access === "city");
-      app.classList.toggle("access-limited", access === "limited");
+      app.classList.toggle("access-limited", access === "limited" || access === "lead");
       app.classList.toggle("access-full", access === "full");
     }
   }
@@ -391,7 +453,7 @@
     var meta = document.getElementById("topMeta");
     if (meta) {
       var label = (st.user && st.user.name) ? st.user.name : "Гость";
-      meta.textContent = label.length > 12 ? label.slice(0, 11) + "…" : label;
+      meta.textContent = label;
       meta.title = (st.user && st.user.name) || "Аккаунт";
     }
 
@@ -427,6 +489,7 @@
     if (details && detailsOpen) details.open = true;
 
     applyPageState(page);
+    if (page === "map" && global.GBMap && global.GBMap.mount) global.GBMap.mount();
   }
 
   global.GBUI = {

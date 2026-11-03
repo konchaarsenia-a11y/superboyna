@@ -1,0 +1,43 @@
+# Cloudflare Pages для сайта Goodboy → https://<name>.pages.dev
+# Секреты те же, что у boinya-c-worker-deploy (значения не печатать):
+#   CLOUDFLARE_API_TOKEN — обязателен
+#   CLOUDFLARE_ACCOUNT_ID — опционален (пустой unset)
+# GitHub Pages не отключаем.
+name: goodboy-cf-pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "goodboy/**"
+      - ".github/workflows/goodboy-cf-pages.yml"
+      - "scripts/goodboy-cf-pages-deploy.sh"
+
+concurrency:
+  group: goodboy-cf-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Deploy Goodboy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          bash scripts/goodboy-cf-pages-deploy.sh

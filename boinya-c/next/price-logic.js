@@ -105,15 +105,34 @@ var ASM_CHEW_PER_BIG = 4;
       });
     }
 
+    function pricePickVisibleFracs_(cat, name) {
+      var fracs = [];
+      if (eng && typeof eng.catalogFractionsForUi_ === "function") {
+        fracs = eng.catalogFractionsForUi_(cat, name) || [];
+      }
+      if (!fracs.length) {
+        var known = buildIgKnownMap();
+        var hit = known[String(name || "").toUpperCase()];
+        fracs = (hit && hit.fractions) || [];
+      }
+      return fracs.filter(function (f) { return !/^крошк/i.test(String(f || "")); });
+    }
+
     function pricePickDefaultFrac_(cat, name, preferred) {
       if (cat === "veg") return "";
-      var known = buildIgKnownMap();
-      var hit = known[String(name || "").toUpperCase()];
-      var fracs = (hit && hit.fractions) || [];
+      var fracs = pricePickVisibleFracs_(cat, name);
       if (preferred) {
         var want = String(preferred).toLowerCase();
         for (var i = 0; i < fracs.length; i++) {
           if (String(fracs[i]).toLowerCase().indexOf(want) >= 0) return fracs[i];
+        }
+        if (want.indexOf("полос") >= 0) {
+          if (fracs.indexOf("Кусочки") >= 0) return "Кусочки";
+          if (fracs.indexOf("Среднее") >= 0) return "Среднее";
+        }
+        if (want.indexOf("круп") >= 0 && fracs.indexOf("Крупное") < 0) {
+          if (fracs.indexOf("Среднее") >= 0) return "Среднее";
+          if (fracs.indexOf("Кусочки") >= 0) return "Кусочки";
         }
       }
       if (cat === "chew") {
@@ -127,6 +146,16 @@ var ASM_CHEW_PER_BIG = 4;
       return fracs[0] || "";
     }
 
+    function pricePickSnapFrac_(cat, name, sub, preferred) {
+      var fracs = pricePickVisibleFracs_(cat, name);
+      if (!fracs.length) return sub || "";
+      if (sub && fracs.indexOf(sub) >= 0) return sub;
+      var up = String(sub || "").toUpperCase().replace(/Ё/g, "Е");
+      if ((/^ПОЛОСК/.test(up) || /^КРУП/.test(up)) && fracs.indexOf("Кусочки") >= 0) return "Кусочки";
+      if ((/^ПОЛОСК/.test(up) || /^КРУП/.test(up)) && fracs.indexOf("Среднее") >= 0) return "Среднее";
+      return pricePickDefaultFrac_(cat, name, preferred) || fracs[0] || sub || "";
+    }
+
     function pricePickDefaultStarter_() {
       return [
         { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", value: 100, val: 100 },
@@ -134,7 +163,7 @@ var ASM_CHEW_PER_BIG = 4;
         { cat: "dressura", main: "СЕРДЦЕ", name: "СЕРДЦЕ", sub: "Ломтики", value: 50, val: 50 },
         { cat: "chew", main: "БЫЧИЙ КОРЕНЬ", name: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", value: 1, val: 1 },
         { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", value: 1, val: 1 },
-        { cat: "veg", main: "КАБАЧОК", name: "КАБАЧОК", sub: "", value: 50, val: 50 }
+        { cat: "veg", main: "ЯБЛОКИ", name: "ЯБЛОКИ", sub: "", value: 50, val: 50 }
       ];
     }
 
@@ -905,7 +934,9 @@ var ASM_CHEW_PER_BIG = 4;
       if (explicit) {
         list = catalogLines.map(function (it) {
           var copy = Object.assign({}, it);
-          if (!copy.sub && copy.cat !== "veg") {
+          if (copy.cat && copy.cat !== "veg" && copy.cat !== "crumb" && copy.cat !== "chew") {
+            copy.sub = pricePickSnapFrac_(copy.cat, copy.main || copy.name, copy.sub, signals.fracPref);
+          } else if (!copy.sub && copy.cat !== "veg") {
             copy.sub = pricePickDefaultFrac_(copy.cat, copy.main || copy.name, signals.fracPref);
           }
           copy.needFrac = false;
@@ -963,8 +994,9 @@ var ASM_CHEW_PER_BIG = 4;
         "БЫЧИЙ КОРЕНЬ": "Бычий корень",
         "ТРАХЕЯ": "Трахея",
         "АОРТА": "Аорта",
-        "УХО Г": "Говяжье ухо",
-        "УХО К": "Куриное ухо",
+        "УХО Г": "Ушко говяжье",
+        "МЯСНЫЕ ЛОМТИКИ": "Говядина",
+        "УХО К": "Ушко кролика",
         "НОСЫ шт.": "Носик",
         "СТАНОВАЯ ЖИЛА": "Становая жила",
         "ЛОП ХРЯЩ шт.": "Лопаточный хрящ",
@@ -1155,10 +1187,15 @@ var ASM_CHEW_PER_BIG = 4;
         }
         var unit = it.cat === "chew" ? "шт" : "г";
         var sub = "";
-        if (it.sub === "ПОЛОВИНКА") sub = " (пополам)";
-        else if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
+        var crumbLine = it.cat === "crumb" || /^крошк/i.test(String(it.sub || "")) || /^крошк/i.test(String(it.main || it.name || ""));
+        if (crumbLine) {
+          lines.push(crumbClientMessageLine_(it));
+          return;
+        }
+        var fracWord = clientFraction_(it.main || it.name || "", it.sub || "");
+        if (fracWord) sub = " (" + fracWord + ")";
         var val = it.value != null ? it.value : it.val;
-        lines.push(pricePickSkuTitle_(it.main || it.name) + " — " + val + " " + unit + sub);
+        lines.push(clientFacingName_(it.main || it.name) + " — " + val + " " + unit + sub);
       });
 
       var names = function (cat) {
@@ -1965,6 +2002,21 @@ var ASM_CHEW_PER_BIG = 4;
     }
 
     function crumbClientMessageLine_(item) {
+      var mixTag = String((item && item.crumbKind) || "");
+      var mix4Exec = /^mix4:(dress|veg|hypo)$/i.exec(mixTag);
+      if (mix4Exec) {
+        var mix4Kind = String(mix4Exec[1]).toLowerCase();
+        var mix4Title = mix4Kind === "hypo" ? "Гипоаллергенные" : (mix4Kind === "veg" ? "Овощи/фрукты" : "Мясные (дрессура)");
+        var mix4Val = Number(item && (item.val != null ? item.val : item.value)) || 0;
+        return mix4Title + " — " + mix4Val + " г";
+      }
+      var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
+      if (mixExec || (item && item.crumbScheme === "mix3")) {
+        var mixKind = mixExec ? String(mixExec[1]).toLowerCase() : String(item.crumbKind || "mix").toLowerCase();
+        var mixTitle = mixKind === "hypo" ? "Микс гипоаллергенный" : (mixKind === "meat" ? "Микс мясной" : "Микс");
+        var mixVal = Number(item && (item.val != null ? item.val : item.value)) || 0;
+        return mixTitle + " — " + mixVal + " г";
+      }
       var raw = (item && Array.isArray(item.sources)) ? item.sources : [];
       var kept = [];
       raw.forEach(function (s, i) {
@@ -2003,8 +2055,8 @@ var ASM_CHEW_PER_BIG = 4;
       var sub = it.sub || "";
       var val = it.val != null ? it.val : it.value;
       var unit = priceUnitLabel(it.cat, main);
-      var frac = humanFraction(main, sub);
-      var line = prettyProductName(main) + " - " + (Number(val) || 0) + " " + unit;
+      var frac = clientFraction_(main, sub);
+      var line = clientFacingName_(main) + " - " + (Number(val) || 0) + " " + unit;
       if (frac) line += " (" + frac + ")";
       return line;
     }
@@ -2061,6 +2113,19 @@ var ASM_CHEW_PER_BIG = 4;
       return (Math.abs(x - Math.round(x)) < 0.001) ? String(Math.round(x)) : x.toFixed(2);
     }
 
+    /** Слово «рубль» к сумме в письме. Дробь с копейками — всегда «рубля». «Рубец» не трогает. */
+    function rublesWord_(n) {
+      var x = money2_(n);
+      if (Math.abs(x - Math.round(x)) >= 0.001) return "рубля";
+      var abs = Math.abs(Math.round(x));
+      var mod100 = abs % 100;
+      if (mod100 >= 11 && mod100 <= 14) return "рублей";
+      var mod10 = abs % 10;
+      if (mod10 === 1) return "рубль";
+      if (mod10 >= 2 && mod10 <= 4) return "рубля";
+      return "рублей";
+    }
+
     /** Потолок 92% показанной розницы на всю цену подписки. */
     function capOfferSubToDisplayedRetail_(subTotal, retailTotal) {
       var sub = money2_(subTotal);
@@ -2096,6 +2161,37 @@ var ASM_CHEW_PER_BIG = 4;
 
     function retailTotalWithPacks_(retailTotal, packagesByn) {
       return money2_((Number(retailTotal) || 0) + (Number(packagesByn) || 0));
+    }
+
+    /** Розница клиенту: пакеты уже внутри прайса, отдельную доплату не прибавляем. */
+    function retailOfferTotal_(basketTotal) {
+      return money2_(basketTotal);
+    }
+
+    function clientFacingName_(name) {
+      var raw = String(name || "");
+      var n = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      if (n === "УХО К" || n === "УШКО К") return "Ушко кролика";
+      if (n === "УХО Г" || n === "УШКО Г") return "Ушко говяжье";
+      if (n === "РУБЕЦ Т" || n === "РУБЕЦ") return "Рубец";
+      if ((/МЯСН/.test(n) && /ЛОМТ/.test(n)) || n === "ГОВЯДИНА") return "Говядина";
+      var shown = "";
+      try { shown = (eng.prettyProductName || prettyProductName)(raw) || ""; } catch (eName) { shown = ""; }
+      if (shown === "Ухо Г" || shown === "Ухо г") return "Ушко говяжье";
+      if (shown === "Ухо К" || shown === "Ухо к") return "Ушко кролика";
+      if (shown === "Рубец Т" || shown === "Рубец т") return "Рубец";
+      if (shown === "Мясные ломтики") return "Говядина";
+      return shown || raw;
+    }
+
+    function clientFraction_(main, sub) {
+      var ig = typeof globalThis !== "undefined" ? globalThis.BoinyaIgLabels : null;
+      if (ig && typeof ig.igFractionWord === "function") {
+        var word = ig.igFractionWord(main, sub);
+        if (word) return word;
+      }
+      var fn = eng.humanFraction || humanFraction;
+      try { return fn(main, sub) || ""; } catch (eFrac) { return ""; }
     }
 
     /** Месячное N. «2», «2/мес», «2 доставки» → 2. Слот «1/2» → знаменатель 2, не 1. */
@@ -2148,9 +2244,9 @@ var ASM_CHEW_PER_BIG = 4;
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " рублей";
+      msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " " + rublesWord_(Number(rShow));
       msg += "\n\nВ подписке с учётом доставок, поддержки 24/7 и партнёрской программы со скидками для наших клиентов\n" +
-        "стоимость выходит - " + sShow + " рублей за месяц";
+        "стоимость выходит - " + sShow + " " + rublesWord_(Number(sShow)) + " за месяц";
       msg += "\n\nКак вам наше предложение?)\nГотовы продолжать😁";
       return msg;
     }
@@ -2160,7 +2256,8 @@ var ASM_CHEW_PER_BIG = 4;
       var note = String(clientNote || "").trim();
       var msg = "Давайте подытожим ваш заказ 📜\n\n" + blocks;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот набор составит - " + String(roundRub(retailTotal)) + " рублей";
+      var retailShow = String(roundRub(retailTotal));
+      msg += "\n\nЦена за этот набор составит - " + retailShow + " " + rublesWord_(Number(retailShow));
       msg += "\n\nВсё подходит?)";
       return msg;
     }
@@ -2474,6 +2571,8 @@ var ASM_CHEW_PER_BIG = 4;
     capOfferSubToDisplayedRetail_: capOfferSubToDisplayedRetail_,
     subscriptionOfferWithPacks_: subscriptionOfferWithPacks_,
     retailTotalWithPacks_: retailTotalWithPacks_,
+    retailOfferTotal_: retailOfferTotal_,
+    rublesWord_: rublesWord_,
     composePpClientMessage: composePpClientMessage,
     monthDeliveriesN_: monthDeliveriesN_,
     raw26ApiFactUsable_: raw26ApiFactUsable_,

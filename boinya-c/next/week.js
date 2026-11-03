@@ -75,12 +75,19 @@
     return null;
   }
 
+  function shownCount(it) {
+    if (!it) return null;
+    var n = logic().slotDateCount ? logic().slotDateCount(it) : null;
+    if (n == null && String(it.day || "") !== "Будущая неделя" && isFinite(Number(it.count))) n = Number(it.count);
+    return n;
+  }
+
   function dayStrip() {
     var html = '<div class="b-days">';
     logic().WEEK.forEach(function (name) {
       if (name === "Будущая неделя") return;
       var it = countOf(name);
-      var num = it ? Number(it.count) : null;
+      var num = shownCount(it);
       var cls = "b-day";
       if (view.day === name && view.seg === "week") cls += " b-day--on";
       var loadMark = logic().dayLoadMark ? logic().dayLoadMark(num) : "";
@@ -97,7 +104,10 @@
     var fut = view.day === "Будущая неделя" ? " b-chip--on" : "";
     html += '<div class="b-row" style="margin-top:8px">' +
       '<button type="button" class="b-chip' + fut + '" data-act="wday" data-day="Будущая неделя">Будущая неделя</button></div>';
-    if ((view.counts || []).some(function (it) { return Number(it && it.count) >= logic().FULL_FROM; })) {
+    if ((view.counts || []).some(function (it) {
+      var n = shownCount(it);
+      return n != null && Number(n) >= logic().FULL_FROM;
+    })) {
       html += '<p class="b-note"><span style="color:var(--b-warn)">●</span> полный от ' + logic().FULL_FROM + "</p>";
     }
     return html;
@@ -130,10 +140,17 @@
     var price = "";
     if (c && c._pay != null && c._pay !== "") {
       if (Number(c._pay) > 0) price = String(c._pay).replace(".", ",") + " BYN";
+      else if (c._payNote) price = "0, " + c._payNote;
     } else if (c.orderPrice != null && c.orderPrice !== "") {
       price = String(c.orderPrice).replace(".", ",") + " BYN";
     }
-    var addr = [c.address, price].filter(Boolean).join(", ");
+    var shown = c.address || "";
+    try {
+      if (root.BoinyaOrderPayload && root.BoinyaOrderPayload.showAddress) {
+        shown = root.BoinyaOrderPayload.showAddress(c, root.BoinyaOrderEngine);
+      }
+    } catch (eAddr) {}
+    var addr = [shown, price].filter(Boolean).join(", ");
     return '<button type="button" class="row" data-act="wrow" data-i="' + index + '" data-src="' + source + '">' +
       '<span class="avatar" aria-hidden="true">' + esc(who.letter) + "</span>" +
       '<span class="who"><span class="name">' + esc(who.dog) + "</span>" +
@@ -160,8 +177,14 @@
         '<button type="button" class="nx-pp-toggle__btn' + (slotNow === 2 ? " nx-pp-toggle__btn--on" : "") + '" data-act="wslot" data-slot="2" data-i="' + index + '" data-src="' + source + '">ПП2</button>' +
         "</div>";
     }
+    var cardNote = "";
+    try {
+      var payNote = root.BoinyaOrderPayload;
+      if (payNote && payNote.cardNoteText) cardNote = payNote.cardNoteText(c.note || "");
+    } catch (eCardNote) { cardNote = ""; }
     var html = (who.nick ? '<p class="sheet-lead">' + esc(who.nick) + "</p>" : "") +
       slotNote +
+      (cardNote ? '<p class="b-lbl">Доп информация</p><p class="nx-extra-info">' + esc(cardNote) + "</p>" : "") +
       (lines ? '<div class="mix-list">' + lines + "</div>" : '<p class="b-note">Состав не указан</p>') +
       slotBtns +
       '<button type="button" class="b-btn b-btn--main" data-act="wedit" data-i="' + index + '" data-src="' + source + '" style="margin-top:12px">Править</button>' +
@@ -188,6 +211,25 @@
       if (iso) map[iso] = d;
     });
     return map;
+  }
+
+  function grossOf(slot) {
+    if (!slot) return null;
+    var F = root.BoinyaFormulas;
+    if (F && F.formulaMonth_) {
+      try {
+        var made = F.formulaMonth_({
+          revenue: slot.revenue,
+          S: slot.S,
+          G: slot.G,
+          P: slot.P,
+          N: slot.N
+        });
+        if (made && isFinite(Number(made.gross))) return Math.round(Number(made.gross) * 100) / 100;
+      } catch (eGross) {}
+    }
+    if (slot.clean != null && isFinite(Number(slot.clean))) return Math.round(Number(slot.clean) * 100) / 100;
+    return null;
   }
 
   function monthCal() {
@@ -315,6 +357,31 @@
     return logic().revenueSum(all, { onlyDate: dayOn ? view.date : "" });
   }
 
+  function summaryClean(dayOn) {
+    if (!dayOn) return null;
+    var pack = monthPeopleCache[displayedMonth()];
+    if (!pack || !pack.costReady) return null;
+    if (!logic().monthPeopleReady(pack, view.overview)) return null;
+    var map = logic().dayPlanUnits(flattenMonth(pack));
+    if (!map) return null;
+    var slot = map[view.date];
+    if (!slot) return null;
+    return grossOf(slot);
+  }
+
+  function summaryMoneyHtml(dayOn) {
+    var shown = moneyText(summaryMoney(dayOn));
+    var white = "";
+    if (dayOn) {
+      var clean = summaryClean(true);
+      if (clean != null) {
+        shown = moneyText(summaryMoney(true)) + "/" + moneyText(clean);
+        white = ' style="color:#fff"';
+      }
+    }
+    return '<div class="nx-count"><b' + white + ">" + esc(shown) + "</b><span>Сумма, BYN</span></div>";
+  }
+
   function summaryHtml() {
     var dayOn = selectedInView();
     var people = summaryPeople();
@@ -325,7 +392,7 @@
       '<p class="b-lbl" style="margin-top:0">' + esc(title || "Месяц") + "</p>" +
       '<div class="nx-counters">' +
         '<div class="nx-count"><b>' + esc(String(count || 0)) + "</b><span>Люди</span></div>" +
-        '<div class="nx-count"><b>' + esc(moneyText(summaryMoney(dayOn))) + "</b><span>Сумма, BYN</span></div>" +
+        summaryMoneyHtml(dayOn) +
       "</div>" +
       (function () {
         var slots = logic().countPpSlots(people);
@@ -403,7 +470,7 @@
         view.drafts.forEach(function (c, i) {
           var who = splitWho(c);
           html += '<div class="b-card" style="margin-bottom:8px"><p class="b-li__title" style="margin:0">' + esc(who.dog) + (who.nick ? " " + esc(who.nick) : "") + "</p>" +
-            '<p class="b-note">' + esc([c.address, c.phone].filter(Boolean).join(", ") || "дополните адрес и телефон") + "</p>" +
+            '<p class="b-note">' + esc([root.BoinyaOrderPayload && root.BoinyaOrderPayload.showAddress ? root.BoinyaOrderPayload.showAddress(c, root.BoinyaOrderEngine) : c.address, c.phone].filter(Boolean).join(", ") || "дополните адрес и телефон") + "</p>" +
             '<button type="button" class="nx-link" data-act="wfill" data-i="' + i + '">Дополнить</button> ' +
             '<button type="button" class="nx-link" data-act="wunstage" data-i="' + i + '">Вернуть</button></div>';
         });
@@ -983,7 +1050,8 @@
       matchKey: c.matchKey || logic().viewClientKey(c.name),
       day: view.resolvedDay || view.day,
       date: view.date,
-      calendarOnly: view.calendarOnly
+      calendarOnly: view.calendarOnly,
+      partnerOrderId: c.partnerOrderId || ""
     });
     var res = await api().apiGet(params, { timeoutMs: 30000, cacheTtlMs: 0 });
     var delChange = {
@@ -1023,10 +1091,16 @@
       if (logic().resolveOrderType(c) === "bp" && !String(c.ppPartner || "").trim()) c.ppPartner = "Другое";
     });
     var nHere = 0;
+    var itHere = null;
     (view.counts || []).forEach(function (it) {
-      if (it && view.day && it.day === view.day) nHere = Number(it.count) || 0;
+      if (it && view.day && it.day === view.day) itHere = it;
     });
-    if (!nHere && view.date) nHere = await countOnIso(view.date);
+    var slotIso = itHere ? isoFromDmy(itHere.date || itHere.dateIso) : "";
+    var viewIso = isoFromDmy(view.date);
+    var sameDate = !viewIso || !slotIso || viewIso === slotIso;
+    var shown = sameDate ? shownCount(itHere) : null;
+    if (shown != null) nHere = shown;
+    else if (view.date) nHere = await countOnIso(view.date);
     var fullDraft = logic().fullDayPrompt(nHere);
     if (fullDraft) {
       var addDraft = await sh().confirm({ title: "Полный день", text: fullDraft, ok: "Добавить", cancel: "Отмена" });

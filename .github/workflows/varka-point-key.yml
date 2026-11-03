@@ -1,0 +1,250 @@
+name: varka-point-key
+# Живая строка 27.10 «Варка» / «Шевченко 1» лежит под общим ключом CAL:ВАРКА:2026-10-27.
+# Переписать id и match_key на точку. Корзину не менять. Цвирко не создавать.
+# Копия dupBackup:varka-point-2026-10-27. Чужие заказы и подписки сверить.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/varka-point-key.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/varka-point-key.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rekey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Rekey the surviving Shevchenko row
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/varka-point-key"
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          root = os.environ["GITHUB_WORKSPACE"] + "/artifacts/varka-point-key"
+          OLD = "CAL:ВАРКА:2026-10-27"
+          NEW = "CAL:ВАРКА ШЕВЧЕНКО 1:2026-10-27"
+          KEY = "dupBackup:varka-point-2026-10-27"
+          NOW = "2026-10-23T19:45:00.000Z"
+          DATE = "2026-10-27"
+
+          def run(sql, name):
+              path = root + "/" + name + ".json"
+              sql_path = root + "/" + name + ".sql"
+              open(sql_path, "w", encoding="utf-8").write(sql)
+              cmd = ["npx", "wrangler@4", "d1", "execute", "boinya-c", "--remote", "--json"]
+              if len(sql) > 50000:
+                  cmd += ["--file", sql_path]
+              else:
+                  cmd += ["--command", sql]
+              proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              out = proc.stdout.decode("utf-8", "replace")
+              err = proc.stderr.decode("utf-8", "replace")
+              open(path, "w", encoding="utf-8").write(out)
+              open(path + ".err", "w", encoding="utf-8").write(err)
+              if proc.returncode != 0 or not out.strip():
+                  raise SystemExit("wrangler %s rc=%s out=%s err=%s" % (name, proc.returncode, out[:400], err[-800:]))
+              return path
+
+          def blocks(path):
+              text = open(path, encoding="utf-8").read()
+              i = 0
+              while i < len(text) and text[i] not in "[{":
+                  i += 1
+              if i >= len(text):
+                  raise SystemExit("no json in %s: %s" % (path, text[:400]))
+              data = json.loads(text[i:])
+              return data if isinstance(data, list) else [data]
+
+          def rows(path):
+              out = []
+              for block in blocks(path):
+                  if isinstance(block, dict) and isinstance(block.get("results"), list):
+                      out.extend(block["results"])
+              return out
+
+          def changes(path):
+              n = 0
+              for block in blocks(path):
+                  meta = block.get("meta") if isinstance(block, dict) else None
+                  if isinstance(meta, dict):
+                      n += int(meta.get("changes") or 0)
+              return n
+
+          def q(s):
+              return str(s).replace("'", "''")
+
+          def fingerprint():
+              orders = rows(run(
+                  "SELECT id, match_key, status, updated_at, length(ifnull(basket_json,'')) AS bl, length(ifnull(address,'')) AS al FROM orders",
+                  "fp-orders-" + str(abs(hash(os.urandom(4))))
+              ))
+              subs = rows(run(
+                  "SELECT id, nick, sheet, status FROM subs",
+                  "fp-subs-" + str(abs(hash(os.urandom(4))))
+              ))
+              def digest(items):
+                  lines = sorted(json.dumps(r, ensure_ascii=False, sort_keys=True) for r in items)
+                  return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest() + ":" + str(len(lines))
+              return orders, subs, digest(orders), digest(subs)
+
+          def basket_ok(raw):
+              try:
+                  arr = json.loads(raw or "[]")
+              except Exception:
+                  return False
+              if not isinstance(arr, list) or len(arr) != 2:
+                  return False
+              want = {("ЛЁГКОЕ", "Среднее", 100), ("СЕРДЦЕ", "Ломтики", 100)}
+              got = set()
+              for it in arr:
+                  if not isinstance(it, dict):
+                      return False
+                  got.add((str(it.get("name") or ""), str(it.get("sub") or ""), int(it.get("value") or 0)))
+              return got == want
+
+          def price_ok(raw):
+              try:
+                  meta = json.loads(raw or "{}")
+              except Exception:
+                  return False
+              return str(meta.get("orderPrice")) == "24"
+
+          def load_backup():
+              got = rows(run("SELECT payload FROM snap_cache WHERE cache_key = '%s'" % KEY, "backup-read"))
+              if not got:
+                  return None
+              payload = got[0].get("payload")
+              if isinstance(payload, str):
+                  payload = json.loads(payload)
+              return payload
+
+          def put_backup(row):
+              raw = json.dumps({"reason": "rekey shevchenko point", "at": NOW, "row": row}, ensure_ascii=False, separators=(",", ":"))
+              run(
+                  "INSERT INTO snap_cache (cache_key, payload, updated_at) "
+                  "SELECT '%s', '%s', '%s' WHERE NOT EXISTS (SELECT 1 FROM snap_cache WHERE cache_key = '%s')"
+                  % (KEY, q(raw), NOW, KEY),
+                  "backup-put",
+              )
+
+          found = rows(run(
+              "SELECT * FROM orders WHERE id IN ('%s', '%s')" % (q(OLD), q(NEW)),
+              "find",
+          ))
+          by_id = {str(r.get("id")): r for r in found}
+          if NEW in by_id and OLD not in by_id:
+              row = by_id[NEW]
+              if str(row.get("address") or "") != "Шевченко 1" or str(row.get("match_key") or "") != "ВАРКА ШЕВЧЕНКО 1":
+                  raise SystemExit("refuse: new id has unexpected shape")
+              if not basket_ok(row.get("basket_json")):
+                  raise SystemExit("refuse: new id basket changed")
+              print(json.dumps({"ok": True, "already": True, "id": NEW}, ensure_ascii=False))
+              raise SystemExit(0)
+          if NEW in by_id and OLD in by_id:
+              raise SystemExit("refuse: both ids exist")
+          if OLD not in by_id:
+              raise SystemExit("refuse: source row missing")
+          row = by_id[OLD]
+          if str(row.get("client") or "") != "Варка":
+              raise SystemExit("refuse: client")
+          if str(row.get("address") or "") != "Шевченко 1":
+              raise SystemExit("refuse: address")
+          if str(row.get("status") or "") != "active":
+              raise SystemExit("refuse: status")
+          if str(row.get("date_iso") or "") != DATE:
+              raise SystemExit("refuse: date")
+          if str(row.get("match_key") or "") != "ВАРКА":
+              raise SystemExit("refuse: match_key")
+          if not basket_ok(row.get("basket_json")) or not price_ok(row.get("meta_json")):
+              raise SystemExit("refuse: basket or price is not the 19:20 Shevchenko row")
+
+          put_backup(row)
+          saved = load_backup()
+          if not saved or not isinstance(saved.get("row"), dict):
+              raise SystemExit("refuse: backup missing")
+          if str(saved["row"].get("id")) != OLD:
+              raise SystemExit("refuse: backup id")
+
+          before_orders, before_subs, before_oh, before_sh = fingerprint()
+          upd = run(
+              "UPDATE orders SET id = '%s', match_key = 'ВАРКА ШЕВЧЕНКО 1' "
+              "WHERE id = '%s' AND status = 'active' AND client = 'Варка' AND address = 'Шевченко 1' AND date_iso = '%s'"
+              % (q(NEW), q(OLD), DATE),
+              "rekey",
+          )
+          n = changes(upd)
+          if n != 1:
+              raise SystemExit("refuse: update changes=%s" % n)
+          run("DELETE FROM snap_cache WHERE cache_key = 'viewDate:%s'" % DATE, "drop-view")
+
+          after_orders, after_subs, after_oh, after_sh = fingerprint()
+          before_map = {str(r["id"]): r for r in before_orders}
+          after_map = {str(r["id"]): r for r in after_orders}
+          moved = after_map.get(NEW)
+          problems = []
+          if OLD in after_map:
+              problems.append("old id still present")
+          if not moved:
+              problems.append("new id missing")
+          else:
+              src = before_map.get(OLD) or {}
+              for field in ("status", "updated_at", "bl", "al"):
+                  if str(moved.get(field)) != str(src.get(field)):
+                      problems.append("moved " + field)
+              if str(moved.get("match_key")) != "ВАРКА ШЕВЧЕНКО 1":
+                  problems.append("match_key")
+          if len(after_orders) != len(before_orders):
+              problems.append("orders count")
+          for oid, prev in before_map.items():
+              if oid == OLD:
+                  continue
+              now = after_map.get(oid)
+              if now != prev:
+                  problems.append("other " + oid)
+          if hashlib.sha256("\n".join(sorted(json.dumps(r, ensure_ascii=False, sort_keys=True) for r in before_subs)).encode()).hexdigest() != hashlib.sha256("\n".join(sorted(json.dumps(r, ensure_ascii=False, sort_keys=True) for r in after_subs)).encode()).hexdigest():
+              problems.append("subs")
+          if before_sh != after_sh:
+              problems.append("subs hash")
+
+          check = rows(run("SELECT basket_json, meta_json, client, address, date_iso FROM orders WHERE id = '%s'" % q(NEW), "check"))
+          if not check or not basket_ok(check[0].get("basket_json")) or not price_ok(check[0].get("meta_json")):
+              problems.append("basket after")
+          if check and (str(check[0].get("client")) != "Варка" or str(check[0].get("address")) != "Шевченко 1"):
+              problems.append("text after")
+
+          if problems:
+              run(
+                  "UPDATE orders SET id = '%s', match_key = 'ВАРКА' WHERE id = '%s'" % (q(OLD), q(NEW)),
+                  "rollback",
+              )
+              raise SystemExit("rollback: " + ", ".join(problems))
+
+          print(json.dumps({
+              "ok": True,
+              "id": NEW,
+              "match_key": "ВАРКА ШЕВЧЕНКО 1",
+              "orders": len(after_orders),
+              "subs": len(after_subs),
+              "ordersBefore": before_oh,
+              "subsSame": before_sh == after_sh,
+              "backup": KEY,
+              "tsvirko": "not restored"
+          }, ensure_ascii=False))
+          PY

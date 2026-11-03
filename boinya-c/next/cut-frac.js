@@ -81,13 +81,18 @@
 
   /* То же дерево, что order-engine humanFraction. */
   function catalogWord(main, sub) {
+    var ig = typeof globalThis !== "undefined" ? globalThis.BoinyaIgLabels : null;
+    if (ig && ig.igFractionWord) {
+      var igWord = ig.igFractionWord(main, sub);
+      if (igWord) return igWord;
+    }
     var f = String(sub || "").trim();
     if (!f) return "";
     var m = String(main || "").toUpperCase();
     var fu = f.toUpperCase().replace(/\s+/g, " ");
     if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "очень мелкое";
     if (/^ЛОМТ/.test(fu)) return "ломтики";
-    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^ПОЛОСК/.test(fu)) return /Л[ЁЕ]ГК/.test(m) ? "палочки" : "полоски";
     if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) return "мелкий кубик";
     if (fu === "ПЛАСТ") return "пластинки";
     if (/ПОЛОВИН/.test(fu)) return "половинки";

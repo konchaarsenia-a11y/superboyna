@@ -84,8 +84,8 @@ if (/manual_varka_only/.test(extractFn_(workerSrc, "partnerOwnerAllGetMe_"))) {
 }
 
 const submitSlice = workerSrc.slice(
-  workerSrc.indexOf("if (/^partnerSubmitOrder$/i.test(a))"),
-  workerSrc.indexOf("if (/^partnerSubmitOrder$/i.test(a))") + 4500
+  workerSrc.indexOf("if (/^partnerSubmitOrder$/i.test(a)) {"),
+  workerSrc.indexOf("if (/^partnerSubmitOrder$/i.test(a)) {") + 4500
 );
 if (!/partnerIsExcludedPoint_/.test(submitSlice)) {
   fail("partnerSubmitOrder must reject excluded points");

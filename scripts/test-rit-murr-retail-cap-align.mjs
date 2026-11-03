@@ -199,9 +199,9 @@ assert(ctx.capOfferSubToDisplayedRetail_(157.5, 171.2) === 157.5, "157.50 уже
 assert(ctx.capOfferSubToDisplayedRetail_(178.94, 171.2) === 157.5, "вся цена режется до 157.50, got " + ctx.capOfferSubToDisplayedRetail_(178.94, 171.2));
 assert(Math.abs(ctx.capOfferSubToDisplayedRetail_(158, 156) - 143.52) < 0.001, "158 при R 156 → 0.92×156");
 
-const PRICE_XX = /\d+\.\d+\s+рублей/;
+const PRICE_XX = /\d+\.\d+\s+рубл/;
 const msgOk = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26");
-assert(/розницу выходит - 171 рублей/.test(msgOk), "client message retail Math.round(171.20)=171");
+assert(/розницу выходит - 171 рубль/.test(msgOk), "client message retail Math.round(171.20)=171");
 assert(/стоимость выходит - 158 рублей за месяц/.test(msgOk), "client message sub Math.round(157.50)=158");
 assert(!PRICE_XX.test(msgOk), "client-msg-round-h2: PP message has no .xx рублей");
 assert(!/157\.50/.test(msgOk), "client message must not show exact 157.50");
@@ -211,14 +211,14 @@ assert(!/\b156\b/.test(msgOk), "message must not show 156");
 const msgManual = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26", { asEntered: true });
 assert(/стоимость выходит - 158 рублей за месяц/.test(msgManual), "statedTouched 157.50 → Math.round 158");
 assert(!PRICE_XX.test(msgManual), "statedTouched still no .xx рублей");
-assert(/розницу выходит - 171 рублей/.test(msgManual), "retail still integer when stated is manual");
+assert(/розницу выходит - 171 рубль/.test(msgManual), "retail still integer when stated is manual");
 
 const msgIntStated = ctx.composePpClientMessage(rit, 1, "", 171.2, 160, "RAW26", { asEntered: true });
 assert(/стоимость выходит - 160 рублей за месяц/.test(msgIntStated), "already-int stated shown as entered");
 assert(!PRICE_XX.test(msgIntStated), "int stated message has no .xx");
 
 const msgRetail = ctx.composeRetailClientMessage(rit, 171.2, "");
-assert(/составит - 171 рублей/.test(msgRetail), "retail client message Math.round(171.20)=171");
+assert(/составит - 171 рубль/.test(msgRetail), "retail client message Math.round(171.20)=171");
 assert(!PRICE_XX.test(msgRetail), "client-msg-round-h2: retail message has no .xx рублей");
 
 assert(ctx.roundRub(157.5) === 158 && ctx.roundRub(171.2) === 171, "roundRub is Math.round");
@@ -226,7 +226,7 @@ assert(ctx.formatClientRub_(157.5) === "157.50", "owner/Экономика keeps
 assert(ctx.formatClientRub_(171.2) === "171.20", "owner retail keeps 171.20");
 
 const msgClamp = ctx.composePpClientMessage(rit, 1, "", 156.2, 157.5, "RAW26");
-assert(/стоимость выходит - 144 рублей за месяц/.test(msgClamp), "0.92×156.20 = 143.70 → 144, got " + msgClamp);
+assert(/стоимость выходит - 144 рубля за месяц/.test(msgClamp), "0.92×156.20 = 143.70 → 144, got " + msgClamp);
 assert(!PRICE_XX.test(msgClamp), "сообщение без .xx рублей");
 
 const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY", { asEntered: true });

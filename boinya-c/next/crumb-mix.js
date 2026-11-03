@@ -59,7 +59,7 @@
       work = next ? after.slice(next.index) : "";
     }
     if (!found.length) return null;
-    var kind = hypo ? "hypo" : (found.every(function (f) { return f.kind === "veg"; }) ? "veg" : "meat");
+    var tier = mix4TierFromSources_(found, hypo);
     var ratio = found.map(function (f) { return f.grams; });
     var value = 0;
     ratio.forEach(function (n) { value += n; });
@@ -68,7 +68,7 @@
       main: "КРОШКА",
       name: "КРОШКА",
       sub: "",
-      crumbKind: kind,
+      crumbKind: "mix4:" + tier,
       value: value,
       ratio: ratio.slice(),
       sources: found.map(function (f) {
@@ -89,21 +89,91 @@
     return { items: items, rest: rest.join("\n") };
   }
 
-  function partQty(g, src, index, count) {
-    var own = Number(src && (src.val != null ? src.val : src.value));
-    if (isFinite(own) && own > 0) return { qty: own, unit: (src && src.unit) || "г" };
-    var ratio = Array.isArray(g.ratio) ? g.ratio : [];
-    var sumR = 0;
+  function ratioIndexOf(g, src, fallback) {
+    if (src && src._ix != null) return src._ix;
+    var list = (g && g.sources) || [];
     var i;
-    for (i = 0; i < count; i++) sumR += Number(ratio[i]) || 0;
-    if (!(sumR > 0)) return null;
-    var grams = Number(g.val != null ? g.val : g.value) || 0;
-    if (!(grams > 0)) return null;
-    var part = (Number(ratio[index]) || 0) / sumR;
-    if (!(part > 0)) return null;
-    var q = Math.round(grams * part);
-    if (q <= 0) q = 1;
-    return { qty: q, unit: (src && src.unit) || g.unit || "г" };
+    for (i = 0; i < list.length; i++) if (list[i] === src) return i;
+    return fallback;
+  }
+
+  /* Остаток грамма отдаём тем, у кого больше дробная часть. Сумма = заказанный вес долей. */
+  function apportionGrams(exacts) {
+    var n = exacts.length;
+    var floors = [];
+    var used = 0;
+    var target = 0;
+    var i;
+    for (i = 0; i < n; i++) {
+      var x = Number(exacts[i]) || 0;
+      if (x < 0) x = 0;
+      target += x;
+      floors.push(Math.floor(x));
+      used += floors[i];
+    }
+    target = Math.round(target);
+    var rem = target - used;
+    var order = [];
+    for (i = 0; i < n; i++) order.push({ i: i, f: (Number(exacts[i]) || 0) - floors[i] });
+    order.sort(function (a, b) { return b.f - a.f || a.i - b.i; });
+    var k;
+    for (k = 0; k < rem && k < order.length; k++) floors[order[k].i] += 1;
+    return floors;
+  }
+
+  function componentQtyList(g, sources) {
+    var list = sources || [];
+    var n = list.length;
+    var total = Math.round(Number(g && (g.val != null ? g.val : g.value)) || 0);
+    if (!(total > 0) || !n) return list.map(function () { return 0; });
+    var own = [];
+    var ownSum = 0;
+    var ownAll = true;
+    var i;
+    for (i = 0; i < n; i++) {
+      var v = Number(list[i] && (list[i].val != null ? list[i].val : list[i].value));
+      if (isFinite(v) && v > 0) {
+        var r = Math.round(v);
+        own.push(r);
+        ownSum += r;
+      } else {
+        ownAll = false;
+        own.push(0);
+      }
+    }
+    if (ownAll && ownSum === total) return own;
+    var ratio = Array.isArray(g && g.ratio) ? g.ratio : [];
+    var full = 0;
+    for (i = 0; i < ratio.length; i++) full += Number(ratio[i]) || 0;
+    if (full > 0) {
+      var exacts = list.map(function (s, idx) {
+        var ix = ratioIndexOf(g, s, idx);
+        return total * ((Number(ratio[ix]) || 0) / full);
+      });
+      var sumExact = 0;
+      exacts.forEach(function (x) { sumExact += x; });
+      if (sumExact > 0) return apportionGrams(exacts);
+    }
+    var even = [];
+    for (i = 0; i < n; i++) even.push(total / n);
+    return apportionGrams(even);
+  }
+
+  function partQty(g, src, index) {
+    var list = sourcesOf(g);
+    var use = list.length ? list : [src];
+    var at = index || 0;
+    if (list.length) {
+      var found = -1;
+      var i;
+      for (i = 0; i < list.length; i++) if (list[i] === src) found = i;
+      if (found >= 0) at = found;
+      else if (at >= list.length) at = 0;
+    }
+    var qty = componentQtyList(g, use);
+    var q = qty[at] || 0;
+    if (!(q > 0)) return null;
+    return { qty: q, unit: (src && src.unit) || (g && g.unit) || "г" };
   }
 
   function isChewName(name) {
@@ -120,16 +190,55 @@
     return isChewName(s.name || s.main || "");
   }
 
+  function isTierOrFractionSub(sub) {
+    var t = String(sub || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+    if (!t || t === "крошка") return true;
+    if (t.indexOf("+") >= 0) return false;
+    if (/^(микс|мясные|гипоаллерген|овощи|фрукты|дрессура)\b/.test(t)) return true;
+    if (/мясные \(дрессура\)|овощи\/фрукты|микс мясной|микс гипо/.test(t)) return true;
+    if (/^(очень мелкое|мелкое|среднее|крупное|целое|ломтики|полоски|кусочки|кубики|мелкий кубик|очень мелкий кубик|крупный кубик|средний кубик|мелкие кусочки|очень мелкие кусочки|средние кусочки|крупные кусочки|пластинки|половинки|палочки)$/.test(t)) return true;
+    if (/^(обычное|обычная|обычный|сред|мал|бол|огр|пласт|палк|половинка|оч мал)$/.test(t)) return true;
+    return false;
+  }
+
+  function isCrumb(g) {
+    if (!g) return false;
+    var cat = String(g.cat || "").toLowerCase();
+    if (cat === "chew" || cat === "chews") return false;
+    if (cat === "crumb" || g.crumbKind) return true;
+    if (/^крошк/i.test(String(g.sub || "").trim())) return true;
+    return /крошк/i.test(String(g.name || g.main || ""));
+  }
+
   function sourcesOf(g) {
     var out = [];
     if (g && Array.isArray(g.sources)) {
-      g.sources.forEach(function (s) {
-        if (!s || isChewSource(s)) return;
+      g.sources.forEach(function (s, i) {
+        if (s == null || s === "") return;
+        if (typeof s === "string") {
+          var sn = String(s).trim();
+          if (!sn || isChewName(sn)) return;
+          out.push({ name: sn, main: sn, _ix: i });
+          return;
+        }
+        if (isChewSource(s)) return;
         var name = String(s.name || s.main || "").trim();
         if (!name || isChewName(name)) return;
         out.push(s);
       });
     }
+    if (out.length) return out;
+    var hadSources = g && Array.isArray(g.sources) && g.sources.length;
+    if (hadSources) return out;
+    if (!isCrumb(g)) return out;
+    var sub = String((g && g.sub) || "").trim();
+    if (!sub || isTierOrFractionSub(sub)) return out;
+    var parts = sub.indexOf("+") >= 0 ? sub.split(/\s*\+\s*/) : [sub];
+    parts.forEach(function (p, i) {
+      var bit = String(p || "").trim();
+      if (!bit || isTierOrFractionSub(bit) || isChewName(bit)) return;
+      out.push({ name: bit, main: bit, _ix: i });
+    });
     return out;
   }
 
@@ -143,14 +252,6 @@
   function sourceCount(g) {
     var n = (g && g.sources && g.sources.length) || 0;
     return n || sourcesOf(g).length;
-  }
-
-  function isCrumb(g) {
-    if (!g) return false;
-    if (String(g.cat || "").toLowerCase() === "crumb" || g.crumbKind) return true;
-    if (sourcesOf(g).length) return true;
-    if (/^крошк/i.test(String(g.sub || "").trim())) return true;
-    return /крошк/i.test(String(g.name || g.main || ""));
   }
 
   function esc(s) {
@@ -214,25 +315,121 @@
     return "Мясо";
   }
 
+  function mix3KindOf(g) {
+    var raw = String((g && g.crumbKind) || "");
+    var m = /^mix3:(mix|meat|hypo)$/i.exec(raw);
+    if (m) return m[1].toLowerCase();
+    if (g && g.crumbScheme === "mix3") {
+      var k = raw.toLowerCase();
+      if (k === "meat" || k === "hypo" || k === "mix") return k;
+      return "mix";
+    }
+    return "";
+  }
+
+  function mix3Title(kind) {
+    if (kind === "hypo") return "Микс гипоаллергенный";
+    if (kind === "meat") return "Микс мясной";
+    return "Микс";
+  }
+
+  function mix4KindOf(g) {
+    var m = /^mix4:(dress|veg|hypo)$/i.exec(String((g && g.crumbKind) || ""));
+    return m ? m[1].toLowerCase() : "";
+  }
+
+  function mix4Title(kind) {
+    if (kind === "hypo") return "Гипоаллергенные";
+    if (kind === "veg") return "Овощи/фрукты";
+    return "Мясные (дрессура)";
+  }
+
+  function mix4TierFromSources_(found, hypo) {
+    if (hypo) return "hypo";
+    var sawVeg = false;
+    var sawDress = false;
+    var sawHypo = false;
+    (found || []).forEach(function (f) {
+      var n = String(f.name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) {
+        sawVeg = true;
+        return;
+      }
+      if (n === "ЛЕГКОЕ" || n === "СЕРДЦЕ" || n === "РУБЕЦ Т" || n === "БАРАНЬЕ ЛЕГКОЕ" || n === "ПОЧКИ") {
+        sawDress = true;
+        return;
+      }
+      if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) {
+        sawHypo = true;
+        return;
+      }
+      sawDress = true;
+    });
+    if (sawHypo && !sawDress) return "hypo";
+    if (!sawDress && sawVeg) return "veg";
+    return "dress";
+  }
+
+  function mix3TierFromSources_(found, hypo, meatWord) {
+    if (hypo) return "hypo";
+    if (meatWord) return "meat";
+    var tier = "";
+    (found || []).forEach(function (f) {
+      if (tier) return;
+      var n = String(f.name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/ТЫКВ|ЯБЛОК|ГРУШ|МОРКОВ|БАТАТ|БАНАН|КАБАЧ/.test(n)) return;
+      if (n === "ЛЕГКОЕ" || n === "СЕРДЦЕ" || n === "РУБЕЦ Т" || n === "БАРАНЬЕ ЛЕГКОЕ" || n === "ПОЧКИ") {
+        tier = "mix";
+        return;
+      }
+      if (/КРОЛИК|ИНДЕЙК|БАРАН/.test(n)) {
+        tier = "hypo";
+        return;
+      }
+      tier = "meat";
+    });
+    return tier || "mix";
+  }
+
   function lineHtml(g, pretty) {
     if (!g) return "";
     var src = sourcesOf(g);
+    var kind4 = mix4KindOf(g);
+    var schemeKind = kind4 || mix3KindOf(g);
+    if (isCrumb(g) && schemeKind && src.length) {
+      var totalM = Number(g.val != null ? g.val : g.value);
+      var headM = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
+      if (isFinite(totalM) && totalM > 0) headM += " — " + totalM + " " + (g.unit || "г");
+      var qtyM = componentQtyList(g, src);
+      var partsM = src.map(function (s, si) {
+        var label = nominative(s.name || s.main, pretty);
+        var text = qtyM[si] > 0 ? (label + " — " + qtyM[si] + " г") : label;
+        return '<div class="mix-part">' + esc(text) + "</div>";
+      }).join("");
+      return '<div class="mix"><div class="mix-title">' + esc(headM) + '</div><div class="mix-parts">' + partsM + "</div></div>";
+    }
     if (isCrumb(g) && src.length >= 2) {
       var total = Number(g.val != null ? g.val : g.value);
       var head = "Крошка микс";
       if (isFinite(total) && total > 0) head += " — " + total + " " + (g.unit || "г");
-      var parts = src.map(function (s) {
-        var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
+      var qtyMix = componentQtyList(g, src);
+      var parts = src.map(function (s, si) {
         var label = nominative(s.name || s.main, pretty);
-        var text = q ? (label + " — " + q.qty + " " + (q.unit || "г")) : label;
+        var text = qtyMix[si] > 0 ? (label + " — " + qtyMix[si] + " г") : label;
         return '<div class="mix-part">' + esc(text) + "</div>";
       }).join("");
       return '<div class="mix"><div class="mix-title">' + esc(head) + '</div><div class="mix-parts">' + parts + "</div></div>";
     }
     if (isCrumb(g) && src.length === 1) {
-      var q1 = partQty(g, src[0], sourcePos(g, src[0]), sourceCount(g));
-      var grams = q1 ? q1.qty : (g.val != null ? g.val : g.value);
+      var oneQty = componentQtyList(g, src);
+      var grams = oneQty[0] > 0 ? oneQty[0] : (g.val != null ? g.val : g.value);
       return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
+    }
+    if (isCrumb(g) && schemeKind) {
+      var totalTier = Number(g.val != null ? g.val : g.value);
+      var headTier = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
+      if (isFinite(totalTier) && totalTier > 0) headTier += " — " + totalTier + " " + (g.unit || "г");
+      return "<div>" + esc(headTier) + "</div>";
     }
     if (isCrumb(g)) {
       var val = g.val != null ? g.val : g.value;
@@ -295,6 +492,15 @@
     "ломтики": 7,
     "полоски": 8,
     "кусочки": 9,
+    "кубики": 4,
+    "мелкие кубики": 3,
+    "средний кубик": 4,
+    "крупный кубик": 5,
+    "очень мелкий кубик": 1,
+    "мелкие кусочки": 2,
+    "средние кусочки": 9,
+    "крупные кусочки": 5,
+    "очень мелкие кусочки": 1,
     "крошка": 10
   };
 
@@ -392,11 +598,11 @@
       if (!g) return;
       var src = sourcesOf(g);
       if (isCrumb(g) && src.length) {
-        src.forEach(function (s) {
-          var q = partQty(g, s, sourcePos(g, s), sourceCount(g));
+        var qtys = componentQtyList(g, src);
+        src.forEach(function (s, si) {
           var key = organKey(s.name || s.main);
-          if (!key || !q) return;
-          out.push({ key: key, grams: q.qty, sub: s.sub || "крошка", name: s.name || s.main });
+          if (!key || !(qtys[si] > 0)) return;
+          out.push({ key: key, grams: qtys[si], sub: s.sub || "крошка", name: s.name || s.main });
         });
         return;
       }
@@ -415,6 +621,8 @@
     linesHtml: linesHtml,
     rowHtml: lineHtml,
     singleLabel: singleLabel,
+    mix3KindOf: mix3KindOf,
+    mix3Title: mix3Title,
     plainLabel: function (g) {
       var html = lineHtml(g);
       return String(html || "").replace(/<[^>]+>/g, "");

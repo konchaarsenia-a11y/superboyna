@@ -91,7 +91,7 @@ test("ПП открывается сразу и сразу грузит спис
   const acc = ctx.A.normalize({ role: "owner" });
   ctx.C.bind(acc);
   const segs = ctx.C.segs(acc).map(function (s) { return s.id; });
-  assert.equal(segs.join(","), "pp,afk,bp,survey");
+  assert.equal(segs.join(","), "pp,afk,bp,survey,leads");
   await ctx.C.show("pp");
   assert.ok(ctx.calls.includes("listSubscriptions"));
   assert.equal(ctx.calls.includes("unlockSubs"), false);

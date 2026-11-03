@@ -880,7 +880,7 @@ function recalculateCuttingForDate_(ss, dateText) {
     var noteRowIdx = block.note - 1;
     if (noteRowIdx >= 0 && noteRowIdx < matrix.length) {
       for (var sc = 0; sc < 15; sc++) {
-        if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(matrix[noteRowIdx][sc] || ""))) skipCols[sc] = true;
+        if (sheetColumnHiddenFromCutting_(matrix[noteRowIdx][sc])) skipCols[sc] = true;
       }
     }
   }
@@ -906,6 +906,11 @@ function recalculateCuttingForDate_(ss, dateText) {
   }
   if (cutting) cutting.getRange("B3:B48").setValues(totals);
   return totals;
+}
+
+/** Перенос: колонку с [НЕ РЕЗАТЬ] не суммируем в нарезку. На сборке приложения такой заказ тоже снят (skipAssemble). */
+function sheetColumnHiddenFromCutting_(note) {
+  return /\[НЕ\s*РЕЗАТЬ\]/i.test(String(note || ""));
 }
 
 /** Колонки C–Q (0..14) с [НЕ РЕЗАТЬ] в примечании блока дня. */
@@ -947,7 +952,7 @@ function noCutSkipColsForBlock_(sheet, block) {
   try {
     var notes = sheet.getRange(block.note, 3, 1, 15).getValues()[0] || [];
     for (var sc = 0; sc < 15; sc++) {
-      if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(notes[sc] || ""))) skip[sc] = true;
+      if (sheetColumnHiddenFromCutting_(notes[sc])) skip[sc] = true;
     }
   } catch (eN) {}
   return skip;
@@ -7795,8 +7800,11 @@ function computeClientBasketDeficits_(ss, basket, packDay) {
     var coef = Number(matrix[wRow - 2][3]) || (piece ? 1 : 0.2);
     if (!(coef > 0)) coef = piece ? 1 : 0.2;
     var needRaw = piece ? g : ((g / 1000) / coef);
-    var label = String(it.name || it.main || whName || "").trim();
-    if (it.sub) label += " / " + String(it.sub).trim();
+    var labelMain = igShownProductGs_(it.name || it.main) || String(it.name || it.main || whName || "").trim();
+    var igWord = igFractionWordGs_(it.name || it.main, it.sub);
+    var label = labelMain;
+    if (igWord) label += " / " + igWord;
+    else if (it.sub) label += " / " + String(it.sub).trim();
     clientNeedByRow[wRow] = (clientNeedByRow[wRow] || 0) + needRaw;
     clientLabelByRow[wRow] = label;
   }
@@ -8527,6 +8535,13 @@ function handleTelegramUpdate_(update) {
       }
       if (/^mtrack:/i.test(cqData)) {
         handleMailTrackCallback_(cq0);
+        return;
+      }
+      if (/^mpay:/i.test(cqData)) {
+        // Оплата почты живёт на worker webhook; здесь только ack, чтобы не висела крутилка.
+        try {
+          telegramAnswerCallback_(cq0.id, "Открой то же сообщение в @boyniaGB_bot");
+        } catch (eMpay) {}
         return;
       }
       if (cqData === "costpub") {
@@ -10320,27 +10335,9 @@ function isOpenDeficitStatus_(status) {
   return s === "open" || s === "открыт";
 }
 
-/** Если после Deploy URL /exec сменился — кнопки в Telegram молчат. Подтягиваем webhook сами. */
+/** Webhook @boyniaGB_bot стоит на воркере /telegram/boinya. Не возвращать его на /exec. */
 function ensureTelegramWebhookUrl_() {
-  var token = getTelegramToken_();
-  if (!token) return;
-  var url = "";
-  try { url = ScriptApp.getService().getUrl(); } catch (e) { return; }
-  if (!url) return;
-  try {
-    var infoRes = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo", {
-      muteHttpExceptions: true
-    });
-    var info = JSON.parse(infoRes.getContentText());
-    var current = info && info.result ? String(info.result.url || "") : "";
-    if (current === url) return;
-    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify({ url: url, allowed_updates: ["message", "callback_query"] }),
-      muteHttpExceptions: true
-    });
-  } catch (e2) {}
+  return;
 }
 
 function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
@@ -11279,6 +11276,8 @@ function fetchYieldMapForCutting_(dateText) {
 }
 
 function maybeSendCostDigest_() {
+  // 1-е число 11:00 Минск шлёт крон воркера. Здесь не слать: старый токен и второй замок.
+  return { skipped: true, reason: "worker_cron" };
   var tz = "Europe/Minsk";
   var now = new Date();
   var day = Utilities.formatDate(now, tz, "d");
@@ -13215,6 +13214,7 @@ function attachCrumbSourcesFromCalendar_(sheetBasket, calBasket) {
     copy.sources = d.sources;
     if (d.ratio) copy.ratio = d.ratio;
     if (d.crumbKind) copy.crumbKind = d.crumbKind;
+    if (d.crumbScheme) copy.crumbScheme = d.crumbScheme;
     if (!copy.cat) copy.cat = "crumb";
     if (!copy.sub && d.sub) copy.sub = d.sub;
     return copy;
@@ -16738,11 +16738,26 @@ function notifyRecipients_(key, baseIds, opts) {
   return notifyResolveCore_(key, notifyPeopleRows_(), owners, baseIds || [], opts || {});
 }
 
-/** Общий чат (TELEGRAM_CHAT_ID) — дублирование по-старому; единый выключатель NOTIFY_CHAT_ENABLED (по умолчанию вкл). */
+/** Общий чат (TELEGRAM_CHAT_ID) выключен. Код оставлен. Включить: Script Property NOTIFY_GROUP_CHAT=on. */
 function notifyChatEnabled_() {
+  var g = "";
+  try { g = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_GROUP_CHAT") || "").trim().toLowerCase(); } catch (eG) {}
+  if (!(g === "1" || g === "on" || g === "true" || g === "yes")) return false;
   var v = "";
   try { v = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_CHAT_ENABLED") || "").trim().toLowerCase(); } catch (e) {}
   return !(v === "0" || v === "off" || v === "false" || v === "no");
+}
+
+function notifyDedupeIds_(ids) {
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < (ids || []).length; i++) {
+    var s = String(ids[i] || "").trim();
+    if (!s || seen[s]) continue;
+    seen[s] = true;
+    out.push(s);
+  }
+  return out;
 }
 
 function notifyChatId_() {
@@ -16756,7 +16771,7 @@ function notifyChatId_() {
 
 /** Получатели + общий чат (если включён и не совпадает с уже выбранными / автором). */
 function notifyRecipientsWithChat_(key, baseIds, opts) {
-  var ids = notifyRecipients_(key, baseIds, opts);
+  var ids = notifyDedupeIds_(notifyRecipients_(key, baseIds, opts));
   var chat = notifyChatId_();
   var ex = String((opts && opts.exclude) || "").trim();
   if (chat && ids.indexOf(chat) < 0 && chat !== ex) ids.push(chat);
@@ -21216,14 +21231,15 @@ var RETAIL_PRICE_BYN_ = {
   "ЛЁГКОЕ|Ломтики": { per100: 9 },
   "ЛЁГКОЕ|Целое": { per100: 9 },
   "ЛЁГКОЕ|Полоски": { per100: 10 },
-  "ЛЁГКОЕ|Крупное": { per100: 10 },
-  "ЛЁГКОЕ|Большое": { per100: 10 },
-  "ЛЁГКОЕ|Среднее": { per100: 11 },
-  "ЛЁГКОЕ|Мелкое": { per100: 12 },
-  "ЛЁГКОЕ|Очень мелкое": { per100: 13 },
+  "ЛЁГКОЕ|Крупное": { per100: 11 },
+  "ЛЁГКОЕ|Большое": { per100: 11 },
+  "ЛЁГКОЕ|Среднее": { per100: 12 },
+  "ЛЁГКОЕ|Мелкое": { per100: 13 },
+  "ЛЁГКОЕ|Очень мелкое": { per100: 14 },
   "СЕРДЦЕ|Ломтики": { per100: 12 },
   "СЕРДЦЕ|Целое": { per100: 12 },
   "СЕРДЦЕ|Полоски": { per100: 12 },
+  "СЕРДЦЕ|Кусочки": { per100: 13 },
   "СЕРДЦЕ|Мелкое": { per100: 14 },
   "СЕРДЦЕ|Очень мелкое": { per100: 16 },
   "ПОЧКИ|Ломтики": { per100: 11 },
@@ -21237,14 +21253,14 @@ var RETAIL_PRICE_BYN_ = {
   "РУБЕЦ Т|Большое": { per100: 11 },
   "РУБЕЦ Т|Среднее": { per100: 13 },
   "РУБЕЦ Т|Мелкое": { per100: 14 },
-  "РУБЕЦ Т|Очень мелкое": { per100: 14 },
+  "РУБЕЦ Т|Очень мелкое": { per100: 15 },
   "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
-  "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 17 },
-  "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 17 },
-  "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
-  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
+  "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 18 },
+  "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 18 },
+  "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 19 },
+  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 20 },
   "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 20 },
   "ИНДЕЙКА": { per100: 16 },
   "ИНДЕЙКА|Ломтики": { per100: 16 },
@@ -21402,8 +21418,14 @@ function applyRetailShowcasePatchGs_(map) {
     "ИНДЕЙКА|Кусочки": 17,
     "ИНДЕЙКА|Мелкое": 18,
     "ИНДЕЙКА|Мелкие кусочки": 18,
-    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 17,
-    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 18,
+    "ЛЁГКОЕ|Крупное": 11,
+    "ЛЁГКОЕ|Большое": 11,
+    "ЛЁГКОЕ|Среднее": 12,
+    "ЛЁГКОЕ|Мелкое": 13,
+    "БАРАНЬЕ ЛЁГКОЕ|Крупное": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Большое": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 19,
+    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 20,
     "БАРАНЬЯ ПЕЧЕНЬ": 17,
     "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": 17,
     "БАРАНЬЯ ПЕЧЕНЬ|Полоски": 18,
@@ -21432,6 +21454,42 @@ function applyRetailShowcasePatchGs_(map) {
   return changed;
 }
 
+/** Сетка фракций для новых заказов. Ключи не удаляет. */
+function applyFracGridPatchGs_(map) {
+  map = map || {};
+  var per100 = {
+    "СЕРДЦЕ|Очень мелкое": 15,
+    "ЛЁГКОЕ|Крупное": 11,
+    "ЛЁГКОЕ|Большое": 11,
+    "ЛЁГКОЕ|Среднее": 12,
+    "ЛЁГКОЕ|Мелкое": 13,
+    "ЛЁГКОЕ|Очень мелкое": 14,
+    "БАРАНЬЕ ЛЁГКОЕ|Крупное": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Большое": 18,
+    "БАРАНЬЕ ЛЁГКОЕ|Среднее": 19,
+    "БАРАНЬЕ ЛЁГКОЕ|Мелкое": 20,
+    "ПЕЧЕНЬ|Кусочки": 11,
+    "ПЕЧЕНЬ|Мелкое": 12,
+    "ВЫМЯ|Кусочки": 10,
+    "ВЫМЯ|Мелкое": 11,
+    "СЕМЕННИКИ|Кусочки": 13,
+    "СЕМЕННИКИ|Мелкое": 14,
+    "МЯСНЫЕ ЛОМТИКИ|Кусочки": 16,
+    "МЯСНЫЕ ЛОМТИКИ|Мелкое": 17
+  };
+  var changed = false;
+  var k;
+  for (k in per100) {
+    if (!Object.prototype.hasOwnProperty.call(per100, k)) continue;
+    var cur = map[k] || {};
+    if (Number(cur.per100) !== per100[k] || cur.perPiece != null) {
+      map[k] = { per100: per100[k] };
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function getRetailPriceLiveMap_() {
   if (RETAIL_PRICE_LIVE_MEM_) return RETAIL_PRICE_LIVE_MEM_;
   var map = null;
@@ -21456,8 +21514,9 @@ function getRetailPriceLiveMap_() {
     }
   }
   var showcaseChanged = applyRetailShowcasePatchGs_(map);
+  var gridChanged = applyFracGridPatchGs_(map);
   var showcaseStripped = stripBareRetailParentsMap_(map);
-  if (showcaseChanged || Object.keys(showcaseStripped).length !== Object.keys(map).length) {
+  if (showcaseChanged || gridChanged || Object.keys(showcaseStripped).length !== Object.keys(map).length) {
     map = showcaseStripped;
     try {
       PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
@@ -21798,7 +21857,147 @@ function retailBasePer100Gs_(map, n) {
   return null;
 }
 
+function igNormGs_(s) {
+  return String(s || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+}
+
+function igProductGs_(main) {
+  var n = igNormGs_(main);
+  if (!n || n.indexOf("КРОШК") >= 0) return "";
+  if (n.indexOf("БАРАНЬ") >= 0 && n.indexOf("ПЕЧЕН") >= 0) return "liver-lamb";
+  if (n.indexOf("БАРАНЬ") >= 0 && n.indexOf("ЛЕГК") >= 0) return "lung-lamb";
+  if (n.indexOf("ЛЕГК") >= 0) return "lung";
+  if (n.indexOf("СЕРДЦ") >= 0) return "heart";
+  if (n.indexOf("РУБЕЦ") >= 0) return "rumen";
+  if (n.indexOf("ПОЧК") >= 0) return "kidney";
+  if (n.indexOf("ИНДЕЙ") >= 0) return "turkey";
+  if (n.indexOf("БЫЧИЙ КОРЕН") >= 0) return "root";
+  if (n.indexOf("ТРАХЕ") >= 0) return "trachea";
+  if (n.indexOf("СТАНОВ") >= 0) return "sinew";
+  if (n.indexOf("УХО") >= 0) return "ear";
+  if (n.indexOf("АОРТ") >= 0) return "aorta";
+  return "";
+}
+
+function igShownProductGs_(name) {
+  var n = igNormGs_(name);
+  if (n === "УХО К" || n === "УШКО К") return "Ушко кролика";
+  return "";
+}
+
+function igVerySmallGs_(fu) {
+  return /ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu);
+}
+
+function igFractionWordGs_(main, sub) {
+  var p = igProductGs_(main);
+  var fu = igNormGs_(sub);
+  if (!p || !fu || igNormGs_(main).indexOf("КРОШК") >= 0 || fu.indexOf("КРОШК") >= 0) return "";
+  if (p === "root") {
+    if (fu === "МАЛ") return "маленький";
+    if (fu === "СРЕД") return "средний";
+    if (fu === "БОЛ") return "большой";
+    if (fu === "ОГР") return "рогалик";
+    return "";
+  }
+  if (p === "trachea") {
+    if (fu === "МАЛ") return "маленькая";
+    if (fu === "СРЕД") return "средняя";
+    if (fu === "БОЛ") return "большая";
+    return "";
+  }
+  if (p === "sinew") {
+    if (/ПАЛК|ПАЛОЧ/.test(fu)) return "палочка";
+    if (fu === "СРЕД" || /ПОЛОВИН/.test(fu)) return "половинка";
+    if (fu === "БОЛ" || /^ЦЕЛ/.test(fu)) return "целая";
+    return "";
+  }
+  if (p === "ear" || p === "aorta") {
+    if (/ПОЛОВИН/.test(fu)) return "половинка";
+    if (/ОБЫЧН/.test(fu) || /^ЦЕЛ/.test(fu)) return "целое";
+    return "";
+  }
+  if (p === "lung") {
+    if (igVerySmallGs_(fu)) return "очень мелкий кубик";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
+    if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупный кубик";
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "средний кубик";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") >= 0)) return "мелкий кубик";
+    return "";
+  }
+  if (p === "lung-lamb") {
+    if (igVerySmallGs_(fu)) return "";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return "палочки";
+    if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") < 0)) return "кубики";
+    if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && fu.indexOf("МЕЛК") >= 0)) return "мелкие кубики";
+    return "";
+  }
+  if (p === "heart" || p === "rumen" || p === "kidney") {
+    if (igVerySmallGs_(fu)) return "очень мелкие кусочки";
+    if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) return "средние кусочки";
+    if (fu.indexOf("МЕЛК") >= 0 && fu.indexOf("КУСОЧ") >= 0) return "мелкие кусочки";
+    if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return "крупные кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return p === "kidney" ? "средние кусочки" : "ломтики";
+    if (/^ПОЛОСК/.test(fu)) return "полоски";
+    if (/^СРЕД/.test(fu) && p === "rumen") return "средние кусочки";
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
+  }
+  if (p === "turkey" || p === "liver-lamb") {
+    if (igVerySmallGs_(fu)) return "";
+    if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) return "кусочки";
+    if (fu.indexOf("МЕЛК") >= 0 && fu.indexOf("КУСОЧ") >= 0) return "мелкие кусочки";
+    if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return "ломтики";
+    if (/^ПОЛОСК/.test(fu)) {
+      if (p === "liver-lamb") return "кусочки";
+      if (p === "turkey") return "";
+      return "полоски";
+    }
+    if (/^МЕЛК/.test(fu)) return "мелкие кусочки";
+    return "";
+  }
+  return "";
+}
+
+function igPer100Gs_(key, fallback) {
+  var map = getRetailPriceLiveMap_() || {};
+  var info = map[key];
+  if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+  info = RETAIL_PRICE_BYN_[key];
+  if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+  return fallback;
+}
+
+function igRetailAlignGs_(name, sub, val) {
+  if (igNormGs_(name).indexOf("КРОШК") >= 0 || igNormGs_(sub).indexOf("КРОШК") >= 0) return null;
+  var p = igProductGs_(name);
+  var fu = igNormGs_(sub);
+  if (!p || !fu) return null;
+  var key = "";
+  var fallback = null;
+  if (/^КУСОЧК/.test(fu) && fu.indexOf("МЕЛК") < 0) {
+    if (p === "heart") { key = "СЕРДЦЕ|Кусочки"; fallback = 13; }
+    else if (p === "rumen") { key = "РУБЕЦ Т|Среднее"; fallback = 13; }
+    else if (p === "kidney") { key = "ПОЧКИ|Целое"; fallback = 11; }
+  } else if (p === "liver-lamb" && !igVerySmallGs_(fu) && /^МЕЛК/.test(fu) && fu.indexOf("КУБИК") < 0) {
+    key = "БАРАНЬЯ ПЕЧЕНЬ|Мелкое";
+    fallback = 19;
+  } else if (p === "rumen" && igVerySmallGs_(fu)) {
+    key = "РУБЕЦ Т|Очень мелкое";
+    fallback = 15;
+  }
+  if (fallback == null) return null;
+  var per = igPer100Gs_(key, fallback);
+  var v = Number(val) || 0;
+  if (!(v > 0)) return { cost: 0, per: per, found: true };
+  return { cost: Math.round((v / 100) * per * 100) / 100, per: per, found: true };
+}
+
 function retailLineCost_(name, sub, val, cat) {
+  var ig = igRetailAlignGs_(name, sub, val);
+  if (ig) return ig;
   var meta = retailLookupKeyGs_(name, sub);
   var n = meta.name;
   var s = meta.sub;
@@ -22617,7 +22816,35 @@ function crumbPackGoodsGs_(it, grams) {
   return Math.round((Number(grams) / 100) * row[100] * 100) / 100;
 }
 
+/** Новые заказы mix4. Старые mix3 и пачки не меняются. 100/50/20 г без округления до рубля. */
+function crumbMix4GoodsGs_(it, val) {
+  var tag = String((it && it.crumbKind) || "");
+  var m = /^mix4:(dress|veg|hypo)$/i.exec(tag);
+  if (!m) return null;
+  var kind = String(m[1]).toLowerCase();
+  var rate = kind === "hypo" ? 22 : (kind === "veg" ? 17 : 19);
+  var g = Number(val) || 0;
+  if (!(g > 0)) return 0;
+  return Math.round(g * rate * 100) / 10000;
+}
+
 function retailGoodsFromCrumbItemGs_(it, val) {
+  var mix4 = crumbMix4GoodsGs_(it, val);
+  if (mix4 != null) return mix4;
+  // Новые заказы: crumbKind "mix3:mix|meat|hypo". Старые без метки — пачки ниже.
+  var mixTag = String((it && it.crumbKind) || "");
+  var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
+  var mixKind = mixExec
+    ? String(mixExec[1]).toLowerCase()
+    : (it && it.crumbScheme === "mix3" && /^(mix|meat|hypo)$/i.test(String(it.crumbKind || "mix"))
+      ? String(it.crumbKind || "mix").toLowerCase()
+      : "");
+  if (mixKind) {
+    var mixRate = mixKind === "hypo" ? 25 : (mixKind === "meat" ? 20 : 15);
+    var mixG = Number(val) || 0;
+    if (!(mixG > 0)) return 0;
+    return Math.round(mixG * mixRate * 100) / 10000;
+  }
   // Одна правка включает схему 09.10: "rates-2026-10-09"
   var CRUMB_RETAIL_SCHEME_ = "packs";
   if (CRUMB_RETAIL_SCHEME_ !== "rates-2026-10-09") {
@@ -35020,8 +35247,25 @@ function tickDeferredReminders_() {
       var fromLabel = remindPersonLabel_(fromTid, payload.createdByName);
       var toLabel = remindPersonLabel_(notifyTid, payload.targetName);
       var text;
+      var mailPayTok = "";
+      var mailPayMarkup = null;
       if (mode === "remind" && payload.mailPayCheck && payload.mailPayText) {
         text = String(payload.mailPayText);
+        mailPayTok = String(payload.mailTrackToken || payload.token || "").trim();
+        if (!mailPayTok) {
+          var idRow = String(data[r][0] || "");
+          var idm = idRow.match(/^mailpay_([A-Za-z0-9]+)_\d+$/i);
+          if (idm) mailPayTok = idm[1];
+        }
+        if (mailPayTok) {
+          if (!payload.mailTrackToken) payload.mailTrackToken = mailPayTok;
+          mailPayMarkup = {
+            inline_keyboard: [[
+              { text: "✅ Оплатил", callback_data: ("mpay:y:" + mailPayTok).slice(0, 64) },
+              { text: "❌ Не оплатил", callback_data: ("mpay:n:" + mailPayTok).slice(0, 64) }
+            ]]
+          };
+        }
       } else if (mode === "remind") {
         text = "⏰ Напоминание\n" + title;
         if (fromTid && notifyTid && fromTid !== notifyTid) {
@@ -35049,8 +35293,13 @@ function tickDeferredReminders_() {
       var sentOk = false;
       if (notifyTid) {
         try {
-          var res = telegramSendText_(notifyTid, text);
+          var res = telegramSendText_(notifyTid, text, mailPayMarkup);
           sentOk = !!(res && res.ok);
+          if (!sentOk && mailPayMarkup) {
+            res = telegramSendText_(notifyTid, text, null);
+            sentOk = !!(res && res.ok);
+          }
+          if (sentOk && mailPayMarkup) payload.mailPayButtonsSent = true;
         } catch (eSend) {
           sentOk = false;
         }

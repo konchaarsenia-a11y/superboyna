@@ -35,6 +35,12 @@ test("N=1 платит на своём слоте, paid=no не входит", (
   assert.equal(L.courierStopMoney({ segment: "ПП", deliveriesN: 1, ppSlot: "1", orderPrice: 33 }), 33);
   assert.equal(L.courierStopMoney({ segment: "ПП", ppSlot: "1/2", orderPrice: 33, paid: "no" }), null);
   assert.equal(L.courierStopMoney({ segment: "ПП", ppSlot: "2/2", orderPrice: 33, paid: "no" }), null);
+  assert.equal(L.courierStopMoney({ segment: "ПП", ppSlot: "2/2", orderPrice: 80, payDue: 80 }), 80);
+  assert.equal(L.courierStopMoney({ segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", payMoved: "pp2" }), null);
+  assert.equal(L.courierCollectSum([
+    { segment: "ПП", ppSlot: "1/2", orderPrice: 80, paid: "no", payMoved: "pp2" },
+    { segment: "ПП", ppSlot: "2/2", orderPrice: 80, payDue: 80 }
+  ]), 80);
   assert.equal(L.courierStopMoney({ segment: "ПП", ppSlot: "", orderPrice: 21 }), 21);
 });
 
