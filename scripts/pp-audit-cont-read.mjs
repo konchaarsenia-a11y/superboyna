@@ -427,13 +427,25 @@ const point1 = {
   deliveries: madmazelka ? madmazelka.deliveries : null,
   packCounts: madmazelka ? madmazelka.packCounts : null,
   tombHitsRaw: madTombHits,
-  tombAliveNow: madTombHits.some((t) => t.aliveNow),
-  prevAuditExcludedBecause: "фильтр без TTL: любой item в subDeleteTombstones",
-  workerListFilter: "listSubDeleteTombstones_ оставляет только alive (TTL default 15м, иначе it.ttl)",
-  impact:
-    madTombHits.some((t) => t.aliveNow)
-      ? "Живое надгробие: worker listSubscriptions/UI скрывает карточку; в D1 snap она есть"
-      : "Надгробие протухло (или custom ttl истёк): worker НЕ скрывает; прошлый audit ошибочно исключил без TTL",
+  tombAliveNowOnPp: madTombHits.some(
+    (t) => t.aliveNow && /^(ПП|PP)$/i.test(String(t.sheet || "").trim())
+  ),
+  tombAliveNowOnAfk: madTombHits.some(
+    (t) => t.aliveNow && /^(АФК|AFK)$/i.test(String(t.sheet || "").trim())
+  ),
+  tombAliveNow: madTombHits.some(
+    (t) => t.aliveNow && /^(ПП|PP)$/i.test(String(t.sheet || "").trim())
+  ),
+  prevAuditExcludedBecause: "фильтр без sheet и без TTL: любой item nick|subId в subDeleteTombstones",
+  workerListFilter:
+    "listSubDeleteTombstones_ — только alive TTL; isSubDeleteTombstoned_ ещё сверяет sheet",
+  impact: madTombHits.some(
+    (t) => t.aliveNow && /^(ПП|PP)$/i.test(String(t.sheet || "").trim())
+  )
+    ? "Живое надгробие на ПП: worker скрывает карточку ПП; в snap она есть"
+    : madTombHits.some((t) => t.aliveNow)
+      ? "Надгробие живое на другом листе (АФК) — ПП не скрывает (sheet mismatch). Прошлый audit исключил без фильтра sheet/TTL. Надгробие не снимали."
+      : "Надгробие протухло: worker НЕ скрывает. Прошлый audit мог исключить без TTL.",
   tombNotRemoved: true,
   calcPrice: madCalc
     ? {
