@@ -1,0 +1,988 @@
+{
+  "at": "2026-11-03T13:52:23.292Z",
+  "tables": [
+    {
+      "name": "meta"
+    },
+    {
+      "name": "price_positions"
+    },
+    {
+      "name": "raw_cost_ver"
+    },
+    {
+      "name": "raw_costs"
+    },
+    {
+      "name": "retail_prices"
+    },
+    {
+      "name": "snap_cache"
+    }
+  ],
+  "raw_cost_ver": {
+    "count": 0,
+    "error": null,
+    "rows": []
+  },
+  "raw_costs": {
+    "count": 32,
+    "error": null,
+    "after_2026_10_09": [
+      {
+        "sku": "ГРУШИ",
+        "price": 6.6,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:48.199Z"
+      },
+      {
+        "sku": "БАНАНЫ",
+        "price": 5,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:47.617Z"
+      },
+      {
+        "sku": "БАТАТ",
+        "price": 10,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:47.008Z"
+      },
+      {
+        "sku": "МОРКОВЬ",
+        "price": 2.3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:46.405Z"
+      },
+      {
+        "sku": "ЯБЛОКИ",
+        "price": 3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:45.790Z"
+      },
+      {
+        "sku": "ТЫКВА",
+        "price": 5.33,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:45.208Z"
+      },
+      {
+        "sku": "ПЕРЕПЕЛКИ ШТ.",
+        "price": 0.81,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:44.618Z"
+      },
+      {
+        "sku": "УТИНЫЕ ШЕИ ШТ.",
+        "price": 0.78,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:44.007Z"
+      },
+      {
+        "sku": "НОСЫ ШТ.",
+        "price": 1.23,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:43.424Z"
+      },
+      {
+        "sku": "ЛОП ХРЯЩ ШТ.",
+        "price": 1,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:42.809Z"
+      },
+      {
+        "sku": "КОЛЕНИ ШТ.",
+        "price": 1.17,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:42.241Z"
+      },
+      {
+        "sku": "АОРТА",
+        "price": 0.94,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:41.637Z"
+      },
+      {
+        "sku": "УХО К",
+        "price": 0.88,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:41.041Z"
+      },
+      {
+        "sku": "УХО Г",
+        "price": 0.88,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:40.447Z"
+      },
+      {
+        "sku": "СТАНОВАЯ ЖИЛА",
+        "price": 0.38,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:39.850Z"
+      },
+      {
+        "sku": "ТРАХЕЯ",
+        "price": 0.88,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:39.272Z"
+      },
+      {
+        "sku": "БЫЧИЙ КОРЕНЬ",
+        "price": 1.91,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:38.690Z"
+      },
+      {
+        "sku": "КРОШКА РУБЕЦ",
+        "price": 2,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:38.099Z"
+      },
+      {
+        "sku": "КРОШКА ПОЧЕК",
+        "price": 3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:37.518Z"
+      },
+      {
+        "sku": "КРОШКА ЛЕГКОГО",
+        "price": 2.25,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:36.923Z"
+      },
+      {
+        "sku": "КРОЛИК",
+        "price": 0,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:36.333Z"
+      },
+      {
+        "sku": "МЯСНЫЕ ЛОМТИКИ",
+        "price": 7.55,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:35.747Z"
+      },
+      {
+        "sku": "СЕМЕННИКИ",
+        "price": 4.17,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:35.173Z"
+      },
+      {
+        "sku": "ВЫМЯ",
+        "price": 1.5,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:34.595Z"
+      },
+      {
+        "sku": "БАРАНЬЯ ПЕЧЕНЬ",
+        "price": 2.76,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:34.020Z"
+      },
+      {
+        "sku": "ПЕЧЕНЬ",
+        "price": 2.76,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:33.443Z"
+      },
+      {
+        "sku": "ИНДЕЙКА",
+        "price": 7.5,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:32.844Z"
+      },
+      {
+        "sku": "БАРАНЬЕ ЛЕГКОЕ",
+        "price": 8.4,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:32.246Z"
+      },
+      {
+        "sku": "РУБЕЦ Т",
+        "price": 2,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:31.676Z"
+      },
+      {
+        "sku": "ПОЧКИ",
+        "price": 3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:31.088Z"
+      },
+      {
+        "sku": "СЕРДЦЕ",
+        "price": 4,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:30.450Z"
+      },
+      {
+        "sku": "ЛЕГКОЕ",
+        "price": 2.25,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:29.860Z"
+      }
+    ],
+    "koren_zhila": [
+      {
+        "sku": "СТАНОВАЯ ЖИЛА",
+        "price": 0.38,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:39.850Z"
+      },
+      {
+        "sku": "БЫЧИЙ КОРЕНЬ",
+        "price": 1.91,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:38.690Z"
+      }
+    ],
+    "all": [
+      {
+        "sku": "ГРУШИ",
+        "price": 6.6,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:48.199Z"
+      },
+      {
+        "sku": "БАНАНЫ",
+        "price": 5,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:47.617Z"
+      },
+      {
+        "sku": "БАТАТ",
+        "price": 10,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:47.008Z"
+      },
+      {
+        "sku": "МОРКОВЬ",
+        "price": 2.3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:46.405Z"
+      },
+      {
+        "sku": "ЯБЛОКИ",
+        "price": 3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:45.790Z"
+      },
+      {
+        "sku": "ТЫКВА",
+        "price": 5.33,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:45.208Z"
+      },
+      {
+        "sku": "ПЕРЕПЕЛКИ ШТ.",
+        "price": 0.81,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:44.618Z"
+      },
+      {
+        "sku": "УТИНЫЕ ШЕИ ШТ.",
+        "price": 0.78,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:44.007Z"
+      },
+      {
+        "sku": "НОСЫ ШТ.",
+        "price": 1.23,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:43.424Z"
+      },
+      {
+        "sku": "ЛОП ХРЯЩ ШТ.",
+        "price": 1,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:42.809Z"
+      },
+      {
+        "sku": "КОЛЕНИ ШТ.",
+        "price": 1.17,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:42.241Z"
+      },
+      {
+        "sku": "АОРТА",
+        "price": 0.94,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:41.637Z"
+      },
+      {
+        "sku": "УХО К",
+        "price": 0.88,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:41.041Z"
+      },
+      {
+        "sku": "УХО Г",
+        "price": 0.88,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:40.447Z"
+      },
+      {
+        "sku": "СТАНОВАЯ ЖИЛА",
+        "price": 0.38,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:39.850Z"
+      },
+      {
+        "sku": "ТРАХЕЯ",
+        "price": 0.88,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:39.272Z"
+      },
+      {
+        "sku": "БЫЧИЙ КОРЕНЬ",
+        "price": 1.91,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:38.690Z"
+      },
+      {
+        "sku": "КРОШКА РУБЕЦ",
+        "price": 2,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:38.099Z"
+      },
+      {
+        "sku": "КРОШКА ПОЧЕК",
+        "price": 3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:37.518Z"
+      },
+      {
+        "sku": "КРОШКА ЛЕГКОГО",
+        "price": 2.25,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:36.923Z"
+      },
+      {
+        "sku": "КРОЛИК",
+        "price": 0,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:36.333Z"
+      },
+      {
+        "sku": "МЯСНЫЕ ЛОМТИКИ",
+        "price": 7.55,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:35.747Z"
+      },
+      {
+        "sku": "СЕМЕННИКИ",
+        "price": 4.17,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:35.173Z"
+      },
+      {
+        "sku": "ВЫМЯ",
+        "price": 1.5,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:34.595Z"
+      },
+      {
+        "sku": "БАРАНЬЯ ПЕЧЕНЬ",
+        "price": 2.76,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:34.020Z"
+      },
+      {
+        "sku": "ПЕЧЕНЬ",
+        "price": 2.76,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:33.443Z"
+      },
+      {
+        "sku": "ИНДЕЙКА",
+        "price": 7.5,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:32.844Z"
+      },
+      {
+        "sku": "БАРАНЬЕ ЛЕГКОЕ",
+        "price": 8.4,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:32.246Z"
+      },
+      {
+        "sku": "РУБЕЦ Т",
+        "price": 2,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:31.676Z"
+      },
+      {
+        "sku": "ПОЧКИ",
+        "price": 3,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:31.088Z"
+      },
+      {
+        "sku": "СЕРДЦЕ",
+        "price": 4,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:30.450Z"
+      },
+      {
+        "sku": "ЛЕГКОЕ",
+        "price": 2.25,
+        "yield": null,
+        "source": "cost",
+        "updatedAt": "2026-10-14T15:51:29.860Z"
+      }
+    ]
+  },
+  "snap_cache_keys": [
+    {
+      "cache_key": "retailPrices",
+      "updated_at": "2026-11-03T13:45:24.095Z",
+      "n": 4551
+    },
+    {
+      "cache_key": "listSubscriptions",
+      "updated_at": "2026-11-03T12:38:54.164Z",
+      "n": 146429
+    },
+    {
+      "cache_key": "retailPricesBackup:lung-grid:20261031",
+      "updated_at": "2026-10-31T20:44:09.669Z",
+      "n": 4025
+    },
+    {
+      "cache_key": "priceCostsPp",
+      "updated_at": "2026-10-29T11:04:40.419Z",
+      "n": 3081
+    },
+    {
+      "cache_key": "retailPricesBackup:frac-grid:20261027",
+      "updated_at": "2026-10-27T11:26:17.669Z",
+      "n": 3701
+    },
+    {
+      "cache_key": "retailPricesBackup:rumen-xs:20261026",
+      "updated_at": "2026-10-26T23:38:19.326Z",
+      "n": 3622
+    },
+    {
+      "cache_key": "retailPricesBackup:ig-align:20261026",
+      "updated_at": "2026-10-26T23:01:07.113Z",
+      "n": 3490
+    },
+    {
+      "cache_key": "warehouse",
+      "updated_at": "2026-10-17T19:25:11.617Z",
+      "n": 14045
+    },
+    {
+      "cache_key": "ppPayMoveBackup:2026-10-23:CAL:STRAWBERRYCATMRRR:2026-10-16",
+      "updated_at": "",
+      "n": 161
+    }
+  ],
+  "meta": [
+    {
+      "key": "cost_digest:2026-10",
+      "value": "1",
+      "n": 1
+    },
+    {
+      "key": "stage_c_formula_ok",
+      "value": "0",
+      "n": 1
+    }
+  ],
+  "priceCostsPp": {
+    "updatedAtHint": "2026-10-29T11:04:40.419Z",
+    "ppCostCanon": "pricing-2026-10-09",
+    "costsN": 35,
+    "zeroKeysN": 5,
+    "allZeroKeys": [
+      "КОЛЕНИ ШТ.",
+      "ЛОП ХРЯЩ ШТ.",
+      "НОСЫ ШТ.",
+      "ПЕРЕПЕЛКИ ШТ.",
+      "УТИНЫЕ ШЕИ"
+    ],
+    "costsFocus": {
+      "БЫЧИЙ КОРЕНЬ / МАЛ": {
+        "name": "БЫЧИЙ КОРЕНЬ",
+        "sub": "МАЛ",
+        "unitPrice": 0.96,
+        "piece": true
+      },
+      "БЫЧИЙ КОРЕНЬ / СРЕД": {
+        "name": "БЫЧИЙ КОРЕНЬ",
+        "sub": "СРЕД",
+        "unitPrice": 1.91,
+        "piece": true
+      },
+      "СТАНОВАЯ ЖИЛА / ПАЛК": {
+        "name": "СТАНОВАЯ ЖИЛА",
+        "sub": "ПАЛК",
+        "unitPrice": 0.19,
+        "piece": true
+      },
+      "СТАНОВАЯ ЖИЛА / СРЕД": {
+        "name": "СТАНОВАЯ ЖИЛА",
+        "sub": "СРЕД",
+        "unitPrice": 0.38,
+        "piece": true
+      }
+    },
+    "zeroFocus": {
+      "КОЛЕНИ ШТ.": 1,
+      "ЛОП ХРЯЩ ШТ.": 1,
+      "НОСЫ ШТ.": 1,
+      "ПЕРЕПЕЛКИ ШТ.": 1,
+      "УТИНЫЕ ШЕИ": 1
+    }
+  },
+  "retailFocus": [
+    {
+      "key": "БЫЧИЙ КОРЕНЬ|БОЛ",
+      "price": 20,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "БЫЧИЙ КОРЕНЬ|МАЛ",
+      "price": 7,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "БЫЧИЙ КОРЕНЬ|ОГР",
+      "price": 26,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "БЫЧИЙ КОРЕНЬ|ОЧ МАЛ",
+      "price": 6,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "БЫЧИЙ КОРЕНЬ|СРЕД",
+      "price": 12,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "КОЛЕНИ шт.",
+      "price": 7,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "ЛОП ХРЯЩ шт.",
+      "price": 5,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "НОСЫ шт.",
+      "price": 8,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "ПЕРЕПЁЛКИ шт.",
+      "price": 5,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "СТАНОВАЯ ЖИЛА|БОЛ",
+      "price": 7,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "СТАНОВАЯ ЖИЛА|ПАЛК",
+      "price": 3,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "СТАНОВАЯ ЖИЛА|СРЕД",
+      "price": 5,
+      "unit": "",
+      "updatedAt": ""
+    },
+    {
+      "key": "УТИНЫЕ ШЕИ шт.",
+      "price": 4,
+      "unit": "",
+      "updatedAt": ""
+    }
+  ],
+  "listRawCosts": {
+    "status": "success",
+    "versionsN": 0,
+    "versions": [],
+    "focus": [
+      {
+        "sku": "БЫЧИЙ КОРЕНЬ",
+        "cost": 1.91,
+        "builtin": 1.91,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      },
+      {
+        "sku": "СТАНОВАЯ ЖИЛА",
+        "cost": 0.38,
+        "builtin": 0.38,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      },
+      {
+        "sku": "КОЛЕНИ шт.",
+        "cost": 1.17,
+        "builtin": 1.17,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      },
+      {
+        "sku": "ЛОП ХРЯЩ шт.",
+        "cost": 1,
+        "builtin": 1,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      },
+      {
+        "sku": "НОСЫ шт.",
+        "cost": 1.23,
+        "builtin": 1.23,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      },
+      {
+        "sku": "УТИНЫЕ ШЕИ шт.",
+        "cost": 0.78,
+        "builtin": 0.78,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      },
+      {
+        "sku": "ПЕРЕПЁЛКИ шт.",
+        "cost": 0.81,
+        "builtin": 0.81,
+        "shrink": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0,
+        "history": []
+      }
+    ],
+    "itemsN": 32,
+    "allItems": [
+      {
+        "sku": "ЛЁГКОЕ",
+        "cost": 2.25,
+        "builtin": 2.25,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "СЕРДЦЕ",
+        "cost": 4,
+        "builtin": 4,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ПОЧКИ",
+        "cost": 3,
+        "builtin": 3,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "РУБЕЦ Т",
+        "cost": 2,
+        "builtin": 2,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "БАРАНЬЕ ЛЁГКОЕ",
+        "cost": 8.4,
+        "builtin": 8.4,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ИНДЕЙКА",
+        "cost": 7.5,
+        "builtin": 7.5,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ПЕЧЕНЬ",
+        "cost": 2.76,
+        "builtin": 2.76,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "БАРАНЬЯ ПЕЧЕНЬ",
+        "cost": 2.76,
+        "builtin": 2.76,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ВЫМЯ",
+        "cost": 1.5,
+        "builtin": 1.5,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "СЕМЕННИКИ",
+        "cost": 4.17,
+        "builtin": 4.17,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "МЯСНЫЕ ЛОМТИКИ",
+        "cost": 7.55,
+        "builtin": 7.55,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "КРОЛИК",
+        "cost": null,
+        "builtin": null,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "КРОШКА ЛЁГКОГО",
+        "cost": 2.25,
+        "builtin": 2.25,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "КРОШКА ПОЧЕК",
+        "cost": 3,
+        "builtin": 3,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "КРОШКА РУБЕЦ",
+        "cost": 2,
+        "builtin": 2,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "БЫЧИЙ КОРЕНЬ",
+        "cost": 1.91,
+        "builtin": 1.91,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ТРАХЕЯ",
+        "cost": 0.88,
+        "builtin": 0.88,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "СТАНОВАЯ ЖИЛА",
+        "cost": 0.38,
+        "builtin": 0.38,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "УХО Г",
+        "cost": 0.88,
+        "builtin": 0.88,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "УХО К",
+        "cost": 0.88,
+        "builtin": 0.88,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "АОРТА",
+        "cost": 0.94,
+        "builtin": 0.94,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "КОЛЕНИ шт.",
+        "cost": 1.17,
+        "builtin": 1.17,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ЛОП ХРЯЩ шт.",
+        "cost": 1,
+        "builtin": 1,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "НОСЫ шт.",
+        "cost": 1.23,
+        "builtin": 1.23,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "УТИНЫЕ ШЕИ шт.",
+        "cost": 0.78,
+        "builtin": 0.78,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ПЕРЕПЁЛКИ шт.",
+        "cost": 0.81,
+        "builtin": 0.81,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ТЫКВА",
+        "cost": 5.33,
+        "builtin": 5.33,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ЯБЛОКИ",
+        "cost": 3,
+        "builtin": 3,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "МОРКОВЬ",
+        "cost": 2.3,
+        "builtin": 2.3,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "БАТАТ",
+        "cost": 10,
+        "builtin": 10,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "БАНАНЫ",
+        "cost": 5,
+        "builtin": 5,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      },
+      {
+        "sku": "ГРУШИ",
+        "cost": 6.6,
+        "builtin": 6.6,
+        "effectiveFrom": "2026-10-09",
+        "historyN": 0
+      }
+    ]
+  },
+  "verdictHints": {
+    "raw_cost_ver_empty": true,
+    "saveRawCost_writes": "raw_cost_ver + stageCNoteRaw_→raw_costs",
+    "calcPrice_reads": "priceCostsPp → overlayRawCostsD1_(raw_cost_ver) → lookupPpCostInfoD1_ → RAW_COST_BUILTIN_",
+    "calcPrice_does_not_read": "raw_costs table (stage C mirror only)"
+  }
+}
