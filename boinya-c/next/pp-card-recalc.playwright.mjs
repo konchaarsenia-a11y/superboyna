@@ -333,12 +333,100 @@ async function runZeroStatedFailCalc() {
   };
 }
 
+async function runIdentity145() {
+  /* Карточка с stated=145 и coef УЖЕ 3 (как после «залипания»): смена 3→2.6→3
+     не должна снова давать тождество 145 через S=(P−F)/M_new. */
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(function () {
+    window.Telegram = {
+      WebApp: {
+        initData: "query_id=test&user=" + encodeURIComponent(JSON.stringify({ id: 4242, first_name: "Арсений" })),
+        initDataUnsafe: { user: { id: 4242, first_name: "Арсений" } },
+        ready() {}, expand() {}, openLink() {}
+      }
+    };
+    window.__PP_RECALC_PROBE__ = { calcCalls: [] };
+    window.__NEXT_API_HOOK__ = function (params) {
+      var a = String((params && params.action) || "");
+      if (a === "getMyAccess" || a === "listAccess") {
+        return { status: "success", role: "owner", name: "Арсений", people: [{ telegramId: "4242", name: "Арсений", role: "owner" }] };
+      }
+      if (a === "getWeekDayCounts") {
+        return { status: "success", items: [{ day: "Среда", short: "Ср", count: 1, date: "30.09.2026" }] };
+      }
+      if (a === "listDeferred" || a === "listBpIdle") return { status: "success", items: [], idle: [] };
+      if (a === "getWeekBannerState") return { status: "success", finished: false, pulled: false };
+      if (a === "unlockSubs") return { status: "success", unlocked: true };
+      var basket = [
+        { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 500 },
+        { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", val: 2 },
+        { cat: "chew", main: "БЫЧИЙ КОРЕНЬ", name: "БЫЧИЙ КОРЕНЬ", sub: "БОЛ", val: 6 },
+        { cat: "chew", main: "ТРАХЕЯ", name: "ТРАХЕЯ", sub: "СРЕД", val: 4 },
+        { cat: "chew", main: "СТАНОВАЯ ЖИЛА", name: "СТАНОВАЯ ЖИЛА", sub: "БОЛ", val: 4 }
+      ];
+      var packs = { u1: 0, u2: 0, u3: 8, up4: 2 };
+      if (a === "listSubscriptions") {
+        return {
+          status: "success",
+          subscriptions: [{
+            nick: "zzz_id145", label: "zzz_id145", sheet: "ПП", status: "Дом", subId: "s-145",
+            deliveries: 1, statedCost: "145", factCost: "145", scheme: "RAW26", coef: "2.6",
+            wishes: "[COEF:2.6] [SCHEME:RAW26]", basket: basket, packCounts: packs
+          }]
+        };
+      }
+      if (a === "getSubscription") {
+        return {
+          status: "success", found: true, nick: "zzz_id145", label: "zzz_id145", sheet: "ПП",
+          subId: "s-145", deliveries: 1, ppStatus: "Дом", wishes: "[COEF:2.6] [SCHEME:RAW26]",
+          statedCost: "145", factCost: "145", calcFactCost: "145", scheme: "RAW26", ppScheme: "RAW26",
+          coef: "2.6", basket: basket, packCounts: packs
+        };
+      }
+      if (a === "calcPrice") {
+        window.__PP_RECALC_PROBE__.calcCalls.push({ coef: params.coef });
+        return { status: "error", message: "auth_required" };
+      }
+      if (a === "getRetailPriceList") return { status: "success", items: [], delivery: { fee: 9, freeFrom: 80 } };
+      return { status: "success" };
+    };
+  });
+  const page = await context.newPage();
+  await page.goto("http://127.0.0.1:" + PORT + "/next.html?as=owner&tab=clients&seg=pp", { waitUntil: "domcontentloaded" });
+  await wait(600);
+  await page.getByRole("button", { name: "Клиенты" }).click();
+  await page.getByText("zzz_id145").first().waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: /zzz_id145/ }).first().click();
+  await page.waitForSelector("#cxStated", { timeout: 10000 });
+  const before = await page.locator("#cxStated").inputValue();
+  await page.locator("#cxCoef").scrollIntoViewIfNeeded();
+  await page.locator("#cxCoef").fill("3");
+  await page.locator("#cxCoef").dispatchEvent("change");
+  await wait(200);
+  const after3quick = await page.locator("#cxStated").inputValue();
+  await wait(1200);
+  const after3 = await page.locator("#cxStated").inputValue();
+  await page.screenshot({ path: path.join(outDir, "pp-identity-145-to-3.png"), fullPage: true });
+  await browser.close();
+  const n3 = Number(after3);
+  return {
+    name: "identity-145-to-3",
+    before,
+    after3quick,
+    after3,
+    moved: before !== after3 && Math.abs(n3 - 145) > 0.2,
+    notIdentity: Math.abs(n3 - 145) > 0.2
+  };
+}
+
 await ready();
 const results = [];
 try {
   results.push(await runCase("calc-ok", false));
   results.push(await runCase("calc-fail", true));
   results.push(await runZeroStatedFailCalc());
+  results.push(await runIdentity145());
 } finally {
   try {
     server.kill("SIGTERM");
@@ -358,5 +446,9 @@ if (!results[1] || !results[1].coefChangedQuick) {
 }
 if (!results[2] || !results[2].noPoison || results[2].frozenWrong) {
   console.error("FAIL: zero-stated + failed calc must not poison/freeze stated at recover-only");
+  process.exitCode = 2;
+}
+if (!results[3] || !results[3].moved || !results[3].notIdentity) {
+  console.error("FAIL: stated=145 coef 2.6→3 must not identity-freeze at 145");
   process.exitCode = 2;
 }

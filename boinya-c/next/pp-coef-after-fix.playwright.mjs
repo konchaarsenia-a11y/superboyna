@@ -83,18 +83,14 @@ function hook(opts) {
       var n = Number(params.deliveriesN) || 1;
       var packs = 9.2;
       var recover = 3.3 * 5 + 0.8 * 16;
-      var fact = Math.round((raw * coef + recover + 7.6 * n + packs) * 100) / 100;
+      var frac = 10;
+      var fact = Math.round((raw * coef + recover + 7.6 * n + packs + frac) * 100) / 100;
       return {
         status: "success", mode: "pp", scheme: "RAW26", cost: raw, rawCost: raw, markup: coef,
         total: Math.round(raw * coef * 100) / 100, factCost: fact, deliveriesN: n,
         deliveryByn: 7.6 * n, packagesByn: packs,
-        lines: [
-          { name: "ЛЁГКОЕ", sub: "Среднее", val: 500, unitPrice: 2.25, per100: 2.25 },
-          { name: "УХО Г", sub: "Обычное", val: 2, unitPrice: 2.5, piece: true },
-          { name: "БЫЧИЙ КОРЕНЬ", sub: "БОЛ", val: 6, unitPrice: 2.2, piece: true },
-          { name: "ТРАХЕЯ", sub: "СРЕД", val: 4, unitPrice: 1.8, piece: true },
-          { name: "СТАНОВАЯ ЖИЛА", sub: "БОЛ", val: 4, unitPrice: 1.9, piece: true }
-        ]
+        /* Пустые lines → recalcPpCostSum берёт rawCost=42.51 (как у владельца → 183.63 @3). */
+        lines: []
       };
     }
     if (a === "getRetailPriceList") return { status: "success", items: [], delivery: { fee: 9, freeFrom: 80 } };
@@ -110,7 +106,7 @@ async function runCase(browser, name, mode, statedCost) {
   });
   await context.addInitScript(hook, { card: baseCard, mode, statedCost });
   const page = await context.newPage();
-  await page.goto("http://127.0.0.1:" + PORT + "/next.html?v=71125444&cutover=1", { waitUntil: "domcontentloaded" });
+  await page.goto("http://127.0.0.1:" + PORT + "/next.html?v=71125445&cutover=1", { waitUntil: "domcontentloaded" });
   await wait(800);
   await page.getByRole("button", { name: "Клиенты" }).click();
   await page.getByText(/indixvost|ДИАНА/i).first().waitFor({ timeout: 20000 });
@@ -152,6 +148,8 @@ try {
   cases.push(await runCase(browser, "zero-fail", "fail", "0"));
   cases.push(await runCase(browser, "zero-mock", "mock", "0"));
   cases.push(await runCase(browser, "166-fail", "fail", "166.63"));
+  cases.push(await runCase(browser, "145-fail", "fail", "145"));
+  cases.push(await runCase(browser, "166-mock", "mock", "166.63"));
 } finally {
   await browser.close();
   try { server.kill("SIGTERM"); } catch (e) {}
@@ -164,7 +162,8 @@ const summary = cases.map((c) => ({
   after25: c.after25,
   moved: String(c.before.stated) !== String(c.after3.stated),
   recoverOnly: Number(c.after3.stated) > 40 && Number(c.after3.stated) < 70,
-  approx183: Math.abs(Number(c.after3.stated) - 183.63) < 0.05
+  approx183: Math.abs(Number(c.after3.stated) - 183.63) < 0.05,
+  notIdentity145: Math.abs(Number(c.after3.stated) - 145) > 0.2
 }));
 fs.writeFileSync(path.join(outDir, "pp-coef-after-fix.json"), JSON.stringify({ summary, cases }, null, 2));
 console.log(JSON.stringify(summary, null, 2));
@@ -173,6 +172,8 @@ let fail = false;
 const zeroFail = summary.find((s) => s.name === "zero-fail");
 const zeroMock = summary.find((s) => s.name === "zero-mock");
 const s166 = summary.find((s) => s.name === "166-fail");
+const s145 = summary.find((s) => s.name === "145-fail");
+const s166m = summary.find((s) => s.name === "166-mock");
 if (!zeroFail || zeroFail.recoverOnly) {
   console.error("FAIL zero-fail must not land on recover-only ~56");
   fail = true;
@@ -187,6 +188,14 @@ if (zeroMock && String(zeroMock.after3.stated) === String(zeroMock.after25.state
 }
 if (!s166 || !s166.approx183) {
   console.error("FAIL 166-fail should reach 183.63", s166 && s166.after3);
+  fail = true;
+}
+if (!s145 || !s145.moved || !s145.notIdentity145) {
+  console.error("FAIL 145-fail must leave 145 (no identity freeze)", s145 && s145.after3);
+  fail = true;
+}
+if (!s166m || !s166m.approx183) {
+  console.error("FAIL 166-mock should reach 183.63", s166m && s166m.after3);
   fail = true;
 }
 if (fail) process.exitCode = 2;
