@@ -98,6 +98,8 @@
       coef: PP_COEF_DEFAULT, scheme: "RAW26", coefSaved: false, coefTouched: false,
       priceDirty: false,
       _rawCost: null,
+      _rawCostSource: "",
+      _rawCostAtCoef: "",
       priceCapNote: "",
       dogName: "", dogBreed: "", dogWeight: "",
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
@@ -274,8 +276,15 @@
     var soft = !!opts.soft;
     var fallback = opts.fallback != null ? opts.fallback : (price.coef || (card && card.coef) || PP_COEF_DEFAULT);
     var typed = String(raw == null ? "" : raw).trim();
-    /* До смены coef запоминаем сырьё по текущей указанной — иначе liveCalc/кап съедают пересчёт. */
-    if (view === "card" && card && card.sheet === "ПП") seedCardRawCostIfNeeded_();
+    /*
+     * Сырьё S не зависит от coef. Инверсия S=(P−F)/M обязана брать M, при котором
+     * появилась текущая указанная. Если сидить S уже новым M, то P'=S·M_new+F ≡ P —
+     * цена «замирает» (145→3→145). Live-сырьё не трогаем.
+     */
+    var prevCoef = card && card.sheet === "ПП" ? card.coef : price.coef;
+    if (view === "card" && card && card.sheet === "ПП") {
+      ensureCardRawCostBeforeCoefChange_(prevCoef);
+    }
     if (soft) {
       if (!typed) return false;
       if (/[.,]$/.test(typed)) return true;
@@ -1394,7 +1403,11 @@
   function scheduleCardPpRecalc_(opts) {
     opts = opts || {};
     if (!(view === "card" && card && card.sheet === "ПП")) return;
-    if (opts.basketChanged) card._rawCost = null;
+    if (opts.basketChanged) {
+      card._rawCost = null;
+      card._rawCostSource = "";
+      card._rawCostAtCoef = "";
+    }
     markCardPriceDirty_();
     clearTimeout(cardPriceTimer);
     /* force: true — не пропускать, если предыдущий async уже сбросил priceDirty. */
@@ -1460,8 +1473,13 @@
     return Math.round((rest / m) * 100) / 100;
   }
 
-  function seedCardRawCostIfNeeded_() {
+  /**
+   * Посев S из указанной. coefForInvert — M, при котором считалась указанная
+   * (обычно предыдущий coef до смены). Live-сырьё (_rawCostSource=live) не затираем.
+   */
+  function seedCardRawCostIfNeeded_(coefForInvert) {
     if (!(card && card.sheet === "ПП")) return;
+    /* Уже есть S (live или invert) — не трогаем. Сброс: ensure / basketChanged / open. */
     if (Number(card._rawCost) > 0) return;
     var list = cardBasketList_();
     if (!list.length) return;
@@ -1471,24 +1489,39 @@
       ? card.statedCost
       : (ppPositiveMoney_(card.calcFactCost) ? card.calcFactCost : "");
     if (!ppPositiveMoney_(statedSeed)) return;
+    var m = coefForInvert != null && coefForInvert !== "" ? coefForInvert : card.coef;
     var inv = invertCardRawCost_(
       statedSeed,
-      card.coef,
+      m,
       card.deliveries,
       list,
       packsByn,
       card.fracs || fracRates()
     );
-    if (inv > 0) card._rawCost = inv;
+    if (inv > 0) {
+      card._rawCost = inv;
+      card._rawCostSource = "invert";
+      card._rawCostAtCoef = String(m);
+    }
+  }
+
+  /** Перед сменой M: пересчитать invert от указанной со СТАРЫМ coef (анти-тождество). marker pp-card-price-recalc-h4 */
+  function ensureCardRawCostBeforeCoefChange_(prevCoef) {
+    if (!(card && card.sheet === "ПП")) return;
+    if (card._rawCostSource === "live" && Number(card._rawCost) > 0) return;
+    card._rawCost = null;
+    card._rawCostSource = "";
+    card._rawCostAtCoef = "";
+    seedCardRawCostIfNeeded_(prevCoef);
   }
 
   /**
-   * Тихо подтянуть сырьё с liveCalc при открытии карточки — без перезаписи указанной.
-   * Нужно когда на листе stated/fact = 0: иначе invert не сидит _rawCost и coef «не двигает цену».
+   * Тихо подтянуть сырьё с liveCalc при открытии — без перезаписи указанной.
+   * Live важнее invert: иначе S=(P−F)/M_saved на недооценённой карточке
+   * блокирует настоящий cost и coef «залипает» тождеством.
    */
   async function seedCardRawFromLiveQuiet_() {
     if (!(card && card.sheet === "ПП")) return;
-    if (Number(card._rawCost) > 0) return;
     var list = cardBasketList_();
     if (!list.length) return;
     var gen = cardOpenGen;
@@ -1503,13 +1536,16 @@
       });
     } catch (eLive) { res = null; }
     if (gen !== cardOpenGen || !card || card.nick !== nick) return;
-    if (Number(card._rawCost) > 0) return;
     var cost = 0;
     if (res) {
       cost = P().recalcPpCostSum(res, list) || 0;
       if (!(cost > 0)) cost = Number(res.rawCost != null ? res.rawCost : res.cost) || 0;
     }
-    if (cost > 0) card._rawCost = cost;
+    if (cost > 0) {
+      card._rawCost = cost;
+      card._rawCostSource = "live";
+      card._rawCostAtCoef = String(card.coef || "");
+    }
   }
 
   function applyCardPpQuoteLocal_(opts) {
@@ -1577,6 +1613,8 @@
     if (!list.length) {
       card.calcFactCost = "";
       card._rawCost = null;
+      card._rawCostSource = "";
+      card._rawCostAtCoef = "";
       card.priceCapNote = "";
       if (opts.overwriteStated !== false) {
         card.statedCost = "";
@@ -1602,8 +1640,11 @@
       cost = P().recalcPpCostSum(res, list) || 0;
       if (!(cost > 0)) cost = Number(res.rawCost != null ? res.rawCost : res.cost) || 0;
     }
-    if (cost > 0) card._rawCost = cost;
-    else if (Number(card._rawCost) > 0) cost = Number(card._rawCost);
+    if (cost > 0) {
+      card._rawCost = cost;
+      card._rawCostSource = "live";
+      card._rawCostAtCoef = String(coef || "");
+    } else if (Number(card._rawCost) > 0) cost = Number(card._rawCost);
     else {
       /* Нет сырья — не пишем recover-only в указанную (яд для следующих coef). */
       return localQ;
@@ -1906,15 +1947,18 @@
     card.fracs = Object.assign({}, price.fracs);
     if (!card.packCounts) card.packCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
     card._rawCost = null;
+    card._rawCostSource = "";
+    card._rawCostAtCoef = "";
     card.priceDirty = false;
     view = "card";
     deep = false;
     sh().resetScroll();
     sh().hideToast();
     paint();
-    /* Сырьё в кэш без смены указанной — иначе coef на нулевой цене с листа «не едет». */
+    /* Сырьё в кэш без смены указанной — иначе coef на нулевой цене с листа «не едет».
+       Сначала invert (мгновенно), live тихим запросом перебьёт на настоящий cost. */
     if (card.sheet === "ПП" && (card.basket || []).length) {
-      seedCardRawCostIfNeeded_();
+      seedCardRawCostIfNeeded_(card.coef);
       seedCardRawFromLiveQuiet_().catch(function () {});
     }
     loadPeople().then(function () {
