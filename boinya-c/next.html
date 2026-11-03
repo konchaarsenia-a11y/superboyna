@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
   <script>
     (function () {
       function stopZoom(e) { e.preventDefault(); }
@@ -13,9 +15,9 @@
   </script>
   <meta name="color-scheme" content="dark light">
   <title>Бойня</title>
-  <link rel="stylesheet" href="ds.css?v=71125447">
-  <link rel="stylesheet" href="next/app.css?v=71125447">
-  <link rel="stylesheet" href="next/theme.css?v=71125447">
+  <link rel="stylesheet" href="ds.css?v=71125448">
+  <link rel="stylesheet" href="next/app.css?v=71125448">
+  <link rel="stylesheet" href="next/theme.css?v=71125448">
   <script>
     (function () {
       function insideTelegram(tg) {
@@ -53,54 +55,90 @@
   </script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function (regs) {
-        regs.forEach(function (reg) { try { reg.update(); } catch (eU) {} });
+    (function () {
+      var VER = "71125448";
+      window.__BOINYA_APP_VER__ = VER;
+      window.__BOINYA_APP_VERSION__ = "v" + VER;
+      if (!("serviceWorker" in navigator)) return;
+      var SW_Q = "sw.js?v=18-" + VER;
+      var reloading = false;
+      function onceReload(flag) {
+        if (reloading) return;
+        try {
+          if (sessionStorage.getItem(flag) === VER) return;
+          sessionStorage.setItem(flag, VER);
+        } catch (eS) {}
+        reloading = true;
+        location.reload();
+      }
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        onceReload("boinya_sw_reloaded");
+      });
+      try {
+        var prev = localStorage.getItem("boinya_app_ver");
+        if (prev && prev !== VER && caches && caches.keys) {
+          caches.keys().then(function (keys) {
+            return Promise.all(keys.map(function (k) {
+              if (/boinya-c|boinya-fast/.test(k)) return caches.delete(k);
+              return null;
+            }));
+          }).then(function () {
+            try { localStorage.setItem("boinya_app_ver", VER); } catch (eL) {}
+            onceReload("boinya_ver_bust");
+          }).catch(function () {
+            try { localStorage.setItem("boinya_app_ver", VER); } catch (eL2) {}
+          });
+        } else {
+          try { localStorage.setItem("boinya_app_ver", VER); } catch (eL3) {}
+        }
+      } catch (eV) {}
+      navigator.serviceWorker.register(SW_Q, { scope: "./" }).then(function (reg) {
+        try { reg.update(); } catch (eU) {}
       }).catch(function () {});
-    }
+    })();
   </script>
-  <script src="client/config.js?v=71125447"></script>
+  <script src="client/config.js?v=71125448"></script>
 </head>
 <body class="b-app">
   <div id="app"></div>
-  <script src="next/order-engine.js?v=71125447"></script>
-  <script src="next/ig-labels.js?v=71125447"></script>
-  <script src="next/crumb-scheme.js?v=71125447"></script>
-  <script src="next/wishes-geo.js?v=71125447"></script>
-  <script src="next/order-payload.js?v=71125447"></script>
-  <script src="next/api.js?v=71125447"></script>
-  <script src="next/access.js?v=71125447"></script>
-  <script src="next/shell.js?v=71125447"></script>
-  <script src="next/cut-frac.js?v=71125447"></script>
-  <script src="next/crumb-mix.js?v=71125447"></script>
-  <script src="next/bp-weeks.js?v=71125447"></script>
-  <script src="next/orders.js?v=71125447"></script>
-  <script src="next/week-logic.js?v=71125447"></script>
-  <script src="next/week.js?v=71125447"></script>
-  <script src="next/tasks.js?v=71125447"></script>
-  <script src="next/people.js?v=71125447"></script>
-  <script src="next/price-logic.js?v=71125447"></script>
-  <script src="next/clients.js?v=71125447"></script>
-  <script src="courier-maps.js?v=71125447"></script>
-  <script src="courier-asm.js?v=71125447"></script>
-  <script src="next/card-copy.js?v=71125447"></script>
-  <script src="next/templates.js?v=71125447"></script>
-  <script src="next/route-logic.js?v=71125447"></script>
-  <script src="next/asm-packs.js?v=71125447"></script>
-  <script src="next/cut-progress.js?v=71125447"></script>
-  <script src="next/production.js?v=71125447"></script>
-  <script src="next/warehouse-logic.js?v=71125447"></script>
-  <script src="next/warehouse.js?v=71125447"></script>
-  <script src="next/price-extra.js?v=71125447"></script>
-  <script src="next/retail-admin.js?v=71125447"></script>
-  <script src="next/formulas.js?v=71125447"></script>
-  <script src="next/stats-logic.js?v=71125447"></script>
-  <script src="next/stats.js?v=71125447"></script>
-  <script src="next/partners-logic.js?v=71125447"></script>
-  <script src="next/partners.js?v=71125447"></script>
-  <script src="next/goals-logic.js?v=71125447"></script>
-  <script src="next/expenses.js?v=71125447"></script>
-  <script src="next/goals.js?v=71125447"></script>
-  <script src="next/app.js?v=71125447"></script>
+  <script src="next/order-engine.js?v=71125448"></script>
+  <script src="next/ig-labels.js?v=71125448"></script>
+  <script src="next/crumb-scheme.js?v=71125448"></script>
+  <script src="next/wishes-geo.js?v=71125448"></script>
+  <script src="next/order-payload.js?v=71125448"></script>
+  <script src="next/api.js?v=71125448"></script>
+  <script src="next/access.js?v=71125448"></script>
+  <script src="next/shell.js?v=71125448"></script>
+  <script src="next/cut-frac.js?v=71125448"></script>
+  <script src="next/crumb-mix.js?v=71125448"></script>
+  <script src="next/bp-weeks.js?v=71125448"></script>
+  <script src="next/orders.js?v=71125448"></script>
+  <script src="next/week-logic.js?v=71125448"></script>
+  <script src="next/week.js?v=71125448"></script>
+  <script src="next/tasks.js?v=71125448"></script>
+  <script src="next/people.js?v=71125448"></script>
+  <script src="next/price-logic.js?v=71125448"></script>
+  <script src="next/clients.js?v=71125448"></script>
+  <script src="courier-maps.js?v=71125448"></script>
+  <script src="courier-asm.js?v=71125448"></script>
+  <script src="next/card-copy.js?v=71125448"></script>
+  <script src="next/templates.js?v=71125448"></script>
+  <script src="next/route-logic.js?v=71125448"></script>
+  <script src="next/asm-packs.js?v=71125448"></script>
+  <script src="next/cut-progress.js?v=71125448"></script>
+  <script src="next/production.js?v=71125448"></script>
+  <script src="next/warehouse-logic.js?v=71125448"></script>
+  <script src="next/warehouse.js?v=71125448"></script>
+  <script src="next/price-extra.js?v=71125448"></script>
+  <script src="next/retail-admin.js?v=71125448"></script>
+  <script src="next/formulas.js?v=71125448"></script>
+  <script src="next/stats-logic.js?v=71125448"></script>
+  <script src="next/stats.js?v=71125448"></script>
+  <script src="next/partners-logic.js?v=71125448"></script>
+  <script src="next/partners.js?v=71125448"></script>
+  <script src="next/goals-logic.js?v=71125448"></script>
+  <script src="next/expenses.js?v=71125448"></script>
+  <script src="next/goals.js?v=71125448"></script>
+  <script src="next/app.js?v=71125448"></script>
 </body>
 </html>

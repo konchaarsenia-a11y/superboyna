@@ -93,6 +93,11 @@
 
   function mount(node) {
     appEl = node;
+    var appVer = "";
+    try {
+      appVer = String(window.__BOINYA_APP_VERSION__ || window.__BOINYA_APP_VER__ || "").trim();
+      if (appVer && appVer.charAt(0) !== "v") appVer = "v" + appVer;
+    } catch (eVer) { appVer = ""; }
     appEl.innerHTML =
       '<div class="nx" id="nxRoot">' +
         '<header class="top b-top" id="nxTop"></header>' +
@@ -100,6 +105,7 @@
         '<main class="scroll nx-main" id="nxMain"></main>' +
         '<div class="dock nx-dock" id="nxDock" hidden></div>' +
         '<nav class="tabs b-nav" id="nxNav" hidden aria-label="Разделы"></nav>' +
+        (appVer ? '<div class="b-app-ver" id="nxAppVer" aria-hidden="true">' + esc(appVer) + "</div>" : "") +
       "</div>" +
       '<div class="nx-scrim" id="nxScrim" hidden></div>' +
       '<div class="nx-toast-wrap" id="nxToast" hidden></div>' +

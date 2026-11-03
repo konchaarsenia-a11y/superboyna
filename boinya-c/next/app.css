@@ -40,6 +40,7 @@ input, select, textarea {
 }
 
 .nx {
+  position: relative;
   height: var(--tg-viewport-stable-height, 100dvh);
   max-height: var(--tg-viewport-stable-height, 100dvh);
   overflow: hidden;
@@ -79,6 +80,21 @@ body.nx-kb .nx-sheet__body {
   background: var(--b-bg);
   border-top: 1px solid var(--b-line);
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Мелкая версия для проверки cache-bust в Telegram WebView */
+.b-app-ver {
+  position: absolute;
+  left: 10px;
+  bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+  z-index: 4;
+  pointer-events: none;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.42;
+  color: var(--b-muted, #8e8e93);
 }
 
 .b-nav__lbl {

@@ -12,7 +12,7 @@ const outDir = "/opt/cursor/artifacts";
 fs.mkdirSync(outDir, { recursive: true });
 
 const BOT_URL =
-  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125447";
+  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125448";
 const baseCard = JSON.parse(fs.readFileSync(path.join(outDir, "indixvost-live.json"), "utf8"));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -106,7 +106,7 @@ async function prices(page) {
     hasH5: !!(window.__BOINYA_HAS_H5__),
     markerProbe: (function () {
       try {
-        return String(document.documentElement.innerHTML).indexOf("71125447") >= 0;
+        return String(document.documentElement.innerHTML).indexOf("71125448") >= 0;
       } catch (e) { return false; }
     })()
   }));
@@ -121,7 +121,7 @@ const context = await browser.newContext({
 await context.addInitScript((card) => { window.__BASE_CARD__ = card; }, baseCard);
 await context.addInitScript(hook);
 
-/* Перехват clients.js — убедиться, что грузится live 71125447 с h5 */
+/* Перехват clients.js — убедиться, что грузится live 71125448 с h5 */
 await context.route("**/next/clients.js*", async (route) => {
   const res = await route.fetch();
   const body = await res.text();
@@ -206,14 +206,14 @@ const summary = {
   approx183: Math.abs(Number(afterTap.stated) - 183.63) < 0.05,
   reopen183: Math.abs(Number(afterReopen.stated) - 183.63) < 0.05,
   liveH5: !!boot.hasH5,
-  liveVer: /71125447/.test(String(boot.scriptSrc || "")) || /71125447/.test(String(boot.href || ""))
+  liveVer: /71125448/.test(String(boot.scriptSrc || "")) || /71125448/.test(String(boot.href || ""))
 };
 fs.writeFileSync(path.join(outDir, "pp-live-bot-path.json"), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));
 
 let fail = false;
 if (!summary.liveH5 || !summary.liveVer) {
-  console.error("FAIL live bot URL did not load v71125447/h5", boot);
+  console.error("FAIL live bot URL did not load v71125448/h5", boot);
   fail = true;
 }
 if (!summary.left145 || !summary.approx183) {
