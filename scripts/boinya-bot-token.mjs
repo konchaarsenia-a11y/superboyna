@@ -6,7 +6,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MENU_URL = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1";
+/** Должен совпадать с BOINYA_MINI_URL: Telegram menu открывает URL напрямую (мимо index/app redirect). */
+const MENU_URL = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125448";
 const WANT_USER = "boyniaGB_bot";
 const WORKER = "https://boinya-c.konchaarsenia.workers.dev";
 const PROXY = join(dirname(fileURLToPath(import.meta.url)), "..", "boinya-c", "proxy");
@@ -127,6 +128,36 @@ async function workerAccess(initData) {
   };
 }
 
+async function menuOnly(token) {
+  mkdirSync(OUT, { recursive: true });
+  const me = await tg(token, "getMe");
+  if (!me.ok || me.username !== WANT_USER) {
+    say({ status: "error", message: "unexpected_bot", username: me.username, http: me.http, description: me.description });
+    process.exit(1);
+  }
+  const before = await tg(token, "getChatMenuButton");
+  const menu = await tg(token, "setChatMenuButton", {
+    menu_button: { type: "web_app", text: "Бойня", web_app: { url: MENU_URL } }
+  });
+  const menuNow = await tg(token, "getChatMenuButton");
+  const report = {
+    at: new Date().toISOString(),
+    mode: "menu-only",
+    wantUser: WANT_USER,
+    menuUrlWant: MENU_URL,
+    getMe: { http: me.http, ok: me.ok, username: me.username },
+    menuBefore: { type: before.menu_type, url: before.menu_url, ok: before.ok },
+    setChatMenuButton: { http: menu.http, ok: menu.ok, error_code: menu.error_code, description: menu.description },
+    menuNow: { type: menuNow.menu_type, url: menuNow.menu_url, ok: menuNow.ok, description: menuNow.description }
+  };
+  const safe = JSON.parse(redact(JSON.stringify(report)));
+  writeFileSync(join(OUT, "menu-report.json"), JSON.stringify(safe, null, 2));
+  say(safe);
+  const pass = me.ok && me.username === WANT_USER && menu.ok &&
+    String(menuNow.menu_url || "").indexOf("v=71125448") >= 0;
+  if (!pass) process.exit(1);
+}
+
 async function main() {
   if (process.argv.indexOf("--self-test") >= 0) {
     selfTest();
@@ -136,6 +167,10 @@ async function main() {
   if (!token) {
     say({ status: "error", message: "no_token" });
     process.exit(1);
+  }
+  if (process.argv.indexOf("--menu-only") >= 0) {
+    await menuOnly(token);
+    return;
   }
   mkdirSync(OUT, { recursive: true });
   let put = putSecret(token);
@@ -183,6 +218,7 @@ async function main() {
     secretPut: put.exit === 0,
     deploy: deploy,
     wantUser: WANT_USER,
+    menuUrlWant: MENU_URL,
     getMe: { http: me.http, ok: me.ok, error_code: me.error_code, description: me.description, username: me.username, first_name: me.first_name },
     setWebhook: { skipped: true, description: hook.description },
     getWebhookInfo: {
@@ -204,7 +240,8 @@ async function main() {
   const safe = JSON.parse(redact(JSON.stringify(report)));
   writeFileSync(join(OUT, "report.json"), JSON.stringify(safe, null, 2));
   say(safe);
-  const pass = me.ok && me.username === WANT_USER && info.ok && menu.ok && commands.ok &&
+  const menuHasVer = String(menuNow.menu_url || "").indexOf("v=71125448") >= 0;
+  const pass = me.ok && me.username === WANT_USER && info.ok && menu.ok && commands.ok && menuHasVer &&
     desktop && desktop.botUsername === WANT_USER &&
     access && access.reason !== "bad_hash" && access.reason !== "no_bot_token" &&
     (access.verified === true || access.authVia === "webapp") &&

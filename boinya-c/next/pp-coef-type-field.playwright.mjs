@@ -144,7 +144,7 @@ await context.addInitScript((card) => { window.__BASE__ = card; }, baseCard);
 await context.addInitScript(hook);
 const page = await context.newPage();
 /* Вход как кнопка бота: next?cutover=1 без ручного затирания логики v= в HTML. */
-await page.goto("http://127.0.0.1:" + PORT + "/next.html?cutover=1&v=71125447", { waitUntil: "domcontentloaded" });
+await page.goto("http://127.0.0.1:" + PORT + "/next.html?cutover=1&v=71125448", { waitUntil: "domcontentloaded" });
 await wait(1000);
 await page.getByRole("button", { name: "Клиенты" }).click();
 await page.getByRole("button", { name: /indixvost|ДИАНА/i }).first().click();
