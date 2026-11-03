@@ -12,15 +12,31 @@ const ordersSrc = fs.readFileSync(path.resolve(here, "orders.js"), "utf8");
 function boot(card) {
   const paints = [];
   const posts = [];
+  const fields = {};
   const basket = (card.basket || []).map(function (it) { return Object.assign({}, it); });
   const basket2 = (card.basket2 || []).map(function (it) { return Object.assign({}, it); });
   const basketBp2 = (card.basketBp2 || []).map(function (it) { return Object.assign({}, it); });
+  function calcPriceOk() {
+    return {
+      status: "success",
+      mode: "pp",
+      scheme: "RAW26",
+      cost: 40,
+      rawCost: 40,
+      factCost: 120,
+      lines: []
+    };
+  }
   const sandbox = {
     window: {},
     clearTimeout: clearTimeout,
     setTimeout: setTimeout,
     document: {
-      getElementById: function () { return null; },
+      getElementById: function (id) {
+        if (!id) return null;
+        if (!fields[id]) fields[id] = { id: id, value: "" };
+        return fields[id];
+      },
       querySelector: function () { return null; },
       querySelectorAll: function () { return []; },
       activeElement: null
@@ -51,16 +67,19 @@ function boot(card) {
           basketBp2: card.basketBp2 === undefined ? undefined : basketBp2
         }));
       }
+      if (action === "calcPrice") return Promise.resolve(calcPriceOk());
       if (action === "listAccess") return Promise.resolve({ status: "success", people: [] });
       return Promise.resolve({ status: "success" });
     },
     apiPost: function (body) {
       posts.push(JSON.parse(JSON.stringify(body)));
+      if (body && body.action === "calcPrice") return Promise.resolve(calcPriceOk());
       return Promise.resolve({ status: "success" });
     }
   };
   sandbox.window.BoinyaOrderEngine = {
     mapApiBasketToLocal: function (list) { return list || []; },
+    serializeBasketItem_: function (it) { return it || {}; },
     unitForItem: function (cat) { return cat === "chew" ? "шт" : "гр"; },
     prettyProductName: function (name) { return String(name || ""); },
     catalogItemsForUi_: function () { return []; },
@@ -99,7 +118,15 @@ function boot(card) {
     }
   };
   vm.runInNewContext(clientsSrc, sandbox, { filename: "clients.js" });
-  return { C: sandbox.window.BoinyaClients, paints: paints, posts: posts, basket: basket, basket2: basket2, basketBp2: basketBp2 };
+  return {
+    C: sandbox.window.BoinyaClients,
+    paints: paints,
+    posts: posts,
+    fields: fields,
+    basket: basket,
+    basket2: basket2,
+    basketBp2: basketBp2
+  };
 }
 
 function node(attrs) {
@@ -238,9 +265,13 @@ test("coef на основной карточке ПП сразу меняет �
   /* Без открытия deep — чип coef на просмотре карточки. */
   assert.equal(before.includes("Пересчитать цену"), false);
   ctx.C.onAct("cl-coef", node({ "data-v": "2.3" }));
+  /* h6: без invert — ждём liveCalc; stated обновляет cxStated через paintCardPriceFields_. */
+  await new Promise(function (r) { setTimeout(r, 450); });
   const after = ctx.paints[ctx.paints.length - 1];
-  assert.match(after, /id="cxStated"[^>]*value="(?!145")/);
   assert.match(after, /data-act="cl-coef"[^>]*data-v="2\.3"/);
+  const stated = String((ctx.fields.cxStated && ctx.fields.cxStated.value) || "");
+  assert.notEqual(stated, "145");
+  assert.ok(Number(stated) > 0);
 });
 
 test("добавление позиции и заказ не теряют ввод граммов", () => {
