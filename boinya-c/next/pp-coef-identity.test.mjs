@@ -216,6 +216,14 @@ const summary = {
   indix145Fixed: changeCoefFixed(145, 2.6, 3, indix, indixPacks, 1, 0)
 };
 
+/* Retap того же M без live: invert тождество. С live raw — уходим с 145 на ~183. */
+const sameCoefBuggy = changeCoefBuggy(145, 3, 3, indix, indixPacks, 1);
+const sameCoefLive = changeCoefFixed(145, 3, 3, indix, indixPacks, 1, 42.51);
+summary.sameCoefRetapBuggy = sameCoefBuggy;
+summary.sameCoefRetapLive = sameCoefLive;
+assert.ok(Math.abs(sameCoefBuggy.after - 145) < 0.05, "same-coef invert is identity");
+assert.ok(sameCoefLive.moved && Math.abs(sameCoefLive.after - 183.63) < 0.05, "same-coef + live → 183");
+
 assert.equal(summary.stillBrokenFixed, 0, "fixed path must move price for all movable cards");
 assert.ok(Math.abs(summary.indixTrueAt3.after - 183.63) < 0.05);
 assert.ok(Math.abs(summary.indixTrueAt26.total - 166.63) < 0.05);

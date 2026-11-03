@@ -97,6 +97,7 @@
       factCost: "", statedCost: "", calcFactCost: "", statedTouched: false,
       coef: PP_COEF_DEFAULT, scheme: "RAW26", coefSaved: false, coefTouched: false,
       priceDirty: false,
+      _awaitLiveRaw: false,
       _rawCost: null,
       _rawCostSource: "",
       _rawCostAtCoef: "",
@@ -280,11 +281,10 @@
      * Сырьё S не зависит от coef. Инверсия S=(P−F)/M обязана брать M, при котором
      * появилась текущая указанная. Если сидить S уже новым M, то P'=S·M_new+F ≡ P —
      * цена «замирает» (145→3→145). Live-сырьё не трогаем.
+     * Повтор того же M (чип 3 при уже [COEF:3]+145) тоже тождество — не сидим invert.
+     * marker pp-card-price-recalc-h5
      */
     var prevCoef = card && card.sheet === "ПП" ? card.coef : price.coef;
-    if (view === "card" && card && card.sheet === "ПП") {
-      ensureCardRawCostBeforeCoefChange_(prevCoef);
-    }
     if (soft) {
       if (!typed) return false;
       if (/[.,]$/.test(typed)) return true;
@@ -292,6 +292,9 @@
       if (!isFinite(softN) || softN <= 0) return false;
       if (softN < PP_COEF_MIN || softN > PP_COEF_MAX) return true;
       var softNext = String(Math.round(softN * 1000) / 1000);
+      if (view === "card" && card && card.sheet === "ПП") {
+        ensureCardRawCostBeforeCoefChange_(prevCoef, softNext);
+      }
       price.coef = softNext;
       if (softN === 2.6) price.scheme = "RAW26";
       if (card) {
@@ -303,6 +306,9 @@
       return true;
     }
     var next = parsePpCoefInput_(typed, fallback);
+    if (view === "card" && card && card.sheet === "ПП") {
+      ensureCardRawCostBeforeCoefChange_(prevCoef, next);
+    }
     var before = Number(String(typed).replace(",", "."));
     if (isFinite(before) && before > 0 && (before < PP_COEF_MIN || before > PP_COEF_MAX)) {
       sh().toast("Коэффициент от 1 до 5");
@@ -1407,6 +1413,7 @@
       card._rawCost = null;
       card._rawCostSource = "";
       card._rawCostAtCoef = "";
+      card._awaitLiveRaw = false;
     }
     markCardPriceDirty_();
     clearTimeout(cardPriceTimer);
@@ -1479,6 +1486,8 @@
    */
   function seedCardRawCostIfNeeded_(coefForInvert) {
     if (!(card && card.sheet === "ПП")) return;
+    /* Ждём live после retap того же M — иначе schedule снова сидит тождество. */
+    if (card._awaitLiveRaw) return;
     /* Уже есть S (live или invert) — не трогаем. Сброс: ensure / basketChanged / open. */
     if (Number(card._rawCost) > 0) return;
     var list = cardBasketList_();
@@ -1505,13 +1514,22 @@
     }
   }
 
-  /** Перед сменой M: пересчитать invert от указанной со СТАРЫМ coef (анти-тождество). marker pp-card-price-recalc-h4 */
-  function ensureCardRawCostBeforeCoefChange_(prevCoef) {
+  /** Перед сменой M: invert со СТАРЫМ coef; тот же M — не сидим (анти-тождество h4/h5). */
+  function ensureCardRawCostBeforeCoefChange_(prevCoef, nextCoef) {
     if (!(card && card.sheet === "ПП")) return;
     if (card._rawCostSource === "live" && Number(card._rawCost) > 0) return;
+    var prevN = Number(String(prevCoef == null ? "" : prevCoef).replace(",", "."));
+    var nextN = Number(String(nextCoef == null ? "" : nextCoef).replace(",", "."));
+    var sameCoef = isFinite(prevN) && isFinite(nextN) && Math.abs(prevN - nextN) < 0.0005;
     card._rawCost = null;
     card._rawCostSource = "";
     card._rawCostAtCoef = "";
+    /* Чип/ввод того же M при уже [COEF:M]+указанной: S=(P−F)/M ⇒ P'≡P. Ждём live. */
+    if (sameCoef) {
+      card._awaitLiveRaw = true;
+      return;
+    }
+    card._awaitLiveRaw = false;
     seedCardRawCostIfNeeded_(prevCoef);
   }
 
@@ -1519,6 +1537,9 @@
    * Тихо подтянуть сырьё с liveCalc при открытии — без перезаписи указанной.
    * Live важнее invert: иначе S=(P−F)/M_saved на недооценённой карточке
    * блокирует настоящий cost и coef «залипает» тождеством.
+   * Если coef уже трогали (или priceDirty), а invert успел воткнуть тождество —
+   * пересчитать указанную с live S (без массовой переписи чужих карточек).
+   * marker pp-card-price-recalc-h5
    */
   async function seedCardRawFromLiveQuiet_() {
     if (!(card && card.sheet === "ПП")) return;
@@ -1545,6 +1566,10 @@
       card._rawCost = cost;
       card._rawCostSource = "live";
       card._rawCostAtCoef = String(card.coef || "");
+      card._awaitLiveRaw = false;
+      if (card.coefTouched || card.priceDirty) {
+        try { applyCardPpQuoteLocal_({ overwriteStated: true }); } catch (eQ) {}
+      }
     }
   }
 
@@ -1644,6 +1669,7 @@
       card._rawCost = cost;
       card._rawCostSource = "live";
       card._rawCostAtCoef = String(coef || "");
+      card._awaitLiveRaw = false;
     } else if (Number(card._rawCost) > 0) cost = Number(card._rawCost);
     else {
       /* Нет сырья — не пишем recover-only в указанную (яд для следующих coef). */
@@ -1884,7 +1910,8 @@
       segment: sheet,
       sheet: sheet,
       _: String(Date.now())
-    }, { timeoutMs: 22000, cacheTtlMs: shown ? 20000 : 0 });
+    /* cacheTtlMs:0 — иначе reopen ≤20с поднимает старую указанную (145) поверх свежего coef. */
+    }, { timeoutMs: 22000, cacheTtlMs: 0 });
     if (gen !== cardOpenGen) return;
     if (!res || res.status !== "success" || res.found === false) { sh().toast((res && res.message) || "Не открылось"); return; }
     card = blankCard();
@@ -1949,6 +1976,7 @@
     card._rawCost = null;
     card._rawCostSource = "";
     card._rawCostAtCoef = "";
+    card._awaitLiveRaw = false;
     card.priceDirty = false;
     view = "card";
     deep = false;
