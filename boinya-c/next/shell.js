@@ -108,6 +108,8 @@
     bindToastSwipe();
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
+    /* Telegram mobile: «Готово» часто даёт focusout без change — коммитим поле. */
+    document.addEventListener("focusout", onFocusOut);
     bindKeyboard();
     var scrim = el("nxScrim");
     scrim.addEventListener("click", function (e) {
@@ -193,6 +195,13 @@
 
   function onChange(e) {
     if (actHandler) actHandler("change", e.target, e);
+  }
+
+  function onFocusOut(e) {
+    var t = e && e.target;
+    /* Только coef: в Telegram «Готово» часто без change; остальные поля не трогаем. */
+    if (!t || t.id !== "cxCoef") return;
+    if (actHandler) actHandler("change", t, e);
   }
 
   var touchY = 0;

@@ -272,17 +272,18 @@
     return isFinite(a) && isFinite(b) && Math.abs(a - b) < 0.0005;
   }
 
+  var coefSoftTimer = 0;
+
   function applyPpCoef_(raw, opts) {
     opts = opts || {};
     var soft = !!opts.soft;
     var fallback = opts.fallback != null ? opts.fallback : (price.coef || (card && card.coef) || PP_COEF_DEFAULT);
     var typed = String(raw == null ? "" : raw).trim();
     /*
-     * Сырьё S не зависит от coef. Инверсия S=(P−F)/M обязана брать M, при котором
-     * появилась текущая указанная. Если сидить S уже новым M, то P'=S·M_new+F ≡ P —
-     * цена «замирает» (145→3→145). Live-сырьё не трогаем.
-     * Повтор того же M (чип 3 при уже [COEF:3]+145) тоже тождество — не сидим invert.
-     * marker pp-card-price-recalc-h5
+     * Смена M (чип или поле): сырьё только liveCalc/priceCostsPp.
+     * Invert от указанной (144.63@3 → S≈29.5 → снова 144.63) запрещён — иначе
+     * ручной ввод «3» без чипа залипает на недооценённой цене.
+     * soft = input (debounce); hard = change/blur. marker pp-card-price-recalc-h6
      */
     var prevCoef = card && card.sheet === "ПП" ? card.coef : price.coef;
     if (soft) {
@@ -302,9 +303,18 @@
         card.coefTouched = true;
         if (softN === 2.6) card.scheme = "RAW26";
       }
-      schedulePpMessage();
+      /* Debounce soft: не дёргать live на каждый полуввод «2,». */
+      if (view === "card" && card && card.sheet === "ПП") {
+        clearTimeout(coefSoftTimer);
+        coefSoftTimer = setTimeout(function () {
+          scheduleCardPpRecalc_();
+        }, 180);
+      } else {
+        schedulePpMessage();
+      }
       return true;
     }
+    clearTimeout(coefSoftTimer);
     var next = parsePpCoefInput_(typed, fallback);
     if (view === "card" && card && card.sheet === "ПП") {
       ensureCardRawCostBeforeCoefChange_(prevCoef, next);
@@ -1514,23 +1524,21 @@
     }
   }
 
-  /** Перед сменой M: invert со СТАРЫМ coef; тот же M — не сидим (анти-тождество h4/h5). */
-  function ensureCardRawCostBeforeCoefChange_(prevCoef, nextCoef) {
+  /**
+   * Перед сменой M: live-сырьё оставляем; invert от указанной НЕ сидим.
+   * Иначе ввод «3» в поле при stated 144.63 даёт S=(P−F)/M ⇒ P'≡P (не 183.63).
+   * marker pp-card-price-recalc-h6
+   */
+  function ensureCardRawCostBeforeCoefChange_(/* prevCoef, nextCoef */) {
     if (!(card && card.sheet === "ПП")) return;
-    if (card._rawCostSource === "live" && Number(card._rawCost) > 0) return;
-    var prevN = Number(String(prevCoef == null ? "" : prevCoef).replace(",", "."));
-    var nextN = Number(String(nextCoef == null ? "" : nextCoef).replace(",", "."));
-    var sameCoef = isFinite(prevN) && isFinite(nextN) && Math.abs(prevN - nextN) < 0.0005;
+    if (card._rawCostSource === "live" && Number(card._rawCost) > 0) {
+      card._awaitLiveRaw = false;
+      return;
+    }
     card._rawCost = null;
     card._rawCostSource = "";
     card._rawCostAtCoef = "";
-    /* Чип/ввод того же M при уже [COEF:M]+указанной: S=(P−F)/M ⇒ P'≡P. Ждём live. */
-    if (sameCoef) {
-      card._awaitLiveRaw = true;
-      return;
-    }
-    card._awaitLiveRaw = false;
-    seedCardRawCostIfNeeded_(prevCoef);
+    card._awaitLiveRaw = true;
   }
 
   /**
