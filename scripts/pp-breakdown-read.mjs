@@ -270,10 +270,27 @@ async function workerPost(body) {
   return res.json().catch(() => ({ status: "error", message: "non_json" }));
 }
 
+async function workerPostRetry(body, tries) {
+  let last = null;
+  for (let i = 0; i < (tries || 4); i++) {
+    try {
+      last = await workerPost(body);
+      if (last && last.status === "success") return last;
+      if (last && last.status === "error" && /forbidden|auth/i.test(String(last.message || ""))) {
+        return last;
+      }
+    } catch (e) {
+      last = { status: "error", message: String(e && e.message ? e.message : e) };
+    }
+    await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+  }
+  return last || { status: "error", message: "retry_exhausted" };
+}
+
 async function calcPrice(initData, card) {
   const coef = parseCoef(card);
   const scheme = parseScheme(card);
-  return workerPost({
+  return workerPostRetry({
     action: "calcPrice",
     mode: "pp",
     cutover: 1,
