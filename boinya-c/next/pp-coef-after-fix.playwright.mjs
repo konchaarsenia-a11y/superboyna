@@ -106,7 +106,7 @@ async function runCase(browser, name, mode, statedCost) {
   });
   await context.addInitScript(hook, { card: baseCard, mode, statedCost });
   const page = await context.newPage();
-  await page.goto("http://127.0.0.1:" + PORT + "/next.html?v=71125446&cutover=1", { waitUntil: "domcontentloaded" });
+  await page.goto("http://127.0.0.1:" + PORT + "/next.html?v=71125447&cutover=1", { waitUntil: "domcontentloaded" });
   await wait(800);
   await page.getByRole("button", { name: "Клиенты" }).click();
   await page.getByText(/indixvost|ДИАНА/i).first().waitFor({ timeout: 20000 });

@@ -2,7 +2,7 @@
 
 /** ?v= обязателен: Telegram WebApp открывает этот URL напрямую (мимо index/app redirect). */
 export const BOINYA_MINI_URL =
-  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125446";
+  "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&v=71125447";
 
 export const BOINYA_HOOK_PATH = "/telegram/boinya";
 
