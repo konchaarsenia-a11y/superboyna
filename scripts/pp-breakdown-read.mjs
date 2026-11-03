@@ -331,6 +331,121 @@ function matchSebes(sebesByNorm, name) {
   return null;
 }
 
+/** Прайс лёгкого от 31.10 (эталон владельца). */
+const LUNG_31_10 = [
+  { label: "ломтики", subs: ["Ломтики", "Целое"], expect: 9 },
+  { label: "палочки", subs: ["Палочки", "Полоски", "ПАЛК"], expect: 10 },
+  { label: "круп", subs: ["Крупное", "Большое"], expect: 11 },
+  { label: "сред", subs: ["Среднее"], expect: 12 },
+  { label: "мелк", subs: ["Мелкое"], expect: 13 },
+  { label: "оч мелк", subs: ["Очень мелкое"], expect: 14 }
+];
+
+function igNorm(s) {
+  return String(s || "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ");
+}
+
+function isLungName(name) {
+  const n = igNorm(name);
+  return n === "ЛЕГКОЕ" || n === "ЛЁГКОЕ";
+}
+
+/** Зеркало fracGridPer100D1_ для лёгкого (приоритет над snap в calcPrice B). */
+function fracGridLungPer100(sub) {
+  const fu = igNorm(sub);
+  if (!fu || /КРОШК/.test(fu)) return null;
+  if (/^ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return 14;
+  if (/^ЛОМТ/.test(fu) || /^ЦЕЛ/.test(fu)) return 9;
+  if (/^ПОЛОСК/.test(fu) || /ПАЛОЧ|ПАЛК/.test(fu)) return 10;
+  if (/^КРУП/.test(fu) || /^БОЛЬ/.test(fu)) return 11;
+  if (/^СРЕД/.test(fu) || (/КУБИК/.test(fu) && !/МЕЛК/.test(fu))) return 12;
+  if (/^МЕЛК/.test(fu) || (/КУБИК/.test(fu) && /МЕЛК/.test(fu))) return 13;
+  return null;
+}
+
+function retailMapFromItems(items) {
+  const map = Object.create(null);
+  (items || []).forEach((it) => {
+    if (!it || !it.key) return;
+    const kind = String(it.kind || "per100").toLowerCase();
+    const price = Number(it.price);
+    if (!isFinite(price) || price < 0) return;
+    if (kind === "perpiece" || kind === "piece" || kind === "шт") map[it.key] = { perPiece: price, kind: "шт" };
+    else map[it.key] = { per100: price, kind: "100г" };
+  });
+  return map;
+}
+
+/**
+ * Что реально берёт calcPrice для B: сначала fracGrid (код), иначе ключ D1 snap «Ещё»/retailPrices.
+ */
+function resolveRetailForB(name, sub, retailMap, snapMeta) {
+  const nm = String(name || "").trim();
+  const sb = String(sub || "").trim();
+  const snapAt = (snapMeta && (snapMeta.cachedAt || snapMeta.updated_at || snapMeta.snapUpdatedAt)) || "";
+  const basisAt = (snapMeta && snapMeta.costBasisAt) || "";
+
+  if (isLungName(nm)) {
+    const grid = fracGridLungPer100(sb);
+    if (grid != null) {
+      const d1Key = "ЛЁГКОЕ|" + (sb || "Ломтики");
+      const d1 = retailMap[d1Key] || retailMap["ЛЁГКОЕ|" + sb] || null;
+      const d1Price = d1 ? Number(d1.per100 != null ? d1.per100 : d1.perPiece) : null;
+      let vs = "";
+      const expRow = LUNG_31_10.find((r) => r.subs.some((s) => igNorm(s) === igNorm(sb)));
+      if (expRow) {
+        vs = Math.abs(grid - expRow.expect) < 0.011 ? "совпадает с 31.10" : "НЕ совпадает с 31.10 (ожид. " + expRow.expect + ")";
+      }
+      return {
+        price: grid,
+        unit: "100г",
+        source: "код fracGridPer100D1_ (приоритет над D1)",
+        date: "в коде (сетка фракций; эталон 31.10)",
+        d1SnapPrice: d1Price,
+        d1SnapKey: d1Key,
+        d1SnapDate: snapAt || "",
+        lungVs3110: vs || "фракция не из эталона 31.10"
+      };
+    }
+  }
+
+  const key = nm + (sb ? "|" + sb : "");
+  let hit = retailMap[key] || null;
+  if (!hit && sb) {
+    // try default-ish
+    hit = retailMap[nm + "|Ломтики"] || retailMap[nm + "|СРЕД"] || retailMap[nm + "|Обычное"] || retailMap[nm] || null;
+  } else if (!hit) {
+    hit = retailMap[nm] || null;
+  }
+  if (hit) {
+    const piece = hit.perPiece != null;
+    return {
+      price: Number(piece ? hit.perPiece : hit.per100),
+      unit: piece ? "шт" : "100г",
+      source: "D1 snap retailPrices (прайс «Ещё»)",
+      date: snapAt || basisAt || "без даты в snap",
+      d1SnapPrice: Number(piece ? hit.perPiece : hit.per100),
+      d1SnapKey: key,
+      d1SnapDate: snapAt || "",
+      lungVs3110: isLungName(nm) ? "нет fracGrid — смотри D1" : ""
+    };
+  }
+  return {
+    price: "",
+    unit: "",
+    source: "нет в D1 / не fracGrid",
+    date: "",
+    d1SnapPrice: "",
+    d1SnapKey: key,
+    d1SnapDate: snapAt || "",
+    lungVs3110: isLungName(nm) ? "НЕТ цены для B" : ""
+  };
+}
+
 mkdirSync(outDir, { recursive: true });
 const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 if (!token) {
@@ -347,9 +462,21 @@ const meta = d1(
   "SELECT cache_key, updated_at, length(payload) AS n FROM snap_cache WHERE cache_key IN ('listSubscriptions','priceCostsPp','retailPrices')"
 );
 const costsPayload = payloadOf(d1("SELECT payload FROM snap_cache WHERE cache_key = 'priceCostsPp'")) || {};
+const retailPayload = payloadOf(d1("SELECT payload FROM snap_cache WHERE cache_key = 'retailPrices'")) || {};
 const subsPayload = payloadOf(d1("SELECT payload FROM snap_cache WHERE cache_key = 'listSubscriptions'"));
 const costs = costsPayload.costs && typeof costsPayload.costs === "object" ? costsPayload.costs : {};
 const zeroKeys = costsPayload.zeroKeys && typeof costsPayload.zeroKeys === "object" ? costsPayload.zeroKeys : {};
+const retailItems = Array.isArray(retailPayload.items) ? retailPayload.items : [];
+const retailMap = retailMapFromItems(retailItems);
+const retailSnapMeta = {
+  cachedAt: retailPayload.cachedAt || "",
+  costBasisAt: retailPayload.costBasisAt || "",
+  fromGas: !!retailPayload.fromGas,
+  fromD1: retailPayload.fromD1 !== false,
+  showcasePatched: !!retailPayload.showcasePatched,
+  snapUpdatedAt: ((meta.find((m) => m.cache_key === "retailPrices") || {}).updated_at) || "",
+  itemsN: retailItems.length
+};
 
 let sebesLive = await listRawCosts(initData);
 const sebesItems =
@@ -391,6 +518,7 @@ Object.keys(costs)
     else if (Math.abs(d1Cost - sebesCost) < 0.011) match = "да";
     else match = "нет (вариант≠база sku)";
     seenBase[skuNorm(name)] = true;
+    const retail = resolveRetailForB(name, sub, retailMap, retailSnapMeta);
     costRows.push({
       позиция: name,
       вариант: sub,
@@ -399,7 +527,16 @@ Object.keys(costs)
       себес_D1: d1Cost != null ? d1Cost : "",
       себес_сырья: sebesCost != null && isFinite(sebesCost) ? sebesCost : sebesCost === null && sebes ? "" : "",
       себес_сырья_effectiveFrom: sebes ? sebes.effectiveFrom || "" : "",
+      себес_версия_дата: sebes ? sebes.effectiveFrom || "2026-10-09 (builtin)" : "нет",
       совпадает: match,
+      розница_B_цена: retail.price,
+      розница_B_ед: retail.unit,
+      розница_B_источник: retail.source,
+      розница_B_дата: retail.date,
+      розница_D1_snap: retail.d1SnapPrice,
+      розница_D1_ключ: retail.d1SnapKey,
+      розница_D1_дата: retail.d1SnapDate || retailSnapMeta.snapUpdatedAt || retailSnapMeta.cachedAt,
+      легкое_vs_31_10: retail.lungVs3110 || "",
       piece: piece ? 1 : 0,
       zeroKey: zeroKeys[key] ? 1 : 0,
       source: "priceCostsPp"
@@ -413,6 +550,7 @@ Object.keys(zeroKeys).forEach((key) => {
   const sub = parts.slice(1).join(" / ");
   const sebes = matchSebes(sebesByNorm, name);
   const sebesCost = sebes && sebes.cost != null ? Number(sebes.cost) : null;
+  const retail = resolveRetailForB(name, sub, retailMap, retailSnapMeta);
   costRows.push({
     позиция: name,
     вариант: sub,
@@ -421,7 +559,16 @@ Object.keys(zeroKeys).forEach((key) => {
     себес_D1: 0,
     себес_сырья: sebesCost != null && isFinite(sebesCost) ? sebesCost : "",
     себес_сырья_effectiveFrom: sebes ? sebes.effectiveFrom || "" : "",
+    себес_версия_дата: sebes ? sebes.effectiveFrom || "2026-10-09 (builtin)" : "нет",
     совпадает: sebesCost != null && sebesCost === 0 ? "да" : "zeroKey в кэше",
+    розница_B_цена: retail.price,
+    розница_B_ед: retail.unit,
+    розница_B_источник: retail.source,
+    розница_B_дата: retail.date,
+    розница_D1_snap: retail.d1SnapPrice,
+    розница_D1_ключ: retail.d1SnapKey,
+    розница_D1_дата: retail.d1SnapDate || retailSnapMeta.snapUpdatedAt || retailSnapMeta.cachedAt,
+    легкое_vs_31_10: retail.lungVs3110 || "",
     piece: isPieceName(name) ? 1 : 0,
     zeroKey: 1,
     source: "zeroKeys"
@@ -434,6 +581,7 @@ sebesItems.forEach((it) => {
   // also check if any cost key has this base
   const has = Object.keys(costs).some((k) => skuNorm((costs[k] && costs[k].name) || k.split(" / ")[0]) === n);
   if (has) return;
+  const retail = resolveRetailForB(it.sku, "", retailMap, retailSnapMeta);
   costRows.push({
     позиция: it.sku,
     вариант: "",
@@ -442,10 +590,61 @@ sebesItems.forEach((it) => {
     себес_D1: "",
     себес_сырья: it.cost != null && isFinite(Number(it.cost)) ? Number(it.cost) : "",
     себес_сырья_effectiveFrom: it.effectiveFrom || "",
+    себес_версия_дата: it.effectiveFrom || "2026-10-09 (builtin)",
     совпадает: "только Себес сырья (нет ключа в priceCostsPp)",
+    розница_B_цена: retail.price,
+    розница_B_ед: retail.unit,
+    розница_B_источник: retail.source,
+    розница_B_дата: retail.date,
+    розница_D1_snap: retail.d1SnapPrice,
+    розница_D1_ключ: retail.d1SnapKey,
+    розница_D1_дата: retail.d1SnapDate || retailSnapMeta.snapUpdatedAt || retailSnapMeta.cachedAt,
+    легкое_vs_31_10: retail.lungVs3110 || "",
     piece: isPieceName(it.sku) ? 1 : 0,
     zeroKey: 0,
     source: "listRawCosts"
+  });
+});
+
+/* Дописать эталонные фракции ЛЁГКОЕ 31.10, если их нет в priceCostsPp */
+LUNG_31_10.forEach((row) => {
+  row.subs.forEach((sub) => {
+    const key = "ЛЁГКОЕ / " + sub;
+    if (costRows.some((r) => r.ключ === key || (r.позиция === "ЛЁГКОЕ" && r.вариант === sub))) return;
+    const retail = resolveRetailForB("ЛЁГКОЕ", sub, retailMap, retailSnapMeta);
+    const sebes = matchSebes(sebesByNorm, "ЛЁГКОЕ");
+    costRows.push({
+      позиция: "ЛЁГКОЕ",
+      вариант: sub,
+      ключ: key,
+      единица: "100 г",
+      себес_D1: costs["ЛЁГКОЕ / " + sub]
+        ? Number((costs["ЛЁГКОЕ / " + sub].unitPrice != null
+            ? costs["ЛЁГКОЕ / " + sub].unitPrice
+            : costs["ЛЁГКОЕ / " + sub].per100))
+        : costs["ЛЁГКОЕ / Среднее"]
+          ? Number(costs["ЛЁГКОЕ / Среднее"].unitPrice != null
+              ? costs["ЛЁГКОЕ / Среднее"].unitPrice
+              : costs["ЛЁГКОЕ / Среднее"].per100)
+          : sebes && sebes.cost != null
+            ? Number(sebes.cost)
+            : 2.25,
+      себес_сырья: sebes && sebes.cost != null ? Number(sebes.cost) : 2.25,
+      себес_сырья_effectiveFrom: sebes ? sebes.effectiveFrom || "2026-10-09" : "2026-10-09",
+      себес_версия_дата: sebes ? sebes.effectiveFrom || "2026-10-09 (builtin)" : "2026-10-09 (builtin)",
+      совпадает: "эталон 31.10 (добавлено для сверки розницы)",
+      розница_B_цена: retail.price,
+      розница_B_ед: retail.unit,
+      розница_B_источник: retail.source,
+      розница_B_дата: retail.date,
+      розница_D1_snap: retail.d1SnapPrice,
+      розница_D1_ключ: retail.d1SnapKey,
+      розница_D1_дата: retail.d1SnapDate || retailSnapMeta.snapUpdatedAt || retailSnapMeta.cachedAt,
+      легкое_vs_31_10: retail.lungVs3110 || "",
+      piece: 0,
+      zeroKey: 0,
+      source: "lung-31.10-check"
+    });
   });
 });
 
@@ -456,8 +655,16 @@ const costsHeader = [
   "единица",
   "себес_D1_priceCostsPp",
   "себес_сырья",
-  "себес_сырья_с",
-  "совпадает",
+  "себес_версия_дата",
+  "совпадает_себес",
+  "розница_B_цена",
+  "розница_B_ед",
+  "розница_B_источник",
+  "розница_B_дата",
+  "розница_D1_snap",
+  "розница_D1_ключ",
+  "розница_D1_дата",
+  "легкое_vs_31_10",
   "piece",
   "zeroKey",
   "source"
@@ -472,8 +679,16 @@ costRows.forEach((r) => {
       r.единица,
       r.себес_D1,
       r.себес_сырья,
-      r.себес_сырья_effectiveFrom,
+      r.себес_версия_дата,
       r.совпадает,
+      r.розница_B_цена,
+      r.розница_B_ед,
+      r.розница_B_источник,
+      r.розница_B_дата,
+      r.розница_D1_snap,
+      r.розница_D1_ключ,
+      r.розница_D1_дата,
+      r.легкое_vs_31_10,
       r.piece,
       r.zeroKey,
       r.source
@@ -500,15 +715,58 @@ const ppCards = subsPayload.subscriptions.filter((row) => {
 const md = [];
 md.push("# Пошаговый расчёт ПП (только чтение)");
 md.push("");
-md.push("Источник: D1 `priceCostsPp` (обновлён " + ((meta.find((m) => m.cache_key === "priceCostsPp") || {}).updated_at || "?") + ") + live `calcPrice`.");
-md.push("«Себес сырья» = `listRawCosts` (builtin + `raw_cost_ver`).");
+md.push(
+  "Источник себеса: D1 `priceCostsPp` (обновлён " +
+    ((meta.find((m) => m.cache_key === "priceCostsPp") || {}).updated_at || "?") +
+    ") + live `calcPrice`."
+);
+md.push("«Себес сырья» = `listRawCosts` (builtin + `raw_cost_ver`); дата версии — `effectiveFrom` (пустой `raw_cost_ver` ⇒ builtin с 2026-10-09).");
+md.push(
+  "Розница для **B**: D1 snap `retailPrices` (прайс «Ещё»; snap updated " +
+    (retailSnapMeta.snapUpdatedAt || retailSnapMeta.cachedAt || "?") +
+    ", cachedAt=" +
+    (retailSnapMeta.cachedAt || "—") +
+    ", costBasisAt=" +
+    (retailSnapMeta.costBasisAt || "—") +
+    ", items=" +
+    retailSnapMeta.itemsN +
+    "). Для **ЛЁГКОЕ** calcPrice берёт **код** `fracGridPer100D1_` раньше snap."
+);
 md.push("Пакеты: u1×0.34 + u2×0.56 + u3×0.80 + up4×1.40.");
 md.push("RAW26 recover: 3.30/100г, 0.80/шт. Доставка 7.60×N. Потолок 0.92×B (B = розница товара + 9×N если товар/N < 80).");
 md.push("LEGACY: S×coef + 11 + 6×N + пакеты + фракции (без recover/капа).");
 md.push("");
+md.push("## ЛЁГКОЕ vs прайс 31.10");
+md.push("");
+md.push("Эталон 31.10: ломтики 9, палочки 10, круп 11, сред 12, мелк 13, оч мелк 14 (за 100 г).");
+md.push("");
+md.push("| фракция | ожид. 31.10 | calcPrice B (fracGrid) | D1 snap retailPrices | вердикт |");
+md.push("|---|---:|---:|---:|---|");
+LUNG_31_10.forEach((row) => {
+  const sub = row.subs[0];
+  const r = resolveRetailForB("ЛЁГКОЕ", sub, retailMap, retailSnapMeta);
+  const d1p = r.d1SnapPrice === "" || r.d1SnapPrice == null ? "—" : r.d1SnapPrice;
+  const ok = Math.abs(Number(r.price) - row.expect) < 0.011;
+  md.push(
+    "| " +
+      row.label +
+      " (`" +
+      sub +
+      "`) | " +
+      row.expect +
+      " | " +
+      r.price +
+      " | " +
+      d1p +
+      " | " +
+      (ok ? "совпадает" : "**НЕ совпадает**") +
+      " |"
+  );
+});
+md.push("");
 md.push("Исключены из breakdown (|diff|≤1): Andreiprigunov, viihrova, ola_ba2ra, katya.dehtyarenko, es_furman, Lu_or_lu, mrkip.");
 md.push("");
-md.push("Таблица себестоимостей: `pp-costs.csv` (" + costRows.length + " строк).");
+md.push("Таблица себестоимостей + розница: `pp-costs.csv` (" + costRows.length + " строк).");
 md.push("");
 
 const summary = [];
@@ -583,8 +841,10 @@ for (const card of ppCards.sort((a, b) => nickKey(a).localeCompare(nickKey(b), "
     });
   });
 
-  md.push("| позиция | вариант | кол-во | unit | себес | сырьё | recover | фракция |");
-  md.push("|---|---|---:|---|---:|---:|---:|---:|");
+  md.push(
+    "| позиция | вариант | кол-во | unit | себес | дата себеса | сырьё | recover | фракция | розн.B | ист.розн. | дата розн. |"
+  );
+  md.push("|---|---|---:|---|---:|---|---:|---:|---:|---:|---|---|");
 
   let S = 0;
   let Rsum = 0;
@@ -613,6 +873,13 @@ for (const card of ppCards.sort((a, b) => nickKey(a).localeCompare(nickKey(b), "
     Rsum += rec;
     Fsum += frUse;
     const unitLabel = piece ? "шт" : "100г";
+    const sebes = matchSebes(sebesByNorm, name);
+    const costDate = sebes ? sebes.effectiveFrom || "2026-10-09 (builtin)" : "builtin/кэш";
+    const retail = resolveRetailForB(name, sub, retailMap, retailSnapMeta);
+    const retailNote =
+      retail.lungVs3110 && /НЕ совпадает/i.test(retail.lungVs3110)
+        ? String(retail.price) + " ⚠" + retail.lungVs3110
+        : String(retail.price === "" ? "—" : retail.price);
     md.push(
       "| " +
         name +
@@ -625,11 +892,19 @@ for (const card of ppCards.sort((a, b) => nickKey(a).localeCompare(nickKey(b), "
         " | " +
         unitP +
         " | " +
+        costDate +
+        " | " +
         lineS +
         " | " +
         rec +
         " | " +
         frUse +
+        " | " +
+        retailNote +
+        " | " +
+        (retail.source || "—") +
+        " | " +
+        (retail.date || "—") +
         " |"
     );
   }
@@ -762,6 +1037,20 @@ md.unshift(
 );
 
 writeFileSync(join(outDir, "pp-breakdown.md"), md.join("\n") + "\n");
+const lungCheck = LUNG_31_10.map((row) => {
+  const sub = row.subs[0];
+  const r = resolveRetailForB("ЛЁГКОЕ", sub, retailMap, retailSnapMeta);
+  return {
+    fraction: row.label,
+    sub: sub,
+    expect3110: row.expect,
+    calcPriceB: r.price,
+    d1Snap: r.d1SnapPrice,
+    match3110: Math.abs(Number(r.price) - row.expect) < 0.011,
+    source: r.source
+  };
+});
+
 writeFileSync(
   join(outDir, "pp-breakdown-meta.json"),
   JSON.stringify(
@@ -769,8 +1058,10 @@ writeFileSync(
       at: new Date().toISOString(),
       wrote: false,
       snapMeta: meta,
+      retailSnapMeta: retailSnapMeta,
       sebesSource: sebesLive && sebesLive.status === "success" ? "listRawCosts" : "builtin-fallback",
       sebesVersions: (sebesLive && sebesLive.versions && sebesLive.versions.length) || 0,
+      lungVs3110: lungCheck,
       costsRows: costRows.length,
       breakdownN: summary.length,
       summary
