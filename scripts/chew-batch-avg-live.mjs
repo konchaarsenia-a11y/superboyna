@@ -1,5 +1,6 @@
 /**
  * Live chew-pcs-kg: цена/кг + шт/кг → себес/шт; партия не меняет pcs_per_kg.
+ * Future dated ver (2099) — проверка через D1 (listRawCosts asOf=today их не показывает).
  * Cleanup тестов + 2099. Карточки/цены клиентов не пишет.
  */
 import crypto from "node:crypto";
@@ -115,6 +116,17 @@ async function post(body) {
   }
 }
 
+function d1ManualVer() {
+  return d1(
+    "SELECT cost, cost_kg, pcs_per_kg, effective_from, source FROM raw_cost_ver " +
+      "WHERE effective_from = '" +
+      MANUAL_FROM +
+      "' AND (sku_id = '" +
+      SKU_ID +
+      "' OR sku LIKE '%КОЛЕНИ%') ORDER BY id DESC LIMIT 1"
+  )[0];
+}
+
 /* 1) ручной ввод цена/кг + шт/кг → себес/шт */
 const saveManual = await post({
   action: "saveRawCost",
@@ -124,13 +136,9 @@ const saveManual = await post({
   pcsPerKg: PCS_PER_KG,
   effectiveFrom: MANUAL_FROM
 });
+const verAfterManual = d1ManualVer();
 
-const listAfterManual = await post({ action: "listRawCosts" });
-const kneeManual = ((listAfterManual && listAfterManual.items) || []).find(
-  (it) => it.skuId === SKU_ID || it.sku === SKU
-);
-
-/* 2) партия с другим факт шт/кг — pcsPerKg ручной не должен измениться */
+/* 2) партия с другим факт шт/кг — pcs_per_kg ручной в D1 не должен измениться */
 const A = { costKg: 30, weightKg: 1, pieces: 5 }; /* факт 5 шт/кг, себес партии 6 */
 const expectBatch = costPieceFromBatch_(A.costKg, A.weightKg, A.pieces);
 const expectFactPcs = pcsPerKgFromBatch_(A.weightKg, A.pieces);
@@ -141,19 +149,22 @@ const saveBatch = await post({
   batchDate: BATCH_DATE,
   ...A
 });
+const verAfterBatch = d1ManualVer();
 
+/* сегодняшняя list: партия видна в hints, calc/pcs не из 2099 */
 const listAfterBatch = await post({ action: "listRawCosts" });
-const kneeBatch = ((listAfterBatch && listAfterBatch.items) || []).find(
+const kneeToday = ((listAfterBatch && listAfterBatch.items) || []).find(
   (it) => it.skuId === SKU_ID || it.sku === SKU
 );
 
 const pcsUnchanged =
-  kneeBatch &&
-  Number(kneeBatch.pcsPerKg) === Number(PCS_PER_KG) &&
-  Number(kneeBatch.cost) === Number(EXPECT_COST) &&
-  Number(kneeBatch.calcCost) === Number(EXPECT_COST) &&
-  Number(kneeBatch.batchPcsPerKg) === Number(expectFactPcs) &&
-  Number(kneeBatch.pcsPerKg) !== Number(expectFactPcs);
+  verAfterManual &&
+  verAfterBatch &&
+  Number(verAfterManual.pcs_per_kg) === Number(PCS_PER_KG) &&
+  Number(verAfterManual.cost) === Number(EXPECT_COST) &&
+  Number(verAfterBatch.pcs_per_kg) === Number(PCS_PER_KG) &&
+  Number(verAfterBatch.cost) === Number(EXPECT_COST) &&
+  Number(verAfterBatch.pcs_per_kg) !== Number(expectFactPcs);
 
 const rows = d1(
   "SELECT id FROM raw_piece_batch WHERE batch_date = '" + BATCH_DATE + "' AND sku_id = '" + SKU_ID + "'"
@@ -174,20 +185,16 @@ const leftVer = d1("SELECT COUNT(*) as n FROM raw_cost_ver WHERE effective_from 
 const report = {
   expect: { cost: EXPECT_COST, costKg: COST_KG, pcsPerKg: PCS_PER_KG, batchCost: expectBatch, factPcs: expectFactPcs },
   saveManual,
-  kneeManual: kneeManual && {
-    cost: kneeManual.cost,
-    costKg: kneeManual.costKg,
-    pcsPerKg: kneeManual.pcsPerKg,
-    calcCost: kneeManual.calcCost
-  },
+  verAfterManual,
   saveBatch,
-  kneeBatch: kneeBatch && {
-    cost: kneeBatch.cost,
-    pcsPerKg: kneeBatch.pcsPerKg,
-    calcCost: kneeBatch.calcCost,
-    batchAvg: kneeBatch.batchAvg,
-    batchPcsPerKg: kneeBatch.batchPcsPerKg,
-    lastBatchCost: kneeBatch.lastBatchCost
+  verAfterBatch,
+  kneeToday: kneeToday && {
+    cost: kneeToday.cost,
+    pcsPerKg: kneeToday.pcsPerKg,
+    calcCost: kneeToday.calcCost,
+    batchAvg: kneeToday.batchAvg,
+    batchPcsPerKg: kneeToday.batchPcsPerKg,
+    lastBatchCost: kneeToday.lastBatchCost
   },
   pcsUnchanged,
   deleted,
@@ -200,8 +207,12 @@ console.log(JSON.stringify(report, null, 2));
 
 if (!saveManual || saveManual.status !== "success") process.exit(1);
 if (Number(saveManual.cost) !== Number(EXPECT_COST)) process.exit(2);
-if (!(saveManual.fromPcsKg || Number(saveManual.pcsPerKg) === PCS_PER_KG)) process.exit(3);
-if (!saveBatch || saveBatch.status !== "success") process.exit(4);
-if (!pcsUnchanged) process.exit(5);
-if (!(leftBat[0] && Number(leftBat[0].n) === 0)) process.exit(6);
-if (!(leftVer[0] && Number(leftVer[0].n) === 0)) process.exit(7);
+if (!saveManual.fromPcsKg) process.exit(3);
+if (!(verAfterManual && Number(verAfterManual.cost) === Number(EXPECT_COST) && Number(verAfterManual.pcs_per_kg) === PCS_PER_KG)) {
+  process.exit(4);
+}
+if (!saveBatch || saveBatch.status !== "success") process.exit(5);
+if (!pcsUnchanged) process.exit(6);
+if (!(kneeToday && Number(kneeToday.batchPcsPerKg) === Number(expectFactPcs))) process.exit(7);
+if (!(leftBat[0] && Number(leftBat[0].n) === 0)) process.exit(8);
+if (!(leftVer[0] && Number(leftVer[0].n) === 0)) process.exit(9);
