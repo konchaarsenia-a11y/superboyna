@@ -4,6 +4,7 @@ import {
   resolvePriceSkuId_,
   costsMapFromVersionsV2_,
   lookupCostV2_,
+  cost100FromKgShrink_,
   PRICE_COST_SEED_1110_,
   PRICE_CANON_V2_SEED_FROM_
 } from "./price-canon-v2.js";
@@ -40,6 +41,14 @@ test("seed 11.10: корень сред 2.5 / бол 5, жила сред 1 / б
   assert.equal(byId.ZHILA_L.cost, 2);
   assert.equal(byId.ZHILA_PALK.cost, 0.25);
   assert.equal(PRICE_CANON_V2_SEED_FROM_, "2026-10-11");
+});
+
+test("raw-kg-shrink: себес100 = кг/10/(1−%/100)", () => {
+  assert.equal(cost100FromKgShrink_(17.5, 0), 1.75);
+  assert.equal(cost100FromKgShrink_(20, 80), 10);
+  assert.equal(cost100FromKgShrink_(10, 50), 2);
+  assert.equal(cost100FromKgShrink_(20, 100), null);
+  assert.equal(cost100FromKgShrink_("20", "80"), 10);
 });
 
 test("lookupCostV2: map from versions, missing → null (не 0)", () => {

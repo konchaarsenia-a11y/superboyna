@@ -262,25 +262,51 @@
     }
   }
 
+  /* raw-kg-shrink: себес100 = кг/10/(1−%/100); зеркало формулы worker. */
+  function cost100FromKgShrinkUi_(kg, pct) {
+    var a = Number(String(kg == null ? "" : kg).replace(",", "."));
+    var b = Number(String(pct == null ? "" : pct).replace(",", "."));
+    if (!isFinite(a) || a < 0 || !isFinite(b) || b < 0 || b >= 100) return "";
+    return String(Math.round((a / 10 / (1 - b / 100)) * 10000) / 10000);
+  }
+
   function costRows(items, note) {
     var box = document.getElementById("rawCostAdmin");
     if (!box || !isOwner()) return;
     var today = new Date().toISOString().slice(0, 10);
     var rows = (items || []).map(function (it) {
+      var piece = !!it.piece;
       var costVal = it.cost == null || it.cost === "" ? "" : String(it.cost);
-      var shrinkVal = it.shrink == null || it.shrink === "" ? "" : String(it.shrink);
+      var kgVal = it.costKg == null || it.costKg === "" ? "" : String(it.costKg);
+      var pctVal = it.shrinkPct == null || it.shrinkPct === "" ? "" : String(it.shrinkPct);
       var hist = (it.history || []).map(function (h) {
         var c = h.cost == null || h.cost === "" ? "пусто" : String(h.cost);
-        var shv = h.shrink == null || h.shrink === "" ? "" : ", выход " + h.shrink;
-        return String(h.effectiveFrom || "").slice(0, 10) + " · " + c + shv;
+        /* raw-kg-shrink: в истории показываем кг/% если были; иначе legacy выход. */
+        var extra = "";
+        if (h.costKg != null && h.costKg !== "") extra += ", кг " + h.costKg;
+        if (h.shrinkPct != null && h.shrinkPct !== "") extra += ", усушка " + h.shrinkPct + "%";
+        if (!extra && h.shrink != null && h.shrink !== "") extra = ", выход " + h.shrink;
+        return String(h.effectiveFrom || "").slice(0, 10) + " · " + c + extra;
       }).join("; ");
       var builtin = it.builtin == null || it.builtin === "" ? "в таблице пусто" : ("в коде " + it.builtin);
-      return '<div class="nx-line" style="align-items:flex-start">' +
-        '<div class="b-grow"><b>' + esc(it.sku) + '</b><div class="b-note">' + esc(builtin) + "</div>" +
+      var inputs;
+      if (piece) {
+        /* raw-kg-shrink: штуки — ввод себеса за шт как раньше. */
+        inputs =
+          '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="cost" placeholder="за шт" value="' + esc(costVal) + '"></label>';
+      } else {
+        /* raw-kg-shrink: граммы — цена/кг + усушка%; себес100 рядом (считается). */
+        var preview = kgVal !== "" && pctVal !== "" ? cost100FromKgShrinkUi_(kgVal, pctVal) : costVal;
+        inputs =
+          '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input rc-kg" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="costKg" placeholder="BYN/кг" value="' + esc(kgVal) + '"></label>' +
+          '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input rc-pct" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="shrinkPct" placeholder="усуш %" value="' + esc(pctVal) + '"></label>' +
+          '<span class="b-note rc-out" data-rc-out="' + esc(it.sku) + '" style="min-width:64px;padding-top:10px">100г: <b>' + esc(preview || "—") + "</b></span>";
+      }
+      return '<div class="nx-line" style="align-items:flex-start" data-rc-row="' + esc(it.sku) + '" data-rc-piece="' + (piece ? "1" : "0") + '">' +
+        '<div class="b-grow"><b>' + esc(it.sku) + '</b><div class="b-note">' + esc(builtin) + (piece ? " · шт" : " · г") + "</div>" +
         (hist ? '<div class="b-note">версии: ' + esc(hist) + "</div>" : "") +
         "</div>" +
-        '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="cost" placeholder="себес" value="' + esc(costVal) + '"></label>' +
-        '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="shrink" placeholder="выход" value="' + esc(shrinkVal) + '"></label>' +
+        inputs +
         '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>' +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>' +
         "</div>";
@@ -288,9 +314,24 @@
     box.innerHTML = '<p class="b-lbl" style="margin-top:0">Себес сырья</p>' +
       '<p class="b-note">Единый канон D1 (sku_id). Google-книга прайса на расчёт не влияет. Новая версия — с даты; карточки не переписываем.</p>' +
       '<p class="b-note">' + esc(note || "") + "</p>" +
-      '<p class="b-note">Колонки: себес за 100 г / шт, выход (коэф склада), дата. Пустой себес в расчёте = предупреждение, не ноль.</p>' +
+      /* raw-kg-shrink: подпись под новый ввод. */
+      '<p class="b-note">Граммы: BYN/кг + усушка % → себес за 100 г. Штуки: себес за шт. Старые версии не пересчитываем.</p>' +
       '<button type="button" class="b-btn b-btn--main" data-act="rc-publish" style="margin:8px 0">Обновить прайс</button>' +
       (rows || '<p class="b-note">Пусто</p>');
+    /* raw-kg-shrink: живой пересчёт 100г при вводе кг/%. */
+    box.onchange = box.oninput = function (ev) {
+      var t = ev && ev.target;
+      if (!t || !t.getAttribute) return;
+      var field = t.getAttribute("data-rc-field");
+      if (field !== "costKg" && field !== "shrinkPct") return;
+      var sku = t.getAttribute("data-rc-sku");
+      if (!sku) return;
+      var f = costFields(sku);
+      var out = box.querySelector('[data-rc-out="' + sku.replace(/"/g, "") + '"]');
+      if (!out) return;
+      var v = cost100FromKgShrinkUi_(f.costKg, f.shrinkPct);
+      out.innerHTML = "100г: <b>" + esc(v || "—") + "</b>";
+    };
   }
 
   async function loadRawCosts() {
@@ -309,13 +350,16 @@
   }
 
   function costFields(sku) {
-    var out = { cost: "", shrink: "", from: "" };
+    /* raw-kg-shrink: читаем costKg/shrinkPct/cost/from с строки. */
+    var out = { cost: "", shrink: "", costKg: "", shrinkPct: "", from: "", piece: false };
+    var row = document.querySelector('[data-rc-row="' + String(sku || "").replace(/"/g, "") + '"]');
+    if (row && row.getAttribute("data-rc-piece") === "1") out.piece = true;
     var nodes = document.querySelectorAll("[data-rc-sku]");
     var i;
     for (i = 0; i < nodes.length; i++) {
       if (nodes[i].getAttribute("data-rc-sku") !== sku) continue;
       var f = nodes[i].getAttribute("data-rc-field");
-      if (f === "cost" || f === "shrink" || f === "from") out[f] = nodes[i].value;
+      if (f === "cost" || f === "shrink" || f === "costKg" || f === "shrinkPct" || f === "from") out[f] = nodes[i].value;
     }
     return out;
   }
@@ -324,22 +368,31 @@
     if (!isOwner()) { sh().toast("Только владелец"); return; }
     var f = costFields(sku);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(f.from || "")) { sh().toast("Нужна дата"); return; }
+    var body = {
+      action: "saveRawCost",
+      telegramId: tid(),
+      sku: sku,
+      effectiveFrom: f.from
+    };
+    /* raw-kg-shrink: граммы шлём кг+%; штуки — cost за шт. */
+    if (f.piece) {
+      body.cost = f.cost;
+    } else {
+      body.costKg = f.costKg;
+      body.shrinkPct = f.shrinkPct;
+    }
     var res = null;
     try {
-      res = await api().apiPost({
-        action: "saveRawCost",
-        telegramId: tid(),
-        sku: sku,
-        cost: f.cost,
-        shrink: f.shrink,
-        effectiveFrom: f.from
-      });
+      res = await api().apiPost(body);
     } catch (eS) { res = null; }
     if (!res || res.status !== "success") {
       sh().toast((res && res.message) || "Себес не сохранился");
       return;
     }
-    sh().toast("Себес " + sku + " с " + f.from + (res.scaled ? " (выход пересчитал)" : "") + ". Прайс клиенту тот же.");
+    var tip = res.fromKg
+      ? (" → 100г " + res.cost + " из " + res.costKg + " кг / " + res.shrinkPct + "%")
+      : (res.scaled ? " (выход пересчитал)" : "");
+    sh().toast("Себес " + sku + " с " + f.from + tip + ". Прайс клиенту тот же.");
     await loadRawCosts();
   }
 
