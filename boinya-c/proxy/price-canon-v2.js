@@ -249,10 +249,11 @@ export async function ensurePriceCanonV2Schema_(env) {
 }
 
 async function putMeta_(env, key, value) {
+  const now = new Date().toISOString();
   await env.DB.prepare(
-    "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    "INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
   )
-    .bind(key, String(value == null ? "" : value))
+    .bind(key, String(value == null ? "" : value), now)
     .run();
 }
 

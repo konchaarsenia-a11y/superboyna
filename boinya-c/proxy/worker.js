@@ -31520,7 +31520,7 @@ async function calcPpFactFromD1Costs_(params, env, ctx, costs, opts) {
     fromD1: true,
     fromGas: false,
     sandbox: false,
-    priceCanon: "d1-primary",
+    priceCanon: v2 ? PRICE_CANON_V2_ : "d1-primary",
     d1Verified: true
   };
   Object.keys(fact).forEach(function (fk) {
@@ -31532,6 +31532,7 @@ async function calcPpFactFromD1Costs_(params, env, ctx, costs, opts) {
   ok.scheme = fact.scheme;
   ok.total = Math.round(built.rawCost * fact.coef * 100) / 100;
   ok.clientPrice = fact.clientPrice != null ? fact.clientPrice : fact.factCost;
+  if (v2) ok.priceCanon = PRICE_CANON_V2_;
   return ok;
 }
 
