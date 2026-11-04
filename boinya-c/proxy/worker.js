@@ -163,7 +163,9 @@ const DAY_SHORT = {
 const AUTH_ALL_TABS = [
   "orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen",
   "subsScreen", "subDetailScreen", "cuttingScreen", "courierScreen", "warehouseScreen",
-  "partnerHubScreen", "statsScreen", "retailPriceScreen", "peopleScreen"
+  "partnerHubScreen", "statsScreen", "retailPriceScreen", "peopleScreen",
+  // orders-pack2: #21 / #25
+  "monthSummaryScreen", "finishWeekScreen"
 ];
 /* v71116014: подвкладки «родитель.ребёнок» (колонка I tabs). Голый родитель = все его дети.
  * «deferredScreen.none» — явное «без Задач ☰» (иначе старые кастомы без deferred* получают ☰ как раньше по роли).
@@ -182,7 +184,7 @@ const AUTH_LEGACY_TASKS_ROLES = ["manager", "all", "courier", "logistics", "cutt
 /** Только owner (роль), никогда не выдаётся вкладкой. */
 const AUTH_OWNER_ONLY_TABS = ["peopleScreen"];
 /** Не входят в пресеты не-owner; можно выдать вручную (кастомные вкладки). */
-const AUTH_SENSITIVE_TABS = ["statsScreen", "retailPriceScreen"];
+const AUTH_SENSITIVE_TABS = ["statsScreen", "retailPriceScreen", "monthSummaryScreen", "finishWeekScreen"];
 const AUTH_ROLE_PRESETS = {
   manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
   cutter: ["cuttingScreen", "deferredScreen"],
@@ -819,6 +821,69 @@ function desktopAuthToken_() {
   return s;
 }
 
+/** orders-pack2: desktop — долгоживущая сессия (HMAC), не bot token на клиенте. */
+const DESKTOP_SESSION_TTL_SEC_ = 90 * 24 * 3600;
+
+function desktopSessionB64Url_(bytes) {
+  let bin = "";
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function desktopSessionB64UrlDecode_(s) {
+  const pad = s.length % 4 === 0 ? "" : "====".slice(s.length % 4);
+  const b64 = String(s || "").replace(/-/g, "+").replace(/_/g, "/") + pad;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function signDesktopSession_(tid, env, nowSec) {
+  const bot = authPrimaryBotToken_(env);
+  if (!bot || !/^\d+$/.test(String(tid || ""))) return "";
+  const now = nowSec != null ? nowSec : Math.floor(Date.now() / 1000);
+  const exp = now + DESKTOP_SESSION_TTL_SEC_;
+  const payload = JSON.stringify({ tid: String(tid), exp: exp, iat: now, v: 1 });
+  const body = desktopSessionB64Url_(_tgEnc.encode(payload));
+  const secret = await authHmac_(_tgEnc.encode("BoinyaDeskSess"), bot);
+  const sig = authHex_(await authHmac_(secret, body));
+  return "ds1." + body + "." + sig;
+}
+
+async function verifyDesktopSession_(raw, env, nowSec) {
+  const s = String(raw || "").trim();
+  if (!/^ds1\.[A-Za-z0-9_-]+\.[a-f0-9]{32,}$/i.test(s)) return { ok: false, reason: "bad_session" };
+  const parts = s.split(".");
+  const body = parts[1];
+  const sig = String(parts[2] || "").toLowerCase();
+  const tokens = authBotTokens_(env);
+  if (!tokens.length) return { ok: false, reason: "no_bot_token" };
+  let okSig = false;
+  for (let i = 0; i < tokens.length; i++) {
+    const secret = await authHmac_(_tgEnc.encode("BoinyaDeskSess"), tokens[i]);
+    const calc = authHex_(await authHmac_(secret, body));
+    if (authSafeEq_(calc, sig)) {
+      okSig = true;
+      break;
+    }
+  }
+  if (!okSig) return { ok: false, reason: "bad_hash" };
+  let payload = null;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(desktopSessionB64UrlDecode_(body)));
+  } catch (eP) {
+    return { ok: false, reason: "parse_error" };
+  }
+  const tid = String((payload && payload.tid) || "");
+  const exp = Number((payload && payload.exp) || 0);
+  const now = nowSec != null ? nowSec : Math.floor(Date.now() / 1000);
+  if (!/^\d+$/.test(tid)) return { ok: false, reason: "no_user" };
+  if (!exp || exp < now) return { ok: false, reason: "expired" };
+  return { ok: true, user: { id: Number(tid) }, authDate: Number((payload && payload.iat) || 0), via: "desktop-session" };
+}
+
 /** Публичный старт входа с компьютера: username для Login Widget + ссылка /start gbi_. */
 async function startDesktopAuth_(env, request) {
   const username = await telegramBotUsername_(env);
@@ -871,7 +936,20 @@ async function pollDesktopAuth_(params, env) {
   const username = String(live.username || "").replace(/^@/, "").trim();
   if (username) fields.username = username;
   const tgLogin = await signTgLoginWidget_(fields, bot);
-  return { status: "success", linked: true, tgLogin: tgLogin, telegramId: tid };
+  // orders-pack2: desktop — долгая сессия рядом с tgLogin
+  let desktopSession = "";
+  try {
+    desktopSession = await signDesktopSession_(tid, env);
+  } catch (eSess) {
+    desktopSession = "";
+  }
+  return {
+    status: "success",
+    linked: true,
+    tgLogin: tgLogin,
+    desktopSession: desktopSession,
+    telegramId: tid
+  };
 }
 
 const _authRoleCache = new Map();
@@ -960,6 +1038,7 @@ function authInvalidateRole_(tid) {
 async function resolveActor_(params, env) {
   const initData = String((params && (params.initData || params._tg)) || "");
   const tgLogin = String((params && params.tgLogin) || "");
+  const deskSess = String((params && (params.desktopSession || params.deskSession)) || "");
   let v = null;
   let authVia = "";
   if (initData) {
@@ -968,6 +1047,14 @@ async function resolveActor_(params, env) {
   } else if (tgLogin) {
     v = await verifyTgLoginWidget_(tgLogin, env);
     authVia = "widget";
+    // orders-pack2: протухший tgLogin → долгая desktop-сессия
+    if (!(v && v.ok) && deskSess) {
+      v = await verifyDesktopSession_(deskSess, env);
+      authVia = "desktop-session";
+    }
+  } else if (deskSess) {
+    v = await verifyDesktopSession_(deskSess, env);
+    authVia = "desktop-session";
   }
   const enforce = authEnforced_(env);
   let tid = "";
@@ -985,7 +1072,7 @@ async function resolveActor_(params, env) {
     tid: tid,
     verified: verified,
     enforce: enforce,
-    reason: v && !v.ok ? v.reason : (initData || tgLogin) ? "" : "no_init_data",
+    reason: v && !v.ok ? v.reason : (initData || tgLogin || deskSess) ? "" : "no_init_data",
     username: username,
     role: r.role,
     tabs: r.tabs,
@@ -998,16 +1085,19 @@ async function resolveActor_(params, env) {
 
 const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth)$/i;
 const AUTH_OWNER_RE = new RegExp(
-    "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|finishFullWeek[A-Za-z]*|getFinishWeekStatus|repairWeekMonday|" +
+    "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|addPricePosition|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
     "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|listRawCosts|saveRawCost|savePieceBatch|deletePieceBatch|publishRetailFromCosts)$"
   );
+// orders-pack2: #25 — finishFullWeek по вкладке finishWeekScreen (не только owner)
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
 const AUTH_TAB_RULES = [
+  // orders-pack2: #25 — завершение недели по отдельному доступу
+  { re: /^(finishFullWeek[A-Za-z]*|getFinishWeekStatus|getWeekBannerState)$/i, tabs: ["finishWeekScreen"] },
   { re: /^(getStats|getExpectedProfit|exportStats|listStatsStaff|saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled|getStatsMonthSetup|saveStatsMonthMoney|saveStatsRoles)$/i, tabs: ["statsScreen"] },
   { re: /^saveRetailPrices$/i, tabs: ["retailPriceScreen"] },
   { re: /^listPricePositions$/i, tabs: ["orderScreen", "retailPriceScreen", "clientsScreen", "priceScreen"] },
@@ -1904,6 +1994,12 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   res.verified = !!actor.verified;
   res.authMode = authModeLabel_(env);
   if (actor.authVia) res.authVia = actor.authVia;
+  // orders-pack2: desktop — обновлять долгоживущую сессию при успешном входе
+  if (actor.verified && tid && (actor.authVia === "widget" || actor.authVia === "desktop-session")) {
+    try {
+      res.desktopSession = await signDesktopSession_(tid, env);
+    } catch (eDs) {}
+  }
   return res;
 }
 
@@ -15785,74 +15881,101 @@ async function moveClient_(params, env) {
       await clearMoveArriveProtect_(env, fromDays[tj], matchKey, clearName, moveStartedAt);
     } catch (eTombEarly) {}
   }
-  // удалить исходную строку по id — надёжнее OR по match_key
-  await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-    .bind(now, row.id)
-    .run();
-  // все дубли на старых днях-кандидатах (Пн + Будущая)
-  for (let dj = 0; dj < fromDays.length; dj++) {
-    const dClear = fromDays[dj];
-    await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
-    )
-      .bind(now, dClear, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
-      .run();
-    try {
-      const left = await env.DB.prepare(
-        "SELECT id, client, match_key FROM orders WHERE status = 'active' AND day_name = ? LIMIT 120"
-      )
-        .bind(dClear)
-        .all();
-      const leftList = (left && left.results) || [];
-      for (var li = 0; li < leftList.length; li++) {
-        if (orderRowLooseMatch_(leftList[li], matchKeyRaw, client) || orderRowLooseMatch_(leftList[li], matchKey, row.client)) {
-          await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-            .bind(now, leftList[li].id)
-            .run();
-        }
-      }
-    } catch (eLooseDel) {}
-    try {
-      await putDeleteTombstone_(env, dClear, matchKey);
-      await putDeleteTombstone_(env, dClear, clearName);
-    } catch (eTombM) {}
-  }
-  if (oldDate) {
-    try {
-      await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-      )
-        .bind(now, oldDate, matchKey, mkLow, clientLow)
-        .run();
-    } catch (eDateDel) {}
-  }
-
+  // orders-pack2: #23 — настоящий перенос: UPDATE той же записи (дата/день/id), без delete+create
   let toLabel = "(calendar)";
+  let moveIso = "";
+  let moveNewId = "";
+  let moveDayName = "";
   if (newDay) {
     const info = await dayDateInfo_(env, newDay);
-    const iso =
+    moveIso =
       coerceDateIso_(newDate) ||
       (info && info.iso) ||
       coerceDateIso_(row.date_iso) ||
       "";
-    const newId = newDay + ":" + matchKey;
-    await upsertOrderRow_(env, {
-      id: newId,
-      date_iso: iso,
-      day_name: newDay,
-      client: row.client,
-      match_key: matchKey,
-      address: row.address || "",
-      note: movedNote,
-      phone: row.phone || "",
-      basket_json: row.basket_json || "[]",
-      segment: row.segment || "",
-      source: row.source || "",
-      status: "active",
-      updated_at: now,
-      meta_json: JSON.stringify(meta)
-    });
+    moveNewId = newDay + ":" + matchKey;
+    moveDayName = newDay;
     toLabel = newDay;
+  } else if (newDate) {
+    moveIso = newDate;
+    moveNewId = "CAL:" + matchKey + ":" + newDate;
+    moveDayName = "";
+    toLabel = newDate;
+  }
+  if (moveNewId) {
+    try {
+      if (String(row.id) !== moveNewId) {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND id != ? AND status = 'active'"
+        )
+          .bind(now, moveNewId, row.id)
+          .run();
+      }
+    } catch (eClash) {}
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET id = ?, date_iso = ?, day_name = ?, note = ?, meta_json = ?, status = 'active', updated_at = ? WHERE id = ?"
+      )
+        .bind(
+          moveNewId,
+          moveIso || "",
+          moveDayName,
+          movedNote,
+          JSON.stringify(meta),
+          now,
+          row.id
+        )
+        .run();
+    } catch (eInPlace) {
+      // fallback: если PK id нельзя сменить на занятый — upsert + soft-delete старого
+      await upsertOrderRow_(env, {
+        id: moveNewId,
+        date_iso: moveIso || "",
+        day_name: moveDayName,
+        client: row.client,
+        match_key: matchKey,
+        address: row.address || "",
+        note: movedNote,
+        phone: row.phone || "",
+        basket_json: row.basket_json || "[]",
+        segment: row.segment || "",
+        source: row.source || "",
+        status: "active",
+        updated_at: now,
+        meta_json: JSON.stringify(meta)
+      });
+      if (String(row.id) !== moveNewId) {
+        try {
+          await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
+            .bind(now, row.id)
+            .run();
+        } catch (eDelFb) {}
+      }
+    }
+  }
+  // снести дубли на старых днях/дате, не трогая перенесённую строку
+  for (let dj = 0; dj < fromDays.length; dj++) {
+    const dClear = fromDays[dj];
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND id != ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
+      )
+        .bind(now, dClear, moveNewId || "", matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
+        .run();
+      await putDeleteTombstone_(env, dClear, matchKey);
+      await putDeleteTombstone_(env, dClear, clearName);
+    } catch (eDup) {}
+  }
+  if (oldDate) {
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND id != ? AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+      )
+        .bind(now, oldDate, moveNewId || "", matchKey, mkLow, clientLow)
+        .run();
+    } catch (eDateDel) {}
+  }
+  if (newDay) {
     try {
       await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
     } catch (eClrT) {}
@@ -15860,25 +15983,6 @@ async function moveClient_(params, env) {
       await putMoveArriveProtect_(env, newDay, matchKey, clearName);
     } catch (eProt) {}
   } else if (newDate) {
-    // календарь вне недели
-    const newId = "CAL:" + matchKey + ":" + newDate;
-    await upsertOrderRow_(env, {
-      id: newId,
-      date_iso: newDate,
-      day_name: "",
-      client: row.client,
-      match_key: matchKey,
-      address: row.address || "",
-      note: row.note || "",
-      phone: row.phone || "",
-      basket_json: row.basket_json || "[]",
-      segment: row.segment || "",
-      source: row.source || "",
-      status: "active",
-      updated_at: now,
-      meta_json: JSON.stringify(meta)
-    });
-    toLabel = newDate;
     try {
       await clearTombstonesForMatch_(env, matchKey, "", clearName);
     } catch (eClrTc) {}
@@ -15893,34 +15997,6 @@ async function moveClient_(params, env) {
         });
       }
     } catch (eTombCalMv) {}
-    // повторно снести oldDate (фон save мог вернуть) + финальный upsert newDate
-    if (oldDate) {
-      try {
-        await env.DB.prepare(
-          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR match_key = ? OR lower(client) = ?) AND id != ?"
-        )
-          .bind(now, oldDate, matchKey, mkLow, clientLow, newId)
-          .run();
-      } catch (eOldWipe) {}
-    }
-    try {
-      await upsertOrderRow_(env, {
-        id: newId,
-        date_iso: newDate,
-        day_name: "",
-        client: row.client,
-        match_key: matchKey,
-        address: row.address || "",
-        note: movedNote,
-        phone: row.phone || "",
-        basket_json: row.basket_json || "[]",
-        segment: row.segment || "",
-        source: row.source || "",
-        status: "active",
-        updated_at: new Date().toISOString(),
-        meta_json: JSON.stringify(meta)
-      });
-    } catch (eFinalCal) {}
   }
 
   // жёстко: ещё раз снести со старых дней (фон GAS/protect мог вернуть)

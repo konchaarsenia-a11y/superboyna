@@ -259,6 +259,44 @@
     if (state.orderType !== "retail" || state.retailPriceManual) return;
     var q = pay().retailDisplayed(state, eng());
     state.priceInput = q && q.total != null ? String(q.total) : "";
+    // orders-pack2: #16 — параллельно для партнёра без ручной цены
+    schedulePartnerPrice();
+  }
+
+  // orders-pack2: #16 — без карточки партнёра считаем как Varka partnerCalcPrice
+  var partnerPriceTimer = 0;
+  var partnerPriceManual = false;
+  function schedulePartnerPrice() {
+    if (state.orderType !== "partner") return;
+    if (partnerPriceManual && String(state.priceInput || "").trim() !== "") return;
+    clearTimeout(partnerPriceTimer);
+    partnerPriceTimer = setTimeout(function () { syncPartnerPrice(); }, 320);
+  }
+  async function syncPartnerPrice() {
+    if (state.orderType !== "partner") return;
+    if (partnerPriceManual && String(state.priceInput || "").trim() !== "") return;
+    var dog = Number(state.activeDog) === 2 ? 2 : 1;
+    var list = (state.baskets && state.baskets[dog]) || state.basket || [];
+    if (!list.length) {
+      if (!partnerPriceManual) state.priceInput = "";
+      if (document.getElementById("nxSum")) patchMoney();
+      return;
+    }
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "partnerCalcPrice",
+        basket: JSON.stringify(list),
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    } catch (eP) { res = null; }
+    if (partnerPriceManual && String(state.priceInput || "").trim() !== "") return;
+    if (res && res.status === "success" && isFinite(Number(res.totalByn))) {
+      state.priceInput = String(Number(res.totalByn));
+      if (document.getElementById("nxSum")) patchMoney();
+      var priceEl = document.getElementById("priceInput");
+      if (priceEl && document.activeElement !== priceEl) priceEl.value = state.priceInput;
+    }
   }
 
   function shownMoney() {
@@ -468,6 +506,7 @@
     if (state.orderType === "bp") {
       var names = partners.map(function (p) { return String((p && p.name) || p || ""); }).filter(Boolean);
       var legacy = state.ppPartner && names.indexOf(state.ppPartner) < 0 && state.ppPartner !== "Другое";
+      // orders-pack2: #14 — вариант «Инстаграм» в «Кто привёл»
       html += '<p class="b-lbl">Кто привёл</p><label class="b-field"><select class="b-field__input" id="ppPartner" data-k="ppPartner">' +
         '<option value="">— точка —</option>' +
         (legacy ? ('<option value="' + esc(state.ppPartner) + '" selected>' + esc(state.ppPartner) + "</option>") : "") +
@@ -475,18 +514,26 @@
           var name = p.name || p;
           return '<option value="' + esc(name) + '"' + (state.ppPartner === name ? " selected" : "") + ">" + esc(name) + "</option>";
         }).join("") +
+        '<option value="Инстаграм"' + (state.ppPartner === "Инстаграм" ? " selected" : "") + ">Инстаграм</option>" +
         '<option value="Другое"' + (state.ppPartner === "Другое" ? " selected" : "") + ">Другое</option></select></label>";
     }
     if (state.orderType === "retail") {
       html += '<p class="b-lbl">Цена, BYN</p>' + field("priceInput", state.priceInput, "по прайсу", 'inputmode="decimal"');
       html += '<div class="b-row" style="margin-top:8px"><button type="button" class="nx-link" data-act="price-auto">По прайсу</button></div>';
+      // orders-pack2: #15 — опция «платная доставка +15»
+      var feeList = Number(state.retailDeliveryFee);
+      if (!(feeList > 0)) feeList = Number(eng().PRICE_RETAIL_DELIVERY_BYN()) || 9;
+      var fee15 = !!state.retailPaidDelivery && Number(state.retailDeliveryFee) === 15;
+      var feeStd = !!state.retailPaidDelivery && !fee15;
       html += '<p class="b-lbl">Платная доставка</p><div class="b-seg">' +
         segBtn("del0", "Нет", !state.retailPaidDelivery) +
-        segBtn("del1", "Да +" + money(eng().PRICE_RETAIL_DELIVERY_BYN()).replace(",00", "") , !!state.retailPaidDelivery) +
+        segBtn("del1", "Да +" + money(feeList === 15 ? 9 : feeList).replace(",00", ""), feeStd) +
+        segBtn("del15", "Да +15", fee15) +
         "</div>";
     }
     if (state.orderType === "partner") {
-      html += '<p class="b-lbl">Цена партнёра, BYN</p>' + field("priceInput", state.priceInput, "0", 'inputmode="decimal"');
+      html += '<p class="b-lbl">Цена партнёра, BYN</p>' + field("priceInput", state.priceInput, "по Варке", 'inputmode="decimal"');
+      html += '<div class="b-row" style="margin-top:8px"><button type="button" class="nx-link" data-act="partner-price-auto">Как в Партнёрке</button></div>';
       html += '<p class="b-lbl">Купоны</p><div class="b-seg">' +
         segBtn("cup0", "Нет", !state.partnerCouponsEnabled) +
         segBtn("cup1", "Да", !!state.partnerCouponsEnabled) + "</div>";
@@ -809,6 +856,8 @@
     else if (k === "priceInput") {
       state.priceInput = node.value;
       if (state.orderType === "retail") state.retailPriceManual = true;
+      // orders-pack2: #16 — ручной ввод цены партнёра перекрывает Varka
+      if (state.orderType === "partner") partnerPriceManual = true;
       patchLines();
     } else state[k] = node.value;
     if (k !== "pq" && k.indexOf("noteItem") !== 0) persistDraft();
@@ -1066,6 +1115,8 @@
     state.orderType = next;
     if (next === "bp") state.priceInput = "0";
     if (next === "retail") syncRetail();
+    // orders-pack2: #16
+    if (next === "partner") { partnerPriceManual = false; schedulePartnerPrice(); }
     ppFact = null;
     paint();
     if (next === "pp") refreshPp();
@@ -1988,22 +2039,9 @@
       } catch (e) {}
       if (resolved && resolved.onWeek && resolved.dayName) weekDay = resolved.dayName;
     }
-    if (state.isEdit && state.editOriginalClient && String(state.editOriginalClient).trim().toUpperCase() !== clientName.toUpperCase()) {
-      var del = await api().apiGet({
-        action: "deleteClient",
-        client: state.editOriginalClient,
-        day: state.editOriginalDay || state.day || "",
-        matchKey: state.editOriginalMatchKey || ""
-      }, { timeoutMs: 20000, cacheTtlMs: 0 });
-      if (!del || (del.status !== "success" && del.status !== "accepted" && !del.sheetsVerified && !del.alreadyGone)) {
-        saving = false;
-        sh().closeLoader();
-        paint();
-        await sh().alert({ text: "Не удалось убрать старую запись — сохранение отменено." });
-        return;
-      }
-    }
+    // orders-pack2: #19 — смена ника через editClient/matchKey, без delete+create
     var book = pay().buildSaveBookingParams(state, eng(), weekDay);
+    if (state.isEdit) book.isEdit = "1";
     var savedSurvey = state.survey;
     var res = await api().apiPost(book);
     sh().closeLoader();
@@ -2360,11 +2398,23 @@
       patchLines();
       return true;
     }
-    if (act === "clear-basket") { state.baskets[state.activeDog] = []; syncRetail(); paint(); return true; }
+    if (act === "clear-basket") {
+      state.baskets[state.activeDog] = [];
+      syncRetail();
+      schedulePartnerPrice();
+      paint();
+      return true;
+    }
     if (act === "from-pp") { fromPp(); return true; }
     if (act === "ig-go") { applyChecklist(); return true; }
     if (act === "ig-clear") { state.igPaste = ""; paint(); return true; }
     if (act === "price-auto") { state.retailPriceManual = false; syncRetail(); paint(); return true; }
+    // orders-pack2: #16 — пересчёт как Varka
+    if (act === "partner-price-auto") {
+      partnerPriceManual = false;
+      syncPartnerPrice().then(function () { paint(); });
+      return true;
+    }
     if (act === "pick-addr") {
       applyAddress(addrSuggest[Number(node.getAttribute("data-i"))]);
       return true;
@@ -2431,7 +2481,27 @@
     if (id === "pp1") { state.ppSlotManual = 1; paint(); return true; }
     if (id === "pp2") { state.ppSlotManual = 2; paint(); return true; }
     if (id === "del0") { state.retailPaidDelivery = false; if (!state.retailPriceManual) syncRetail(); paint(); return true; }
-    if (id === "del1") { state.retailPaidDelivery = true; if (!state.retailPriceManual) syncRetail(); paint(); return true; }
+    if (id === "del1") {
+      // orders-pack2: #15 — стандартная платная доставка из прайса
+      state.retailPaidDelivery = true;
+      var fee = Number(state.retailDeliveryFee);
+      if (!(fee > 0) || fee === 15) fee = Number(eng().PRICE_RETAIL_DELIVERY_BYN()) || 9;
+      if (fee === 15) fee = 9;
+      state.retailDeliveryFee = fee;
+      eng().applyState(state);
+      if (!state.retailPriceManual) syncRetail();
+      paint();
+      return true;
+    }
+    if (id === "del15") {
+      // orders-pack2: #15 — платная доставка +15
+      state.retailPaidDelivery = true;
+      state.retailDeliveryFee = 15;
+      eng().applyState(state);
+      if (!state.retailPriceManual) syncRetail();
+      paint();
+      return true;
+    }
     if (id === "cup0") { state.partnerCouponsEnabled = false; paint(); return true; }
     if (id === "cup1") { state.partnerCouponsEnabled = true; paint(); return true; }
     return false;

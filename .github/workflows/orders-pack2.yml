@@ -1,0 +1,46 @@
+name: orders-pack2
+
+on:
+  pull_request:
+    paths:
+      - "boinya-c/next/orders.js"
+      - "boinya-c/next/week.js"
+      - "boinya-c/next/app.js"
+      - "boinya-c/next/api.js"
+      - "boinya-c/next/people.js"
+      - "boinya-c/next/order-payload.js"
+      - "boinya-c/next/orders-pack2.test.mjs"
+      - "boinya-c/proxy/worker.js"
+      - "boinya-c/next.html"
+      - "boinya-c/index.html"
+      - "boinya-c/sw.js"
+      - ".github/workflows/orders-pack2.yml"
+  push:
+    branches: [main]
+    paths:
+      - "boinya-c/next/orders.js"
+      - "boinya-c/next/week.js"
+      - "boinya-c/next/app.js"
+      - "boinya-c/next/api.js"
+      - "boinya-c/next/people.js"
+      - "boinya-c/next/order-payload.js"
+      - "boinya-c/next/orders-pack2.test.mjs"
+      - "boinya-c/proxy/worker.js"
+      - "boinya-c/next.html"
+      - "boinya-c/index.html"
+      - "boinya-c/sw.js"
+      - ".github/workflows/orders-pack2.yml"
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: orders-pack2 (one test per TZ item + locks)
+        run: node --test boinya-c/next/orders-pack2.test.mjs
+      - name: orders-page-fix locks still green
+        run: node --test boinya-c/next/orders-page-fix.test.mjs

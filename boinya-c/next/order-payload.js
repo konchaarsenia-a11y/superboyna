@@ -311,6 +311,8 @@
       editClient: editClient,
       originalClient: editClient,
       matchKey: editKey,
+      // orders-pack2: #19 — правка ника идёт через editClient, без delete
+      isEdit: state.isEdit ? "1" : "",
       address: addressFull(state, eng),
       entrance: String(state.entrance || "").trim(),
       doorCode: String(state.doorCode || "").trim(),

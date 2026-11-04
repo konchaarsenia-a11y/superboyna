@@ -19,6 +19,8 @@
 
   var INIT_KEY = "nx_tg_init_v1";
   var LOGIN_KEY = "nx_tg_login_v1";
+  // orders-pack2: desktop long-lived session token
+  var DESK_SESS_KEY = "nx_desk_sess_v1";
 
   function liveInitData() {
     try {
@@ -95,6 +97,11 @@
     return storeGet(root.sessionStorage, LOGIN_KEY) || storeGet(root.localStorage, LOGIN_KEY);
   }
 
+  function desktopSessionData() {
+    if (liveInitData()) return "";
+    return storeGet(root.localStorage, DESK_SESS_KEY) || storeGet(root.sessionStorage, DESK_SESS_KEY);
+  }
+
   function rememberLogin(raw) {
     var v = String(raw || "");
     if (!v) return;
@@ -102,13 +109,23 @@
     storeSet(root.localStorage, LOGIN_KEY, v);
   }
 
+  function rememberDesktopSession(raw) {
+    var v = String(raw || "");
+    if (!v) return;
+    // orders-pack2: только localStorage — переживает закрытие вкладки
+    storeSet(root.localStorage, DESK_SESS_KEY, v);
+    storeSet(root.sessionStorage, DESK_SESS_KEY, v);
+  }
+
   function clearLogin() {
     storeDel(root.sessionStorage, LOGIN_KEY);
     storeDel(root.localStorage, LOGIN_KEY);
+    storeDel(root.sessionStorage, DESK_SESS_KEY);
+    storeDel(root.localStorage, DESK_SESS_KEY);
   }
 
   function hasDesktopLogin() {
-    return !liveInitData() && !!loginData();
+    return !liveInitData() && !!(loginData() || desktopSessionData());
   }
 
   function waitForInitData(maxMs) {
@@ -180,6 +197,11 @@
     if (!out.initData && !out.tgLogin) {
       var login = loginData();
       if (login) out.tgLogin = login;
+    }
+    // orders-pack2: desktop session (предпочтительнее протухшего tgLogin)
+    if (!out.initData && !out.desktopSession) {
+      var desk = desktopSessionData();
+      if (desk) out.desktopSession = desk;
     }
     if (root.__BOINYA_C_CUTOVER__ && out.cutover == null && out.mode !== "live") out.cutover = "1";
     return out;
@@ -465,7 +487,9 @@
     initData: initData,
     liveInitData: liveInitData,
     loginData: loginData,
+    desktopSessionData: desktopSessionData,
     rememberLogin: rememberLogin,
+    rememberDesktopSession: rememberDesktopSession,
     clearLogin: clearLogin,
     hasDesktopLogin: hasDesktopLogin,
     waitForInitData: waitForInitData,
