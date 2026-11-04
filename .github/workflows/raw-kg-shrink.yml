@@ -9,6 +9,14 @@ on:
       - boinya-c/proxy/price-canon-v2.js
       - boinya-c/proxy/worker.js
       - boinya-c/next/retail-admin.js
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/raw-kg-shrink.yml
+      - scripts/raw-kg-shrink-live.mjs
+      - boinya-c/proxy/price-canon-v2.js
+      - boinya-c/proxy/worker.js
+      - boinya-c/next/retail-admin.js
   workflow_dispatch:
 
 permissions:
