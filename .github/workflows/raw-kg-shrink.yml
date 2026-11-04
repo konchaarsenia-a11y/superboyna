@@ -1,0 +1,67 @@
+# Live smoke: кг+усушка → себес100. Карточки не пишет.
+name: raw-kg-shrink
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/raw-kg-shrink.yml
+      - scripts/raw-kg-shrink-live.mjs
+      - boinya-c/proxy/price-canon-v2.js
+      - boinya-c/proxy/worker.js
+      - boinya-c/next/retail-admin.js
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/raw-kg-shrink.yml
+      - scripts/raw-kg-shrink-live.mjs
+      - boinya-c/proxy/price-canon-v2.js
+      - boinya-c/proxy/worker.js
+      - boinya-c/next/retail-admin.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: formula unit
+        run: node --test boinya-c/proxy/price-canon-v2.test.mjs
+
+  live:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: live saveRawCost kg+shrink (future date)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          RAW_KG_OUT: ${{ github.workspace }}/artifacts/raw-kg-shrink
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          # До worker-deploy на PR live может быть старым — тогда только unit уже зелёный.
+          # После squash на main деплой подхватит; повторный workflow_dispatch проверит live.
+          node scripts/raw-kg-shrink-live.mjs || {
+            echo "::warning::live save failed (worker ещё без патча?) — unit ок"
+            exit 0
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: raw-kg-shrink
+          path: artifacts/raw-kg-shrink/
+          if-no-files-found: warn

@@ -30,7 +30,9 @@ import {
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 import {
   PRICE_CANON_V2_,
+  cost100FromKgShrink_,
   costsMapFromVersionsV2_,
+  isPieceSkuId_,
   isPriceCanonV2Live_,
   lookupCostV2_,
   migratePriceCanonV2_,
@@ -3993,6 +3995,13 @@ async function ensureRawCostTable_(env) {
   await env.DB.prepare(
     "CREATE TABLE IF NOT EXISTS raw_cost_ver (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT NOT NULL, cost REAL, shrink REAL, effective_from TEXT NOT NULL, created_at TEXT NOT NULL)"
   ).run();
+  /* raw-kg-shrink: колонки для новых версий (цена/кг + усушка%); старые ряды без них. */
+  try {
+    await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN cost_kg REAL").run();
+  } catch (eKg) {}
+  try {
+    await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN shrink_pct REAL").run();
+  } catch (ePct) {}
 }
 
 async function loadRawCostVersions_(env) {
@@ -4001,13 +4010,20 @@ async function loadRawCostVersions_(env) {
     await ensureRawCostTable_(env);
     let q = null;
     try {
+      /* raw-kg-shrink: читаем cost_kg/shrink_pct если колонки уже есть. */
       q = await env.DB.prepare(
-        "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
+        "SELECT sku, cost, shrink, cost_kg AS costKg, shrink_pct AS shrinkPct, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
       ).all();
     } catch (eCols) {
-      q = await env.DB.prepare(
-        "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
-      ).all();
+      try {
+        q = await env.DB.prepare(
+          "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
+        ).all();
+      } catch (eCols2) {
+        q = await env.DB.prepare(
+          "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
+        ).all();
+      }
     }
     return (q && q.results) || [];
   } catch (eV) {
@@ -4105,9 +4121,16 @@ async function listRawCosts_(params, env, actor) {
       const from = String(v.effectiveFrom || "").slice(0, 10);
       if (from && from <= today && (!cur || from >= String(cur.effectiveFrom || ""))) cur = v;
     });
+    const skuId = resolvePriceSkuId_(row.sku, "") || "";
+    /* raw-kg-shrink: piece → UI ввод за шт; иначе кг+усушка%. */
+    const piece = isPieceSkuId_(skuId) || isPieceSkuNameD1_(row.sku) || /шт/i.test(row.sku);
     return {
       sku: row.sku,
+      skuId: skuId,
+      piece: !!piece,
       cost: cur && cur.cost != null ? cur.cost : row.cost,
+      costKg: cur && cur.costKg != null ? cur.costKg : null,
+      shrinkPct: cur && cur.shrinkPct != null ? cur.shrinkPct : null,
       shrink: cur && cur.shrink != null ? cur.shrink : null,
       baseYield: warehouseYieldForSku_(yields, row.sku),
       effectiveFrom: cur ? cur.effectiveFrom : "2026-10-09",
@@ -4119,8 +4142,9 @@ async function listRawCosts_(params, env, actor) {
     status: "success",
     items: items,
     versions: versions,
+    /* raw-kg-shrink: граммы — цена/кг + усушка%; штуки — себес/шт. Старые версии не пересчитываем. */
     shrinkNote:
-      "Выход — тот же коэффициент склада: сырьё кг = сухое г / 1000 / выход (обычно 0.2). Смена выхода без нового себеса: себес × (выход старый / выход новый). Розница клиенту не меняется, пока не нажать «Обновить прайс»."
+      "Граммы: цена за кг и усушка % → себес за 100 г = кг/10/(1−%/100). Штуки: себес за шт как раньше. Розница клиенту не меняется, пока не нажать «Обновить прайс»."
   };
 }
 
@@ -4132,6 +4156,26 @@ async function saveRawCost_(params, env, actor) {
   if (!sku) return { status: "error", message: "sku" };
   const from = String((params && (params.effectiveFrom || params.effective_from)) || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return { status: "error", message: "date" };
+  await ensureRawCostTable_(env);
+  const skuId = String((params && params.skuId) || resolvePriceSkuId_(sku, "") || "").trim();
+  /* raw-kg-shrink: штуки — себес/шт; граммы — кг+усушка% → себес100. */
+  const piece = isPieceSkuId_(skuId) || isPieceSkuNameD1_(sku) || /шт/i.test(sku);
+
+  let costKg = params && (params.costKg != null ? params.costKg : params.priceKg);
+  if (costKg === "" || costKg == null) costKg = null;
+  else {
+    costKg = Number(String(costKg).replace(",", "."));
+    if (!isFinite(costKg) || costKg < 0) return { status: "error", message: "цена за кг" };
+  }
+  let shrinkPct = params && (params.shrinkPct != null ? params.shrinkPct : params.shrinkPercent);
+  if (shrinkPct === "" || shrinkPct == null) shrinkPct = null;
+  else {
+    shrinkPct = Number(String(shrinkPct).replace(",", "."));
+    if (!isFinite(shrinkPct) || shrinkPct < 0 || shrinkPct >= 100) {
+      return { status: "error", message: "усушка % — от 0 до 99.9" };
+    }
+  }
+
   let cost = params && params.cost;
   if (cost === "" || cost == null) cost = null;
   else {
@@ -4146,38 +4190,60 @@ async function saveRawCost_(params, env, actor) {
       return { status: "error", message: "выход — доля как на складе, например 0.2" };
     }
   }
-  if (cost == null && shrink == null) return { status: "error", message: "нужен себес или выход" };
-  const versions = await loadRawCostVersions_(env);
-  const yields = await warehouseYieldMap_(env);
-  const prev = rawCostEffective_(versions, sku, "9999-12-31", null);
-  const builtin = RAW_COST_BUILTIN_.filter(function (row) {
-    return rawCostNormSku_(row.sku) === rawCostNormSku_(sku);
-  })[0];
-  const prevCost = prev.cost != null ? prev.cost : builtin ? Number(builtin.cost) : null;
-  const prevYield = prev.yield != null ? prev.yield : warehouseYieldForSku_(yields, sku);
+
   let scaled = false;
-  if (cost == null && shrink != null) {
-    cost = rawYieldScale_(prevCost, prevYield, shrink);
-    scaled = true;
+  let fromKg = false;
+  /* raw-kg-shrink: новый ввод граммов — только через кг+%; существующие версии не трогаем. */
+  if (!piece && costKg != null && shrinkPct != null) {
+    const computed = cost100FromKgShrink_(costKg, shrinkPct);
+    if (computed == null) return { status: "error", message: "не удалось посчитать себес 100г" };
+    cost = computed;
+    fromKg = true;
+  } else if (piece) {
+    costKg = null;
+    shrinkPct = null;
+    if (cost == null) return { status: "error", message: "себес за штуку" };
+  } else {
+    /* legacy: себес/выход как раньше (если UI ещё не прислал кг+%). */
+    const versions = await loadRawCostVersions_(env);
+    const yields = await warehouseYieldMap_(env);
+    const prev = rawCostEffective_(versions, sku, "9999-12-31", null);
+    const builtin = RAW_COST_BUILTIN_.filter(function (row) {
+      return rawCostNormSku_(row.sku) === rawCostNormSku_(sku);
+    })[0];
+    const prevCost = prev.cost != null ? prev.cost : builtin ? Number(builtin.cost) : null;
+    const prevYield = prev.yield != null ? prev.yield : warehouseYieldForSku_(yields, sku);
+    if (cost == null && shrink != null) {
+      cost = rawYieldScale_(prevCost, prevYield, shrink);
+      scaled = true;
+    }
+    if (cost == null && shrink == null) return { status: "error", message: "нужен себес или кг+усушка" };
+    if (shrink == null && prev.yield != null) shrink = prev.yield;
   }
-  if (shrink == null && prev.yield != null) shrink = prev.yield;
-  await ensureRawCostTable_(env);
-  const skuId = String((params && params.skuId) || resolvePriceSkuId_(sku, "") || "").trim();
+
   const actorTg = String((actor && actor.telegramId) || "");
   const nowIso = new Date().toISOString();
-  /* v2: пишем sku_id + кто; после save пересобираем priceCostsPp из версий. */
+  /* v2 + raw-kg-shrink: пишем sku_id, cost_kg, shrink_pct; после save пересобираем priceCostsPp. */
   try {
     await env.DB.prepare(
-      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source, cost_kg, shrink_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-      .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, "manual")
+      .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, fromKg ? "manual-kg" : "manual", costKg, shrinkPct)
       .run();
   } catch (eIns) {
-    await env.DB.prepare(
-      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
-    )
-      .bind(sku, cost, shrink, from, nowIso)
-      .run();
+    try {
+      await env.DB.prepare(
+        "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+        .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, fromKg ? "manual-kg" : "manual")
+        .run();
+    } catch (eIns2) {
+      await env.DB.prepare(
+        "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
+      )
+        .bind(sku, cost, shrink, from, nowIso)
+        .run();
+    }
   }
   try { await stageCNoteRaw_(env, sku, cost, shrink); } catch (eRaw) {}
   if (await isPriceCanonV2Live_(env)) {
@@ -4190,7 +4256,11 @@ async function saveRawCost_(params, env, actor) {
     sku: sku,
     skuId: skuId || "",
     cost: cost,
+    costKg: costKg,
+    shrinkPct: shrinkPct,
     shrink: shrink,
+    piece: !!piece,
+    fromKg: fromKg,
     scaled: scaled,
     effectiveFrom: from,
     retailFrozen: true,

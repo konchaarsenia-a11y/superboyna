@@ -217,6 +217,23 @@ export function displayKeyForSku_(row) {
   return row.name + (sub ? " / " + sub : "");
 }
 
+/** raw-kg-shrink: себес_100г = цена_кг/10/(1−усушка%/100). Штуки не через эту формулу. */
+export function cost100FromKgShrink_(costKg, shrinkPct) {
+  const kg = Number(String(costKg == null ? "" : costKg).replace(",", "."));
+  const pct = Number(String(shrinkPct == null ? "" : shrinkPct).replace(",", "."));
+  if (!isFinite(kg) || kg < 0) return null;
+  if (!isFinite(pct) || pct < 0 || pct >= 100) return null;
+  const out = kg / 10 / (1 - pct / 100);
+  if (!isFinite(out) || out < 0) return null;
+  return Math.round(out * 10000) / 10000;
+}
+
+/** raw-kg-shrink: piece из каталога sku_id (жевалки/ШТ.). */
+export function isPieceSkuId_(skuId) {
+  const row = catalogRowById_(String(skuId || "").trim());
+  return !!(row && row.piece);
+}
+
 export async function ensurePriceCanonV2Schema_(env) {
   if (!env || !env.DB) return;
   await env.DB.prepare(
@@ -238,6 +255,13 @@ export async function ensurePriceCanonV2Schema_(env) {
   try {
     await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN source TEXT").run();
   } catch (eC) {}
+  /* raw-kg-shrink: новые версии хранят цену/кг и усушку%; старые строки не трогаем. */
+  try {
+    await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN cost_kg REAL").run();
+  } catch (eD) {}
+  try {
+    await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN shrink_pct REAL").run();
+  } catch (eE) {}
   await env.DB.prepare(
     "CREATE TABLE IF NOT EXISTS retail_price_ver (" +
       "id INTEGER PRIMARY KEY AUTOINCREMENT, sku_id TEXT NOT NULL, price REAL, unit TEXT NOT NULL DEFAULT '', " +
