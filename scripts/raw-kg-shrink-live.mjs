@@ -56,6 +56,14 @@ const shrinkPct = 80;
 const expect = cost100FromKgShrink_(costKg, shrinkPct);
 const from = "2099-01-01"; /* future — не влияет на сегодняшний calc */
 
+/* raw-kg-shrink: колонки до записи (снимок схемы). */
+try {
+  d1("ALTER TABLE raw_cost_ver ADD COLUMN cost_kg REAL");
+} catch (eA) {}
+try {
+  d1("ALTER TABLE raw_cost_ver ADD COLUMN shrink_pct REAL");
+} catch (eB) {}
+
 /* снимок до записи */
 const beforeN = d1("SELECT COUNT(*) as n FROM raw_cost_ver");
 const snapKey = "rawKgShrinkBackup:2026-11-04";
@@ -101,9 +109,14 @@ try {
   process.exit(1);
 }
 
-const rows = d1(
-  "SELECT sku, cost, cost_kg, shrink_pct, effective_from, source FROM raw_cost_ver WHERE effective_from = '2099-01-01' AND sku LIKE '%ЛЁГК%' ORDER BY id DESC LIMIT 3"
-);
+let rows = [];
+try {
+  rows = d1(
+    "SELECT sku, cost, cost_kg, shrink_pct, effective_from, source FROM raw_cost_ver WHERE effective_from = '2099-01-01' ORDER BY id DESC LIMIT 3"
+  );
+} catch (eSel) {
+  rows = [{ error: String(eSel && eSel.message) }];
+}
 
 const report = {
   expect,
