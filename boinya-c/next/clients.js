@@ -1567,6 +1567,16 @@
     if (gen !== cardOpenGen || !card || card.nick !== nick) return;
     var cost = 0;
     if (res) {
+      /* Нет себеса у позиции — предупреждение, не подставляем 0 в цену. */
+      if (res.costIncomplete || (Number(res.missing) > 0 && Array.isArray(res.missingSkus) && res.missingSkus.length)) {
+        var miss = (res.missingSkus || []).map(function (m) {
+          return (m && (m.name || m.skuId)) || "";
+        }).filter(Boolean).slice(0, 6).join(", ");
+        sh().toast("Нет себеса: " + (miss || "позиции") + (miss ? "…" : ""));
+        card._costIncomplete = true;
+        return;
+      }
+      card._costIncomplete = false;
       cost = P().recalcPpCostSum(res, list) || 0;
       if (!(cost > 0)) cost = Number(res.rawCost != null ? res.rawCost : res.cost) || 0;
     }
