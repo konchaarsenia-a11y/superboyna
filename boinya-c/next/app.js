@@ -42,7 +42,8 @@
   }
 
   function oldHref() {
-    return "app.html" + (location.search || "");
+    // orders-page-fix: #31 — legacy снят
+    return "next.html" + (location.search || "");
   }
 
   function stub(title, text) {
@@ -50,7 +51,7 @@
       icon: "doc",
       title: title,
       text: text,
-      action: '<a class="b-btn b-btn--sec" href="' + sh().esc(oldHref()) + '">Открыть в старой версии</a>'
+      action: ""
     });
   }
 
@@ -638,11 +639,11 @@
       weekTools = '<button class="sheet-act" type="button" data-act="wpull">Подтянуть из месяца</button>' +
         '<button class="sheet-act" type="button" data-act="p-resync">Синхронизировать с листом</button>';
     }
+    // orders-page-fix: #31 — без ссылки на legacy
     sh().openSheet({
       title: "Раздел",
       html: weekTools + '<button class="b-btn b-btn--sec" type="button" data-act="bug">Сообщить о проблеме</button>' +
-        '<p class="b-note" style="margin-top:8px">К сообщению приложатся экран «' + sh().esc(screen) + "», роль и черновик заказа, если он открыт.</p>" +
-        '<a class="b-btn b-btn--sec" style="margin-top:8px" href="' + sh().esc(oldHref()) + '">Открыть в старой версии</a>'
+        '<p class="b-note" style="margin-top:8px">К сообщению приложатся экран «' + sh().esc(screen) + "», роль и черновик заказа, если он открыт.</p>"
     });
   }
 

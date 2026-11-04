@@ -44,7 +44,7 @@ test("коэффициент, схема и обычный текст не сч�
 test("карточка и заказ не пишут координаты обратно в пожелания", () => {
   const clients = fs.readFileSync(path.join(here, "clients.js"), "utf8");
   const payload = fs.readFileSync(path.join(here, "order-payload.js"), "utf8");
-  const app = fs.readFileSync(path.join(root, "app.main.js"), "utf8");
+  const app = fs.readFileSync(path.join(root, "_archive/legacy-ui/app.main.js"), "utf8");
   const gs = fs.readFileSync(path.join(root, "..", "Code.gs"), "utf8");
   const worker = fs.readFileSync(path.join(root, "proxy", "worker.js"), "utf8");
   assert.match(fs.readFileSync(path.join(root, "next.html"), "utf8"), /next\/wishes-geo\.js/);

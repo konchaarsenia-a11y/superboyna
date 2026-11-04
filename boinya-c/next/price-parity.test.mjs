@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const P = require("./price-logic.js");
-const app = fs.readFileSync(path.resolve(here, "../app.main.js"), "utf8");
+const app = fs.readFileSync(path.resolve(here, "../_archive/legacy-ui/app.main.js"), "utf8");
 const logic = fs.readFileSync(path.resolve(here, "price-logic.js"), "utf8");
 
 const COPIED = [

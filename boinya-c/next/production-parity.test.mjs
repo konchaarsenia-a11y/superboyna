@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const route = require("./route-logic.js");
 const cards = require("./card-copy.js");
 const templates = require("./templates.js");
-const app = fs.readFileSync(path.resolve(here, "../app.main.js"), "utf8");
+const app = fs.readFileSync(path.resolve(here, "../_archive/legacy-ui/app.main.js"), "utf8");
 const logic = fs.readFileSync(path.resolve(here, "route-logic.js"), "utf8");
 
 const COPIED = [
