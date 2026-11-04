@@ -5,6 +5,9 @@ import {
   costsMapFromVersionsV2_,
   lookupCostV2_,
   cost100FromKgShrink_,
+  costPieceFromBatch_,
+  weightedAvgPieceCost_,
+  overlayPieceBatchAvg_,
   PRICE_COST_SEED_1110_,
   PRICE_CANON_V2_SEED_FROM_
 } from "./price-canon-v2.js";
@@ -49,6 +52,23 @@ test("raw-kg-shrink: себес100 = кг/10/(1−%/100)", () => {
   assert.equal(cost100FromKgShrink_(10, 50), 2);
   assert.equal(cost100FromKgShrink_(20, 100), null);
   assert.equal(cost100FromKgShrink_("20", "80"), 10);
+});
+
+test("chew-batch-avg: себес/шт = кг×вес/штук; средняя по шт", () => {
+  assert.equal(costPieceFromBatch_(10, 2, 20), 1);
+  assert.equal(costPieceFromBatch_(20, 1.5, 30), 1);
+  const avg = weightedAvgPieceCost_([
+    { pieces: 10, costPiece: 1 },
+    { pieces: 30, costPiece: 2 }
+  ]);
+  assert.equal(avg, 1.75);
+  const costs = overlayPieceBatchAvg_(
+    { KOLENI: { name: "КОЛЕНИ", unitPrice: 1.17, piece: true, skuId: "KOLENI" } },
+    { KOLENI: [{ pieces: 10, costPiece: 1 }, { pieces: 30, costPiece: 2 }] }
+  );
+  assert.equal(costs.KOLENI.unitPrice, 1.75);
+  assert.equal(costs.KOLENI.batchAvg, 1.75);
+  assert.equal(costs.KOLENI.lastBatchCost, 2);
 });
 
 test("lookupCostV2: map from versions, missing → null (не 0)", () => {

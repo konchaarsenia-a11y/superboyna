@@ -31,13 +31,17 @@ import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-dige
 import {
   PRICE_CANON_V2_,
   cost100FromKgShrink_,
+  costPieceFromBatch_,
   costsMapFromVersionsV2_,
+  ensurePriceCanonV2Schema_,
   isPieceSkuId_,
   isPriceCanonV2Live_,
   lookupCostV2_,
   migratePriceCanonV2_,
+  overlayPieceBatchAvg_,
   rebuildPriceCostsPpV2_,
-  resolvePriceSkuId_
+  resolvePriceSkuId_,
+  weightedAvgPieceCost_
 } from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
@@ -996,8 +1000,8 @@ const AUTH_OWNER_RE = new RegExp(
     "repairSubscriptionCards|lookupClient|unlockPpCostBreakdown|setupWeekendFormulas|savePartner|deletePartner|addPricePosition|" +
     "repair(?!Surveys$)[A-Za-z0-9_]*|heal[A-Za-z0-9_]*|wipe[A-Za-z0-9_]*|undelete[A-Za-z0-9_]*|restore[A-Za-z0-9_]*|" +
     "force(?!SurveyRemind$)[A-Za-z0-9_]*|seed[A-Za-z0-9_]*|reseed[A-Za-z0-9_]*|dedupe[A-Za-z0-9_]*|scrub[A-Za-z0-9_]*|" +
-    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|listRawCosts|saveRawCost|publishRetailFromCosts)$"
-);
+    "materializeWeekForce|migrateCrm[A-Za-z0-9_]*|saveWarehouse|deleteWarehouse|setDepartureWarehouse|listRawCosts|saveRawCost|savePieceBatch|deletePieceBatch|publishRetailFromCosts)$"
+  );
 // v71116014: «Задачи ☰» (deferredScreen) больше не даёт saveOrder и т.п. — только действия с отложенным.
 const AUTH_TABS_ORDERS = ["orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"];
 const AUTH_TAB_RULES = [
@@ -1810,6 +1814,9 @@ async function handleAction_(action, params, env, url, ctx, request) {
   if (a === "listPricePositions") return listPricePositions_(params, env, actor);
   if (a === "listRawCosts") return listRawCosts_(params, env, actor);
   if (a === "saveRawCost") return saveRawCost_(params, env, actor);
+  /* chew-batch-avg: партии жевалок (кг→шт) отдельно от raw_cost_ver. */
+  if (a === "savePieceBatch") return savePieceBatch_(params, env, actor);
+  if (a === "deletePieceBatch") return deletePieceBatch_(params, env, actor);
   /* Единый канон себес/прайс D1 (04.11): seed 11.10 + без silent builtin. */
   if (a === "migratePriceCanonV2") {
     if (!(actor && (actor.isOwner || actor.role === "owner"))) {
@@ -1819,7 +1826,8 @@ async function handleAction_(action, params, env, url, ctx, request) {
       actorTg: String((actor && actor.telegramId) || ""),
       getSnapRaw: getSnapRaw_,
       putSnap: putSnap_,
-      loadVersions: loadRawCostVersions_
+      loadVersions: loadRawCostVersions_,
+      loadBatches: loadPieceBatchesGrouped_
     });
   }
   if (a === "publishRetailFromCosts") {
@@ -4111,6 +4119,8 @@ async function listRawCosts_(params, env, actor) {
   }
   const versions = await loadRawCostVersions_(env);
   const yields = await warehouseYieldMap_(env);
+  /* chew-batch-avg: партии по sku_id для UI (себес партии + средняя). */
+  const batchesBySku = await loadPieceBatchesGrouped_(env);
   const today = new Date().toISOString().slice(0, 10);
   const items = RAW_COST_BUILTIN_.map(function (row) {
     let cur = null;
@@ -4124,6 +4134,9 @@ async function listRawCosts_(params, env, actor) {
     const skuId = resolvePriceSkuId_(row.sku, "") || "";
     /* raw-kg-shrink: piece → UI ввод за шт; иначе кг+усушка%. */
     const piece = isPieceSkuId_(skuId) || isPieceSkuNameD1_(row.sku) || /шт/i.test(row.sku);
+    const batches = (skuId && batchesBySku[skuId]) || [];
+    const batchAvg = piece && batches.length ? weightedAvgPieceCost_(batches) : null;
+    const lastBatch = batches.length ? batches[batches.length - 1] : null;
     return {
       sku: row.sku,
       skuId: skuId,
@@ -4135,17 +4148,131 @@ async function listRawCosts_(params, env, actor) {
       baseYield: warehouseYieldForSku_(yields, row.sku),
       effectiveFrom: cur ? cur.effectiveFrom : "2026-10-09",
       builtin: row.cost,
-      history: hist
+      history: hist,
+      /* chew-batch-avg: если партии есть — calc берёт batchAvg, иначе legacy cost. */
+      batches: batches,
+      batchAvg: batchAvg,
+      lastBatchCost: lastBatch ? lastBatch.costPiece : null,
+      calcCost: batchAvg != null ? batchAvg : (cur && cur.cost != null ? cur.cost : row.cost)
     };
   });
   return {
     status: "success",
     items: items,
     versions: versions,
-    /* raw-kg-shrink: граммы — цена/кг + усушка%; штуки — себес/шт. Старые версии не пересчитываем. */
+    /* raw-kg-shrink + chew-batch-avg: граммы кг/%; штуки — партия кг×вес/шт → avg. */
     shrinkNote:
-      "Граммы: цена за кг и усушка % → себес за 100 г = кг/10/(1−%/100). Штуки: себес за шт как раньше. Розница клиенту не меняется, пока не нажать «Обновить прайс»."
+      "Граммы: цена за кг и усушка % → себес за 100 г. Штуки: партия (BYN/кг × вес / шт) → средняя по штукам; без партий — старый себес/шт. Розница клиенту не меняется, пока не нажать «Обновить прайс»."
   };
+}
+
+/** chew-batch-avg: все партии, сгруппированные по sku_id. */
+async function loadPieceBatchesGrouped_(env) {
+  const out = Object.create(null);
+  if (!env || !env.DB) return out;
+  try {
+    await ensurePriceCanonV2Schema_(env);
+    const q = await env.DB.prepare(
+      "SELECT id, sku_id AS skuId, sku, batch_date AS batchDate, cost_kg AS costKg, weight_kg AS weightKg, " +
+        "pieces, cost_piece AS costPiece, created_at AS createdAt, actor_tg AS actorTg, source " +
+        "FROM raw_piece_batch ORDER BY batch_date ASC, id ASC"
+    ).all();
+    (q && q.results ? q.results : []).forEach(function (r) {
+      const id = String((r && r.skuId) || "").trim();
+      if (!id) return;
+      if (!out[id]) out[id] = [];
+      out[id].push({
+        id: r.id,
+        skuId: id,
+        sku: String(r.sku || ""),
+        batchDate: String(r.batchDate || "").slice(0, 10),
+        costKg: Number(r.costKg),
+        weightKg: Number(r.weightKg),
+        pieces: Number(r.pieces),
+        costPiece: Number(r.costPiece),
+        createdAt: r.createdAt,
+        actorTg: r.actorTg,
+        source: r.source
+      });
+    });
+  } catch (eLoad) {}
+  return out;
+}
+
+/** chew-batch-avg: сохранить партию жевалок; версии raw_cost_ver не трогаем. */
+async function savePieceBatch_(params, env, actor) {
+  if (!(actor && (actor.isOwner || actor.role === "owner"))) {
+    return { status: "error", message: "forbidden" };
+  }
+  const sku = String((params && params.sku) || "").trim();
+  const skuId = String((params && params.skuId) || resolvePriceSkuId_(sku, "") || "").trim();
+  if (!skuId) return { status: "error", message: "sku_id" };
+  if (!isPieceSkuId_(skuId)) return { status: "error", message: "только штучные sku" };
+  const batchDate = String((params && (params.batchDate || params.date || params.effectiveFrom)) || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(batchDate)) return { status: "error", message: "date" };
+  const costKg = Number(String((params && (params.costKg != null ? params.costKg : params.priceKg)) || "").replace(",", "."));
+  const weightKg = Number(String((params && (params.weightKg != null ? params.weightKg : params.weight)) || "").replace(",", "."));
+  const pieces = Number(String((params && (params.pieces != null ? params.pieces : params.pcs)) || "").replace(",", "."));
+  const costPiece = costPieceFromBatch_(costKg, weightKg, pieces);
+  if (costPiece == null) return { status: "error", message: "нужны цена/кг, вес кг и штук > 0" };
+  await ensurePriceCanonV2Schema_(env);
+  const actorTg = String((actor && actor.telegramId) || "");
+  const nowIso = new Date().toISOString();
+  /* chew-batch-avg: снимок метки до INSERT (для отката тестов). */
+  try {
+    await putSnap_(env, "pieceBatchBackup:" + batchDate + ":" + skuId, {
+      at: nowIso,
+      skuId: skuId,
+      sku: sku,
+      note: "before savePieceBatch"
+    });
+  } catch (eSnap) {}
+  const ins = await env.DB.prepare(
+    "INSERT INTO raw_piece_batch (sku_id, sku, batch_date, cost_kg, weight_kg, pieces, cost_piece, created_at, actor_tg, source) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  )
+    .bind(skuId, sku || skuId, batchDate, costKg, weightKg, pieces, costPiece, nowIso, actorTg, "manual-batch")
+    .run();
+  const grouped = await loadPieceBatchesGrouped_(env);
+  const list = grouped[skuId] || [];
+  const batchAvg = weightedAvgPieceCost_(list);
+  if (await isPriceCanonV2Live_(env)) {
+    try {
+      await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_, loadPieceBatchesGrouped_);
+    } catch (eRb) {}
+  }
+  return {
+    status: "success",
+    id: ins && ins.meta && ins.meta.last_row_id,
+    skuId: skuId,
+    sku: sku,
+    batchDate: batchDate,
+    costKg: costKg,
+    weightKg: weightKg,
+    pieces: pieces,
+    costPiece: costPiece,
+    batchAvg: batchAvg,
+    batchN: list.length,
+    retailFrozen: true,
+    cardsUntouched: true
+  };
+}
+
+/** chew-batch-avg: удалить партию (тесты / ошибка ввода). */
+async function deletePieceBatch_(params, env, actor) {
+  if (!(actor && (actor.isOwner || actor.role === "owner"))) {
+    return { status: "error", message: "forbidden" };
+  }
+  const id = Number(params && (params.id != null ? params.id : params.batchId));
+  if (!(id > 0)) return { status: "error", message: "id" };
+  await ensurePriceCanonV2Schema_(env);
+  await env.DB.prepare("DELETE FROM raw_piece_batch WHERE id = ?").bind(id).run();
+  if (await isPriceCanonV2Live_(env)) {
+    try {
+      await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_, loadPieceBatchesGrouped_);
+    } catch (eRb) {}
+  }
+  return { status: "success", id: id, deleted: true };
 }
 
 async function saveRawCost_(params, env, actor) {
@@ -4248,7 +4375,8 @@ async function saveRawCost_(params, env, actor) {
   try { await stageCNoteRaw_(env, sku, cost, shrink); } catch (eRaw) {}
   if (await isPriceCanonV2Live_(env)) {
     try {
-      await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_);
+      /* chew-batch-avg: rebuild с партиями, чтобы avg шт не сбрасывался. */
+      await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_, loadPieceBatchesGrouped_);
     } catch (eRb) {}
   }
   return {
@@ -31240,7 +31368,12 @@ async function costsForCalcD1_(env, costs, params) {
   try { versions = await loadRawCostVersions_(env); } catch (eVer) { versions = []; }
   /* price-canon-v2: только dated raw_cost_ver по sku_id, без snap/GAS/builtin. */
   if (await isPriceCanonV2Live_(env)) {
-    const map = costsMapFromVersionsV2_(versions, asOf || "9999-12-31");
+    let map = costsMapFromVersionsV2_(versions, asOf || "9999-12-31");
+    /* chew-batch-avg: поверх — взвешенная средняя по партиям шт (без партий ключ не трогаем). */
+    try {
+      const grouped = await loadPieceBatchesGrouped_(env);
+      map = overlayPieceBatchAvg_(map, grouped);
+    } catch (eBat) {}
     map.__canonV2 = true;
     return map;
   }
@@ -31515,7 +31648,11 @@ function buildPpLinesFromCostsD1_(basket, costs, opts) {
       piece: piece,
       cat: cat,
       cost: Math.round(cost * 100) / 100,
-      skuId: skuId || (info && info.skuId) || ""
+      skuId: skuId || (info && info.skuId) || "",
+      /* chew-batch-avg: в экономике — себес последней партии и средняя факт. */
+      batchAvg: info && info.batchAvg != null ? Number(info.batchAvg) : null,
+      lastBatchCost: info && info.lastBatchCost != null ? Number(info.lastBatchCost) : null,
+      batchN: info && info.batchN != null ? Number(info.batchN) : null
     });
   }
   return {

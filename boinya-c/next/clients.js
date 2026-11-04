@@ -2778,7 +2778,15 @@
       var igName = root.BoinyaIgLabels && root.BoinyaIgLabels.shownProductName;
       if (igName) titleName = igName(titleName) || titleName;
       var title = titleName + (subShown ? " · " + subShown : "");
-      lineRows += '<div class="nx-line"><span>' + esc(title) + "</span><b>" + esc(money2(L.cost)) + "</b></div>";
+      /* chew-batch-avg: у штук с партиями — себес партии и средняя факт. */
+      var tip = "";
+      if (L.piece && (L.batchAvg != null || L.lastBatchCost != null)) {
+        tip = '<div class="b-note">';
+        if (L.lastBatchCost != null) tip += "партия " + money2(L.lastBatchCost) + "/шт";
+        if (L.batchAvg != null) tip += (L.lastBatchCost != null ? " · " : "") + "средняя " + money2(L.batchAvg);
+        tip += "</div>";
+      }
+      lineRows += '<div class="nx-line"><span>' + esc(title) + tip + "</span><b>" + esc(money2(L.cost)) + "</b></div>";
     });
     var cutG = Math.round(2.5 * (g / 100) * 100) / 100;
     var lightG = Math.round(0.8 * (g / 100) * 100) / 100;

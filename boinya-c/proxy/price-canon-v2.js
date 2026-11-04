@@ -234,6 +234,70 @@ export function isPieceSkuId_(skuId) {
   return !!(row && row.piece);
 }
 
+/** chew-batch-avg: себес партии за шт = цена_кг × вес_кг / штук. */
+export function costPieceFromBatch_(costKg, weightKg, pieces) {
+  const kg = Number(String(costKg == null ? "" : costKg).replace(",", "."));
+  const w = Number(String(weightKg == null ? "" : weightKg).replace(",", "."));
+  const n = Number(String(pieces == null ? "" : pieces).replace(",", "."));
+  if (!isFinite(kg) || kg < 0) return null;
+  if (!isFinite(w) || !(w > 0)) return null;
+  if (!isFinite(n) || !(n > 0)) return null;
+  const out = (kg * w) / n;
+  if (!isFinite(out) || out < 0) return null;
+  return Math.round(out * 10000) / 10000;
+}
+
+/** chew-batch-avg: средняя факт. себес/шт, взвешенная по числу штук. */
+export function weightedAvgPieceCost_(batches) {
+  let sumCost = 0;
+  let sumPcs = 0;
+  (batches || []).forEach(function (b) {
+    const pcs = Number(b && (b.pieces != null ? b.pieces : b.pcs));
+    const unit = Number(b && (b.costPiece != null ? b.costPiece : b.cost_piece));
+    if (!(pcs > 0) || !(unit > 0) || !isFinite(pcs) || !isFinite(unit)) return;
+    sumCost += unit * pcs;
+    sumPcs += pcs;
+  });
+  if (!(sumPcs > 0)) return null;
+  return Math.round((sumCost / sumPcs) * 10000) / 10000;
+}
+
+/** chew-batch-avg: наложить средние партий на costs-map (без партий — не трогаем). */
+export function overlayPieceBatchAvg_(costs, batchesBySkuId) {
+  const next = Object.assign(Object.create(null), costs || {});
+  const byId = batchesBySkuId || {};
+  Object.keys(byId).forEach(function (skuId) {
+    const list = byId[skuId] || [];
+    if (!list.length) return;
+    const avg = weightedAvgPieceCost_(list);
+    if (!(avg > 0)) return;
+    const cat = catalogRowById_(skuId);
+    if (!cat || !cat.piece) return;
+    const last = list[list.length - 1] || {};
+    const key = displayKeyForSku_(cat);
+    const prev = next[skuId] || next[key] || {};
+    const row = Object.assign({}, prev, {
+      name: cat.name,
+      sub: cat.sub || "",
+      unitPrice: avg,
+      per100: avg,
+      piece: true,
+      skuId: skuId,
+      source: "piece-batch-avg",
+      batchAvg: avg,
+      lastBatchCost: Number(last.costPiece != null ? last.costPiece : last.cost_piece) || null,
+      batchN: list.length,
+      batchPieces: list.reduce(function (s, b) {
+        return s + (Number(b.pieces) || 0);
+      }, 0)
+    });
+    next[skuId] = row;
+    next[key] = row;
+    if (!cat.sub) next[cat.name] = row;
+  });
+  return next;
+}
+
 export async function ensurePriceCanonV2Schema_(env) {
   if (!env || !env.DB) return;
   await env.DB.prepare(
@@ -262,6 +326,13 @@ export async function ensurePriceCanonV2Schema_(env) {
   try {
     await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN shrink_pct REAL").run();
   } catch (eE) {}
+  /* chew-batch-avg: партии жевалок (кг→шт), отдельно от raw_cost_ver. */
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS raw_piece_batch (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, sku_id TEXT NOT NULL, sku TEXT NOT NULL DEFAULT '', " +
+      "batch_date TEXT NOT NULL, cost_kg REAL NOT NULL, weight_kg REAL NOT NULL, pieces REAL NOT NULL, " +
+      "cost_piece REAL NOT NULL, created_at TEXT NOT NULL, actor_tg TEXT, source TEXT)"
+  ).run();
   await env.DB.prepare(
     "CREATE TABLE IF NOT EXISTS retail_price_ver (" +
       "id INTEGER PRIMARY KEY AUTOINCREMENT, sku_id TEXT NOT NULL, price REAL, unit TEXT NOT NULL DEFAULT '', " +
@@ -413,9 +484,16 @@ export function costsMapFromVersionsV2_(versions, asOf) {
   return costs;
 }
 
-export async function rebuildPriceCostsPpV2_(env, putSnap, loadVersions) {
+export async function rebuildPriceCostsPpV2_(env, putSnap, loadVersions, loadBatches) {
   const versions = await loadVersions(env);
-  const costs = costsMapFromVersionsV2_(versions, "9999-12-31");
+  let costs = costsMapFromVersionsV2_(versions, "9999-12-31");
+  /* chew-batch-avg: если есть партии — unitPrice = взвешенная средняя по шт. */
+  if (typeof loadBatches === "function") {
+    try {
+      const grouped = await loadBatches(env);
+      costs = overlayPieceBatchAvg_(costs, grouped || {});
+    } catch (eBat) {}
+  }
   const snap = {
     status: "success",
     costs: costs,
@@ -445,7 +523,8 @@ export async function migratePriceCanonV2_(env, deps) {
   if (!already) {
     seeded = await seedRawCosts1110_(env, actorTg);
   }
-  const rebuilt = await rebuildPriceCostsPpV2_(env, deps.putSnap, deps.loadVersions);
+  /* chew-batch-avg: loadBatches опционален — миграция без партий ок. */
+  const rebuilt = await rebuildPriceCostsPpV2_(env, deps.putSnap, deps.loadVersions, deps.loadBatches);
   await putMeta_(env, "price_canon_v2", PRICE_CANON_V2_);
   await putMeta_(env, "price_canon_v2_at", new Date().toISOString());
   /* прайс «Ещё» 03.11 уже в retailPrices — фиксируем метку, не переписываем цены */
