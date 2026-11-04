@@ -28,6 +28,15 @@ import {
   klientStartPack_
 } from "./klient-hook.js";
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
+import {
+  PRICE_CANON_V2_,
+  costsMapFromVersionsV2_,
+  isPriceCanonV2Live_,
+  lookupCostV2_,
+  migratePriceCanonV2_,
+  rebuildPriceCostsPpV2_,
+  resolvePriceSkuId_
+} from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
   cabinetTestLink_,
@@ -1799,6 +1808,18 @@ async function handleAction_(action, params, env, url, ctx, request) {
   if (a === "listPricePositions") return listPricePositions_(params, env, actor);
   if (a === "listRawCosts") return listRawCosts_(params, env, actor);
   if (a === "saveRawCost") return saveRawCost_(params, env, actor);
+  /* Единый канон себес/прайс D1 (04.11): seed 11.10 + без silent builtin. */
+  if (a === "migratePriceCanonV2") {
+    if (!(actor && (actor.isOwner || actor.role === "owner"))) {
+      return { status: "error", message: "forbidden" };
+    }
+    return migratePriceCanonV2_(env, {
+      actorTg: String((actor && actor.telegramId) || ""),
+      getSnapRaw: getSnapRaw_,
+      putSnap: putSnap_,
+      loadVersions: loadRawCostVersions_
+    });
+  }
   if (a === "publishRetailFromCosts") {
     if (!(actor && (actor.isOwner || actor.role === "owner")) && String(params && params._wkOk) !== "1") {
       return { status: "error", message: "forbidden" };
@@ -2142,13 +2163,14 @@ async function handleActionInner_(action, params, env, url, ctx) {
       hasTelegramToken: hasTelegramToken_(env),
       notifyGroup: notifyChatEnabledWorker_(env) ? "on" : "off",
       partnerCanon: partnerCanonLabel_(env),
+      priceCanonV2: PRICE_CANON_V2_,
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: isWeekCloseD1Native_(env) ? "d1-only" : "sheets",
       weekCounts: isWeekCloseD1Native_(env) ? "date-iso" : "sheet",
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
       edgeSheets: edgeSheetsLabel_(env),
-      deployMarker: "orders-d1-stage-n-h1"
+      deployMarker: "price-canon-v2-h1"
     };
   }
 
@@ -3977,9 +3999,16 @@ async function loadRawCostVersions_(env) {
   if (!env || !env.DB) return [];
   try {
     await ensureRawCostTable_(env);
-    const q = await env.DB.prepare(
-      "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
-    ).all();
+    let q = null;
+    try {
+      q = await env.DB.prepare(
+        "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
+      ).all();
+    } catch (eCols) {
+      q = await env.DB.prepare(
+        "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
+      ).all();
+    }
     return (q && q.results) || [];
   } catch (eV) {
     return [];
@@ -4133,13 +4162,33 @@ async function saveRawCost_(params, env, actor) {
   }
   if (shrink == null && prev.yield != null) shrink = prev.yield;
   await ensureRawCostTable_(env);
-  await env.DB.prepare(
-    "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
-  ).bind(sku, cost, shrink, from, new Date().toISOString()).run();
+  const skuId = String((params && params.skuId) || resolvePriceSkuId_(sku, "") || "").trim();
+  const actorTg = String((actor && actor.telegramId) || "");
+  const nowIso = new Date().toISOString();
+  /* v2: пишем sku_id + кто; после save пересобираем priceCostsPp из версий. */
+  try {
+    await env.DB.prepare(
+      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+      .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, "manual")
+      .run();
+  } catch (eIns) {
+    await env.DB.prepare(
+      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+      .bind(sku, cost, shrink, from, nowIso)
+      .run();
+  }
   try { await stageCNoteRaw_(env, sku, cost, shrink); } catch (eRaw) {}
+  if (await isPriceCanonV2Live_(env)) {
+    try {
+      await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_);
+    } catch (eRb) {}
+  }
   return {
     status: "success",
     sku: sku,
+    skuId: skuId || "",
     cost: cost,
     shrink: shrink,
     scaled: scaled,
@@ -31119,6 +31168,12 @@ async function costsForCalcD1_(env, costs, params) {
   const asOf = String((params && (params.asOf || params.date || params.deliveryDate)) || "").slice(0, 10);
   let versions = [];
   try { versions = await loadRawCostVersions_(env); } catch (eVer) { versions = []; }
+  /* price-canon-v2: только dated raw_cost_ver по sku_id, без snap/GAS/builtin. */
+  if (await isPriceCanonV2Live_(env)) {
+    const map = costsMapFromVersionsV2_(versions, asOf || "9999-12-31");
+    map.__canonV2 = true;
+    return map;
+  }
   return overlayRawCostsD1_(costs, versions, asOf);
 }
 
@@ -31161,6 +31216,15 @@ function rawCostBuiltinInfoD1_(name) {
 
 function lookupPpCostInfoD1_(costs, name, sub, zeroKeys) {
   costs = costs || {};
+  /* price-canon-v2: sku_id, без silent builtin и без zeroKeys→0. */
+  if (costs.__canonV2) {
+    const v2 = lookupCostV2_(costs, name, sub);
+    if (v2) return v2;
+    if (/^УХО\s*К$/i.test(String(name || "").trim())) {
+      return lookupPpCostInfoD1_(costs, "УХО Г", sub, zeroKeys);
+    }
+    return null;
+  }
   const names = ppCostNameVariantsD1_(name);
   const key = name + (sub ? " / " + sub : "");
   function positiveAt(k) {
@@ -31317,6 +31381,7 @@ function buildPpLinesFromCostsD1_(basket, costs, opts) {
   const lines = [];
   let totalCost = 0;
   let missing = 0;
+  const missingSkus = [];
   for (let i = 0; i < (basket || []).length; i++) {
     const it = basket[i] || {};
     const name = String(it.name || it.main || "").trim();
@@ -31343,10 +31408,27 @@ function buildPpLinesFromCostsD1_(basket, costs, opts) {
       });
       continue;
     }
+    const skuId = resolvePriceSkuId_(name, sub) || "";
     const info = lookupPpCostInfoD1_(costs, name, sub, opts.zeroKeys);
     const unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
-    if (!info) missing++;
-    else if (!(unitPrice > 0) && !opts.zeroKnown) missing++;
+    /* Нет себеса — не считаем 0: помечаем missing для UI. */
+    if (!info || !(unitPrice > 0)) {
+      missing++;
+      missingSkus.push({ name: name, sub: sub, skuId: skuId || resolvePriceSkuId_(name, sub) || "" });
+      lines.push({
+        name: name,
+        sub: sub,
+        val: val,
+        per100: null,
+        unitPrice: null,
+        piece: !!(cat === "chew" || cat === "chews" || isPieceSkuNameD1_(name) || /шт/i.test(name)),
+        cat: cat,
+        cost: null,
+        missingCost: true,
+        skuId: skuId
+      });
+      continue;
+    }
     let piece = false;
     if (info && info.piece) piece = true;
     else if (cat === "chew" || cat === "chews") piece = true;
@@ -31362,13 +31444,15 @@ function buildPpLinesFromCostsD1_(basket, costs, opts) {
       unitPrice: unitPrice,
       piece: piece,
       cat: cat,
-      cost: Math.round(cost * 100) / 100
+      cost: Math.round(cost * 100) / 100,
+      skuId: skuId || (info && info.skuId) || ""
     });
   }
   return {
     lines: lines,
     rawCost: Math.round(totalCost * 100) / 100,
-    missing: missing
+    missing: missing,
+    missingSkus: missingSkus
   };
 }
 
@@ -31376,12 +31460,35 @@ async function calcPpFactFromD1Costs_(params, env, ctx, costs, opts) {
   opts = opts || {};
   const basket = parseBasketParamD1_(params);
   const built = buildPpLinesFromCostsD1_(basket, costs, opts);
+  const v2 = !!(costs && costs.__canonV2);
+  /* v2: incomplete → предупреждение, не GAS и не ноль. */
+  if (v2 && (built.missing > 0 || !built.lines.length)) {
+    return {
+      status: "success",
+      costIncomplete: true,
+      missing: built.missing,
+      missingSkus: built.missingSkus || [],
+      lines: built.lines,
+      cost: built.rawCost,
+      rawCost: built.rawCost,
+      scheme: "RAW26",
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      priceCanon: PRICE_CANON_V2_,
+      d1Verified: true,
+      cardsUntouched: true
+    };
+  }
   if (built.missing > 0 || !built.lines.length) return null;
-  const schemeFact = resolvePpSchemeD1_({
-    scheme: params.scheme,
-    wishes: params.wishes,
-    forNew: params.forNew === true || params.forNew === "1" || params.forNew === 1
-  });
+  /* v2: одна формула RAW26; LEGACY не используем (карточки не переписываем). */
+  const schemeFact = v2
+    ? "RAW26"
+    : resolvePpSchemeD1_({
+        scheme: params.scheme,
+        wishes: params.wishes,
+        forNew: params.forNew === true || params.forNew === "1" || params.forNew === 1
+      });
   const coefIn = params.coef != null && params.coef !== "" ? params.coef : null;
   const packOpt = parsePackCountsParamD1_(params);
   let retailGoods = 0;
@@ -31449,6 +31556,12 @@ async function calcPpFactD1_(params, env, ctx) {
   const force =
     String((params && params.force) || "") === "1" ||
     (params && (params.force === true || params.force === 1));
+  /* v2 live: не греем GAS и не пишем zeroKeys обратно в snap. */
+  if (!force && (await isPriceCanonV2Live_(env))) {
+    const costsLive = await costsForCalcD1_(env, {}, params);
+    const local = await calcPpFactFromD1Costs_(params, env, ctx, costsLive, { zeroKnown: false });
+    if (local) return local;
+  }
   if (!force) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
     if (snap && snap.ppCostCanon === PP_COST_CANON_D1_ && snap.costs && typeof snap.costs === "object") {
@@ -31460,6 +31573,14 @@ async function calcPpFactD1_(params, env, ctx) {
       if (local) return local;
     }
   }
+  if (await isPriceCanonV2Live_(env)) {
+    return {
+      status: "error",
+      message: "cost_incomplete",
+      priceCanon: PRICE_CANON_V2_,
+      fromD1: true
+    };
+  }
   return warmPpCostsFromGas_(params, env, ctx);
 }
 
@@ -31468,9 +31589,13 @@ async function calcPricePpD1_(params, env, ctx) {
   const force =
     String((params && params.force) || "") === "1" ||
     (params && (params.force === true || params.force === 1));
+  const v2Live = await isPriceCanonV2Live_(env);
   /* Вкладка Расчёт / calcPrice без явной схемы — новые → RAW26 после cutoff.
-   * calcPpFact для старых карточек остаётся LEGACY по умолчанию. */
-  if (
+   * v2: всегда RAW26 (LEGACY убран из расчёта; карточки не трогаем). */
+  if (v2Live) {
+    params.forNew = 1;
+    params.scheme = "RAW26";
+  } else if (
     (params.forNew == null || params.forNew === "") &&
     !normalizePpSchemeD1_(params.scheme) &&
     !parsePpSchemeFromWishesD1_(params.wishes)
@@ -31482,13 +31607,70 @@ async function calcPricePpD1_(params, env, ctx) {
     params.fullFact === "1" ||
     params.fullFact === 1 ||
     !!(params.deliveriesN || params.deliveries);
-  const schemeHint = resolvePpSchemeD1_({
-    scheme: params.scheme,
-    wishes: params.wishes,
-    forNew: params.forNew === true || params.forNew === "1" || params.forNew === 1
-  });
+  const schemeHint = v2Live
+    ? "RAW26"
+    : resolvePpSchemeD1_({
+        scheme: params.scheme,
+        wishes: params.wishes,
+        forNew: params.forNew === true || params.forNew === "1" || params.forNew === 1
+      });
   const refMarkup =
     schemeHint === "RAW26" ? PP_RAW26_COEF_DEFAULT_D1_ : PP_LEGACY_COEF_DEFAULT_D1_;
+  if (!force && v2Live) {
+    const basket = parseBasketParamD1_(params);
+    const costsLive = await costsForCalcD1_(env, {}, params);
+    const built = buildPpLinesFromCostsD1_(basket, costsLive, { zeroKnown: false });
+    if (built.missing > 0) {
+      return {
+        status: "success",
+        mode: params.mode || "pp",
+        costIncomplete: true,
+        missing: built.missing,
+        missingSkus: built.missingSkus || [],
+        lines: built.lines,
+        cost: built.rawCost,
+        rawCost: built.rawCost,
+        scheme: "RAW26",
+        fromD1: true,
+        fromGas: false,
+        priceCanon: PRICE_CANON_V2_,
+        d1Verified: true,
+        cardsUntouched: true
+      };
+    }
+    if (built.lines.length) {
+      const ok = {
+        status: "success",
+        mode: params.mode || "pp",
+        sheet: "пп d1",
+        costRowLabel: "",
+        lines: built.lines,
+        cost: built.rawCost,
+        rawCost: built.rawCost,
+        markup: refMarkup,
+        scheme: "RAW26",
+        total: Math.round(built.rawCost * refMarkup * 100) / 100,
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        priceCanon: PRICE_CANON_V2_,
+        d1Verified: true
+      };
+      if (wantFact) {
+        const factFull = await calcPpFactFromD1Costs_(params, env, ctx, costsLive, { zeroKnown: false });
+        if (factFull && !factFull.costIncomplete) {
+          Object.keys(factFull).forEach(function (fk) {
+            if (fk === "mode" || fk === "sheet") return;
+            ok[fk] = factFull[fk];
+          });
+          ok.cost = built.rawCost;
+          ok.rawCost = built.rawCost;
+        }
+      }
+      return ok;
+    }
+  }
   if (!force) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
     if (snap && snap.ppCostCanon === PP_COST_CANON_D1_ && snap.costs && typeof snap.costs === "object") {

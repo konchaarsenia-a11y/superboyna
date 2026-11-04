@@ -22336,25 +22336,8 @@ function writePpRawCost_(costs, key, name, sub, v, piece) {
 }
 
 function applyPpRawCostOverrides_(costs) {
-  costs = costs || {};
-  var o = PP_RAW_COST_OVERRIDE_BYN_ || {};
-  for (var key in o) {
-    if (!Object.prototype.hasOwnProperty.call(o, key)) continue;
-    var info = o[key];
-    var v = Number(info && info.v);
-    if (!isFinite(v) || v < 0) continue;
-    var piece = !!(info && info.piece);
-    var parts = String(key).split(" / ");
-    var name = parts[0] || key;
-    var sub = parts.length > 1 ? parts.slice(1).join(" / ") : "";
-    var aliases = ppCostFractionAliases_(sub);
-    for (var ai = 0; ai < aliases.length; ai++) {
-      var asub = aliases[ai];
-      var akey = name + (asub ? " / " + asub : "");
-      writePpRawCost_(costs, akey, name, asub, v, piece);
-    }
-  }
-  return costs;
+  /* price-canon-v2: себес только D1 raw_cost_ver; PP_RAW_COST_OVERRIDE_BYN_ (3.83/0.75) отключён. */
+  return costs || {};
 }
 
 function handleCalcPrice(json, callback, fromPost) {

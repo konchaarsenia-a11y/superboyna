@@ -1,0 +1,78 @@
+# Миграция + RO сверка 29 ПП. Карточки не пишет.
+name: price-canon-v2
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/price-canon-v2.yml
+      - scripts/price-canon-migrate.mjs
+      - scripts/price-canon-pp-compare.mjs
+      - boinya-c/proxy/price-canon-v2.js
+      - boinya-c/proxy/worker.js
+  workflow_dispatch:
+    inputs:
+      migrate:
+        description: "1 = вызвать migratePriceCanonV2 (owner)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: price-canon-v2 unit
+        run: node --test boinya-c/proxy/price-canon-v2.test.mjs
+
+  migrate:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.migrate == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: migratePriceCanonV2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          node scripts/price-canon-migrate.mjs
+
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: PP stated vs new calc (RO)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          PRICE_CANON_OUT: ${{ github.workspace }}/artifacts/price-canon-v2
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          node scripts/price-canon-pp-compare.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: price-canon-v2
+          path: artifacts/price-canon-v2/
+          if-no-files-found: warn
