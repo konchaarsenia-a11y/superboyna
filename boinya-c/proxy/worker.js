@@ -30,17 +30,20 @@ import {
 import { COST_DIGEST_MARKUP, costDigestDue_, costDigestText_ } from "./cost-digest.js";
 import {
   PRICE_CANON_V2_,
+  annotatePieceBatchHints_,
   cost100FromKgShrink_,
   costPieceFromBatch_,
+  costPieceFromKgPcs_,
   costsMapFromVersionsV2_,
   ensurePriceCanonV2Schema_,
   isPieceSkuId_,
   isPriceCanonV2Live_,
   lookupCostV2_,
   migratePriceCanonV2_,
-  overlayPieceBatchAvg_,
+  pcsPerKgFromBatch_,
   rebuildPriceCostsPpV2_,
   resolvePriceSkuId_,
+  weightedAvgPcsPerKg_,
   weightedAvgPieceCost_
 } from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
@@ -4010,6 +4013,10 @@ async function ensureRawCostTable_(env) {
   try {
     await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN shrink_pct REAL").run();
   } catch (ePct) {}
+  /* chew-pcs-kg: ручное среднее шт/кг для жевалок. */
+  try {
+    await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN pcs_per_kg REAL").run();
+  } catch (ePcs) {}
 }
 
 async function loadRawCostVersions_(env) {
@@ -4018,19 +4025,25 @@ async function loadRawCostVersions_(env) {
     await ensureRawCostTable_(env);
     let q = null;
     try {
-      /* raw-kg-shrink: читаем cost_kg/shrink_pct если колонки уже есть. */
+      /* chew-pcs-kg: читаем cost_kg/shrink_pct/pcs_per_kg если колонки есть. */
       q = await env.DB.prepare(
-        "SELECT sku, cost, shrink, cost_kg AS costKg, shrink_pct AS shrinkPct, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
+        "SELECT sku, cost, shrink, cost_kg AS costKg, shrink_pct AS shrinkPct, pcs_per_kg AS pcsPerKg, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
       ).all();
     } catch (eCols) {
       try {
         q = await env.DB.prepare(
-          "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
+          "SELECT sku, cost, shrink, cost_kg AS costKg, shrink_pct AS shrinkPct, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
         ).all();
       } catch (eCols2) {
-        q = await env.DB.prepare(
-          "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
-        ).all();
+        try {
+          q = await env.DB.prepare(
+            "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt, sku_id, actor_tg, source FROM raw_cost_ver ORDER BY effective_from, id"
+          ).all();
+        } catch (eCols3) {
+          q = await env.DB.prepare(
+            "SELECT sku, cost, shrink, effective_from AS effectiveFrom, created_at AS createdAt FROM raw_cost_ver ORDER BY effective_from, id"
+          ).all();
+        }
       }
     }
     return (q && q.results) || [];
@@ -4119,7 +4132,7 @@ async function listRawCosts_(params, env, actor) {
   }
   const versions = await loadRawCostVersions_(env);
   const yields = await warehouseYieldMap_(env);
-  /* chew-batch-avg: партии по sku_id для UI (себес партии + средняя). */
+  /* chew-pcs-kg: партии по sku_id для UI (себес партии + факт шт/кг). */
   const batchesBySku = await loadPieceBatchesGrouped_(env);
   const today = new Date().toISOString().slice(0, 10);
   const items = RAW_COST_BUILTIN_.map(function (row) {
@@ -4132,37 +4145,44 @@ async function listRawCosts_(params, env, actor) {
       if (from && from <= today && (!cur || from >= String(cur.effectiveFrom || ""))) cur = v;
     });
     const skuId = resolvePriceSkuId_(row.sku, "") || "";
-    /* raw-kg-shrink: piece → UI ввод за шт; иначе кг+усушка%. */
+    /* chew-pcs-kg: piece → UI кг + шт/кг; иначе кг+усушка%. */
     const piece = isPieceSkuId_(skuId) || isPieceSkuNameD1_(row.sku) || /шт/i.test(row.sku);
     const batches = (skuId && batchesBySku[skuId]) || [];
     const batchAvg = piece && batches.length ? weightedAvgPieceCost_(batches) : null;
+    const batchPcsPerKg = piece && batches.length ? weightedAvgPcsPerKg_(batches) : null;
     const lastBatch = batches.length ? batches[batches.length - 1] : null;
+    const lastBatchPcs = lastBatch
+      ? pcsPerKgFromBatch_(lastBatch.weightKg, lastBatch.pieces)
+      : null;
     return {
       sku: row.sku,
       skuId: skuId,
       piece: !!piece,
       cost: cur && cur.cost != null ? cur.cost : row.cost,
       costKg: cur && cur.costKg != null ? cur.costKg : null,
+      pcsPerKg: cur && cur.pcsPerKg != null ? cur.pcsPerKg : null,
       shrinkPct: cur && cur.shrinkPct != null ? cur.shrinkPct : null,
       shrink: cur && cur.shrink != null ? cur.shrink : null,
       baseYield: warehouseYieldForSku_(yields, row.sku),
       effectiveFrom: cur ? cur.effectiveFrom : "2026-10-09",
       builtin: row.cost,
       history: hist,
-      /* chew-batch-avg: если партии есть — calc берёт batchAvg, иначе legacy cost. */
+      /* chew-pcs-kg: calcCost = dated cost; партии — только статистика. */
       batches: batches,
       batchAvg: batchAvg,
+      batchPcsPerKg: batchPcsPerKg,
       lastBatchCost: lastBatch ? lastBatch.costPiece : null,
-      calcCost: batchAvg != null ? batchAvg : (cur && cur.cost != null ? cur.cost : row.cost)
+      lastBatchPcsPerKg: lastBatchPcs,
+      calcCost: cur && cur.cost != null ? cur.cost : row.cost
     };
   });
   return {
     status: "success",
     items: items,
     versions: versions,
-    /* raw-kg-shrink + chew-batch-avg: граммы кг/%; штуки — партия кг×вес/шт → avg. */
+    /* chew-pcs-kg: штуки — цена/кг + шт/кг → себес/шт; партии не в calc. */
     shrinkNote:
-      "Граммы: цена за кг и усушка % → себес за 100 г. Штуки: партия (BYN/кг × вес / шт) → средняя по штукам; без партий — старый себес/шт. Розница клиенту не меняется, пока не нажать «Обновить прайс»."
+      "Граммы: цена за кг и усушка % → себес за 100 г. Штуки: цена/кг и среднее шт/кг → себес/шт; партии (реальный себес и факт шт/кг) — только статистика, шт/кг руками не перезаписывают. Розница клиенту не меняется, пока не нажать «Обновить прайс»."
   };
 }
 
@@ -4215,10 +4235,11 @@ async function savePieceBatch_(params, env, actor) {
   const pieces = Number(String((params && (params.pieces != null ? params.pieces : params.pcs)) || "").replace(",", "."));
   const costPiece = costPieceFromBatch_(costKg, weightKg, pieces);
   if (costPiece == null) return { status: "error", message: "нужны цена/кг, вес кг и штук > 0" };
+  const batchPcsPerKg = pcsPerKgFromBatch_(weightKg, pieces);
   await ensurePriceCanonV2Schema_(env);
   const actorTg = String((actor && actor.telegramId) || "");
   const nowIso = new Date().toISOString();
-  /* chew-batch-avg: снимок метки до INSERT (для отката тестов). */
+  /* chew-pcs-kg: снимок метки до INSERT (для отката тестов). */
   try {
     await putSnap_(env, "pieceBatchBackup:" + batchDate + ":" + skuId, {
       at: nowIso,
@@ -4236,6 +4257,8 @@ async function savePieceBatch_(params, env, actor) {
   const grouped = await loadPieceBatchesGrouped_(env);
   const list = grouped[skuId] || [];
   const batchAvg = weightedAvgPieceCost_(list);
+  const factPcs = weightedAvgPcsPerKg_(list);
+  /* chew-pcs-kg: партия НЕ меняет pcs_per_kg / unitPrice в raw_cost_ver. */
   if (await isPriceCanonV2Live_(env)) {
     try {
       await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_, loadPieceBatchesGrouped_);
@@ -4251,8 +4274,11 @@ async function savePieceBatch_(params, env, actor) {
     weightKg: weightKg,
     pieces: pieces,
     costPiece: costPiece,
+    batchPcsPerKg: batchPcsPerKg,
     batchAvg: batchAvg,
+    factPcsPerKg: factPcs,
     batchN: list.length,
+    pcsPerKgUntouched: true,
     retailFrozen: true,
     cardsUntouched: true
   };
@@ -4302,6 +4328,13 @@ async function saveRawCost_(params, env, actor) {
       return { status: "error", message: "усушка % — от 0 до 99.9" };
     }
   }
+  /* chew-pcs-kg: ручное среднее количество штук в кг. */
+  let pcsPerKg = params && (params.pcsPerKg != null ? params.pcsPerKg : params.pcs_per_kg);
+  if (pcsPerKg === "" || pcsPerKg == null) pcsPerKg = null;
+  else {
+    pcsPerKg = Number(String(pcsPerKg).replace(",", "."));
+    if (!isFinite(pcsPerKg) || !(pcsPerKg > 0)) return { status: "error", message: "шт/кг > 0" };
+  }
 
   let cost = params && params.cost;
   if (cost === "" || cost == null) cost = null;
@@ -4320,18 +4353,32 @@ async function saveRawCost_(params, env, actor) {
 
   let scaled = false;
   let fromKg = false;
+  let fromPcsKg = false;
   /* raw-kg-shrink: новый ввод граммов — только через кг+%; существующие версии не трогаем. */
   if (!piece && costKg != null && shrinkPct != null) {
     const computed = cost100FromKgShrink_(costKg, shrinkPct);
     if (computed == null) return { status: "error", message: "не удалось посчитать себес 100г" };
     cost = computed;
     fromKg = true;
+    pcsPerKg = null;
   } else if (piece) {
-    costKg = null;
     shrinkPct = null;
-    if (cost == null) return { status: "error", message: "себес за штуку" };
+    /* chew-pcs-kg: себес/шт = цена_кг / шт_в_кг; иначе legacy cost/шт. */
+    if (costKg != null && pcsPerKg != null) {
+      const computed = costPieceFromKgPcs_(costKg, pcsPerKg);
+      if (computed == null) return { status: "error", message: "не удалось посчитать себес/шт" };
+      cost = computed;
+      fromPcsKg = true;
+    } else if (cost == null) {
+      return { status: "error", message: "нужны цена/кг и шт/кг (или себес за шт)" };
+    } else {
+      /* legacy прямой себес/шт без шт/кг — колонки кг/pcs не пишем. */
+      costKg = null;
+      pcsPerKg = null;
+    }
   } else {
     /* legacy: себес/выход как раньше (если UI ещё не прислал кг+%). */
+    pcsPerKg = null;
     const versions = await loadRawCostVersions_(env);
     const yields = await warehouseYieldMap_(env);
     const prev = rawCostEffective_(versions, sku, "9999-12-31", null);
@@ -4350,32 +4397,41 @@ async function saveRawCost_(params, env, actor) {
 
   const actorTg = String((actor && actor.telegramId) || "");
   const nowIso = new Date().toISOString();
-  /* v2 + raw-kg-shrink: пишем sku_id, cost_kg, shrink_pct; после save пересобираем priceCostsPp. */
+  const src = fromPcsKg ? "manual-pcs-kg" : fromKg ? "manual-kg" : "manual";
+  /* chew-pcs-kg: пишем cost + cost_kg + pcs_per_kg (+ shrink_pct для граммов). */
   try {
     await env.DB.prepare(
-      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source, cost_kg, shrink_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source, cost_kg, shrink_pct, pcs_per_kg) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-      .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, fromKg ? "manual-kg" : "manual", costKg, shrinkPct)
+      .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, src, costKg, shrinkPct, pcsPerKg)
       .run();
   } catch (eIns) {
     try {
       await env.DB.prepare(
-        "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source, cost_kg, shrink_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
-        .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, fromKg ? "manual-kg" : "manual")
+        .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, src, costKg, shrinkPct)
         .run();
     } catch (eIns2) {
-      await env.DB.prepare(
-        "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
-      )
-        .bind(sku, cost, shrink, from, nowIso)
-        .run();
+      try {
+        await env.DB.prepare(
+          "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at, sku_id, actor_tg, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+          .bind(sku, cost, shrink, from, nowIso, skuId || null, actorTg, src)
+          .run();
+      } catch (eIns3) {
+        await env.DB.prepare(
+          "INSERT INTO raw_cost_ver (sku, cost, shrink, effective_from, created_at) VALUES (?, ?, ?, ?, ?)"
+        )
+          .bind(sku, cost, shrink, from, nowIso)
+          .run();
+      }
     }
   }
   try { await stageCNoteRaw_(env, sku, cost, shrink); } catch (eRaw) {}
   if (await isPriceCanonV2Live_(env)) {
     try {
-      /* chew-batch-avg: rebuild с партиями, чтобы avg шт не сбрасывался. */
+      /* chew-pcs-kg: dated cost в snap; hint партий без смены pcs_per_kg. */
       await rebuildPriceCostsPpV2_(env, putSnap_, loadRawCostVersions_, loadPieceBatchesGrouped_);
     } catch (eRb) {}
   }
@@ -4385,10 +4441,12 @@ async function saveRawCost_(params, env, actor) {
     skuId: skuId || "",
     cost: cost,
     costKg: costKg,
+    pcsPerKg: pcsPerKg,
     shrinkPct: shrinkPct,
     shrink: shrink,
     piece: !!piece,
     fromKg: fromKg,
+    fromPcsKg: fromPcsKg,
     scaled: scaled,
     effectiveFrom: from,
     retailFrozen: true,
@@ -31369,10 +31427,10 @@ async function costsForCalcD1_(env, costs, params) {
   /* price-canon-v2: только dated raw_cost_ver по sku_id, без snap/GAS/builtin. */
   if (await isPriceCanonV2Live_(env)) {
     let map = costsMapFromVersionsV2_(versions, asOf || "9999-12-31");
-    /* chew-batch-avg: поверх — взвешенная средняя по партиям шт (без партий ключ не трогаем). */
+    /* chew-pcs-kg: hint партий для статистики; unitPrice/pcsPerKg только из dated ver. */
     try {
       const grouped = await loadPieceBatchesGrouped_(env);
-      map = overlayPieceBatchAvg_(map, grouped);
+      map = annotatePieceBatchHints_(map, grouped);
     } catch (eBat) {}
     map.__canonV2 = true;
     return map;
@@ -31649,10 +31707,15 @@ function buildPpLinesFromCostsD1_(basket, costs, opts) {
       cat: cat,
       cost: Math.round(cost * 100) / 100,
       skuId: skuId || (info && info.skuId) || "",
-      /* chew-batch-avg: в экономике — себес последней партии и средняя факт. */
+      /* chew-pcs-kg: экономика — партия, факт шт/кг, ручные шт/кг и себес. */
       batchAvg: info && info.batchAvg != null ? Number(info.batchAvg) : null,
+      batchPcsPerKg: info && info.batchPcsPerKg != null ? Number(info.batchPcsPerKg) : null,
       lastBatchCost: info && info.lastBatchCost != null ? Number(info.lastBatchCost) : null,
-      batchN: info && info.batchN != null ? Number(info.batchN) : null
+      lastBatchPcsPerKg: info && info.lastBatchPcsPerKg != null ? Number(info.lastBatchPcsPerKg) : null,
+      batchN: info && info.batchN != null ? Number(info.batchN) : null,
+      pcsPerKg: info && info.pcsPerKg != null ? Number(info.pcsPerKg) : null,
+      costKg: info && info.costKg != null ? Number(info.costKg) : null,
+      manualCost: piece ? unitPrice : null
     });
   }
   return {

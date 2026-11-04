@@ -270,7 +270,15 @@
     return String(Math.round((a / 10 / (1 - b / 100)) * 10000) / 10000);
   }
 
-  /* chew-batch-avg: себес партии за шт = кг × вес / штук. */
+  /* chew-pcs-kg: себес/шт = цена_кг / шт_в_кг. */
+  function costPieceFromKgPcsUi_(kg, pcsKg) {
+    var a = Number(String(kg == null ? "" : kg).replace(",", "."));
+    var n = Number(String(pcsKg == null ? "" : pcsKg).replace(",", "."));
+    if (!isFinite(a) || a < 0 || !isFinite(n) || !(n > 0)) return "";
+    return String(Math.round((a / n) * 10000) / 10000);
+  }
+
+  /* chew-pcs-kg: себес партии за шт = кг × вес / штук (статистика). */
   function costPieceFromBatchUi_(kg, weight, pcs) {
     var a = Number(String(kg == null ? "" : kg).replace(",", "."));
     var w = Number(String(weight == null ? "" : weight).replace(",", "."));
@@ -287,12 +295,14 @@
       var piece = !!it.piece;
       var costVal = it.cost == null || it.cost === "" ? "" : String(it.cost);
       var kgVal = it.costKg == null || it.costKg === "" ? "" : String(it.costKg);
+      var pcsKgVal = it.pcsPerKg == null || it.pcsPerKg === "" ? "" : String(it.pcsPerKg);
       var pctVal = it.shrinkPct == null || it.shrinkPct === "" ? "" : String(it.shrinkPct);
       var hist = (it.history || []).map(function (h) {
         var c = h.cost == null || h.cost === "" ? "пусто" : String(h.cost);
-        /* raw-kg-shrink: в истории показываем кг/% если были; иначе legacy выход. */
+        /* chew-pcs-kg / raw-kg-shrink: в истории кг, шт/кг или усушка. */
         var extra = "";
         if (h.costKg != null && h.costKg !== "") extra += ", кг " + h.costKg;
+        if (h.pcsPerKg != null && h.pcsPerKg !== "") extra += ", шт/кг " + h.pcsPerKg;
         if (h.shrinkPct != null && h.shrinkPct !== "") extra += ", усушка " + h.shrinkPct + "%";
         if (!extra && h.shrink != null && h.shrink !== "") extra = ", выход " + h.shrink;
         return String(h.effectiveFrom || "").slice(0, 10) + " · " + c + extra;
@@ -301,26 +311,34 @@
       var inputs;
       var batchBlock = "";
       if (piece) {
-        /* chew-batch-avg: ввод партии (кг×вес/шт); legacy cost/шт — запасной без партий. */
-        var avgNote = it.batchAvg != null
-          ? ("средняя факт. " + it.batchAvg + " · партий " + ((it.batches && it.batches.length) || 0))
-          : ("без партий · legacy " + (costVal || "—"));
+        /* chew-pcs-kg: ввод цена/кг + шт/кг → себес; партии — сравнение. */
+        var piecePreview = kgVal !== "" && pcsKgVal !== "" ? costPieceFromKgPcsUi_(kgVal, pcsKgVal) : costVal;
+        var hintParts = [];
+        hintParts.push("в calc " + (piecePreview || costVal || "—") + "/шт");
+        if (pcsKgVal) hintParts.push("ручные шт/кг " + pcsKgVal);
+        if (it.batchPcsPerKg != null) hintParts.push("факт шт/кг " + it.batchPcsPerKg);
+        if (it.lastBatchCost != null) hintParts.push("партия " + it.lastBatchCost + "/шт");
+        if (it.batchAvg != null) hintParts.push("ср. партий " + it.batchAvg);
+        var avgNote = hintParts.join(" · ");
         var batHist = (it.batches || []).map(function (b) {
           return String(b.batchDate || "").slice(0, 10) + " · " + b.costPiece + "/шт (" + b.costKg + "×" + b.weightKg + "/" + b.pieces + ")";
         }).join("; ");
         inputs =
-          '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="batchKg" placeholder="BYN/кг"></label>' +
-          '<label class="b-field" style="width:64px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="batchWeight" placeholder="кг"></label>' +
-          '<label class="b-field" style="width:64px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="batchPcs" placeholder="шт"></label>' +
-          '<span class="b-note rc-bout" data-rc-bout="' + esc(it.sku) + '" style="min-width:72px;padding-top:10px">партия: <b>—</b></span>';
+          '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="costKg" placeholder="BYN/кг" value="' + esc(kgVal) + '"></label>' +
+          '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="pcsPerKg" placeholder="шт/кг" value="' + esc(pcsKgVal) + '"></label>' +
+          '<span class="b-note rc-pout" data-rc-pout="' + esc(it.sku) + '" style="min-width:72px;padding-top:10px">шт: <b>' + esc(piecePreview || "—") + "</b></span>" +
+          '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>' +
+          '<button type="button" class="b-btn b-btn--main b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>';
         batchBlock =
           '<div class="b-note" style="width:100%;margin:4px 0 0">' + esc(avgNote) +
           (batHist ? " · " + esc(batHist) : "") +
           '</div>' +
-          '<div style="width:100%;display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">' +
-          '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="cost" placeholder="legacy/шт" value="' + esc(costVal) + '"></label>' +
-          '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Legacy</button>' +
-          '<button type="button" class="b-btn b-btn--main b-btn--sm" data-act="rc-batch" data-sku="' + esc(it.sku) + '" data-sku-id="' + esc(it.skuId || "") + '">Партия</button>' +
+          '<div style="width:100%;display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:flex-start">' +
+          '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="batchKg" placeholder="парт.кг"></label>' +
+          '<label class="b-field" style="width:64px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="batchWeight" placeholder="вес"></label>' +
+          '<label class="b-field" style="width:64px;flex:none"><input class="b-field__input" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="batchPcs" placeholder="шт"></label>' +
+          '<span class="b-note rc-bout" data-rc-bout="' + esc(it.sku) + '" style="min-width:72px;padding-top:10px">партия: <b>—</b></span>' +
+          '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-batch" data-sku="' + esc(it.sku) + '" data-sku-id="' + esc(it.skuId || "") + '">Партия</button>' +
           "</div>";
       } else {
         /* raw-kg-shrink: граммы — цена/кг + усушка%; себес100 рядом (считается). */
@@ -328,28 +346,26 @@
         inputs =
           '<label class="b-field" style="width:84px;flex:none"><input class="b-field__input rc-kg" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="costKg" placeholder="BYN/кг" value="' + esc(kgVal) + '"></label>' +
           '<label class="b-field" style="width:72px;flex:none"><input class="b-field__input rc-pct" inputmode="decimal" data-rc-sku="' + esc(it.sku) + '" data-rc-field="shrinkPct" placeholder="усуш %" value="' + esc(pctVal) + '"></label>' +
-          '<span class="b-note rc-out" data-rc-out="' + esc(it.sku) + '" style="min-width:64px;padding-top:10px">100г: <b>' + esc(preview || "—") + "</b></span>";
+          '<span class="b-note rc-out" data-rc-out="' + esc(it.sku) + '" style="min-width:64px;padding-top:10px">100г: <b>' + esc(preview || "—") + "</b></span>" +
+          '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>' +
+          '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>';
       }
       return '<div class="nx-line" style="align-items:flex-start;flex-wrap:wrap" data-rc-row="' + esc(it.sku) + '" data-rc-piece="' + (piece ? "1" : "0") + '" data-rc-sku-id="' + esc(it.skuId || "") + '">' +
         '<div class="b-grow"><b>' + esc(it.sku) + '</b><div class="b-note">' + esc(builtin) + (piece ? " · шт" : " · г") + "</div>" +
         (hist ? '<div class="b-note">версии: ' + esc(hist) + "</div>" : "") +
         "</div>" +
         inputs +
-        (piece ? "" : '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>') +
-        (piece
-          ? '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(today) + '"></label>'
-          : '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>') +
         batchBlock +
         "</div>";
     }).join("");
     box.innerHTML = '<p class="b-lbl" style="margin-top:0">Себес сырья</p>' +
       '<p class="b-note">Единый канон D1 (sku_id). Google-книга прайса на расчёт не влияет. Новая версия — с даты; карточки не переписываем.</p>' +
       '<p class="b-note">' + esc(note || "") + "</p>" +
-      /* chew-batch-avg: подпись под партии жевалок. */
-      '<p class="b-note">Граммы: BYN/кг + усушка % → 100 г. Штуки: партия BYN/кг × вес / шт → средняя по штукам; без партий — legacy за шт. Старые версии и цены клиентов не трогаем.</p>' +
+      /* chew-pcs-kg: цена/кг + шт/кг → себес; партии не меняют шт/кг. */
+      '<p class="b-note">Граммы: BYN/кг + усушка % → 100 г. Штуки: BYN/кг + среднее шт/кг → себес/шт. Партии — сравнение (себес партии и факт шт/кг), автоматически шт/кг не перезаписывают. Старые версии и цены клиентов не трогаем.</p>' +
       '<button type="button" class="b-btn b-btn--main" data-act="rc-publish" style="margin:8px 0">Обновить прайс</button>' +
       (rows || '<p class="b-note">Пусто</p>');
-    /* raw-kg-shrink + chew-batch-avg: живой пересчёт 100г / партии. */
+    /* raw-kg-shrink + chew-pcs-kg: живой пересчёт 100г / себес шт / партии. */
     box.onchange = box.oninput = function (ev) {
       var t = ev && ev.target;
       if (!t || !t.getAttribute) return;
@@ -359,10 +375,17 @@
       var f = costFields(sku);
       if (field === "costKg" || field === "shrinkPct") {
         var out = box.querySelector('[data-rc-out="' + sku.replace(/"/g, "") + '"]');
-        if (!out) return;
-        var v = cost100FromKgShrinkUi_(f.costKg, f.shrinkPct);
-        out.innerHTML = "100г: <b>" + esc(v || "—") + "</b>";
-        return;
+        if (out) {
+          var v = cost100FromKgShrinkUi_(f.costKg, f.shrinkPct);
+          out.innerHTML = "100г: <b>" + esc(v || "—") + "</b>";
+        }
+      }
+      if (field === "costKg" || field === "pcsPerKg") {
+        var pout = box.querySelector('[data-rc-pout="' + sku.replace(/"/g, "") + '"]');
+        if (pout) {
+          var pv = costPieceFromKgPcsUi_(f.costKg, f.pcsPerKg);
+          pout.innerHTML = "шт: <b>" + esc(pv || "—") + "</b>";
+        }
       }
       if (field === "batchKg" || field === "batchWeight" || field === "batchPcs") {
         var bout = box.querySelector('[data-rc-bout="' + sku.replace(/"/g, "") + '"]');
@@ -389,8 +412,8 @@
   }
 
   function costFields(sku) {
-    /* raw-kg-shrink + chew-batch-avg: читаем кг/%, legacy cost и поля партии. */
-    var out = { cost: "", shrink: "", costKg: "", shrinkPct: "", from: "", piece: false, batchKg: "", batchWeight: "", batchPcs: "", skuId: "" };
+    /* chew-pcs-kg: costKg+pcsPerKg для calc; batch* — статистика партий. */
+    var out = { cost: "", shrink: "", costKg: "", shrinkPct: "", pcsPerKg: "", from: "", piece: false, batchKg: "", batchWeight: "", batchPcs: "", skuId: "" };
     var row = document.querySelector('[data-rc-row="' + String(sku || "").replace(/"/g, "") + '"]');
     if (row && row.getAttribute("data-rc-piece") === "1") out.piece = true;
     if (row) out.skuId = row.getAttribute("data-rc-sku-id") || "";
@@ -399,7 +422,7 @@
     for (i = 0; i < nodes.length; i++) {
       if (nodes[i].getAttribute("data-rc-sku") !== sku) continue;
       var f = nodes[i].getAttribute("data-rc-field");
-      if (f === "cost" || f === "shrink" || f === "costKg" || f === "shrinkPct" || f === "from" ||
+      if (f === "cost" || f === "shrink" || f === "costKg" || f === "shrinkPct" || f === "pcsPerKg" || f === "from" ||
           f === "batchKg" || f === "batchWeight" || f === "batchPcs") out[f] = nodes[i].value;
     }
     return out;
@@ -415,9 +438,10 @@
       sku: sku,
       effectiveFrom: f.from
     };
-    /* raw-kg-shrink: граммы шлём кг+%; штуки — cost за шт. */
+    /* chew-pcs-kg: штуки — кг + шт/кг; граммы — кг+%. */
     if (f.piece) {
-      body.cost = f.cost;
+      body.costKg = f.costKg;
+      body.pcsPerKg = f.pcsPerKg;
     } else {
       body.costKg = f.costKg;
       body.shrinkPct = f.shrinkPct;
@@ -430,20 +454,24 @@
       sh().toast((res && res.message) || "Себес не сохранился");
       return;
     }
-    var tip = res.fromKg
-      ? (" → 100г " + res.cost + " из " + res.costKg + " кг / " + res.shrinkPct + "%")
-      : (res.scaled ? " (выход пересчитал)" : "");
+    var tip = res.fromPcsKg
+      ? (" → " + res.cost + "/шт из " + res.costKg + " кг / " + res.pcsPerKg + " шт/кг")
+      : (res.fromKg
+        ? (" → 100г " + res.cost + " из " + res.costKg + " кг / " + res.shrinkPct + "%")
+        : (res.scaled ? " (выход пересчитал)" : ""));
     sh().toast("Себес " + sku + " с " + f.from + tip + ". Прайс клиенту тот же.");
     await loadRawCosts();
   }
 
-  /* chew-batch-avg: внести партию жевалок; версии raw_cost_ver не пишем. */
+  /* chew-pcs-kg: партия не пишет/не меняет pcs_per_kg в raw_cost_ver. */
   async function saveBatch(sku, skuId) {
     if (!isOwner()) { sh().toast("Только владелец"); return; }
     var f = costFields(sku);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.from || "")) { sh().toast("Нужна дата"); return; }
+    var batchDate = f.from || new Date().toISOString().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(batchDate)) { sh().toast("Нужна дата"); return; }
     var preview = costPieceFromBatchUi_(f.batchKg, f.batchWeight, f.batchPcs);
     if (!preview) { sh().toast("Нужны BYN/кг, вес кг и штук"); return; }
+    var pcsBefore = f.pcsPerKg;
     var res = null;
     try {
       res = await api().apiPost({
@@ -451,7 +479,7 @@
         telegramId: tid(),
         sku: sku,
         skuId: skuId || f.skuId || "",
-        batchDate: f.from,
+        batchDate: batchDate,
         costKg: f.batchKg,
         weightKg: f.batchWeight,
         pieces: f.batchPcs
@@ -463,7 +491,8 @@
     }
     sh().toast(
       "Партия " + sku + ": " + res.costPiece + "/шт" +
-      (res.batchAvg != null ? (", средняя " + res.batchAvg) : "") +
+      (res.batchPcsPerKg != null ? (", факт " + res.batchPcsPerKg + " шт/кг") : "") +
+      (pcsBefore ? ("; ручные шт/кг " + pcsBefore + " без изменений") : "") +
       ". Прайс клиенту тот же."
     );
     await loadRawCosts();

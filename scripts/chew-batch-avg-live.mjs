@@ -1,7 +1,6 @@
 /**
- * Live: снимок → 2 партии жевалок → себес каждой + средняя → cleanup.
- * Карточки/цены клиентов не пишет. Нужен TELEGRAM_BOT_TOKEN.
- * chew-batch-avg marker.
+ * Live chew-pcs-kg: цена/кг + шт/кг → себес/шт; партия не меняет pcs_per_kg.
+ * Cleanup тестов + 2099. Карточки/цены клиентов не пишет.
  */
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -9,8 +8,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  costPieceFromKgPcs_,
   costPieceFromBatch_,
-  weightedAvgPieceCost_
+  pcsPerKgFromBatch_
 } from "../boinya-c/proxy/price-canon-v2.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +21,11 @@ const OWNER_ID = Number(process.env.PP_AUDIT_TG_ID || "650923866");
 const OWNER_NAME = process.env.PP_AUDIT_TG_NAME || "Арсений";
 const SKU = "КОЛЕНИ";
 const SKU_ID = "KOLENI";
-const BATCH_DATE = "2099-02-01"; /* future — не путаем с живыми партиями */
+const BATCH_DATE = "2099-02-01";
+const MANUAL_FROM = "2099-03-01";
+const COST_KG = 45;
+const PCS_PER_KG = 20;
+const EXPECT_COST = costPieceFromKgPcs_(COST_KG, PCS_PER_KG); /* 2.25 */
 
 function parseWrangler(text) {
   const raw = String(text || "");
@@ -58,32 +62,30 @@ if (!token) {
 }
 mkdirSync(outDir, { recursive: true });
 
-/* chew-batch-avg: схема до записи (снимок). */
 d1(
   "CREATE TABLE IF NOT EXISTS raw_piece_batch (" +
     "id INTEGER PRIMARY KEY AUTOINCREMENT, sku_id TEXT NOT NULL, sku TEXT NOT NULL DEFAULT '', " +
     "batch_date TEXT NOT NULL, cost_kg REAL NOT NULL, weight_kg REAL NOT NULL, pieces REAL NOT NULL, " +
     "cost_piece REAL NOT NULL, created_at TEXT NOT NULL, actor_tg TEXT, source TEXT)"
 );
+try {
+  d1("ALTER TABLE raw_cost_ver ADD COLUMN pcs_per_kg REAL");
+} catch (ePcs) {}
 
-/* удалить прошлый LEGKOE 2099 и тестовые партии на BATCH_DATE */
 try {
-  d1("DELETE FROM raw_cost_ver WHERE effective_from = '2099-01-01' AND sku LIKE '%ЛЁГКОЕ%'");
+  d1("DELETE FROM raw_cost_ver WHERE effective_from LIKE '2099-%'");
 } catch (eDel) {}
-try {
-  d1("DELETE FROM raw_cost_ver WHERE effective_from = '2099-01-01' AND sku LIKE '%ЛЕГКОЕ%'");
-} catch (eDel2) {}
 try {
   d1("DELETE FROM raw_piece_batch WHERE batch_date = '" + BATCH_DATE + "' AND sku_id = '" + SKU_ID + "'");
 } catch (eDel3) {}
 
-const beforeN = d1("SELECT COUNT(*) as n FROM raw_piece_batch");
-const snapKey = "chewBatchAvgBackup:2026-11-04";
-const pack = {
-  at: new Date().toISOString(),
-  n: beforeN[0] && beforeN[0].n,
-  note: "before chew-batch-avg live 2 batches " + SKU_ID + " " + BATCH_DATE
-};
+const beforeVer = d1(
+  "SELECT cost, cost_kg, pcs_per_kg, effective_from FROM raw_cost_ver WHERE sku_id = '" +
+    SKU_ID +
+    "' OR sku LIKE '%КОЛЕНИ%' ORDER BY effective_from DESC, id DESC LIMIT 3"
+);
+const snapKey = "chewPcsKgBackup:2026-11-04";
+const pack = { at: new Date().toISOString(), beforeVer, note: "before chew-pcs-kg live " + SKU_ID };
 d1(
   "INSERT INTO snap_cache (cache_key, payload, updated_at) VALUES ('" +
     snapKey +
@@ -99,111 +101,107 @@ const initData = signInitData(token, {
   user: JSON.stringify({ id: OWNER_ID, first_name: OWNER_NAME })
 });
 
-/* партия A: 10 BYN/кг × 2 кг / 20 шт = 1.0; партия B: 20 × 1.5 / 30 = 1.0 → wait use unequal for avg demo */
-const A = { costKg: 10, weightKg: 2, pieces: 20 }; /* cost 1.0 */
-const B = { costKg: 30, weightKg: 1, pieces: 10 }; /* cost 3.0 */
-const expectA = costPieceFromBatch_(A.costKg, A.weightKg, A.pieces);
-const expectB = costPieceFromBatch_(B.costKg, B.weightKg, B.pieces);
-const expectAvg = weightedAvgPieceCost_([
-  { pieces: A.pieces, costPiece: expectA },
-  { pieces: B.pieces, costPiece: expectB }
-]);
-
-async function saveBatch(body) {
+async function post(body) {
   const res = await fetch(WORKER, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(
-      Object.assign(
-        {
-          action: "savePieceBatch",
-          cutover: 1,
-          initData,
-          sku: SKU,
-          skuId: SKU_ID,
-          batchDate: BATCH_DATE
-        },
-        body
-      )
-    )
+    body: JSON.stringify(Object.assign({ cutover: 1, initData }, body))
   });
   const text = await res.text();
-  let json = null;
   try {
-    json = JSON.parse(text);
+    return JSON.parse(text);
   } catch (e) {
     return { parseError: text.slice(0, 400) };
   }
-  return json;
 }
 
-const save1 = await saveBatch(A);
-const save2 = await saveBatch(B);
+/* 1) ручной ввод цена/кг + шт/кг → себес/шт */
+const saveManual = await post({
+  action: "saveRawCost",
+  sku: SKU,
+  skuId: SKU_ID,
+  costKg: COST_KG,
+  pcsPerKg: PCS_PER_KG,
+  effectiveFrom: MANUAL_FROM
+});
 
-let rows = [];
-try {
-  rows = d1(
-    "SELECT id, sku_id, cost_kg, weight_kg, pieces, cost_piece, batch_date FROM raw_piece_batch " +
-      "WHERE batch_date = '" +
-      BATCH_DATE +
-      "' AND sku_id = '" +
-      SKU_ID +
-      "' ORDER BY id ASC"
-  );
-} catch (eSel) {
-  rows = [{ error: String(eSel && eSel.message) }];
-}
-
-const ids = rows.map((r) => r.id).filter((x) => x > 0);
-
-/* cleanup тестовых партий после проверки */
-let deleted = [];
-for (const id of ids) {
-  const delRes = await fetch(WORKER, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "deletePieceBatch",
-      cutover: 1,
-      initData,
-      id
-    })
-  });
-  let dj = null;
-  try {
-    dj = JSON.parse(await delRes.text());
-  } catch (eD) {
-    dj = { parseError: true };
-  }
-  deleted.push(dj);
-}
-
-/* повторно подчистить LEGKOE 2099 на всякий */
-try {
-  d1("DELETE FROM raw_cost_ver WHERE effective_from = '2099-01-01'");
-} catch (eClean) {}
-
-const left = d1(
-  "SELECT COUNT(*) as n FROM raw_piece_batch WHERE batch_date = '" + BATCH_DATE + "' AND sku_id = '" + SKU_ID + "'"
+const listAfterManual = await post({ action: "listRawCosts" });
+const kneeManual = ((listAfterManual && listAfterManual.items) || []).find(
+  (it) => it.skuId === SKU_ID || it.sku === SKU
 );
 
+/* 2) партия с другим факт шт/кг — pcsPerKg ручной не должен измениться */
+const A = { costKg: 30, weightKg: 1, pieces: 5 }; /* факт 5 шт/кг, себес партии 6 */
+const expectBatch = costPieceFromBatch_(A.costKg, A.weightKg, A.pieces);
+const expectFactPcs = pcsPerKgFromBatch_(A.weightKg, A.pieces);
+const saveBatch = await post({
+  action: "savePieceBatch",
+  sku: SKU,
+  skuId: SKU_ID,
+  batchDate: BATCH_DATE,
+  ...A
+});
+
+const listAfterBatch = await post({ action: "listRawCosts" });
+const kneeBatch = ((listAfterBatch && listAfterBatch.items) || []).find(
+  (it) => it.skuId === SKU_ID || it.sku === SKU
+);
+
+const pcsUnchanged =
+  kneeBatch &&
+  Number(kneeBatch.pcsPerKg) === Number(PCS_PER_KG) &&
+  Number(kneeBatch.cost) === Number(EXPECT_COST) &&
+  Number(kneeBatch.calcCost) === Number(EXPECT_COST) &&
+  Number(kneeBatch.batchPcsPerKg) === Number(expectFactPcs) &&
+  Number(kneeBatch.pcsPerKg) !== Number(expectFactPcs);
+
+const rows = d1(
+  "SELECT id FROM raw_piece_batch WHERE batch_date = '" + BATCH_DATE + "' AND sku_id = '" + SKU_ID + "'"
+);
+const deleted = [];
+for (const r of rows) {
+  deleted.push(await post({ action: "deletePieceBatch", id: r.id }));
+}
+try {
+  d1("DELETE FROM raw_cost_ver WHERE effective_from LIKE '2099-%'");
+} catch (eClean) {}
+
+const leftBat = d1(
+  "SELECT COUNT(*) as n FROM raw_piece_batch WHERE batch_date = '" + BATCH_DATE + "' AND sku_id = '" + SKU_ID + "'"
+);
+const leftVer = d1("SELECT COUNT(*) as n FROM raw_cost_ver WHERE effective_from LIKE '2099-%'");
+
 const report = {
-  expect: { A: expectA, B: expectB, avg: expectAvg },
-  save1,
-  save2,
-  d1: rows,
+  expect: { cost: EXPECT_COST, costKg: COST_KG, pcsPerKg: PCS_PER_KG, batchCost: expectBatch, factPcs: expectFactPcs },
+  saveManual,
+  kneeManual: kneeManual && {
+    cost: kneeManual.cost,
+    costKg: kneeManual.costKg,
+    pcsPerKg: kneeManual.pcsPerKg,
+    calcCost: kneeManual.calcCost
+  },
+  saveBatch,
+  kneeBatch: kneeBatch && {
+    cost: kneeBatch.cost,
+    pcsPerKg: kneeBatch.pcsPerKg,
+    calcCost: kneeBatch.calcCost,
+    batchAvg: kneeBatch.batchAvg,
+    batchPcsPerKg: kneeBatch.batchPcsPerKg,
+    lastBatchCost: kneeBatch.lastBatchCost
+  },
+  pcsUnchanged,
   deleted,
-  left: left[0],
-  backup: snapKey,
-  beforeN: beforeN[0]
+  leftBat: leftBat[0],
+  leftVer: leftVer[0],
+  backup: snapKey
 };
 writeFileSync(join(outDir, "live.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));
 
-if (!save1 || save1.status !== "success") process.exit(1);
-if (!save2 || save2.status !== "success") process.exit(2);
-if (Number(save1.costPiece) !== Number(expectA)) process.exit(3);
-if (Number(save2.costPiece) !== Number(expectB)) process.exit(4);
-if (Number(save2.batchAvg) !== Number(expectAvg)) process.exit(5);
-if (!(rows.length >= 2)) process.exit(6);
-if (!(left[0] && Number(left[0].n) === 0)) process.exit(7);
+if (!saveManual || saveManual.status !== "success") process.exit(1);
+if (Number(saveManual.cost) !== Number(EXPECT_COST)) process.exit(2);
+if (!(saveManual.fromPcsKg || Number(saveManual.pcsPerKg) === PCS_PER_KG)) process.exit(3);
+if (!saveBatch || saveBatch.status !== "success") process.exit(4);
+if (!pcsUnchanged) process.exit(5);
+if (!(leftBat[0] && Number(leftBat[0].n) === 0)) process.exit(6);
+if (!(leftVer[0] && Number(leftVer[0].n) === 0)) process.exit(7);

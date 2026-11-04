@@ -5,9 +5,12 @@ import {
   costsMapFromVersionsV2_,
   lookupCostV2_,
   cost100FromKgShrink_,
+  costPieceFromKgPcs_,
   costPieceFromBatch_,
+  pcsPerKgFromBatch_,
   weightedAvgPieceCost_,
-  overlayPieceBatchAvg_,
+  weightedAvgPcsPerKg_,
+  annotatePieceBatchHints_,
   PRICE_COST_SEED_1110_,
   PRICE_CANON_V2_SEED_FROM_
 } from "./price-canon-v2.js";
@@ -54,21 +57,27 @@ test("raw-kg-shrink: себес100 = кг/10/(1−%/100)", () => {
   assert.equal(cost100FromKgShrink_("20", "80"), 10);
 });
 
-test("chew-batch-avg: себес/шт = кг×вес/штук; средняя по шт", () => {
+test("chew-pcs-kg: себес/шт = кг/шт_в_кг; партия не трогает unitPrice/pcsPerKg", () => {
+  assert.equal(costPieceFromKgPcs_(45, 20), 2.25);
+  assert.equal(costPieceFromKgPcs_(10, 10), 1);
   assert.equal(costPieceFromBatch_(10, 2, 20), 1);
-  assert.equal(costPieceFromBatch_(20, 1.5, 30), 1);
-  const avg = weightedAvgPieceCost_([
-    { pieces: 10, costPiece: 1 },
-    { pieces: 30, costPiece: 2 }
-  ]);
-  assert.equal(avg, 1.75);
-  const costs = overlayPieceBatchAvg_(
-    { KOLENI: { name: "КОЛЕНИ", unitPrice: 1.17, piece: true, skuId: "KOLENI" } },
-    { KOLENI: [{ pieces: 10, costPiece: 1 }, { pieces: 30, costPiece: 2 }] }
+  assert.equal(pcsPerKgFromBatch_(2, 20), 10);
+  const batches = [
+    { pieces: 20, weightKg: 2, costPiece: 1 },
+    { pieces: 10, weightKg: 1, costPiece: 3 }
+  ];
+  assert.equal(weightedAvgPieceCost_(batches), 1.6667);
+  assert.equal(weightedAvgPcsPerKg_(batches), 10);
+  /* ручные pcsPerKg=15 / unitPrice=1.17; партия только hint. */
+  const costs = annotatePieceBatchHints_(
+    { KOLENI: { name: "КОЛЕНИ", unitPrice: 1.17, pcsPerKg: 15, piece: true, skuId: "KOLENI" } },
+    { KOLENI: batches }
   );
-  assert.equal(costs.KOLENI.unitPrice, 1.75);
-  assert.equal(costs.KOLENI.batchAvg, 1.75);
-  assert.equal(costs.KOLENI.lastBatchCost, 2);
+  assert.equal(costs.KOLENI.unitPrice, 1.17);
+  assert.equal(costs.KOLENI.pcsPerKg, 15);
+  assert.equal(costs.KOLENI.batchAvg, 1.6667);
+  assert.equal(costs.KOLENI.batchPcsPerKg, 10);
+  assert.equal(costs.KOLENI.lastBatchCost, 3);
 });
 
 test("lookupCostV2: map from versions, missing → null (не 0)", () => {

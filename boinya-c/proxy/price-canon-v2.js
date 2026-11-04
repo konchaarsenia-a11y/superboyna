@@ -234,7 +234,18 @@ export function isPieceSkuId_(skuId) {
   return !!(row && row.piece);
 }
 
-/** chew-batch-avg: себес партии за шт = цена_кг × вес_кг / штук. */
+/** chew-pcs-kg: себес/шт для calc = цена_кг / среднее_шт_в_кг (ручные поля). */
+export function costPieceFromKgPcs_(costKg, pcsPerKg) {
+  const kg = Number(String(costKg == null ? "" : costKg).replace(",", "."));
+  const pcs = Number(String(pcsPerKg == null ? "" : pcsPerKg).replace(",", "."));
+  if (!isFinite(kg) || kg < 0) return null;
+  if (!isFinite(pcs) || !(pcs > 0)) return null;
+  const out = kg / pcs;
+  if (!isFinite(out) || out < 0) return null;
+  return Math.round(out * 10000) / 10000;
+}
+
+/** chew-pcs-kg: себес партии за шт = цена_кг × вес_кг / штук (статистика, не в calc). */
 export function costPieceFromBatch_(costKg, weightKg, pieces) {
   const kg = Number(String(costKg == null ? "" : costKg).replace(",", "."));
   const w = Number(String(weightKg == null ? "" : weightKg).replace(",", "."));
@@ -247,7 +258,15 @@ export function costPieceFromBatch_(costKg, weightKg, pieces) {
   return Math.round(out * 10000) / 10000;
 }
 
-/** chew-batch-avg: средняя факт. себес/шт, взвешенная по числу штук. */
+/** chew-pcs-kg: факт шт/кг по партии = штук / вес_кг. */
+export function pcsPerKgFromBatch_(weightKg, pieces) {
+  const w = Number(String(weightKg == null ? "" : weightKg).replace(",", "."));
+  const n = Number(String(pieces == null ? "" : pieces).replace(",", "."));
+  if (!isFinite(w) || !(w > 0) || !isFinite(n) || !(n > 0)) return null;
+  return Math.round((n / w) * 10000) / 10000;
+}
+
+/** chew-pcs-kg: средняя факт. себес/шт по партиям (взвешенная по шт) — только статистика. */
 export function weightedAvgPieceCost_(batches) {
   let sumCost = 0;
   let sumPcs = 0;
@@ -262,40 +281,69 @@ export function weightedAvgPieceCost_(batches) {
   return Math.round((sumCost / sumPcs) * 10000) / 10000;
 }
 
-/** chew-batch-avg: наложить средние партий на costs-map (без партий — не трогаем). */
-export function overlayPieceBatchAvg_(costs, batchesBySkuId) {
+/** chew-pcs-kg: факт среднее шт/кг по всем партиям = Σшт / Σкг — только статистика. */
+export function weightedAvgPcsPerKg_(batches) {
+  let sumPcs = 0;
+  let sumKg = 0;
+  (batches || []).forEach(function (b) {
+    const pcs = Number(b && (b.pieces != null ? b.pieces : b.pcs));
+    const w = Number(b && (b.weightKg != null ? b.weightKg : b.weight_kg));
+    if (!(pcs > 0) || !(w > 0) || !isFinite(pcs) || !isFinite(w)) return;
+    sumPcs += pcs;
+    sumKg += w;
+  });
+  if (!(sumKg > 0)) return null;
+  return Math.round((sumPcs / sumKg) * 10000) / 10000;
+}
+
+/**
+ * chew-pcs-kg: hint партий на costs-map БЕЗ смены unitPrice/pcsPerKg.
+ * В calc — только dated cost из raw_cost_ver (цена_кг/шт_в_кг); партии не перезаписывают.
+ */
+export function annotatePieceBatchHints_(costs, batchesBySkuId) {
   const next = Object.assign(Object.create(null), costs || {});
   const byId = batchesBySkuId || {};
   Object.keys(byId).forEach(function (skuId) {
     const list = byId[skuId] || [];
     if (!list.length) return;
     const avg = weightedAvgPieceCost_(list);
-    if (!(avg > 0)) return;
+    const factPcs = weightedAvgPcsPerKg_(list);
     const cat = catalogRowById_(skuId);
     if (!cat || !cat.piece) return;
     const last = list[list.length - 1] || {};
     const key = displayKeyForSku_(cat);
     const prev = next[skuId] || next[key] || {};
-    const row = Object.assign({}, prev, {
-      name: cat.name,
-      sub: cat.sub || "",
-      unitPrice: avg,
-      per100: avg,
-      piece: true,
-      skuId: skuId,
-      source: "piece-batch-avg",
+    const lastPcs = pcsPerKgFromBatch_(
+      last.weightKg != null ? last.weightKg : last.weight_kg,
+      last.pieces
+    );
+    /* unitPrice / pcsPerKg не трогаем — только статистика. */
+    const hints = {
       batchAvg: avg,
+      batchPcsPerKg: factPcs,
       lastBatchCost: Number(last.costPiece != null ? last.costPiece : last.cost_piece) || null,
+      lastBatchPcsPerKg: lastPcs,
       batchN: list.length,
       batchPieces: list.reduce(function (s, b) {
         return s + (Number(b.pieces) || 0);
       }, 0)
-    });
+    };
+    const row = Object.assign({}, prev, {
+      name: prev.name || cat.name,
+      sub: prev.sub != null ? prev.sub : cat.sub || "",
+      piece: true,
+      skuId: skuId
+    }, hints);
     next[skuId] = row;
     next[key] = row;
-    if (!cat.sub) next[cat.name] = row;
+    if (!cat.sub && next[cat.name]) next[cat.name] = Object.assign({}, next[cat.name], hints);
   });
   return next;
+}
+
+/** @deprecated chew-pcs-kg: раньше перезаписывал unitPrice; теперь = annotate hints. */
+export function overlayPieceBatchAvg_(costs, batchesBySkuId) {
+  return annotatePieceBatchHints_(costs, batchesBySkuId);
 }
 
 export async function ensurePriceCanonV2Schema_(env) {
@@ -326,7 +374,11 @@ export async function ensurePriceCanonV2Schema_(env) {
   try {
     await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN shrink_pct REAL").run();
   } catch (eE) {}
-  /* chew-batch-avg: партии жевалок (кг→шт), отдельно от raw_cost_ver. */
+  /* chew-pcs-kg: ручное среднее шт/кг для жевалок (не из партий). */
+  try {
+    await env.DB.prepare("ALTER TABLE raw_cost_ver ADD COLUMN pcs_per_kg REAL").run();
+  } catch (eF) {}
+  /* chew-pcs-kg: партии жевалок (кг→шт) только статистика, отдельно от raw_cost_ver. */
   await env.DB.prepare(
     "CREATE TABLE IF NOT EXISTS raw_piece_batch (" +
       "id INTEGER PRIMARY KEY AUTOINCREMENT, sku_id TEXT NOT NULL, sku TEXT NOT NULL DEFAULT '', " +
@@ -455,7 +507,15 @@ export function costsMapFromVersionsV2_(versions, asOf) {
     if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return;
     if (from > when) return;
     if (!best[id] || from >= best[id].from) {
-      best[id] = { from: from, cost: v.cost, shrink: v.shrink, source: v.source || "" };
+      best[id] = {
+        from: from,
+        cost: v.cost,
+        shrink: v.shrink,
+        source: v.source || "",
+        /* chew-pcs-kg: тянем ручные кг и шт/кг в map для статистики. */
+        costKg: v.costKg != null ? v.costKg : v.cost_kg,
+        pcsPerKg: v.pcsPerKg != null ? v.pcsPerKg : v.pcs_per_kg
+      };
     }
   });
   const costs = Object.create(null);
@@ -475,7 +535,9 @@ export function costsMapFromVersionsV2_(versions, asOf) {
       piece: !!cat.piece,
       skuId: id,
       source: hit.source || "",
-      effectiveFrom: hit.from
+      effectiveFrom: hit.from,
+      costKg: hit.costKg != null && hit.costKg !== "" ? Number(hit.costKg) : null,
+      pcsPerKg: hit.pcsPerKg != null && hit.pcsPerKg !== "" ? Number(hit.pcsPerKg) : null
     };
     costs[key] = row;
     costs[id] = row;
@@ -487,11 +549,11 @@ export function costsMapFromVersionsV2_(versions, asOf) {
 export async function rebuildPriceCostsPpV2_(env, putSnap, loadVersions, loadBatches) {
   const versions = await loadVersions(env);
   let costs = costsMapFromVersionsV2_(versions, "9999-12-31");
-  /* chew-batch-avg: если есть партии — unitPrice = взвешенная средняя по шт. */
+  /* chew-pcs-kg: партии только hint; unitPrice = dated cost (кг/шт_в_кг). */
   if (typeof loadBatches === "function") {
     try {
       const grouped = await loadBatches(env);
-      costs = overlayPieceBatchAvg_(costs, grouped || {});
+      costs = annotatePieceBatchHints_(costs, grouped || {});
     } catch (eBat) {}
   }
   const snap = {
@@ -523,7 +585,7 @@ export async function migratePriceCanonV2_(env, deps) {
   if (!already) {
     seeded = await seedRawCosts1110_(env, actorTg);
   }
-  /* chew-batch-avg: loadBatches опционален — миграция без партий ок. */
+  /* chew-pcs-kg: loadBatches только для hint, pcs_per_kg/unitPrice не трогает. */
   const rebuilt = await rebuildPriceCostsPpV2_(env, deps.putSnap, deps.loadVersions, deps.loadBatches);
   await putMeta_(env, "price_canon_v2", PRICE_CANON_V2_);
   await putMeta_(env, "price_canon_v2_at", new Date().toISOString());

@@ -2778,13 +2778,19 @@
       var igName = root.BoinyaIgLabels && root.BoinyaIgLabels.shownProductName;
       if (igName) titleName = igName(titleName) || titleName;
       var title = titleName + (subShown ? " · " + subShown : "");
-      /* chew-batch-avg: у штук с партиями — себес партии и средняя факт. */
+      /* chew-pcs-kg: партия / факт шт/кг / ручные шт/кг / себес в calc. */
       var tip = "";
-      if (L.piece && (L.batchAvg != null || L.lastBatchCost != null)) {
+      if (L.piece && (L.batchAvg != null || L.lastBatchCost != null || L.pcsPerKg != null || L.batchPcsPerKg != null || L.unitPrice != null)) {
         tip = '<div class="b-note">';
-        if (L.lastBatchCost != null) tip += "партия " + money2(L.lastBatchCost) + "/шт";
-        if (L.batchAvg != null) tip += (L.lastBatchCost != null ? " · " : "") + "средняя " + money2(L.batchAvg);
-        tip += "</div>";
+        var bits = [];
+        if (L.lastBatchCost != null) bits.push("партия " + money2(L.lastBatchCost) + "/шт");
+        if (L.batchPcsPerKg != null) bits.push("факт " + L.batchPcsPerKg + " шт/кг");
+        else if (L.lastBatchPcsPerKg != null) bits.push("факт " + L.lastBatchPcsPerKg + " шт/кг");
+        if (L.batchAvg != null) bits.push("ср. партий " + money2(L.batchAvg));
+        if (L.pcsPerKg != null) bits.push("ручные " + L.pcsPerKg + " шт/кг");
+        var man = L.manualCost != null ? L.manualCost : L.unitPrice;
+        if (man != null) bits.push("в calc " + money2(man) + "/шт");
+        tip += bits.join(" · ") + "</div>";
       }
       lineRows += '<div class="nx-line"><span>' + esc(title) + tip + "</span><b>" + esc(money2(L.cost)) + "</b></div>";
     });
