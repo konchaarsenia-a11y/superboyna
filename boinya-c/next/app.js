@@ -437,7 +437,8 @@
     if (route.tab === "orders" && route.seg === "month") {
       paintChrome();
       wk().setRole(access.role);
-      wk().show(route.seg, access.role);
+      if (wk().setAccess) wk().setAccess(access);
+      wk().show(route.seg, access.role, access);
       return;
     }
     if (route.tab === "orders") {
@@ -884,6 +885,8 @@
         if (token !== deskToken || !res || !res.linked || !res.tgLogin) return;
         stopDeskPoll();
         api().rememberLogin(res.tgLogin);
+        // orders-pack2: desktop long-lived session
+        if (res.desktopSession && api().rememberDesktopSession) api().rememberDesktopSession(res.desktopSession);
         boot();
       }).catch(function () {});
     }, 2000);
@@ -968,7 +971,8 @@
       var init = root.__NEXT_API_HOOK__ ? "hook" : await api().waitForInitData(1600);
       if (ticket !== bootGen) return;
       var login = !init && api().loginData ? api().loginData() : "";
-      if (!init && !login) {
+      var deskSess = !init && api().desktopSessionData ? api().desktopSessionData() : "";
+      if (!init && !login && !deskSess) {
         if (insideTelegramApp()) {
           if (hadCache) keepCached("Telegram ещё не ответил, показываю как было");
           else showFail("Откройте через Telegram", "Бойня работает только внутри Telegram (кнопка бота). Вне Telegram доступа нет.",
@@ -1013,6 +1017,8 @@
       }
     access = ax().normalize(res);
     try { localStorage.setItem("nx_access_v1", JSON.stringify({ role: access.role, tabs: access.tabs, name: access.name, telegramId: access.telegramId })); } catch (eSave) {}
+    // orders-pack2: сохранить/обновить desktop-сессию после успешного getMyAccess
+    if (res.desktopSession && api().rememberDesktopSession) api().rememberDesktopSession(res.desktopSession);
     if (u.first_name) access.name = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
     var role = access.role;
     if (role === "none" || role === "pending" || role === "denied" || !access.tabs.length) {

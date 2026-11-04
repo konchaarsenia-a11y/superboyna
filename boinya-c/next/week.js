@@ -27,6 +27,7 @@
     calCursor: "",
     overview: null,
     role: "",
+    access: null,
     notesOpen: {},
     fillIndex: -1,
     skeletonRows: 3
@@ -196,9 +197,28 @@
     sh().openSheet({ title: who.dog, html: html, id: "order-row" });
   }
 
+  function canFinishWeek() {
+    // orders-pack2: #25 — владелец или вкладка finishWeekScreen
+    if (view.role === "owner") return true;
+    var ax = root.BoinyaAccess;
+    return !!(ax && ax.tabHas && view.access && ax.tabHas(view.access, "finishWeekScreen"));
+  }
+
+  function canSeeMonthSummary() {
+    // orders-pack2: #21 — сводка только владельцу или с переключателем
+    if (view.role === "owner") return true;
+    var ax = root.BoinyaAccess;
+    return !!(ax && ax.tabHas && view.access && ax.tabHas(view.access, "monthSummaryScreen"));
+  }
+
   function banners() {
     var b = view.banner;
-    if (!b || view.role !== "owner" || !b.showFinish) return "";
+    if (!b || !canFinishWeek()) return "";
+    // orders-pack2: #25 — надпись «Неделя завершена»
+    if (b.realClosed) {
+      return '<div class="banner"><span>Неделя завершена</span></div>';
+    }
+    if (!b.showFinish) return "";
     return '<div class="banner"><span>Неделя ещё открыта</span>' +
       '<button type="button" class="linkish" data-act="wfin"' + (finish && finish.busy() ? " disabled" : "") + ">Завершить</button></div>";
   }
@@ -383,6 +403,8 @@
   }
 
   function summaryHtml() {
+    // orders-pack2: #21
+    if (!canSeeMonthSummary()) return "";
     var dayOn = selectedInView();
     var people = summaryPeople();
     var count = people.length;
@@ -541,7 +563,8 @@
   }
 
   async function loadBanners() {
-    if (view.role !== "owner") { view.banner = null; return; }
+    // orders-pack2: #25 — баннер владельцу и finishWeekScreen
+    if (!canFinishWeek()) { view.banner = null; return; }
     var wk = logic().currentWeekKey();
     var hideFin = "";
     var hidePull = "";
@@ -570,7 +593,11 @@
         localStorage.removeItem("superboyna_finish_done_" + wk);
       } catch (e3) {}
     }
-    view.banner = { showFinish: decided.showFinish, showPull: decided.showPull };
+    view.banner = {
+      showFinish: decided.showFinish,
+      showPull: decided.showPull,
+      realClosed: !!decided.realClosed
+    };
   }
 
   async function loadOverview(month) {
@@ -1238,7 +1265,8 @@
   }
 
   async function runFinish() {
-    if (view.role !== "owner") { sh().toast("Закрыть неделю может только владелец"); return; }
+    // orders-pack2: #25
+    if (!canFinishWeek()) { sh().toast("Нет доступа завершать неделю"); return; }
     if (!finish) finish = logic().finishGuard();
     if (!finish.tryBegin()) { sh().toast("Закрытие уже запущено — подожди"); return; }
     var wk = logic().currentWeekKey();
@@ -1555,9 +1583,10 @@
     return false;
   }
 
-  function show(seg, role) {
+  function show(seg, role, access) {
     view.seg = "month";
     view.role = role || view.role;
+    if (access) view.access = access;
     if (!view.date) view.date = new Date().toISOString().slice(0, 10);
     if (!view.calCursor) view.calCursor = view.date.slice(0, 8) + "01";
     load();
@@ -1572,6 +1601,7 @@
     askMoveCut: askMoveCut,
     noteMonth: noteMonth,
     setRole: function (role) { view.role = role || ""; },
+    setAccess: function (access) { view.access = access || null; },
     setDay: function (day) {
       if (!day) return;
       view.day = day;

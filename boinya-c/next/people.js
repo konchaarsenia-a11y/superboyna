@@ -52,7 +52,10 @@
     ["warehouseScreen", "Склад"],
     ["partnerHubScreen", "Партнёры"],
     ["statsScreen", "Статистика (деньги)"],
-    ["retailPriceScreen", "Прайс (правка)"]
+    ["retailPriceScreen", "Прайс (правка)"],
+    // orders-pack2: #21 / #25
+    ["monthSummaryScreen", "Сводка за месяц"],
+    ["finishWeekScreen", "Завершать неделю"]
   ];
   var CHILD_RU = {
     month: "Месяц", week: "Неделя", calc: "Расчёт", pick: "Подбор",
