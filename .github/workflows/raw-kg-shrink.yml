@@ -34,15 +34,33 @@ jobs:
         run: node --test boinya-c/proxy/price-canon-v2.test.mjs
 
   live:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    # raw-kg-shrink: live на PR (мягко), push/main и dispatch (жёстко).
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     needs: [unit]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: wait worker-deploy on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            last=$(gh run list --workflow=boinya-c-worker-deploy.yml --branch main --limit 1 --json conclusion,status,headSha -q '.[0]')
+            echo "$i $last"
+            sha=$(echo "$last" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headSha") or "")')
+            conc=$(echo "$last" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")')
+            st=$(echo "$last" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status") or "")')
+            if [ "$sha" = "${{ github.sha }}" ] && [ "$conc" = "success" ]; then exit 0; fi
+            if [ "$sha" = "${{ github.sha }}" ] && [ "$conc" = "failure" ]; then exit 1; fi
+            sleep 15
+          done
+          echo "worker-deploy timeout"; exit 1
       - name: live saveRawCost kg+shrink (future date)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -53,12 +71,14 @@ jobs:
           set -euo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
           echo "::add-mask::$TELEGRAM_BOT_TOKEN"
-          # До worker-deploy на PR live может быть старым — тогда только unit уже зелёный.
-          # После squash на main деплой подхватит; повторный workflow_dispatch проверит live.
-          node scripts/raw-kg-shrink-live.mjs || {
-            echo "::warning::live save failed (worker ещё без патча?) — unit ок"
-            exit 0
-          }
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node scripts/raw-kg-shrink-live.mjs || {
+              echo "::warning::live save failed (worker ещё без патча?) — unit ок"
+              exit 0
+            }
+          else
+            node scripts/raw-kg-shrink-live.mjs
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
