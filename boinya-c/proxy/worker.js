@@ -22794,15 +22794,7 @@ async function handleCutover_(a, params, env, ctx) {
 /** suggestAddress: GAS + fallback Nominatim с края CF (GAS иногда source:none). */
 async function suggestAddressCutover_(params, env) {
   const text = String((params && (params.text || params.q || params.query)) || "").trim();
-  let live = null;
-  try {
-    live = await gasProxy_("suggestAddress", params, env, { write: false });
-  } catch (e) {}
-  if (live && Array.isArray(live.results) && live.results.length) {
-    live.cutover = true;
-    live.fromGas = true;
-    return live;
-  }
+  // orders-page-fix: #4 — сначала Nominatim (дом), GAS не подменяет улицей без дома
   const fallback = await nominatimSuggestWorker_(text);
   if (fallback.length) {
     return {
@@ -22812,6 +22804,30 @@ async function suggestAddressCutover_(params, env) {
       cutover: true,
       fromGas: false
     };
+  }
+  let live = null;
+  try {
+    live = await gasProxy_("suggestAddress", params, env, { write: false });
+  } catch (e) {}
+  const houseWant = (function () {
+    const m = text.match(/(?:^|[\s,])(?:д\.?|дом)?\s*([0-9]+[а-яa-z]?(?:\s*[\/кk]\s*[0-9]+[а-яa-z]?)?)\s*$/i);
+    return m ? String(m[1]).replace(/\s+/g, "").toLowerCase() : "";
+  })();
+  if (live && Array.isArray(live.results) && live.results.length) {
+    let rows = live.results;
+    if (houseWant) {
+      rows = rows.filter(function (r) {
+        const addr = String((r && (r.address || r.title || "")) || "").toLowerCase().replace(/\s+/g, "");
+        const h = String((r && r.house) || "").toLowerCase().replace(/\s+/g, "");
+        return (h && (h === houseWant || h.indexOf(houseWant) === 0 || houseWant.indexOf(h) === 0)) ||
+          addr.indexOf(houseWant) >= 0;
+      });
+    }
+    // нет точного дома — пусто, не подменяем введённый текст списком районов
+    live.results = rows;
+    live.cutover = true;
+    live.fromGas = true;
+    return live;
   }
   if (live && typeof live === "object") {
     live.cutover = true;
@@ -22904,10 +22920,12 @@ async function nominatimSuggestWorker_(text) {
       if (!title) continue;
       const wantH = String(want.house || "").toLowerCase().replace(/\s+/g, "");
       const gotH = house.toLowerCase().replace(/\s+/g, "");
+      // orders-page-fix: #4 — если в запросе есть дом, не подсовывать «улица/район» без номера
       if (wantH) {
-        if (gotH && (gotH === wantH || gotH.indexOf(wantH) === 0 || wantH.indexOf(gotH) === 0)) {
-          // ok — house match, keep even if BY street spelling
-        } else if (!fuzzyStreet_(want.street || q0, title)) {
+        if (!(gotH && (gotH === wantH || gotH.indexOf(wantH) === 0 || wantH.indexOf(gotH) === 0))) {
+          continue;
+        }
+        if (!fuzzyStreet_(want.street || q0, title) && !fuzzyStreet_(want.street || q0, street)) {
           continue;
         }
       } else if (!fuzzyStreet_(want.street || q0, title)) {

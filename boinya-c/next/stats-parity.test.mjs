@@ -9,7 +9,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const stats = require("./stats-logic.js");
 const partners = require("./partners-logic.js");
-const app = fs.readFileSync(path.resolve(here, "../app.main.js"), "utf8");
+const app = fs.readFileSync(path.resolve(here, "../_archive/legacy-ui/app.main.js"), "utf8");
 const statsFile = fs.readFileSync(path.resolve(here, "stats-logic.js"), "utf8");
 const partnersUi = fs.readFileSync(path.resolve(here, "partners.js"), "utf8");
 

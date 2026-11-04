@@ -634,6 +634,33 @@
     if (root.__nxAfterOrderPaint) root.__nxAfterOrderPaint();
   }
 
+  /** orders-page-fix: #2 — не рвать клавиатуру ника/адреса полным paint */
+  function typingNickOrAddr() {
+    if (typeof document === "undefined") return false;
+    var a = document.activeElement;
+    if (!a) return false;
+    var id = String(a.id || "");
+    var k = String(a.getAttribute && a.getAttribute("data-k") || "");
+    return id === "client" || id === "address" || k === "client" || k === "address";
+  }
+
+  function paintUnlessTyping() {
+    if (typingNickOrAddr()) {
+      paintSuggest();
+      paintAddr();
+      return false;
+    }
+    paint();
+    return true;
+  }
+
+  function hapticLight() {
+    try {
+      var tg = root.Telegram && root.Telegram.WebApp;
+      if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) tg.HapticFeedback.impactOccurred("light");
+    } catch (eH) {}
+  }
+
   function patchMoney() {
     var sum = document.getElementById("nxSum");
     if (sum) {
@@ -737,7 +764,18 @@
 
   function applyAddress(row) {
     if (!row) return;
+    var typed = String(state.address || "").trim();
     var text = row.address || row.title || "";
+    // orders-page-fix: #4 — если ввели дом, а в подсказке дома нет — не подменять текст
+    var typedHouse = (typed.match(/(?:^|[\s,])(?:д\.?|дом)?\s*([0-9]+[а-яa-z]?)\s*$/i) || [])[1] || "";
+    var gotHouse = String(row.house || "").trim() ||
+      ((String(text).match(/(?:^|[\s,])(?:д\.?|дом)?\s*([0-9]+[а-яa-z]?)\s*$/i) || [])[1] || "");
+    if (typedHouse && !gotHouse) {
+      addrSuggest = [];
+      paintAddr();
+      sh().toast("Точного дома нет — оставил как введено");
+      return;
+    }
     state.address = text;
     if (row.lat != null && row.lon != null) {
       state.geo = {
@@ -787,6 +825,8 @@
     }
   }
 
+  var permNickKey = "";
+
   function scheduleSuggest() {
     var q = String(state.client || "").trim();
     if (q.length < 1) { suggest = []; paintSuggest(); return; }
@@ -797,6 +837,13 @@
     rows.sort(function (a, b) { return eng().scoreClientNick(b.nick, q) - eng().scoreClientNick(a.nick, q); });
     suggest = rows.slice(0, 6);
     paintSuggest();
+    // orders-page-fix: #10 — смена ника сбрасывает чужие постоянные, пока не правили вручную
+    var key = q.toUpperCase();
+    if (permNickKey && permNickKey !== key && !state.notesEdited) {
+      state.notes = (state.notes || []).filter(function (n) { return n && !n.permanent; });
+      state.notesLoaded = false;
+      state.clearPermanent = false;
+    }
     clearTimeout(priceTimer);
     priceTimer = setTimeout(function () {
       refreshPp();
@@ -807,7 +854,8 @@
   var permReq = 0;
 
   function applyProfileNotes(raw) {
-    if (state.isEdit || state.notesEdited) return false;
+    // orders-page-fix: #10 — в правке тоже дотягиваем недостающие постоянные с карточки
+    if (state.notesEdited) return false;
     var blocks = [];
     try { blocks = eng().parseOrderNotes(raw) || []; } catch (e) { blocks = []; }
     blocks = blocks.filter(function (n) { return n && n.permanent && String(n.text || "").trim(); });
@@ -827,7 +875,7 @@
   }
 
   function pullPermanentNotes() {
-    if (state.isEdit || state.notesEdited) return;
+    if (state.notesEdited) return;
     var nick = String(state.client || "").trim();
     if (nick.length < 2) return;
     var token = ++permReq;
@@ -837,29 +885,33 @@
     api().apiGet(req, { timeoutMs: 12000, cacheTtlMs: 0 }).then(function (res) {
       if (token !== permReq) return;
       if (String(state.client || "").trim().toUpperCase() !== nick.toUpperCase()) return;
-      if (state.isEdit || state.notesEdited) return;
+      if (state.notesEdited) return;
       if (!res || res.status !== "success") return;
+      permNickKey = nick.toUpperCase();
       if (res.cleared) {
         state.notesLoaded = true;
         return;
       }
+      var changed = false;
       if (res.note) {
-        applyProfileNotes(res.note);
+        changed = applyProfileNotes(res.note);
         state.notesLoaded = true;
       } else {
         var mem = loadMemory()[nick.toUpperCase()];
-        if (mem && mem.note) applyProfileNotes(mem.note);
+        if (mem && mem.note) changed = applyProfileNotes(mem.note);
         if ((state.notes || []).some(function (n) { return n && n.permanent && String(n.text || "").trim(); })) {
           state.notesLoaded = true;
         }
       }
-      if (!sh().sheetOpen()) paint();
+      // orders-page-fix: #2 — не paint(), пока печатают ник
+      if (changed && !sh().sheetOpen()) paintUnlessTyping();
     }).catch(function () {
-      if (token !== permReq || state.isEdit || state.notesEdited) return;
+      if (token !== permReq || state.notesEdited) return;
       var mem = loadMemory()[nick.toUpperCase()];
       if (mem && mem.note && applyProfileNotes(mem.note)) {
         state.notesLoaded = true;
-        if (!sh().sheetOpen()) paint();
+        permNickKey = nick.toUpperCase();
+        if (!sh().sheetOpen()) paintUnlessTyping();
       }
     });
   }
@@ -918,18 +970,19 @@
     var had = (week.items || []).length > 0;
     week.loading = !had;
     week.error = "";
-    if (orderVisible() && !had) paint();
+    // orders-page-fix: #2 — не сбрасывать фокус ника при подгрузке дней
+    if (orderVisible() && !had) paintUnlessTyping();
     var res = await api().apiGet({ action: "getWeekDayCounts" }, { timeoutMs: 18000, cacheTtlMs: 20000 });
     week.loading = false;
     if (!res || (res.status && res.status !== "success" && !res.items)) {
       week.error = (res && res.message) || "Нет связи с сервером. Данные от последней удачной загрузки ниже, если они были.";
-      if (orderVisible()) paint();
+      if (orderVisible()) paintUnlessTyping();
       return;
     }
     week.items = res.items || [];
     week.meta = skewMeta(res);
     if (!state.deliveryDate) pickDefaultDay();
-    if (orderVisible()) paint();
+    if (orderVisible()) paintUnlessTyping();
   }
 
   function skewMeta(res) {
@@ -1119,8 +1172,9 @@
         '<div class="nx-cal grid" style="margin-top:12px">' + cells + "</div>" +
         '<p class="b-note" style="margin-top:12px">' + busy + " дн. с записями, всего " + people + " чел. Другая дата уходит в календарь, если день не в текущей неделе.</p>";
     }
-    if (sh().sheetOpen()) sh().replaceTop({ title: "Другая дата", html: html() });
-    else sh().openSheet({ title: "Другая дата", html: html(), id: "cal", onClose: function () { calCursor = null; } });
+    // orders-page-fix: #3 — счётчик заказов на дне календаря сохраняем (cell-count)
+    if (sh().sheetOpen()) sh().replaceTop({ title: "Дата", html: html() });
+    else sh().openSheet({ title: "Дата", html: html(), id: "cal", onClose: function () { calCursor = null; } });
     }
     draw();
     if (monthMap[key]) return;
@@ -1602,14 +1656,22 @@
     if (res.deliverySlot >= 1) state.ppSlotManual = Number(res.deliverySlot);
     syncRetail();
     paint();
+    // orders-page-fix: #10 — после разворота ПП подтянуть постоянные
+    pullPermanentNotes();
     sh().toast(res.hint || ("Состав ПП, " + proposed.length + " поз."));
   }
 
   async function applyChecklist() {
     var mix = root.BoinyaCrumbMix;
-    var crumb = mix ? mix.parseText(state.igPaste || "") : { items: [], rest: state.igPaste || "" };
+    // orders-page-fix: #11 — scrub N доставок до parseIg (order-engine не правим)
+    var rawIg = state.igPaste || "";
+    if (pay() && pay().scrubIgPasteDeliveries) rawIg = pay().scrubIgPasteDeliveries(rawIg);
+    var crumb = mix ? mix.parseText(rawIg) : { items: [], rest: rawIg };
     var parsed = eng().parseIgLinesToItems(crumb.rest || "");
     var items = (crumb.items || []).concat((parsed && parsed.items) || []);
+    if (pay() && pay().filterIgItemsDeliveryNoise) {
+      items = pay().filterIgItemsDeliveryNoise(items, state.deliveriesN);
+    }
     if (!items.length) { sh().toast("В чеклисте нет позиций"); return; }
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
@@ -1907,6 +1969,8 @@
     if (state.orderType !== "bp" && priceShow != null && !isNaN(Number(priceShow))) msg += "\nЦена: " + Number(priceShow) + " BYN";
     var ok = await sh().confirm({ title: "Сохранить заказ", text: msg, ok: "Сохранить заказ" });
     if (!ok) return;
+    // orders-page-fix: #18 — после успеха закрыть задачу «На потом»
+    var closeDeferredId = String(state.deferredId || "").trim();
     state.survey = null;
     if (state.orderType === "bp") {
       var survey = await resolveBp();
@@ -1975,6 +2039,19 @@
     if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено", savedChange);
     else sh().toast(msgOut.text);
     if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) root.BoinyaWeek.noteMonth(savedChange);
+    if (closeDeferredId) {
+      try {
+        var tidClose = await ensureTid();
+        if (tidClose) {
+          await api().apiGet({
+            action: "cancelDeferred",
+            telegramId: tidClose,
+            id: closeDeferredId,
+            _: String(Date.now())
+          }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        }
+      } catch (eDef) {}
+    }
     remember();
     clearDraft();
     var keepDate = state.deliveryDate;
@@ -2141,11 +2218,11 @@
       return false;
     }
     if (act === "type") { setType(node.getAttribute("data-type")); return true; }
-    if (act === "open-days") { sh().openSheet({ title: "День", html: dayStrip(), id: "days" }); return true; }
+    // orders-page-fix: #3 — только календарь, без списка дней недели / «Будущая»
+    if (act === "open-days" || act === "cal") { openCal(); return true; }
     if (act === "fold-more") { folds.more = !folds.more; paint(); return true; }
     if (act === "day") { selectDay(node.getAttribute("data-day")); return true; }
     if (act === "future") { selectDay("Будущая неделя"); return true; }
-    if (act === "cal") { openCal(); return true; }
     if (act === "cal-shift") {
       var dir = Number(node.getAttribute("data-dir"));
       if (!calCursor) return true;
@@ -2215,6 +2292,7 @@
     }
     if (act === "add") { openAdd(); return true; }
     if (act === "pcat") {
+      hapticLight(); // orders-page-fix: #12
       picker.cat = node.getAttribute("data-cat");
       picker.name = "";
       picker.sub = "";
@@ -2223,6 +2301,7 @@
       return true;
     }
     if (act === "pname") {
+      hapticLight(); // orders-page-fix: #12
       picker.name = node.getAttribute("data-name");
       picker.sub = "";
       picker.qty = (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) === "шт" ? 1 : "";
@@ -2230,6 +2309,7 @@
       return true;
     }
     if (act === "phit") {
+      hapticLight(); // orders-page-fix: #12
       var nextCat = node.getAttribute("data-cat") || picker.cat;
       var nextName = node.getAttribute("data-name") || "";
       var nextSub = node.getAttribute("data-frac") || "";
@@ -2243,7 +2323,7 @@
       patchPick();
       return true;
     }
-    if (act === "pfrac") { picker.sub = node.getAttribute("data-frac"); patchPick(); return true; }
+    if (act === "pfrac") { hapticLight(); picker.sub = node.getAttribute("data-frac"); patchPick(); return true; }
     if (act === "pqty") {
       if (!node.getAttribute("data-dir")) return true;
       var pickUnit = picker.name ? (extraUnit_(picker.cat, picker.name) || eng().unitForItem(picker.cat, picker.name)) : "";
@@ -2545,6 +2625,8 @@
     eng().applyState(state);
     if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     paint();
+    // orders-page-fix: #10 — правка/перенос: дотянуть постоянные с карточки
+    pullPermanentNotes();
     if (next.orderType === "pp") refreshPp();
   }
 
@@ -2589,8 +2671,13 @@
       state.ppSlotManual = payload.ppDeliverySlotManual || null;
       state.igPaste = payload.igPaste || "";
       state.deferredId = id || "";
+      state.notesLoaded = (state.notes || []).some(function (n) {
+        return n && n.permanent && String(n.text || "").trim();
+      });
       eng().applyState(state);
       paint();
+      // orders-page-fix: #10 — черновик «На потом» тоже подтягивает постоянные
+      pullPermanentNotes();
       return;
     }
     loadFromClient({

@@ -482,11 +482,8 @@
   }
 
   function dock() {
-    if (view.seg === "month") {
-      sh().dock("");
-      return;
-    }
-    if (view.seg === "week" && view.drafts.length) {
+    // orders-page-fix: #29/#30 — без «Новый заказ»; мёртвый week-dock убран
+    if (view.drafts.length) {
       sh().dock('<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">Черновик переносов</span><span class="b-sum__v">' + view.drafts.length + "</span></div>" +
         '<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="wdraft-clear">Отмена</button>' +
         '<button type="button" class="b-btn b-btn--main" data-act="wdraft-save">Применить переносы, ' + view.drafts.length + "</button></div></div>");
@@ -499,7 +496,7 @@
         '<button type="button" class="b-btn b-btn--sec" data-act="wbatch-del">Удалить</button></div></div>');
       return;
     }
-    sh().dock('<div class="b-dock__act"><button type="button" class="b-btn b-btn--main" data-act="go-new">Новый заказ</button></div>');
+    sh().dock("");
   }
 
   function paintFast() {
@@ -1372,8 +1369,9 @@
   }
 
   function onAct(act, node) {
+    // orders-page-fix: #30 — week-seg мёртв; день → календарный месяц
     if (act === "wday") {
-      view.seg = "week";
+      view.seg = "month";
       view.day = node.getAttribute("data-day");
       var it = countOf(view.day);
       view.date = it && it.date ? isoFromDmy(it.date) : "";
@@ -1577,7 +1575,7 @@
     setDay: function (day) {
       if (!day) return;
       view.day = day;
-      view.seg = "week";
+      view.seg = "month"; // orders-page-fix: #30
     },
     segment: function () { return view.seg; },
     setSegs: function (fn) { segsFn = fn; },

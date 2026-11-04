@@ -693,6 +693,46 @@
     return false;
   }
 
+  /** orders-page-fix: #11 — выкинуть строки N доставок до parseIg (order-engine не трогаем). */
+  function scrubIgPasteDeliveries(raw) {
+    return String(raw || "")
+      .split(/\r?\n/)
+      .filter(function (line) {
+        var t = String(line || "").trim();
+        if (!t) return true;
+        if (/^\d{1,2}\s*$/.test(t)) return false;
+        if (/^\d+\s*(доставк|раз\s*в\s*месяц|в\s*месяц)\b/i.test(t)) return false;
+        if (/^(N\s*)?доставк/i.test(t) && /\d/.test(t)) return false;
+        if (/доставк/i.test(t) && /^\d+/.test(t) && !/(г|гр|шт|кг)/i.test(t)) return false;
+        return true;
+      })
+      .join("\n");
+  }
+
+  /** orders-page-fix: #11 — после parseIg: не пускать «доставки» и N-как-граммы без подтверждения. */
+  function filterIgItemsDeliveryNoise(items, deliveriesN) {
+    var n = Number(deliveriesN) || 0;
+    return (items || [])
+      .filter(function (it) {
+        var name = String((it && (it.main || it.name)) || "");
+        if (/доставк/i.test(name)) return false;
+        return !!it;
+      })
+      .map(function (it) {
+        var copy = {};
+        for (var k in it) if (Object.prototype.hasOwnProperty.call(it, k)) copy[k] = it[k];
+        var val = Number(copy.value != null ? copy.value : copy.val) || 0;
+        var cat = String(copy.cat || "");
+        if (n >= 2 && val === n && val <= 8 && (cat === "dressura" || cat === "other" || cat === "")) {
+          copy.needPiece = true;
+          copy.pieceHint = copy.pieceHint || ("N доставок " + n + "?");
+          copy.value = 0;
+          copy.val = 0;
+        }
+        return copy;
+      });
+  }
+
   return {
     orderPriceOf: orderPriceOf,
     retailDisplayed: retailDisplayed,
@@ -716,6 +756,8 @@
     addressLossless: addressLossless,
     absorbGluedAddress: absorbGluedAddress,
     fillEmptyContact: fillEmptyContact,
+    scrubIgPasteDeliveries: scrubIgPasteDeliveries,
+    filterIgItemsDeliveryNoise: filterIgItemsDeliveryNoise,
     buildSaveBookingParams: buildSaveBookingParams,
     buildDeferredSnapshot: buildDeferredSnapshot,
     retailOrderSnapshot: retailOrderSnapshot,

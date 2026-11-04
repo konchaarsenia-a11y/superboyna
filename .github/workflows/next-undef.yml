@@ -43,6 +43,8 @@ jobs:
         run: node boinya-c/next/courier-pay.test.mjs
       - name: notes roundtrip
         run: node boinya-c/next/notes-save.test.mjs
+      - name: orders page fix pack
+        run: node --test boinya-c/next/orders-page-fix.test.mjs
       - name: subs gate gone
         run: node boinya-c/next/subs-gate.test.mjs
       - name: card composition text

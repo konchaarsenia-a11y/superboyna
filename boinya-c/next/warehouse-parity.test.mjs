@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const logic = require("./warehouse-logic.js");
-const app = fs.readFileSync(path.resolve(here, "../app.main.js"), "utf8");
+const app = fs.readFileSync(path.resolve(here, "../_archive/legacy-ui/app.main.js"), "utf8");
 const file = fs.readFileSync(path.resolve(here, "warehouse-logic.js"), "utf8");
 
 function body(name) {

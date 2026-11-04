@@ -4,7 +4,7 @@
 import { readFileSync } from "fs";
 import { createContext, runInContext } from "vm";
 
-const src = readFileSync(new URL("../app.main.js", import.meta.url), "utf8");
+const src = readFileSync(new URL("../_archive/legacy-ui/app.main.js", import.meta.url), "utf8");
 
 // Extract catalog + functions between buildIgKnownMap and end of parseIgLinesToItems
 const start = src.indexOf("function buildIgKnownMap()");

@@ -268,9 +268,11 @@ test("на месяце нет кнопки Новый заказ", async functi
   sandbox.BoinyaWeek.show("month", "");
   assert.ok(docks.length > 0);
   assert.equal(docks[docks.length - 1].includes("Новый заказ"), false);
+  // orders-page-fix: #29/#30 — setDay больше не открывает week-dock с «Новый заказ»
   sandbox.BoinyaWeek.setDay("Понедельник");
   sandbox.BoinyaWeek.paint();
-  assert.match(docks[docks.length - 1], /Новый заказ/);
+  assert.equal(docks[docks.length - 1].includes("Новый заказ"), false);
+  assert.equal(sandbox.BoinyaWeek.segment(), "month");
 });
 
 test("кнопка не зовёт таблицу и не пересинхронизирует лист", function () {

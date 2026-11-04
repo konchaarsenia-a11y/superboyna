@@ -364,6 +364,11 @@
   color: var(--b-text-2);
 }
 
+/* orders-page-fix: #12 — лёгкий active-отклик в picker «+ Позиция» */
+.b-chip:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
 .b-chip:focus-visible {
   outline: 2px solid var(--b-text);
   outline-offset: 2px;

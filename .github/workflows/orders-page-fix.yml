@@ -1,0 +1,40 @@
+name: orders-page-fix
+
+on:
+  pull_request:
+    paths:
+      - "boinya-c/next/orders.js"
+      - "boinya-c/next/week.js"
+      - "boinya-c/next/app.js"
+      - "boinya-c/next/order-payload.js"
+      - "boinya-c/next/orders-page-fix.test.mjs"
+      - "boinya-c/proxy/worker.js"
+      - "boinya-c/ds.css"
+      - "boinya-c/index.html"
+      - "app.html"
+      - ".github/workflows/orders-page-fix.yml"
+  push:
+    branches: [main]
+    paths:
+      - "boinya-c/next/orders.js"
+      - "boinya-c/next/week.js"
+      - "boinya-c/next/app.js"
+      - "boinya-c/next/order-payload.js"
+      - "boinya-c/next/orders-page-fix.test.mjs"
+      - "boinya-c/proxy/worker.js"
+      - "boinya-c/ds.css"
+      - "boinya-c/index.html"
+      - "app.html"
+      - ".github/workflows/orders-page-fix.yml"
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: orders-page-fix pack (one test per TZ item)
+        run: node --test boinya-c/next/orders-page-fix.test.mjs
