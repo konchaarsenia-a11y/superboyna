@@ -52,14 +52,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # chew-pcs-kg: если worker/price-canon не в коммите — хватит успешного деплоя предка.
           for i in $(seq 1 40); do
             last=$(gh run list --workflow=boinya-c-worker-deploy.yml --branch main --limit 1 --json conclusion,status,headSha -q '.[0]')
             echo "$i $last"
             sha=$(echo "$last" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headSha") or "")')
             conc=$(echo "$last" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")')
-            st=$(echo "$last" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status") or "")')
             if [ "$sha" = "${{ github.sha }}" ] && [ "$conc" = "success" ]; then exit 0; fi
             if [ "$sha" = "${{ github.sha }}" ] && [ "$conc" = "failure" ]; then exit 1; fi
+            if [ "$conc" = "success" ] && [ -n "$sha" ]; then
+              if git merge-base --is-ancestor "$sha" "${{ github.sha }}" 2>/dev/null; then
+                changed=$(git diff --name-only "$sha" "${{ github.sha }}" || true)
+                if ! echo "$changed" | grep -Eq 'boinya-c/proxy/(worker|price-canon-v2)\.js'; then
+                  echo "worker unchanged since $sha — ok"
+                  exit 0
+                fi
+              fi
+            fi
             sleep 15
           done
           echo "worker-deploy timeout"; exit 1
