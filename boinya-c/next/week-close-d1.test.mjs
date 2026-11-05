@@ -278,7 +278,8 @@ test("на месяце нет кнопки Новый заказ", async functi
 test("кнопка не зовёт таблицу и не пересинхронизирует лист", function () {
   const src = fs.readFileSync(new URL("./week.js", import.meta.url), "utf8");
   const start = src.indexOf("async function runFinish");
-  const end = src.indexOf("async function runPull");
+  // drop-move-pull: #26 — runPull убран; граница — onAct
+  const end = src.indexOf("function onAct");
   const body = src.slice(start, end);
   assert.equal(body.includes("Google Sheets"), false);
   assert.equal(body.includes("Бойня C · LIVE"), false);

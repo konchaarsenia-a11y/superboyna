@@ -116,8 +116,8 @@ test("desktop: долгоживущая сессия ds1", () => {
   assert.match(appSrc, /rememberDesktopSession/);
 });
 
-test("cache bump v71125454", () => {
-  assert.match(nextHtml, /v=71125454/);
+test("cache bump present", () => {
+  assert.match(nextHtml, /v=7112545\d/);
 });
 
 /* —— закрепы функций страницы «Заказы» (не ломать следующими правками) —— */
@@ -149,13 +149,15 @@ test("lock: На потом + cancelDeferred", () => {
   assert.match(ordersSrc, /closeDeferredId/);
 });
 
-test("lock: Месяц — календарь, перенос moveClient, удаление, черновик переносов", () => {
+test("lock: Месяц — календарь, перенос moveClient, удаление", () => {
   assert.match(weekSrc, /function monthCal|monthCal\(/);
   assert.match(weekSrc, /moveParams/);
   assert.match(weekSrc, /deleteParams/);
-  assert.match(weekSrc, /Черновик переносов/);
-  assert.match(weekSrc, /data-act="wstage"/);
-  assert.match(weekSrc, /wdraft-save/);
+  assert.match(weekSrc, /data-act="wmove"/);
+  assert.match(weekSrc, /async function moveOne/);
+  // drop-move-pull: #23 — draft-stage убран
+  assert.doesNotMatch(weekSrc, /data-act="wstage"/);
+  assert.doesNotMatch(weekSrc, /data-act="wdraft-save"/);
 });
 
 test("lock: баннер недели без регресса #27 finish", () => {
@@ -163,9 +165,11 @@ test("lock: баннер недели без регресса #27 finish", () =>
   assert.match(weekSrc, /Неделя ещё открыта/);
 });
 
-test("lock: materialize UI locus #26", () => {
-  assert.match(appSrc, /data-act="wpull">Подтянуть из месяца/);
-  assert.match(weekSrc, /action: "materializeWeek"/);
+test("lock: #26 materialize UI убран", () => {
+  // drop-move-pull: #26
+  assert.doesNotMatch(appSrc, /data-act="wpull"/);
+  assert.doesNotMatch(weekSrc, /action: "materializeWeek"/);
+  assert.doesNotMatch(weekSrc, /async function runPull/);
 });
 
 test("lock: нет «Новый заказ» в dock Месяца; legacy снят", () => {

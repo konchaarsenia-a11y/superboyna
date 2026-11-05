@@ -190,9 +190,7 @@
       slotBtns +
       '<button type="button" class="b-btn b-btn--main" data-act="wedit" data-i="' + index + '" data-src="' + source + '" style="margin-top:12px">Править</button>' +
       '<button type="button" class="b-btn b-btn--sec" data-act="wmove" data-i="' + index + '" data-src="' + source + '" style="margin-top:8px">Перенести</button>';
-    if (source === "month") {
-      html += '<button type="button" class="sheet-act" data-act="wstage" data-i="' + index + '">В черновик</button>';
-    }
+    // drop-move-pull: #23 — draft-stage убран; обычный Перенести остаётся
     html += '<button type="button" class="sheet-act danger" data-act="wdel" data-i="' + index + '" data-src="' + source + '">Удалить</button>';
     sh().openSheet({ title: who.dog, html: html, id: "order-row" });
   }
@@ -487,16 +485,7 @@
       }
       html += monthCal();
       html += '<div id="nxDayList">' + dayListHtml() + "</div>";
-      if (view.drafts.length) {
-        html += '<p class="b-lbl">Черновик переносов</p>';
-        view.drafts.forEach(function (c, i) {
-          var who = splitWho(c);
-          html += '<div class="b-card" style="margin-bottom:8px"><p class="b-li__title" style="margin:0">' + esc(who.dog) + (who.nick ? " " + esc(who.nick) : "") + "</p>" +
-            '<p class="b-note">' + esc([root.BoinyaOrderPayload && root.BoinyaOrderPayload.showAddress ? root.BoinyaOrderPayload.showAddress(c, root.BoinyaOrderEngine) : c.address, c.phone].filter(Boolean).join(", ") || "дополните адрес и телефон") + "</p>" +
-            '<button type="button" class="nx-link" data-act="wfill" data-i="' + i + '">Дополнить</button> ' +
-            '<button type="button" class="nx-link" data-act="wunstage" data-i="' + i + '">Вернуть</button></div>';
-        });
-      }
+      // drop-move-pull: #23 — draft-list убран
     }
     sh().main(html);
     dock();
@@ -505,12 +494,7 @@
 
   function dock() {
     // orders-page-fix: #29/#30 — без «Новый заказ»; мёртвый week-dock убран
-    if (view.drafts.length) {
-      sh().dock('<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">Черновик переносов</span><span class="b-sum__v">' + view.drafts.length + "</span></div>" +
-        '<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="wdraft-clear">Отмена</button>' +
-        '<button type="button" class="b-btn b-btn--main" data-act="wdraft-save">Применить переносы, ' + view.drafts.length + "</button></div></div>");
-      return;
-    }
+    // drop-move-pull: #23 — draft-dock убран; batch «Перенести день» остаётся
     if (view.selectOn) {
       var n = Object.keys(view.picked).filter(function (k) { return view.picked[k]; }).length;
       sh().dock('<div class="b-dock__act"><div class="b-sum"><span class="b-sum__k">Выбрано</span><span class="b-sum__v">' + n + "</span></div>" +
@@ -1107,54 +1091,7 @@
     }
   }
 
-  async function saveDrafts() {
-    if (!view.drafts.length) { sh().toast("Черновик пуст"); return; }
-    var noType = view.drafts.filter(function (c) { return !logic().resolveOrderType(c); });
-    if (noType.length) { sh().toast("У " + noType.length + " нет типа заказа"); return; }
-    view.drafts.forEach(function (c) {
-      if (logic().resolveOrderType(c) === "bp" && !String(c.ppPartner || "").trim()) c.ppPartner = "Другое";
-    });
-    var nHere = 0;
-    var itHere = null;
-    (view.counts || []).forEach(function (it) {
-      if (it && view.day && it.day === view.day) itHere = it;
-    });
-    var slotIso = itHere ? isoFromDmy(itHere.date || itHere.dateIso) : "";
-    var viewIso = isoFromDmy(view.date);
-    var sameDate = !viewIso || !slotIso || viewIso === slotIso;
-    var shown = sameDate ? shownCount(itHere) : null;
-    if (shown != null) nHere = shown;
-    else if (view.date) nHere = await countOnIso(view.date);
-    var fullDraft = logic().fullDayPrompt(nHere);
-    if (fullDraft) {
-      var addDraft = await sh().confirm({ title: "Полный день", text: fullDraft, ok: "Добавить", cancel: "Отмена" });
-      if (!addDraft) return;
-    }
-    var ok = await sh().confirm({
-      title: "Записать",
-      text: "Записать в таблицу " + view.drafts.length + " чел. на «" + (view.day || view.date) + "»?",
-      ok: "Сохранить",
-      cancel: "Отмена"
-    });
-    if (!ok) return;
-    var snap = view.drafts.slice();
-    var payload = logic().pullPayload(snap, view.day, view.date);
-    var res = await api().apiGet(payload, { timeoutMs: 60000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") {
-      sh().toast((res && res.message) || "Не удалось");
-      return;
-    }
-    view.drafts = [];
-    var added = res.result && res.result.added;
-    sh().toast("Добавлено: " + (added || 0));
-    noteMonth(snap.map(function (c) {
-      return {
-        op: "save",
-        date: view.date,
-        client: c
-      };
-    }));
-  }
+  // drop-move-pull: #23 — saveDrafts / draft-stage убран (обычный moveOne остаётся)
 
   async function countOnIso(iso) {
     var key = String(iso || "").slice(0, 7);
@@ -1382,19 +1319,7 @@
     if (weekOnScreen()) load({ force: true });
   }
 
-  async function runPull() {
-    var ok = await sh().confirm({ title: "Подтянуть из месяца", text: "Дописать на неделю тех, кто есть в месяце и ещё не в неделе?", ok: "Подтянуть", cancel: "Отмена" });
-    if (!ok) return;
-    sh().toast("Подтягиваю…");
-    var wk = logic().currentWeekKey();
-    var payload = { action: "materializeWeek", onlyMissing: "1", includeFuture: "1", dropExtras: "1", confirm: "1", weekKey: wk };
-    if (root.__BOINYA_C_CUTOVER__) payload.allowDanger = "1";
-    var res = await api().apiGet(payload, { timeoutMs: 180000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не вышло"); return; }
-    var added = res.result ? (res.result.totalAdded || 0) : 0;
-    sh().toast("Из месяца +" + added);
-    if (weekOnScreen()) load({ force: true });
-  }
+  // drop-move-pull: #26 — runPull / materialize UI убран
 
   function onAct(act, node) {
     // orders-page-fix: #30 — week-seg мёртв; день → календарный месяц
@@ -1460,6 +1385,7 @@
     if (act === "wrow") { openRow(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i"))), Number(node.getAttribute("data-i")), node.getAttribute("data-src")); return true; }
     if (act === "wedit") { openEdit(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i")))); return true; }
     if (act === "wmove") { moveOne(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i")))); return true; }
+    // drop-move-pull: #23/#26 — без drafts / wpull; обычный wmove остаётся
     if (act === "wdel") { delOne(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i")))); return true; }
     if (act === "wslot") { setSlot(clientAt(node.getAttribute("data-src"), Number(node.getAttribute("data-i"))), Number(node.getAttribute("data-slot"))); return true; }
     if (act === "wnote") {
@@ -1468,86 +1394,6 @@
       paint();
       return true;
     }
-    if (act === "wstage-all") {
-      if (view.calendarOnly) { sh().toast("Дата вне недели — сначала выбери день недели"); return true; }
-      var added = 0;
-      view.monthClients.forEach(function (mc) {
-        var key = mc.matchKey || logic().viewClientKey(mc.name);
-        if (view.drafts.some(function (d) { return (d.matchKey || logic().viewClientKey(d.name)) === key; })) return;
-        view.drafts.push({
-          name: mc.name, matchKey: key, address: mc.address || "", phone: mc.phone || "", note: mc.note || "",
-          segment: mc.segment || "", source: mc.source || "", orderType: mc.orderType || "",
-          ppPartner: mc.ppPartner || "", ppSlot: mc.ppSlot || "", deliverySlot: mc.deliverySlot || "",
-          basket: mc.basket || []
-        });
-        added++;
-      });
-      sh().toast(added ? ("В черновик: " + added) : "Уже в черновике");
-      paint();
-      return true;
-    }
-    if (act === "wfill") {
-      view.fillIndex = Number(node.getAttribute("data-i"));
-      var df = view.drafts[view.fillIndex];
-      if (!df) return true;
-      var types = [["ПП", "ПП"], ["БП", "БП"], ["Р", "Розница"], ["ПАРТНЁР", "Партнёр"]];
-      var opts = types.map(function (t) {
-        return '<option value="' + t[0] + '"' + (df.segment === t[0] ? " selected" : "") + ">" + t[1] + "</option>";
-      }).join("");
-      sh().openSheet({
-        title: "Дополнить",
-        html: '<label class="b-field"><span class="b-note">Тип</span><select class="b-field__input" id="nxFillType"><option value="">—</option>' + opts + "</select></label>" +
-          '<label class="b-field" style="margin-top:8px"><span class="b-note">Партнёр</span><input class="b-field__input" id="nxFillPartner" value="' + esc(df.ppPartner || "") + '"></label>' +
-          '<label class="b-field" style="margin-top:8px"><span class="b-note">Адрес</span><input class="b-field__input" id="nxFillAddr" value="' + esc(df.address || "") + '"></label>' +
-          '<label class="b-field" style="margin-top:8px"><span class="b-note">Телефон</span><input class="b-field__input" id="nxFillPhone" value="' + esc(df.phone || "") + '"></label>' +
-          '<label class="b-field" style="margin-top:8px"><span class="b-note">Примечание</span><input class="b-field__input" id="nxFillNote" value="' + esc(df.note || "") + '"></label>' +
-          '<button type="button" class="b-btn b-btn--main" data-act="wfill-ok" style="margin-top:12px">Ок</button>'
-      });
-      return true;
-    }
-    if (act === "wfill-ok") {
-      var row = view.drafts[view.fillIndex];
-      if (row) {
-        var typeEl = document.getElementById("nxFillType");
-        var seg = typeEl ? typeEl.value : "";
-        row.segment = seg;
-        row.orderType = logic().segmentToOrderType(seg);
-        var partnerEl = document.getElementById("nxFillPartner");
-        var addrEl = document.getElementById("nxFillAddr");
-        var phoneEl = document.getElementById("nxFillPhone");
-        var noteEl = document.getElementById("nxFillNote");
-        row.ppPartner = partnerEl ? partnerEl.value : row.ppPartner;
-        row.address = addrEl ? addrEl.value : row.address;
-        row.phone = phoneEl ? phoneEl.value : row.phone;
-        row.note = noteEl ? noteEl.value : row.note;
-      }
-      sh().closeTop("ok");
-      paint();
-      return true;
-    }
-    if (act === "wstage") {
-      var mc = view.monthClients[Number(node.getAttribute("data-i"))];
-      if (!mc) return true;
-      if (view.calendarOnly) { sh().toast("Дата вне недели — сначала выбери день недели"); return true; }
-      var key = mc.matchKey || logic().viewClientKey(mc.name);
-      if (view.drafts.some(function (d) { return (d.matchKey || logic().viewClientKey(d.name)) === key; })) {
-        sh().toast("Уже в черновике");
-        return true;
-      }
-      var staged = {
-        name: mc.name, matchKey: key, address: mc.address || "", phone: mc.phone || "", note: mc.note || "",
-        segment: mc.segment || "", source: mc.source || "", orderType: mc.orderType || "",
-        ppPartner: mc.ppPartner || "", ppSlot: mc.ppSlot || "", deliverySlot: mc.deliverySlot || "",
-        basket: mc.basket || []
-      };
-      view.drafts.push(staged);
-      sh().toast("В черновик: " + mc.name);
-      paint();
-      return true;
-    }
-    if (act === "wunstage") { view.drafts.splice(Number(node.getAttribute("data-i")), 1); paint(); return true; }
-    if (act === "wdraft-clear") { view.drafts = []; paint(); return true; }
-    if (act === "wdraft-save") { saveDrafts(); return true; }
     if (act === "wfin") { runFinish(); return true; }
     if (act === "wfin-hide") {
       try { localStorage.setItem("superboyna_finish_hide_" + logic().currentWeekKey(), "1"); } catch (e) {}
@@ -1556,13 +1402,6 @@
       return true;
     }
     if (act === "wfin-later") { if (view.banner) view.banner.showFinish = false; paint(); return true; }
-    if (act === "wpull") { runPull(); return true; }
-    if (act === "wpull-hide") {
-      try { localStorage.setItem("superboyna_pull_hide_" + logic().currentWeekKey(), "1"); } catch (e2) {}
-      if (view.banner) view.banner.showPull = false;
-      paint();
-      return true;
-    }
     if (act === "wbatch-del" || act === "wbatch-move") {
       var idxs = Object.keys(view.picked).filter(function (k) { return view.picked[k]; }).map(Number);
       if (!idxs.length) { sh().toast("Никого не выбрано"); return true; }

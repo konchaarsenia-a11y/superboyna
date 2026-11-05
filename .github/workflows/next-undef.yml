@@ -45,6 +45,8 @@ jobs:
         run: node boinya-c/next/notes-save.test.mjs
       - name: orders page fix pack
         run: node --test boinya-c/next/orders-page-fix.test.mjs
+      - name: drop move draft and materialize pull UI
+        run: node --test boinya-c/next/drop-move-pull.test.mjs
       - name: subs gate gone
         run: node boinya-c/next/subs-gate.test.mjs
       - name: card composition text
