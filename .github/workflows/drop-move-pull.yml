@@ -1,0 +1,36 @@
+name: drop-move-pull
+
+on:
+  pull_request:
+    paths:
+      - "boinya-c/next/week.js"
+      - "boinya-c/next/app.js"
+      - "boinya-c/next/drop-move-pull.test.mjs"
+      - "boinya-c/next.html"
+      - "boinya-c/index.html"
+      - "boinya-c/sw.js"
+      - ".github/workflows/drop-move-pull.yml"
+  push:
+    branches: [main]
+    paths:
+      - "boinya-c/next/week.js"
+      - "boinya-c/next/app.js"
+      - "boinya-c/next/drop-move-pull.test.mjs"
+      - "boinya-c/next.html"
+      - "boinya-c/index.html"
+      - "boinya-c/sw.js"
+      - ".github/workflows/drop-move-pull.yml"
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: drop-move-pull (draft gone, move kept, materialize gone)
+        run: node --test boinya-c/next/drop-move-pull.test.mjs
+      - name: orders-pack2 locks still green
+        run: node --test boinya-c/next/orders-pack2.test.mjs
