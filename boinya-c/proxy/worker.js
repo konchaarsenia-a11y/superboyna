@@ -19842,7 +19842,44 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   if (a === "finishFullWeek" && isWeekCloseD1Native_(env)) {
-    return closeWeekInD1_(params, env);
+    // Production/d1-native: Sheets/GAS не вызываются — несоответствие #718 «Sheets при finish».
+    // Preview-only: сначала разрешённый gasProxy_(finishFullWeek) → PREVIEW_ISOLATED stub,
+    // затем реальный closeWeekInD1_. Production gate (sheets_finish_only) не ослабляем.
+    let sheetsGate = null;
+    if (String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+      try {
+        sheetsGate = await gasProxy_("finishFullWeek", params || {}, env, { write: true });
+      } catch (eGate) {
+        sheetsGate = {
+          status: "error",
+          message: String((eGate && eGate.message) || eGate),
+          previewStub: false
+        };
+      }
+    }
+    const closed = await closeWeekInD1_(params, env);
+    if (closed && typeof closed === "object") {
+      if (sheetsGate) {
+        closed.previewSheetsGate = {
+          hit: true,
+          action: "finishFullWeek",
+          status: sheetsGate.status,
+          message: sheetsGate.message,
+          previewStub: !!sheetsGate.previewStub,
+          external: sheetsGate.external,
+          stubOnly: !!sheetsGate.stubOnly
+        };
+        closed.sheetsWritten = false;
+        closed.issue718 =
+          sheetsGate.previewStub === true
+            ? "preview_stub_ok_but_d1_native_still_no_real_sheets"
+            : "preview_sheets_gate_unexpected";
+      } else {
+        closed.issue718 = "d1_native_bypasses_gas_sheets_not_written_on_finish";
+        closed.sheetsWritten = false;
+      }
+    }
+    return closed;
   }
 
   if (a === "finishFullWeek") {

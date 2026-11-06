@@ -905,7 +905,10 @@
     deskToken = "";
     deskStartUrl = "";
     if (api().clearLogin) api().clearLogin();
-    try { localStorage.removeItem("nx_access_v1"); } catch (eOut) {}
+    try {
+      var akOut = api().accessStorageKey ? api().accessStorageKey() : "nx_access_v1";
+      localStorage.removeItem(akOut);
+    } catch (eOut) {}
     access = null;
     boot();
   }
@@ -957,7 +960,10 @@
     booting = true;
     sh().hideGate();
     var cachedAccess = null;
-    try { cachedAccess = JSON.parse(localStorage.getItem("nx_access_v1") || "null"); } catch (eC) { cachedAccess = null; }
+    try {
+      var akBoot = api().accessStorageKey ? api().accessStorageKey() : "nx_access_v1";
+      cachedAccess = JSON.parse(localStorage.getItem(akBoot) || "null");
+    } catch (eC) { cachedAccess = null; }
     var hadCache = !!(cachedAccess && cachedAccess.role && cachedAccess.role !== "none" && cachedAccess.role !== "pending" && cachedAccess.role !== "denied");
     if (hadCache) {
       access = ax().normalize(cachedAccess);
@@ -1016,7 +1022,10 @@
         return;
       }
     access = ax().normalize(res);
-    try { localStorage.setItem("nx_access_v1", JSON.stringify({ role: access.role, tabs: access.tabs, name: access.name, telegramId: access.telegramId })); } catch (eSave) {}
+    try {
+      var akSave = api().accessStorageKey ? api().accessStorageKey() : "nx_access_v1";
+      localStorage.setItem(akSave, JSON.stringify({ role: access.role, tabs: access.tabs, name: access.name, telegramId: access.telegramId }));
+    } catch (eSave) {}
     // orders-pack2: сохранить/обновить desktop-сессию после успешного getMyAccess
     if (res.desktopSession && api().rememberDesktopSession) api().rememberDesktopSession(res.desktopSession);
     if (u.first_name) access.name = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");

@@ -1,0 +1,16 @@
+{
+  "auth_with_local_ephemeral": {
+    "status": "success",
+    "role": "none",
+    "message": "need_telegram",
+    "reason": "bad_hash"
+  },
+  "finish_status": "error",
+  "finish_message": "auth_required",
+  "previewSheetsGate": null,
+  "issue718": null,
+  "sheets": null,
+  "fromD1": null,
+  "sheetsWritten": null,
+  "note": "Agent cannot sign with live test-bot token (not extracted). If auth failed, exact finish E2E awaits owner Login Widget session."
+}

@@ -33,15 +33,35 @@
     else if (viaQ === "worker") VIA = "worker";
 
     var q = u.searchParams.get("proxy");
-    if (q) {
+    if (q === "clear" || q === "prod" || q === "production") {
+      try { localStorage.removeItem("boinya_c_proxy"); } catch (eClr) {}
+      PROXY = WORKER;
+      try {
+        u.searchParams.delete("proxy");
+        history.replaceState(null, "", u.toString());
+      } catch (eClr2) {}
+    } else if (q) {
       PROXY = q;
       try {
         localStorage.setItem("boinya_c_proxy", q);
       } catch (e0) {}
-    } else if (CUTOVER && VIA === "direct") {
-      PROXY = "";
     } else {
-      PROXY = WORKER;
+      // Preview sticky: не падать молча на production Worker без ?proxy=
+      // (иначе Login Widget/session от test-бота утекает в prod).
+      var storedProxy = "";
+      try { storedProxy = String(localStorage.getItem("boinya_c_proxy") || ""); } catch (eSp) {}
+      if (storedProxy && /boinya-c-preview-eabc/i.test(storedProxy)) {
+        PROXY = storedProxy;
+        try {
+          u.searchParams.set("proxy", storedProxy);
+          if (u.searchParams.get("cutover") !== "1") u.searchParams.set("cutover", "1");
+          history.replaceState(null, "", u.toString());
+        } catch (ePinPrev) {}
+      } else if (CUTOVER && VIA === "direct") {
+        PROXY = "";
+      } else {
+        PROXY = WORKER;
+      }
     }
 
     // ?live=1 = cutover + direct GAS

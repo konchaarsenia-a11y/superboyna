@@ -17,10 +17,26 @@
     return String(root.__BOINYA_C_PROXY__ || root.__BOINYA_FAST_PROXY__ || ORIGIN);
   }
 
+  function storageSuffix_() {
+    try {
+      var p = String(root.__BOINYA_C_PROXY__ || "");
+      if (!p) return "";
+      var host = new URL(p).host || "";
+      if (!host || host === "boinya-c.konchaarsenia.workers.dev") return "";
+      if (/boinya-c-preview-eabc/i.test(host)) return ":preview-eabc";
+      return ":" + String(host).replace(/[^a-z0-9.-]/gi, "_").slice(0, 48);
+    } catch (eSuf) {
+      return "";
+    }
+  }
+  function storageKey_(base) {
+    return String(base || "") + storageSuffix_();
+  }
   var INIT_KEY = "nx_tg_init_v1";
   var LOGIN_KEY = "nx_tg_login_v1";
   // orders-pack2: desktop long-lived session token
   var DESK_SESS_KEY = "nx_desk_sess_v1";
+  var ACCESS_KEY = "nx_access_v1";
 
   function liveInitData() {
     try {
@@ -44,7 +60,7 @@
 
   function rememberedInit() {
     try {
-      return String((root.sessionStorage && root.sessionStorage.getItem(INIT_KEY)) || "");
+      return String((root.sessionStorage && root.sessionStorage.getItem(storageKey_(INIT_KEY))) || "");
     } catch (e3) {
       return "";
     }
@@ -53,7 +69,7 @@
   function rememberInit(raw) {
     if (!raw) return;
     try {
-      if (root.sessionStorage) root.sessionStorage.setItem(INIT_KEY, raw);
+      if (root.sessionStorage) root.sessionStorage.setItem(storageKey_(INIT_KEY), raw);
     } catch (e4) {}
   }
 
@@ -94,34 +110,47 @@
 
   function loginData() {
     if (liveInitData()) return "";
-    return storeGet(root.sessionStorage, LOGIN_KEY) || storeGet(root.localStorage, LOGIN_KEY);
+    var k = storageKey_(LOGIN_KEY);
+    return storeGet(root.sessionStorage, k) || storeGet(root.localStorage, k);
   }
 
   function desktopSessionData() {
     if (liveInitData()) return "";
-    return storeGet(root.localStorage, DESK_SESS_KEY) || storeGet(root.sessionStorage, DESK_SESS_KEY);
+    var k = storageKey_(DESK_SESS_KEY);
+    return storeGet(root.localStorage, k) || storeGet(root.sessionStorage, k);
   }
 
   function rememberLogin(raw) {
     var v = String(raw || "");
     if (!v) return;
-    storeSet(root.sessionStorage, LOGIN_KEY, v);
-    storeSet(root.localStorage, LOGIN_KEY, v);
+    var k = storageKey_(LOGIN_KEY);
+    storeSet(root.sessionStorage, k, v);
+    storeSet(root.localStorage, k, v);
   }
 
   function rememberDesktopSession(raw) {
     var v = String(raw || "");
     if (!v) return;
+    var k = storageKey_(DESK_SESS_KEY);
     // orders-pack2: только localStorage — переживает закрытие вкладки
-    storeSet(root.localStorage, DESK_SESS_KEY, v);
-    storeSet(root.sessionStorage, DESK_SESS_KEY, v);
+    storeSet(root.localStorage, k, v);
+    storeSet(root.sessionStorage, k, v);
   }
 
   function clearLogin() {
-    storeDel(root.sessionStorage, LOGIN_KEY);
-    storeDel(root.localStorage, LOGIN_KEY);
-    storeDel(root.sessionStorage, DESK_SESS_KEY);
-    storeDel(root.localStorage, DESK_SESS_KEY);
+    var lk = storageKey_(LOGIN_KEY);
+    var dk = storageKey_(DESK_SESS_KEY);
+    var ak = storageKey_(ACCESS_KEY);
+    storeDel(root.sessionStorage, lk);
+    storeDel(root.localStorage, lk);
+    storeDel(root.sessionStorage, dk);
+    storeDel(root.localStorage, dk);
+    storeDel(root.sessionStorage, ak);
+    storeDel(root.localStorage, ak);
+  }
+
+  function accessStorageKey() {
+    return storageKey_(ACCESS_KEY);
   }
 
   function hasDesktopLogin() {
@@ -491,6 +520,7 @@
     rememberLogin: rememberLogin,
     rememberDesktopSession: rememberDesktopSession,
     clearLogin: clearLogin,
+    accessStorageKey: accessStorageKey,
     hasDesktopLogin: hasDesktopLogin,
     waitForInitData: waitForInitData,
     telegramUser: telegramUser,
