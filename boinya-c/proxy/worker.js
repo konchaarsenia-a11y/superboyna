@@ -48,6 +48,12 @@ import {
 } from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
+  isSheetsFinishOnly_,
+  sheetsFinishOnlySkip_,
+  sheetsGasAllowed_,
+  sheetsModeLabel_
+} from "./sheets-finish-only.js";
+import {
   cabinetTestLink_,
   cabinetTestMatch_,
   cabinetTestView_,
@@ -2279,7 +2285,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
       edgeSheets: edgeSheetsLabel_(env),
-      deployMarker: "price-canon-v2-h1"
+      // Sheets только при «Завершить неделю»; чтение/зеркало вне finish выключено.
+      sheetsMode: sheetsModeLabel_(env),
+      sheetsFinishOnly: isSheetsFinishOnly_(env),
+      deployMarker: "sheets-finish-only-h1"
     };
   }
 
@@ -17620,12 +17629,28 @@ async function cutoverGetStats_(params, env, ctx) {
         }
       } catch (eS) {}
     }
-    if (live && typeof live === "object") {
+    if (live && live.status === "success") {
       live.cutover = true;
       live.fromGas = true;
       live.sandbox = false;
+      return live;
     }
-    return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+    // finish-only / GAS skip: отдать D1-snap, не падать в sheets_finish_only.
+    const snapForce = await getSnapRaw_(env, monthKey ? "getStats28:" + monthKey : snapKey);
+    if (snapForce && snapForce.status === "success" && (snapForce.fact || snapForce.bp || snapForce.month)) {
+      const outF = Object.assign({}, snapForce, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sheetsFinishOnly: !!(live && live.sheetsFinishOnly),
+        sandbox: false
+      });
+      await stampStatsFormulaD1_(outF, params, env);
+      return outF;
+    }
+    return live && live.sheetsFinishOnly
+      ? Object.assign({}, live, { cutover: true, fromD1: true, fromGas: false })
+      : { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
   }
 
   // чужой месяц без force — не отдавать snap текущего месяца
@@ -17665,7 +17690,7 @@ async function cutoverGetStats_(params, env, ctx) {
       await stampStatsFormulaD1_(monthOut, params, env);
       return monthOut;
     }
-    // нет валидного snap на этот месяц — живой GAS
+    // нет валидного snap на этот месяц — GAS; при finish-only не ходим в лист.
     const liveM = await gasProxy_("getStats", params || {}, env, { write: false });
     if (liveM && liveM.status === "success") await stampStatsFormulaD1_(liveM, params, env);
     if (liveM && liveM.status === "success" && env && env.DB) {
@@ -17677,12 +17702,25 @@ async function cutoverGetStats_(params, env, ctx) {
         );
       } catch (eSM) {}
     }
-    if (liveM && typeof liveM === "object") {
+    if (liveM && liveM.status === "success") {
       liveM.cutover = true;
       liveM.fromGas = true;
       liveM.sandbox = false;
+      return liveM;
     }
-    return liveM || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+    return liveM && liveM.sheetsFinishOnly
+      ? {
+          status: "error",
+          message: "stats_snap_missing",
+          tip: "Нет снимка месяца в D1; Sheets-чтение выключено (finish-only).",
+          cutover: true,
+          fromD1: true,
+          fromGas: false,
+          sheetsFinishOnly: true,
+          action: "getStats",
+          monthKey: monthKey
+        }
+      : { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
   }
 
   const snap = await getSnapRaw_(env, "getStats28");
@@ -17751,8 +17789,20 @@ async function cutoverGetStats_(params, env, ctx) {
   }
 
   const live = await fetchLive_();
-  if (live && typeof live === "object") return live;
-  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+  if (live && live.status === "success") return live;
+  if (live && live.sheetsFinishOnly) {
+    return {
+      status: "error",
+      message: "stats_snap_missing",
+      tip: "Нет снимка getStats в D1; Sheets-чтение выключено (finish-only).",
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sheetsFinishOnly: true,
+      action: "getStats"
+    };
+  }
+  return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
 }
 
 /** Универсальный D1+SWR для тяжёлых GAS-чтений. */
@@ -17816,6 +17866,18 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
 
   if (force) {
     const live = await fetchLive_();
+    if (live && live.status === "success") return live;
+    // finish-only: force не ходит в Sheets — отдать D1 snap.
+    const snapForce = await getSnapRaw_(env, snapKey);
+    if (snapForce && snapForce.status === "success" && (!opts.isOk || opts.isOk(snapForce))) {
+      return Object.assign({}, snapForce, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sheetsFinishOnly: !!(live && live.sheetsFinishOnly),
+        sandbox: false
+      });
+    }
     return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
   }
 
@@ -25202,6 +25264,10 @@ async function noteSheetCall_(env, action) {
 
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
+  // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
+  if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
+    return sheetsFinishOnlySkip_(action);
+  }
   if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
     return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
   }
