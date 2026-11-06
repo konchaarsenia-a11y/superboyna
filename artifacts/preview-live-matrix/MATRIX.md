@@ -1,0 +1,38 @@
+# Preview live matrix
+
+```json
+{
+  "previewWorker": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev",
+  "previewD1": {
+    "name": "boinya-c-preview-eabc",
+    "uuid": "0ddccc42-3444-4adb-9c15-68925880b146"
+  },
+  "productionUntouched": {
+    "worker": "boinya-c",
+    "d1": "8ab3668c-a654-432c-9ebd-a1ac5c4db800"
+  },
+  "branch": "cursor/preview-sheets-rename-eabc",
+  "combined": [
+    "#718 sheets-finish-only",
+    "#719 rename/move UPDATE"
+  ],
+  "verified": [
+    "ping sheetsMode=finish-only deployMarker=sheets-finish-only-h1",
+    "create saveOrder -> accepted d1Verified (zzz_preview_b)",
+    "rename keepId path: client+match_key update, client_id preserved, deletedCount=0",
+    "move UPDATE to Wed: single active row, Mon empty, getClients read-back OK",
+    "ordersCanon d1-readonly-sheets; cutting/assembly/courier source=d1",
+    "getStats sheetsFinishOnly without Sheets fallback (stats_snap_missing)",
+    "stranger saveOrder -> no_access; owner getMyAccess role=owner",
+    "unit tests sheets-finish-only + order-row-canon + orders-pack2 pass"
+  ],
+  "unchecked": [
+    "UI Telegram Login Widget with real owner initData (preview AUTH_ENFORCE=0 API-only; no prod bot token copied)",
+    "finishFullWeek* live path / Sheets stub contract end-to-end (explicitly not run; no production week close)",
+    "production Worker promote / merge to main",
+    "clients.match_key UNIQUE row rewrite on rename (orders.match_key fixed; clients.nick updated, clients.match_key may stay old key until separate migration)",
+    "cron/notify/TG/mail/GAS/webhook (intentionally unbound on preview)"
+  ],
+  "fixDuringPreview": "mergeOrderRowsKeepNonEmpty_ preferred existing.match_key; fixed to honor incoming on client rename"
+}
+```

@@ -1,0 +1,37 @@
+{
+  "contract": "sheets_finish_only_vs_preview_stub",
+  "banned": {
+    "action": "mirrorSheetClients",
+    "status": "skipped",
+    "message": "sheets_finish_only",
+    "sheetsFinishOnly": true,
+    "previewStub": null,
+    "ok": true
+  },
+  "allowed": {
+    "action": "finishFullWeekProbe",
+    "status": "success",
+    "message": "preview_gas_stub",
+    "previewStub": true,
+    "external": false,
+    "stubOnly": true,
+    "sheets": false,
+    "ok": true
+  },
+  "exact_finishFullWeek_d1": {
+    "status": "error",
+    "message": "week_already_finished",
+    "sheets": false,
+    "fromD1": true,
+    "previewStub": null,
+    "finished": null,
+    "weekCloseCanon": "d1-only",
+    "action": "finishFullWeek",
+    "canon": null,
+    "d1Verified": null,
+    "closed": null
+  },
+  "d1_close_is_not_sheets_proof": true,
+  "note": "exact finishFullWeek → closeWeekInD1_ (sheets:false). Stub proof = non-finish sheets_finish_only + finish*Probe previewStub.",
+  "passed": true
+}

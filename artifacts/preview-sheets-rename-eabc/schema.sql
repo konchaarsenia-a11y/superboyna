@@ -1,0 +1,179 @@
+-- Бойня C — D1 (песочница). Не связана с прод-Sheets.
+
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id TEXT PRIMARY KEY,
+  date_iso TEXT NOT NULL,
+  day_name TEXT NOT NULL,
+  client TEXT NOT NULL,
+  match_key TEXT NOT NULL,
+  address TEXT DEFAULT '',
+  note TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  basket_json TEXT DEFAULT '[]',
+  segment TEXT DEFAULT '',
+  source TEXT DEFAULT '',
+  status TEXT DEFAULT 'active',
+  updated_at TEXT NOT NULL,
+  meta_json TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_day ON orders(day_name);
+CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(date_iso);
+CREATE INDEX IF NOT EXISTS idx_orders_match ON orders(match_key);
+
+-- Этап (б). client_id на живой D1 добавляет ensureStageBSchema_ (ALTER).
+-- Ник можно сменить, id нет. Разные написания ника — разные match_key, не склеиваются.
+
+CREATE TABLE IF NOT EXISTS clients (
+  id TEXT PRIMARY KEY,
+  match_key TEXT NOT NULL UNIQUE,
+  nick TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  dogs_json TEXT NOT NULL DEFAULT '[]',
+  telegram TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS subs (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL DEFAULT '',
+  match_key TEXT NOT NULL DEFAULT '',
+  nick TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  sheet TEXT NOT NULL DEFAULT '',
+  price REAL,
+  n INTEGER,
+  basket_json TEXT NOT NULL DEFAULT '[]',
+  bp_stage TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_subs_match ON subs(match_key);
+
+CREATE TABLE IF NOT EXISTS assembly_dry (
+  date_iso TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  dry_g REAL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (date_iso, row_key)
+);
+
+CREATE TABLE IF NOT EXISTS cutting_flags (
+  date_iso TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  surplus REAL DEFAULT 0,
+  done INTEGER DEFAULT 0,
+  laid INTEGER DEFAULT 0,
+  out_next INTEGER DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (date_iso, row_key)
+);
+
+CREATE TABLE IF NOT EXISTS deliveries (
+  date_iso TEXT NOT NULL,
+  match_key TEXT NOT NULL,
+  delivered INTEGER DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (date_iso, match_key)
+);
+
+-- Готовые ответы API (нарезка/курьер/месяц/…) — JSON как в GAS
+CREATE TABLE IF NOT EXISTS snap_cache (
+  cache_key TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Очередь зеркалирования D1 → Sheets (d1-primary canon)
+CREATE TABLE IF NOT EXISTS sheet_outbox (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  attempts INTEGER DEFAULT 0,
+  last_error TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sheet_outbox_status ON sheet_outbox(status);
+
+-- Точки выезда курьера. Остатки склада не делятся.
+CREATE TABLE IF NOT EXISTS warehouses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  is_departure INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT ''
+);
+
+-- Цели: задачи (общие и личные) и показатели владельца. Не зеркалится в Sheets.
+-- scope пустой = общая задача (старые строки без колонки тоже общие). person + owner_tg_id = личная.
+CREATE TABLE IF NOT EXISTS goals (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  horizon TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  done INTEGER NOT NULL DEFAULT 0,
+  done_at TEXT NOT NULL DEFAULT '',
+  metric_id TEXT NOT NULL DEFAULT '',
+  target REAL,
+  period TEXT NOT NULL DEFAULT '',
+  date_from TEXT NOT NULL DEFAULT '',
+  date_to TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  owner_tg_id TEXT NOT NULL DEFAULT '',
+  parent_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Этап (в). Остатки и журнал. Розница и себес — отдельные от raw_cost_ver.
+CREATE TABLE IF NOT EXISTS stock_items (
+  sku TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  dry_g REAL,
+  raw_kg REAL,
+  yield REAL,
+  unit TEXT NOT NULL DEFAULT '',
+  row_num INTEGER,
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS stock_moves (
+  id TEXT PRIMARY KEY,
+  date_iso TEXT NOT NULL,
+  sku TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  qty REAL,
+  actor TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS retail_prices (
+  sku TEXT PRIMARY KEY,
+  price REAL,
+  source TEXT NOT NULL DEFAULT 'showcase',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS raw_costs (
+  sku TEXT PRIMARY KEY,
+  price REAL,
+  yield REAL,
+  source TEXT NOT NULL DEFAULT 'cost',
+  updated_at TEXT NOT NULL DEFAULT ''
+);

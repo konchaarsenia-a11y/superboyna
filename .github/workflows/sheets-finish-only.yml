@@ -1,0 +1,31 @@
+name: sheets-finish-only
+
+on:
+  pull_request:
+    paths:
+      - "boinya-c/proxy/worker.js"
+      - "boinya-c/proxy/sheets-finish-only.js"
+      - "boinya-c/proxy/sheets-finish-only.test.mjs"
+      - "boinya-c/proxy/week-close-sheets.js"
+      - "boinya-c/proxy/week-close-sheets.test.mjs"
+      - ".github/workflows/sheets-finish-only.yml"
+  push:
+    branches: [main]
+    paths:
+      - "boinya-c/proxy/worker.js"
+      - "boinya-c/proxy/sheets-finish-only.js"
+      - "boinya-c/proxy/sheets-finish-only.test.mjs"
+      - "boinya-c/proxy/week-close-sheets.js"
+      - "boinya-c/proxy/week-close-sheets.test.mjs"
+      - ".github/workflows/sheets-finish-only.yml"
+
+jobs:
+  sheets-finish-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Sheets only on finishFullWeek
+        run: node --test boinya-c/proxy/sheets-finish-only.test.mjs boinya-c/proxy/week-close-sheets.test.mjs
