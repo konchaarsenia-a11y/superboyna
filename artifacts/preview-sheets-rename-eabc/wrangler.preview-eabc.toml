@@ -1,0 +1,39 @@
+# ISOLATED PREVIEW — NEVER bind production D1 8ab3668c-a654-432c-9ebd-a1ac5c4db800
+# Worker name must NOT be boinya-c. No crons, no GAS secrets, no KV/R2/queues.
+name = "boinya-c-preview-eabc"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+keep_vars = true
+
+[vars]
+PEOPLE_CANON = "d1-primary"
+OPS_CANON = "d1-primary"
+DEFERRED_CANON = "d1-primary"
+SUBS_CANON = "d1-primary"
+WAREHOUSE_CANON = "d1-primary"
+META_CANON = "d1-primary"
+CUTTING_STRUCT_CANON = "d1-primary"
+PRICE_CANON = "d1-primary"
+PARTNER_CANON = "d1-primary"
+GB_CANON = "d1-primary"
+WEEK_D1_SYNC = "gas-authoritative"
+WEEK_CLOSE_CANON = "d1-sync"
+OWNER_TELEGRAM_IDS = "650923866"
+PARTNER_OWNER_TIDS = "827494606,650923866"
+PARTNER_OWNER_USERNAMES = "one_more_person_228"
+# Preview-only: API tests with telegramId=owner. Does NOT change production Worker.
+AUTH_ENFORCE = "0"
+SHEETS_MODE = "finish-only"
+SHEETS_FINISH_ONLY = "1"
+PREVIEW_ISOLATED = "1"
+PREVIEW_MARKER = "preview-sheets-rename-eabc"
+# No GAS_ORIGIN → gasProxy_ cannot reach production Sheets/GAS
+GAS_ORIGIN = ""
+
+# NO [triggers] crons — do not materialize/notify on preview
+# NO secrets copied from production
+
+[[d1_databases]]
+binding = "DB"
+database_name = "boinya-c-preview-eabc"
+database_id = "0ddccc42-3444-4adb-9c15-68925880b146"
