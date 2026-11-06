@@ -48,6 +48,23 @@ import {
 } from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
+  isSheetsFinishOnly_,
+  sheetsFinishOnlySkip_,
+  sheetsGasAllowed_,
+  sheetsModeLabel_
+} from "./sheets-finish-only.js";
+import {
+  buildWeekCloseSheetsParams_,
+  summarizeWeekCloseSheets_
+} from "./week-close-sheets.js";
+import {
+  orderMoveIsInPlace_,
+  orderNickRenameIsInPlace_,
+  planClientNickRenameKeep_,
+  planOrderMoveInPlace_,
+  planOrderNickRenameKeep_
+} from "./order-row-canon.js";
+import {
   cabinetTestLink_,
   cabinetTestMatch_,
   cabinetTestView_,
@@ -2279,7 +2296,11 @@ async function handleActionInner_(action, params, env, url, ctx) {
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
       opsSheets: opsSheetsLabel_(env),
       edgeSheets: edgeSheetsLabel_(env),
-      deployMarker: "price-canon-v2-h1"
+      // Sheets только при «Завершить неделю»; чтение/зеркало вне finish выключено.
+      sheetsMode: sheetsModeLabel_(env),
+      sheetsFinishOnly: isSheetsFinishOnly_(env),
+      weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
+      deployMarker: "sheets-finish-only-h1"
     };
   }
 
@@ -3340,12 +3361,22 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
     },
     params
   );
+  // #19 rename: при смене client нельзя залипать на старом match_key
+  // (existing.match_key || incoming) прятал newMatchKey из planOrderNickRenameKeep_.
+  const clientRenamed =
+    !!(incoming.client &&
+      existing.client &&
+      String(incoming.client).trim().toLowerCase() !==
+        String(existing.client).trim().toLowerCase());
   return Object.assign({}, existing, incoming, {
     id: existing.id || incoming.id,
     day_name: incoming.day_name || existing.day_name || "",
     date_iso: incoming.date_iso || existing.date_iso || "",
     status: pickLiveOrderStatus_(existing.status, incoming.status),
-    match_key: existing.match_key || incoming.match_key,
+    match_key:
+      clientRenamed && incoming.match_key
+        ? incoming.match_key
+        : existing.match_key || incoming.match_key,
     client: incoming.client || existing.client,
     address: merged.address,
     phone: merged.phone,
@@ -14049,64 +14080,82 @@ async function saveOrder_(params, env, asBooking) {
     meta = await clampPpOrderSlotToCard_(env, client, meta, segSave);
   } catch (eClampPp) {}
 
-  // переименование при edit: снять старый nick (UI delete может не успеть)
-  if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
-    const editMk = normalizeMatchKey_(params.matchKey || editClient);
-    const editPoint = partnerOrderSaveKey_(editClient, params);
-    try {
-      if (editPoint && editPoint !== "ВАРКА") {
-        const rq = await env.DB.prepare(
-          "SELECT id, client, match_key, address, segment FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-        )
-          .bind(editMk, editPoint, editClient.toLowerCase())
-          .all();
-        const drop = ((rq && rq.results) || []).filter(function (row) {
-          return partnerSaveSibling_(row, editClient, params.address, editPoint);
-        });
-        for (let ri = 0; ri < drop.length; ri++) {
-          await env.DB.prepare(
-            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
-          )
-            .bind(now, drop[ri].id)
-            .run();
-        }
-      } else {
-        await env.DB.prepare(
-          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-        )
-          .bind(now, editMk, editClient.toLowerCase(), editClient.toLowerCase())
-          .run();
-      }
-    } catch (eRen) {}
+  // orders-pack2 #19: смена ника = UPDATE той же строки (не soft-delete + insert).
+  // UI шлёт matchKey=старый; новый ключ — из client. PK составной: id может
+  // сохранить старый фрагмент ника; match_key/client обновляются.
+  const isEditSave =
+    toBool_(params.isEdit) || !!(oldDayParam || params.oldDate || params.editDate || editClient);
+  const renameEdit =
+    !!(editClient && editClient.toLowerCase() !== client.toLowerCase() && isEditSave);
+  if (renameEdit) {
+    // партнёрский ключ точки важнее «голого» ника
+    matchKey = partnerKey || normalizeMatchKey_(client) || matchKey;
   }
 
   let siblingRows = [];
   let sameRecordIds = [];
   try {
-    const sq = await env.DB.prepare(
-      "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
-    )
-      .bind(matchKey, client.toLowerCase())
-      .all();
+    const editMkLoad = renameEdit ? normalizeMatchKey_(editClient) : "";
+    let sq;
+    if (renameEdit && editMkLoad) {
+      sq = await env.DB.prepare(
+        "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
+      )
+        .bind(matchKey, editMkLoad, client.toLowerCase(), editClient.toLowerCase())
+        .all();
+    } else {
+      sq = await env.DB.prepare(
+        "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
+      )
+        .bind(matchKey, client.toLowerCase())
+        .all();
+    }
     siblingRows = (sq && sq.results) || [];
     if (partnerKey && partnerKey !== "ВАРКА") {
       siblingRows = siblingRows.filter(function (row) {
-        return partnerSaveSibling_(row, client, params.address, partnerKey);
+        return (
+          partnerSaveSibling_(row, client, params.address, partnerKey) ||
+          (renameEdit && partnerSaveSibling_(row, editClient, params.address, partnerKey))
+        );
       });
     }
   } catch (eSib) {}
-  const pickedSave = pickOrderSaveTarget_(siblingRows, {
-    day: day,
-    dateIso: dateIso,
-    segment: segSave,
-    matchKey: matchKey,
-    isEdit: toBool_(params.isEdit) || !!(oldDayParam || params.oldDate || params.editDate),
-    oldDay: oldDayParam,
-    oldDate: params.oldDate || params.editDate || ""
-  });
-  id = pickedSave.id;
-  sameRecordIds = pickedSave.deleteIds || [];
+
+  let renamePlan = null;
+  if (renameEdit) {
+    renamePlan = planOrderNickRenameKeep_(siblingRows, {
+      editClient: editClient,
+      editMatchKey: normalizeMatchKey_(editClient),
+      client: client,
+      day: day || oldDayParam,
+      dateIso: dateIso || coerceDateIso_(params.oldDate || params.editDate || "") || "",
+      oldDay: oldDayParam,
+      oldDate: params.oldDate || params.editDate || "",
+      segment: segSave
+    });
+  }
+
+  if (renamePlan && orderNickRenameIsInPlace_(renamePlan)) {
+    id = renamePlan.keepId;
+    matchKey = renamePlan.newMatchKey || matchKey;
+    sameRecordIds = (renamePlan.softDeleteIds || []).filter(function (x) {
+      return x && x !== id;
+    });
+  } else {
+    const pickedSave = pickOrderSaveTarget_(siblingRows, {
+      day: day,
+      dateIso: dateIso,
+      segment: segSave,
+      matchKey: matchKey,
+      isEdit: isEditSave,
+      oldDay: oldDayParam,
+      oldDate: params.oldDate || params.editDate || ""
+    });
+    id = pickedSave.id;
+    sameRecordIds = pickedSave.deleteIds || [];
+  }
   for (let di = 0; di < sameRecordIds.length; di++) {
+    if (sameRecordIds[di] === id) continue;
     try {
       await env.DB.prepare(
         "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
@@ -15881,12 +15930,31 @@ async function moveClient_(params, env) {
       await clearMoveArriveProtect_(env, fromDays[tj], matchKey, clearName, moveStartedAt);
     } catch (eTombEarly) {}
   }
-  // orders-pack2: #23 — настоящий перенос: UPDATE той же записи (дата/день/id), без delete+create
+  // orders-pack2 #23: перенос = UPDATE той же строки (PK может смениться с датой/днём).
+  // Не upsert+soft-delete источника. Чужой clash на целевом id — снять только его.
   let toLabel = "(calendar)";
   let moveIso = "";
   let moveNewId = "";
   let moveDayName = "";
-  if (newDay) {
+  const movePlan = planOrderMoveInPlace_(row, {
+    matchKey: matchKey,
+    newDay: newDay,
+    newDate: newDate
+  });
+  if (movePlan && orderMoveIsInPlace_(movePlan)) {
+    moveNewId = movePlan.targetId;
+    moveIso = movePlan.dateIso || "";
+    moveDayName = movePlan.dayName || "";
+    toLabel = newDay || newDate || moveNewId;
+    if (newDay && !moveIso) {
+      try {
+        const info = await dayDateInfo_(env, newDay);
+        moveIso = (info && info.iso) || coerceDateIso_(row.date_iso) || "";
+      } catch (eInfoMv) {
+        moveIso = coerceDateIso_(row.date_iso) || "";
+      }
+    }
+  } else if (newDay) {
     const info = await dayDateInfo_(env, newDay);
     moveIso =
       coerceDateIso_(newDate) ||
@@ -15927,29 +15995,40 @@ async function moveClient_(params, env) {
         )
         .run();
     } catch (eInPlace) {
-      // fallback: если PK id нельзя сменить на занятый — upsert + soft-delete старого
-      await upsertOrderRow_(env, {
-        id: moveNewId,
-        date_iso: moveIso || "",
-        day_name: moveDayName,
-        client: row.client,
-        match_key: matchKey,
-        address: row.address || "",
-        note: movedNote,
-        phone: row.phone || "",
-        basket_json: row.basket_json || "[]",
-        segment: row.segment || "",
-        source: row.source || "",
-        status: "active",
-        updated_at: now,
-        meta_json: JSON.stringify(meta)
-      });
-      if (String(row.id) !== moveNewId) {
+      // #23: ещё раз снять чужой clash и повторить UPDATE источника — без delete+create.
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND id != ? AND status = 'active'"
+        )
+          .bind(now, moveNewId, row.id)
+          .run();
+      } catch (eClash2) {}
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET id = ?, date_iso = ?, day_name = ?, note = ?, meta_json = ?, status = 'active', updated_at = ? WHERE id = ?"
+        )
+          .bind(
+            moveNewId,
+            moveIso || "",
+            moveDayName,
+            movedNote,
+            JSON.stringify(meta),
+            now,
+            row.id
+          )
+          .run();
+      } catch (eInPlace2) {
+        // последний шанс: обновить поля на том же PK (дата/день), не soft-delete источника
         try {
-          await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-            .bind(now, row.id)
+          await env.DB.prepare(
+            "UPDATE orders SET date_iso = ?, day_name = ?, note = ?, meta_json = ?, status = 'active', updated_at = ? WHERE id = ?"
+          )
+            .bind(moveIso || "", moveDayName, movedNote, JSON.stringify(meta), now, row.id)
             .run();
-        } catch (eDelFb) {}
+          moveNewId = String(row.id);
+        } catch (eKeepPk) {
+          throw eInPlace2;
+        }
       }
     }
   }
@@ -17620,12 +17699,28 @@ async function cutoverGetStats_(params, env, ctx) {
         }
       } catch (eS) {}
     }
-    if (live && typeof live === "object") {
+    if (live && live.status === "success") {
       live.cutover = true;
       live.fromGas = true;
       live.sandbox = false;
+      return live;
     }
-    return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+    // finish-only / GAS skip: отдать D1-snap, не падать в sheets_finish_only.
+    const snapForce = await getSnapRaw_(env, monthKey ? "getStats28:" + monthKey : snapKey);
+    if (snapForce && snapForce.status === "success" && (snapForce.fact || snapForce.bp || snapForce.month)) {
+      const outF = Object.assign({}, snapForce, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sheetsFinishOnly: !!(live && live.sheetsFinishOnly),
+        sandbox: false
+      });
+      await stampStatsFormulaD1_(outF, params, env);
+      return outF;
+    }
+    return live && live.sheetsFinishOnly
+      ? Object.assign({}, live, { cutover: true, fromD1: true, fromGas: false })
+      : { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
   }
 
   // чужой месяц без force — не отдавать snap текущего месяца
@@ -17665,7 +17760,7 @@ async function cutoverGetStats_(params, env, ctx) {
       await stampStatsFormulaD1_(monthOut, params, env);
       return monthOut;
     }
-    // нет валидного snap на этот месяц — живой GAS
+    // нет валидного snap на этот месяц — GAS; при finish-only не ходим в лист.
     const liveM = await gasProxy_("getStats", params || {}, env, { write: false });
     if (liveM && liveM.status === "success") await stampStatsFormulaD1_(liveM, params, env);
     if (liveM && liveM.status === "success" && env && env.DB) {
@@ -17677,12 +17772,25 @@ async function cutoverGetStats_(params, env, ctx) {
         );
       } catch (eSM) {}
     }
-    if (liveM && typeof liveM === "object") {
+    if (liveM && liveM.status === "success") {
       liveM.cutover = true;
       liveM.fromGas = true;
       liveM.sandbox = false;
+      return liveM;
     }
-    return liveM || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+    return liveM && liveM.sheetsFinishOnly
+      ? {
+          status: "error",
+          message: "stats_snap_missing",
+          tip: "Нет снимка месяца в D1; Sheets-чтение выключено (finish-only).",
+          cutover: true,
+          fromD1: true,
+          fromGas: false,
+          sheetsFinishOnly: true,
+          action: "getStats",
+          monthKey: monthKey
+        }
+      : { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
   }
 
   const snap = await getSnapRaw_(env, "getStats28");
@@ -17751,8 +17859,20 @@ async function cutoverGetStats_(params, env, ctx) {
   }
 
   const live = await fetchLive_();
-  if (live && typeof live === "object") return live;
-  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+  if (live && live.status === "success") return live;
+  if (live && live.sheetsFinishOnly) {
+    return {
+      status: "error",
+      message: "stats_snap_missing",
+      tip: "Нет снимка getStats в D1; Sheets-чтение выключено (finish-only).",
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sheetsFinishOnly: true,
+      action: "getStats"
+    };
+  }
+  return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
 }
 
 /** Универсальный D1+SWR для тяжёлых GAS-чтений. */
@@ -17816,6 +17936,18 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
 
   if (force) {
     const live = await fetchLive_();
+    if (live && live.status === "success") return live;
+    // finish-only: force не ходит в Sheets — отдать D1 snap.
+    const snapForce = await getSnapRaw_(env, snapKey);
+    if (snapForce && snapForce.status === "success" && (!opts.isOk || opts.isOk(snapForce))) {
+      return Object.assign({}, snapForce, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sheetsFinishOnly: !!(live && live.sheetsFinishOnly),
+        sandbox: false
+      });
+    }
     return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
   }
 
@@ -19657,8 +19789,68 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   if (a === "finishFullWeek" && isWeekCloseD1Native_(env)) {
-    return closeWeekInD1_(params, env);
+    // #718: close in D1 first, then one allowed Sheets write (fromD1Close) — no Sheet reads / other GAS.
+    const closed = await closeWeekInD1_(params, env);
+    if (!(closed && closed.status === "success" && closed.message === "week_closed")) {
+      return closed;
+    }
+    let sheetsRes = null;
+    try {
+      sheetsRes = await gasProxy_(
+        "finishFullWeek",
+        buildWeekCloseSheetsParams_(closed, params || {}),
+        env,
+        { write: true }
+      );
+    } catch (eSh) {
+      sheetsRes = {
+        status: "error",
+        message: String((eSh && eSh.message) || eSh),
+        previewStub: false
+      };
+    }
+    const sum = summarizeWeekCloseSheets_(sheetsRes);
+    closed.weekCloseCanon = "d1-sheets";
+    closed.fromD1 = true;
+    closed.sheets = !sum.stub;
+    closed.sheetsWritten = !!sum.sheetsWritten;
+    closed.sheetsStatus = sum.status;
+    closed.sheetsMessage = sum.message;
+    closed.sheetsOk = !!sum.ok;
+    closed.previewStub = !!sum.stub;
+    if (sheetsRes && typeof sheetsRes === "object") {
+      closed.sheetsResult = {
+        status: sheetsRes.status,
+        message: sheetsRes.message,
+        previewStub: !!sheetsRes.previewStub,
+        external: sheetsRes.external,
+        fromD1Close: !!sheetsRes.fromD1Close,
+        sheetsWritten: !!sheetsRes.sheetsWritten
+      };
+    }
+    if (!sum.ok) {
+      closed.sheetsError = sum.message || "sheets_write_failed";
+    }
+    try {
+      await putSnap_(env, "weekBanner", {
+        status: "success",
+        finished: true,
+        pulled: true,
+        refused: false,
+        weekKey: closed.prevMondayIso || "",
+        action: "finishFullWeek",
+        syncedAt: new Date().toISOString(),
+        cutover: true,
+        fromD1: true,
+        sheets: !sum.stub,
+        sheetsOk: !!sum.ok,
+        weekCloseCanon: "d1-sheets"
+      });
+    } catch (eBan2) {}
+    return closed;
   }
+
+
 
   if (a === "finishFullWeek") {
     try {
@@ -25202,6 +25394,10 @@ async function noteSheetCall_(env, action) {
 
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
+  // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
+  if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
+    return sheetsFinishOnlySkip_(action);
+  }
   if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
     return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
   }
@@ -37314,19 +37510,76 @@ async function stageBAssignClient_(env, row, params) {
   var edit = params ? String(params.editClient || params.originalClient || "").trim() : "";
   var editMk = edit ? normalizeMatchKey_(edit) : "";
   var id = "";
-  if (editMk && editMk !== mk) {
-    var old = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
-    var neu = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
-    if (old && old.id && !(neu && neu.id)) {
-      await env.DB.prepare("UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?")
-        .bind(mk, String(row.client || ""), now, old.id)
-        .run();
-      id = String(old.id);
-    } else if (neu && neu.id) id = String(neu.id);
-    else if (old && old.id) id = String(old.id);
+  // #19: rename → тот же clients.id. normalizeMatchKey_ снимает «_», а в D1
+  // часто лежит ZZZ_PREVIEW — ищем aliases + order.client_id, не INSERT c_* дубля.
+  if (edit && editMk && editMk !== mk) {
+    var listed = [];
+    try {
+      var cq = await env.DB.prepare(
+        "SELECT id, match_key, nick FROM clients LIMIT 400"
+      ).all();
+      listed = (cq && cq.results) || [];
+    } catch (eListCl) {
+      listed = [];
+    }
+    var renamePlan = planClientNickRenameKeep_(listed, {
+      editClient: edit,
+      editMatchKey: editMk,
+      editAliases: matchKeyAliases_(edit),
+      client: String(row.client || ""),
+      newMatchKey: mk,
+      orderClientId: row.client_id || (params && params.clientId) || ""
+    });
+    if (renamePlan && renamePlan.keepId) {
+      id = String(renamePlan.keepId);
+      try {
+        await env.DB.prepare(
+          "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+        )
+          .bind(mk, String(row.client || ""), now, id)
+          .run();
+      } catch (eUpMk) {
+        // UNIQUE на новом match_key: снести чужой дубль и повторить
+        try {
+          await env.DB.prepare(
+            "DELETE FROM clients WHERE match_key = ? AND id != ?"
+          )
+            .bind(mk, id)
+            .run();
+          await env.DB.prepare(
+            "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+          )
+            .bind(mk, String(row.client || ""), now, id)
+            .run();
+        } catch (eUpMk2) {}
+      }
+      var dropIds = renamePlan.dropIds || [];
+      for (var di = 0; di < dropIds.length; di++) {
+        if (!dropIds[di] || dropIds[di] === id) continue;
+        try {
+          await env.DB.prepare("UPDATE orders SET client_id = ? WHERE client_id = ?")
+            .bind(id, dropIds[di])
+            .run();
+        } catch (eRebind) {}
+        try {
+          await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(dropIds[di]).run();
+        } catch (eDrop) {}
+      }
+    }
   }
   if (!id) {
     var have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    if (!(have && have.id) && editMk) {
+      have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
+    }
+    if (!(have && have.id) && edit) {
+      var aliases = matchKeyAliases_(edit);
+      for (var ai = 0; ai < aliases.length && !(have && have.id); ai++) {
+        have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?")
+          .bind(aliases[ai])
+          .first();
+      }
+    }
     id = have && have.id ? String(have.id) : stageBClientId_(mk);
   }
   await env.DB.prepare(
@@ -37341,8 +37594,11 @@ async function stageBAssignClient_(env, row, params) {
     .bind(id, mk, String(row.client || ""), String(row.client || ""), String(row.phone || ""), String(row.address || ""), String(row.note || ""), now)
     .run();
   if (row.id) {
-    await env.DB.prepare("UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '')")
-      .bind(id, row.id)
+    // rename: всегда привязать заказ к keepId (не только пустой client_id)
+    await env.DB.prepare(
+      "UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '' OR client_id != ?)"
+    )
+      .bind(id, row.id, id)
       .run();
   }
   return id;
@@ -40872,6 +41128,7 @@ async function closeUpdateLanded_(env, update, before) {
 }
 
 async function closeWeekInD1_(params, env) {
+  // sheets/weekCloseCanon filled by caller after optional Sheets write (#718 d1-sheets).
   const canon = { sheets: false, fromD1: true, weekCloseCanon: "d1-only", cutover: true, action: "finishFullWeek" };
   if (!env || !env.DB) return Object.assign({ status: "error", message: "no_d1" }, canon);
   let ownerOk = false;

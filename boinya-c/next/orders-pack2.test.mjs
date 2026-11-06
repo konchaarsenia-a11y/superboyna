@@ -51,6 +51,10 @@ test("#19 смена ника без delete+create", () => {
   );
   assert.match(payloadSrc, /editClient: editClient/);
   assert.match(payloadSrc, /orders-pack2: #19/);
+  // Worker: in-place rename planner, не soft-delete всех строк старого ника
+  assert.match(workerSrc, /planOrderNickRenameKeep_/);
+  assert.match(workerSrc, /orderNickRenameIsInPlace_/);
+  assert.match(workerSrc, /orders-pack2 #19/);
   const eng = require("./order-engine.js");
   const book = pay.buildSaveBookingParams(
     {
@@ -87,9 +91,14 @@ test("#21 сводка за месяц: owner или monthSummaryScreen", () => 
 });
 
 test("#23 перенос in-place UPDATE той же записи", () => {
-  assert.match(workerSrc, /orders-pack2: #23/);
-  assert.match(workerSrc, /настоящий перенос: UPDATE той же записи/);
+  assert.match(workerSrc, /orders-pack2 #23/);
+  assert.match(workerSrc, /planOrderMoveInPlace_/);
+  assert.match(workerSrc, /orderMoveIsInPlace_/);
   assert.match(workerSrc, /UPDATE orders SET id = \?, date_iso = \?, day_name = \?/);
+  assert.doesNotMatch(
+    workerSrc,
+    /fallback: если PK id нельзя сменить на занятый — upsert \+ soft-delete старого/
+  );
 });
 
 test("#25 Неделя завершена + finishWeekScreen", () => {
