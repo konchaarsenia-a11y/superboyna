@@ -3355,12 +3355,22 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
     },
     params
   );
+  // #19 rename: при смене client нельзя залипать на старом match_key
+  // (existing.match_key || incoming) прятал newMatchKey из planOrderNickRenameKeep_.
+  const clientRenamed =
+    !!(incoming.client &&
+      existing.client &&
+      String(incoming.client).trim().toLowerCase() !==
+        String(existing.client).trim().toLowerCase());
   return Object.assign({}, existing, incoming, {
     id: existing.id || incoming.id,
     day_name: incoming.day_name || existing.day_name || "",
     date_iso: incoming.date_iso || existing.date_iso || "",
     status: pickLiveOrderStatus_(existing.status, incoming.status),
-    match_key: existing.match_key || incoming.match_key,
+    match_key:
+      clientRenamed && incoming.match_key
+        ? incoming.match_key
+        : existing.match_key || incoming.match_key,
     client: incoming.client || existing.client,
     address: merged.address,
     phone: merged.phone,
