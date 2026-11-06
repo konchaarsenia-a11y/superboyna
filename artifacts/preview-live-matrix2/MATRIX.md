@@ -5,7 +5,7 @@
 | auth enforce, spoof rejected | **PASSED** |
 | stranger write denied (`no_access`) | **PASSED** |
 | owner signed initData (API HMAC) | **PASSED** |
-| UI Telegram Login Widget | **NOT_VERIFIED** |
+| UI Telegram Login Widget | **NOT_VERIFIED** (URL ready: `@BoinyaTest_bot` via `?proxy=preview-eabc`; ждём реальный клик) |
 | rename no deleted+insert | **PASSED** |
 | rename stable `clients.id` | **PASSED** |
 | rename `match_key` updated | **PASSED** |
