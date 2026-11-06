@@ -668,6 +668,24 @@ function authHex_(bytes) {
   for (let i = 0; i < bytes.length; i++) s += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
   return s;
 }
+
+/**
+ * Preview ACL compare: fingerprint of FULL canonical Telegram id (not suffix).
+ * Formula (server + CF executor must match):
+ *   canon = String(tid).trim() where /^\d{5,20}$/
+ *   tidFp = hex_lower(SHA256(UTF8("boinya.tg.id.v1:" + canon)))
+ * Why: authLastSafe must allow prod↔preview principal match without logging raw id.
+ */
+function authCanonTelegramId_(tid) {
+  const s = String(tid == null ? "" : tid).trim();
+  return /^\d{5,20}$/.test(s) ? s : "";
+}
+async function authTelegramIdFp_(tid) {
+  const canon = authCanonTelegramId_(tid);
+  if (!canon) return "";
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", _tgEnc.encode("boinya.tg.id.v1:" + canon)));
+  return authHex_(bytes);
+}
 function authSafeEq_(a, b) {
   a = String(a || "");
   b = String(b || "");
@@ -1026,8 +1044,9 @@ async function authLookupRole_(tid, env) {
         role = String(live.role || "none");
         status = String(live.access || "");
         if (live.customTabs) custom = live.customTabs;
+        // Preview stub role:none must not clobber a prior elevated ACL snap (prod→preview copy).
         try {
-          await putSnap_(env, "access:" + tid, Object.assign({}, live, { telegramId: tid, cachedAt: new Date().toISOString() }));
+          await accessPutSnapGuardStub_(env, "access:" + tid, live, tid);
         } catch (eP) {}
       }
     } catch (eG) {}
@@ -1290,11 +1309,12 @@ async function serveKlientCabinet_() {
 const PREVIEW_UI_PAGES_BASE_ = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c";
 const PREVIEW_UI_LOGIN_HOST_ = "boinya-c-preview-eabc.konchaarsenia.workers.dev";
 /** Branch tip for preview-only next/api.js + next/app.js (auth bootstrap); not production Pages. */
-const PREVIEW_UI_GIT_REF_ = "cursor/preview-sheets-rename-eabc";
+const PREVIEW_UI_GIT_REF_ = "cursor/auth-post-ci-eabc";
 
 async function servePreviewSourceFile_(rel) {
   const safe = String(rel || "").replace(/^\/+/, "");
-  if (!/^next\/(api|app)\.js$/.test(safe)) {
+  // access.js too: Pages copy kept empty tabs:[] → «Нет доступа» for elevated roles.
+  if (!/^next\/(api|app|access)\.js$/.test(safe)) {
     return new Response("not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
   const url =
@@ -1302,7 +1322,7 @@ async function servePreviewSourceFile_(rel) {
     PREVIEW_UI_GIT_REF_ +
     "/boinya-c/" +
     safe +
-    "?v=auth-h3";
+    "?v=auth-h10";
   try {
     const upstream = await fetch(url, { cf: { cacheTtl: 0, cacheEverything: false } });
     if (!upstream.ok) {
@@ -1348,6 +1368,17 @@ function servePreviewUiConfig_() {
   });
 }
 
+/**
+ * Preview-only logout: clear exactly 4 `:preview-eabc` keys on preview host, reload /ui.
+ * Injected by UI wrapper — not in production Pages / next/app.js.
+ */
+const PREVIEW_EABC_AUTH_KEYS_ = [
+  "nx_tg_login_v1:preview-eabc",
+  "nx_desk_sess_v1:preview-eabc",
+  "nx_access_v1:preview-eabc",
+  "nx_tg_init_v1:preview-eabc"
+];
+
 /** Boot: force preview API + auth storage namespace (separate from prod Pages nx_tg_*). */
 function previewUiBootScript_(origin) {
   return (
@@ -1376,6 +1407,38 @@ function previewUiBootScript_(origin) {
     "try{if(navigator.serviceWorker&&navigator.serviceWorker.register){" +
     "navigator.serviceWorker.register=function(){return Promise.reject(new Error('preview-ui-no-sw'));};}}catch(e3){}" +
     "})();" +
+    // Preview-only: clear fixed 4 :preview-eabc keys + reload preview /ui.
+    // Path-only /ui is wrong here: document <base> is github.io → 404 on Pages host.
+    // Always absolute https:// + PREVIEW_UI_LOGIN_HOST_ + /ui.
+    "window.__boinyaPreviewEabcLogout=function(){" +
+    "if(String(location.hostname||'')!==H)return;" +
+    "var KEYS=" +
+    JSON.stringify(PREVIEW_EABC_AUTH_KEYS_) +
+    ";" +
+    "KEYS.forEach(function(k){try{localStorage.removeItem(k);}catch(eL){}" +
+    "try{sessionStorage.removeItem(k);}catch(eS){}});" +
+    "var dest='https://'+H+'/ui';" +
+    "location.replace(dest);};" +
+    "document.addEventListener('click',function(ev){" +
+    "var t=ev&&ev.target;if(!t||!t.closest)return;" +
+    "if(t.closest('#previewEabcLogoutBtn')||t.closest('[data-act=\"preview-eabc-logout\"]')){" +
+    "ev.preventDefault();window.__boinyaPreviewEabcLogout();}},true);" +
+    // On access-denied / desktop-login gate (#nxGate): inject logout into .dock actions.
+    "(function(){function inject(){try{" +
+    "if(String(location.hostname||'')!==H)return;" +
+    "var gate=document.getElementById('nxGate');" +
+    "if(!gate||gate.hidden)return;" +
+    "var txt=String(gate.textContent||'');" +
+    "if(!/Нет доступа|Войти через Telegram|Запросить доступ|Подпись не принята|Нужен Telegram|Нет связи/i.test(txt))return;" +
+    "if(gate.querySelector('[data-act=\"preview-eabc-logout\"]'))return;" +
+    "var host=gate.querySelector('.dock')||gate;" +
+    "var b=document.createElement('button');b.type='button';b.className='b-btn b-btn--sec';" +
+    "b.setAttribute('data-act','preview-eabc-logout');b.id='previewEabcLogoutGate';" +
+    "b.textContent='Сменить Telegram-аккаунт';b.style.cssText='margin-top:10px;width:100%';" +
+    "host.appendChild(b);}catch(eI){}}" +
+    "var mo=new MutationObserver(function(){inject();});" +
+    "try{mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']});}catch(eM){}" +
+    "setTimeout(inject,0);setTimeout(inject,400);setTimeout(inject,1200);})();" +
     'try{document.title="Бойня PREVIEW-EABC · "+H;}catch(eT){}})();</script>'
   );
 }
@@ -1386,14 +1449,19 @@ function previewUiMarkerBar_(origin) {
     "font:600 13px/1.4 system-ui,sans-serif;text-align:center}" +
     "#previewEabcBar{top:0;background:#6b1414;padding:10px 12px}" +
     "#previewEabcLogin{top:0;background:#1a3a5c;padding:8px 12px;font-weight:500}" +
-    "#previewEabcBar code,#previewEabcLogin code{color:#ffe08a;font-weight:700}</style>" +
+    "#previewEabcBar code,#previewEabcLogin code{color:#ffe08a;font-weight:700}" +
+    "#previewEabcLogoutBtn{display:inline-block;margin:8px 0 0;padding:8px 14px;border:0;border-radius:8px;" +
+    "background:#ffe08a;color:#1a3a5c;font:700 13px/1.2 system-ui,sans-serif;cursor:pointer}" +
+    "#previewEabcLogoutBtn:active{opacity:.85}</style>" +
     '<div id="previewEabcBar">PREVIEW-EABC · API <code>' +
     origin +
     "</code> · widget <code>@BoinyaTest_bot</code> · D1 preview · origin ≠ production Pages</div>" +
     '<div id="previewEabcLogin">Вход: Login Widget или «Открыть Telegram». BotFather на <b>@BoinyaTest_bot</b> only: ' +
     "<code>/setdomain</code> → <code>" +
     PREVIEW_UI_LOGIN_HOST_ +
-    "</code> (prod bot domain не трогать)</div>"
+    "</code> (prod bot domain не трогать)" +
+    '<div><button type="button" id="previewEabcLogoutBtn" data-act="preview-eabc-logout">' +
+    "Выйти из тестового входа</button></div></div>"
   );
 }
 
@@ -1431,19 +1499,27 @@ async function servePreviewUi_(request, env) {
     // Auth bootstrap from branch tip (not stale production Pages).
     html = html.replace(
       /src="(?:\.\/)?next\/api\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/api.js?v=auth-h3"'
+      'src="' + origin + '/ui/next/api.js?v=auth-h10"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/api\.js[^']*'/g,
-      "src='" + origin + "/ui/next/api.js?v=auth-h3'"
+      "src='" + origin + "/ui/next/api.js?v=auth-h10'"
     );
     html = html.replace(
       /src="(?:\.\/)?next\/app\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/app.js?v=auth-h3"'
+      'src="' + origin + '/ui/next/app.js?v=auth-h10"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/app\.js[^']*'/g,
-      "src='" + origin + "/ui/next/app.js?v=auth-h3'"
+      "src='" + origin + "/ui/next/app.js?v=auth-h10'"
+    );
+    html = html.replace(
+      /src="(?:\.\/)?next\/access\.js[^"]*"/g,
+      'src="' + origin + '/ui/next/access.js?v=auth-h10"'
+    );
+    html = html.replace(
+      /src='(?:\.\/)?next\/access\.js[^']*'/g,
+      "src='" + origin + "/ui/next/access.js?v=auth-h10'"
     );
     // Kill SW registration block if still present after boot override.
     html = html.replace(
@@ -1593,6 +1669,7 @@ export default {
       if (url.pathname === "/ui/config.js") return servePreviewUiConfig_();
       if (url.pathname === "/ui/next/api.js") return servePreviewSourceFile_("next/api.js");
       if (url.pathname === "/ui/next/app.js") return servePreviewSourceFile_("next/app.js");
+      if (url.pathname === "/ui/next/access.js") return servePreviewSourceFile_("next/access.js");
       if (url.pathname === "/ui" || url.pathname === "/ui/" || url.pathname === "/ui/index.html") {
         return servePreviewUi_(request, env);
       }
@@ -2196,7 +2273,15 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   const r = await authLookupRole_(tid, env);
   let role = r.role && r.role !== "none" ? r.role : authNormRole_((res && res.role) || "none");
   if (!res || res.status !== "success") {
-    if (role === "none") {
+    // sheets_finish_only / preview stub miss — не транспортная ошибка (UI иначе «Нет связи»).
+    var softMiss =
+      res &&
+      (res.status === "skipped" ||
+        res.sheetsFinishOnly ||
+        res.previewStub ||
+        res.message === "sheets_finish_only" ||
+        res.message === "preview_gas_stub");
+    if (role === "none" && !softMiss) {
       return res && typeof res === "object" ? res : { status: "error", message: "gas_proxy_failed", action: "getMyAccess" };
     }
     res = { status: "success", telegramId: tid };
@@ -2210,6 +2295,37 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   res.verified = !!actor.verified;
   res.authMode = authModeLabel_(env);
   if (actor.authVia) res.authVia = actor.authVia;
+  // Preview-only safe diag: OWNER equality + SHA256 fp of full verified tid (no raw id in snap).
+  if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
+    const idEqOwnerEnv = !!(tid && authOwnerIds_(env).indexOf(String(tid)) >= 0);
+    res.idEqOwnerEnv = idEqOwnerEnv;
+    let tidFp = "";
+    try {
+      tidFp = actor.verified ? await authTelegramIdFp_(tid) : "";
+    } catch (eFp) {
+      tidFp = "";
+    }
+    if (tidFp) res.tidFp = tidFp;
+    try {
+      await putSnap_(env, "authLastSafe", {
+        at: new Date().toISOString(),
+        verified: !!actor.verified,
+        authVia: String(actor.authVia || ""),
+        role: String(role || "none"),
+        access: String((res && res.access) || ""),
+        status: String((res && res.status) || ""),
+        tabsLen: Array.isArray(res && res.tabs) ? res.tabs.length : 0,
+        authRequired: false,
+        idEqOwnerEnv: idEqOwnerEnv,
+        tidLen: String(tid || "").length,
+        // Full-id SHA256 (canon); compare to prod ACL key fps — never store raw tid here.
+        tidFp: tidFp || null,
+        fpAlgo: "sha256:boinya.tg.id.v1",
+        previewStub: !!(res && res.previewStub),
+        authBuild: "preview-auth-h10-eabc"
+      });
+    } catch (eSafe) {}
+  }
   // orders-pack2: desktop — обновлять долгоживущую сессию при успешном входе
   if (actor.verified && tid && (actor.authVia === "widget" || actor.authVia === "desktop-session")) {
     try {
@@ -2534,6 +2650,11 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       deployMarker: "sheets-finish-only-h3",
+      // Preview-only auth UI build id (independent of sheets-finish deployMarker).
+      authBuildMarker:
+        String((env && env.PREVIEW_ISOLATED) || "") === "1"
+          ? String((env && env.PREVIEW_MARKER) || "preview-auth-h10-eabc")
+          : undefined,
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
       widgetAuth: "tgLogin-fallback+post"
     };
@@ -17321,6 +17442,34 @@ function unwrapGas_(text) {
   return json;
 }
 
+/**
+ * Preview isolated: gasProxy_ getMyAccess stub is role:none. Never let that
+ * overwrite a D1 access:<tid> ACL that already has a real role (e.g. prod→preview copy).
+ */
+async function accessPutSnapGuardStub_(env, snapKey, live, tid) {
+  if (!env || !env.DB || !snapKey || !live) return false;
+  const liveRole = authNormRole_((live && live.role) || "none");
+  const isStub = !!(live.previewStub || live.message === "preview_gas_stub");
+  if (isStub && (liveRole === "none" || liveRole === "pending" || liveRole === "denied")) {
+    try {
+      const cur = await getSnapRaw_(env, snapKey);
+      const curRole = authNormRole_((cur && cur.role) || "none");
+      if (curRole !== "none" && curRole !== "pending" && curRole !== "denied") {
+        return false;
+      }
+    } catch (eCur) {}
+  }
+  await putSnap_(
+    env,
+    snapKey,
+    Object.assign({}, live, {
+      telegramId: tid || live.telegramId || "",
+      cachedAt: new Date().toISOString()
+    })
+  );
+  return true;
+}
+
 async function cutoverGetMyAccess_(params, env, ctx) {
   const tid = String((params && params.telegramId) || "").trim();
   const snapKey = tid ? "access:" + tid : "";
@@ -17332,22 +17481,20 @@ async function cutoverGetMyAccess_(params, env, ctx) {
       snap = null;
     }
   }
+  // Elevated D1 ACL is enough (prod copies may omit status:"success").
+  const snapRole = authNormRole_((snap && snap.role) || "none");
   const snapOk =
-    snap &&
-    snap.status === "success" &&
-    snap.role &&
-    snap.role !== "none" &&
+    !!snap &&
+    snapRole !== "none" &&
+    snapRole !== "pending" &&
+    snapRole !== "denied" &&
     (!tid || !snap.telegramId || String(snap.telegramId) === tid);
 
   async function fetchLive_() {
     const live = await gasProxy_("getMyAccess", params, env, { write: false });
     if (live && live.status === "success" && snapKey && env && env.DB) {
       try {
-        const toStore = Object.assign({}, live, {
-          telegramId: tid || live.telegramId || "",
-          cachedAt: new Date().toISOString()
-        });
-        await putSnap_(env, snapKey, toStore);
+        await accessPutSnapGuardStub_(env, snapKey, live, tid);
       } catch (eS) {}
     }
     if (live && typeof live === "object") {
@@ -17358,7 +17505,9 @@ async function cutoverGetMyAccess_(params, env, ctx) {
   }
 
   if (snapOk) {
-    if (ctx && typeof ctx.waitUntil === "function") {
+    // Preview: no SWR refresh to stub — waitUntil fetchLive_ previously clobbered owner ACL.
+    const previewIso = env && String(env.PREVIEW_ISOLATED || "") === "1";
+    if (!previewIso && ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
           try {
@@ -17368,9 +17517,10 @@ async function cutoverGetMyAccess_(params, env, ctx) {
       );
     }
     snap.cutover = true;
-    snap.swr = true;
+    snap.swr = !previewIso;
     snap.fromGas = false;
     snap.sandbox = false;
+    if (!snap.status) snap.status = "success";
     return snap;
   }
 
@@ -25730,14 +25880,8 @@ function gasOriginResolved_(env) {
 
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
-  // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
-  if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
-    return sheetsFinishOnlySkip_(action);
-  }
-  if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
-    return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
-  }
   // Изолированный preview: никогда не ходим в прод GAS/Sheets.
+  // Важно ДО sheets_finish_only: иначе getMyAccess → status:skipped → UI «Нет связи».
   if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
     try {
       await noteSheetCall_(env, "previewStub:" + String(action || ""));
@@ -25750,6 +25894,13 @@ async function gasProxy_(action, params, env, opts) {
       });
     } catch (eSnap) {}
     return previewGasStub_(action, params, env);
+  }
+  // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
+  if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
+    return sheetsFinishOnlySkip_(action);
+  }
+  if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
+    return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
   }
   try {
     await noteSheetCall_(env, action);

@@ -25,8 +25,10 @@ Pages+proxy **не** использовать (prod session). Exact finish E2E �
 | move single active row | **PASSED** |
 | move reload read-back | **PASSED** |
 | Sheets banned (non-finish → `sheets_finish_only`) | **PASSED** |
-| Sheets finish* → preview stub (`finishFullWeekProbe`) | **PASSED** |
+| Sheets finish* → preview stub (`finishFullWeekProbe`) | **PASSED** (≠ exact E2E) |
 | finishFullWeek D1 `sheets:false` / `fromD1` | **PASSED** (D1 close only — **не** Sheets-write proof) |
+| Owner UI Login Widget auth-h10 | **PASSED** (Заказы/Ещё) |
+| Exact UI `finishFullWeek` → D1 + stub `d1-sheets` | **WAITING** browser (week `2026-11-02` open) |
 | preview ≠ prod D1 binding | **PASSED** |
 | CI tip `7957dca0` | **PASSED** (13 success, 0 fail) |
 

@@ -1,4 +1,5 @@
 // gb-phone-toast-h1 / gb-try-guest-h1 / gb-cabinet-desk-h1: toast, guest cabinet, desktop layout. Touches next so next-undef runs.
+// auth-h4: desktop tgLogin → POST body (не JSONP); без утечки login в URL; live initData не подменяется.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -34,12 +35,29 @@ function loadApi(setup) {
     Number,
     Math,
     Error,
-    JSON
+    JSON,
+    AbortController
   };
   sandbox.window = sandbox;
   if (setup) setup(sandbox);
   vm.runInNewContext(apiSrc, sandbox, { filename: "api.js" });
   return sandbox;
+}
+
+function mockFetchOk(box, capture) {
+  box.fetch = function (url, opts) {
+    capture.push({
+      url: String(url || ""),
+      method: String((opts && opts.method) || "GET"),
+      body: String((opts && opts.body) || ""),
+      headers: (opts && opts.headers) || {}
+    });
+    return Promise.resolve({
+      text: function () {
+        return Promise.resolve(JSON.stringify({ status: "success", role: "owner" }));
+      }
+    });
+  };
 }
 
 test("initData: живой Telegram важнее hash и памяти", () => {
@@ -92,8 +110,8 @@ test("apiGet отдаёт успешный JSONP и не падает", async ()
   assert.equal(res.role, "owner");
 });
 
-test("tgLogin не подменяет живой initData и уходит, только если мини-аппа нет", async () => {
-  const login = "id=7&first_name=Ник&hash=abc";
+test("tgLogin: live initData не подменяется; desktop → POST body без login в URL", async () => {
+  const login = "id=7&first_name=Ник&photo_url=https://t.me/i/userpic/320/x.jpg&hash=abc";
   const box = loadApi((s) => {
     s.localStorage = {
       getItem(k) { return k === "nx_tg_login_v1" ? login : ""; },
@@ -114,28 +132,73 @@ test("tgLogin не подменяет живой initData и уходит, то�
       setItem(k, v) { mem.set(k, String(v)); },
       removeItem(k) { mem.delete(k); }
     };
+    s.sessionStorage = s.localStorage;
     s.Telegram = { WebApp: { initData: "", initDataUnsafe: {} } };
+    // Spoof: чужой remembered init не должен уехать вместе с widget login.
+    mem.set("nx_tg_init_v1", "query_id=spoof&user=%7B%22id%22%3A999%7D&hash=evil");
   });
   desk.BoinyaApi.rememberLogin(login);
   assert.equal(desk.BoinyaApi.loginData(), login);
   assert.equal(desk.BoinyaApi.telegramUser().id, 7);
   assert.equal(desk.BoinyaApi.telegramUser().first_name, "Ник");
-  const seen = [];
+
+  const jsonpSeen = [];
   desk.document = {
     createElement() { return {}; },
     head: {
       appendChild(node) {
-        seen.push(String(node.src));
+        jsonpSeen.push(String(node.src));
         const m = String(node.src).match(/[?&]callback=([^&]+)/);
-        desk[decodeURIComponent(m[1])]({ status: "success", role: "owner" });
+        if (m) desk[decodeURIComponent(m[1])]({ status: "success", role: "owner" });
       }
     }
   };
-  await desk.BoinyaApi.apiGet({ action: "getMyAccess" }, { timeoutMs: 1000, retries: 0, cacheTtlMs: 0 });
-  assert.match(seen[0], /tgLogin=/);
-  assert.equal(seen[0].indexOf("initData="), -1);
+  const posts = [];
+  mockFetchOk(desk, posts);
+
+  const res = await desk.BoinyaApi.apiGet({ action: "getMyAccess" }, { timeoutMs: 1000, retries: 0, cacheTtlMs: 0 });
+  assert.equal(res.status, "success");
+  assert.equal(jsonpSeen.length, 0, "auth-bearing getMyAccess must not use JSONP");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].method, "POST");
+  assert.equal(posts[0].url.indexOf("tgLogin="), -1, "tgLogin must not leak into URL");
+  assert.equal(posts[0].url.indexOf("initData="), -1, "initData must not leak into URL");
+  assert.equal(posts[0].url.indexOf("photo_url="), -1);
+  const body = JSON.parse(posts[0].body);
+  assert.equal(body.tgLogin, login);
+  assert.equal(body.action, "getMyAccess");
+  assert.equal(body.initData == null || body.initData === "", true, "desktop login must not stamp spoofed remembered initData");
+
   desk.BoinyaApi.clearLogin();
   assert.equal(desk.BoinyaApi.loginData(), "");
+});
+
+test("отриц.: явный чужой initData/id в params не затирает live Telegram user", async () => {
+  const box = loadApi((s) => {
+    s.Telegram = {
+      WebApp: {
+        initData: "query_id=live&user=%7B%22id%22%3A42%7D",
+        initDataUnsafe: { user: { id: 42, first_name: "Арс" } }
+      }
+    };
+  });
+  assert.equal(box.BoinyaApi.telegramUser().id, 42);
+  const posts = [];
+  mockFetchOk(box, posts);
+  box.document = { createElement() { return {}; }, head: { appendChild() {} } };
+  await box.BoinyaApi.apiGet({
+    action: "getMyAccess",
+    telegramId: "999",
+    initData: "query_id=evil&user=%7B%22id%22%3A999%7D&hash=nope"
+  }, { timeoutMs: 1000, retries: 0, cacheTtlMs: 0 });
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].method, "POST");
+  const body = JSON.parse(posts[0].body);
+  // Client may forward explicit initData, but live user helper stays on WebApp identity.
+  assert.equal(box.BoinyaApi.telegramUser().id, 42);
+  assert.equal(body.telegramId, "999");
+  assert.equal(posts[0].url.indexOf("initData="), -1);
+  assert.equal(posts[0].url.indexOf("tgLogin="), -1);
 });
 
 test("перезагрузка: кэш остаётся, запрос доступа с таймаутом", () => {
@@ -148,6 +211,9 @@ test("перезагрузка: кэш остаётся, запрос досту
   assert.match(appSrc, /timeoutMs: 8000, retries: 1/);
   assert.match(apiSrc, /function bounded\(/);
   assert.match(apiSrc, /tgWebAppData/);
+  assert.match(apiSrc, /Auth payload \(tgLogin\/photo_url\)/);
+  assert.match(apiSrc, /tgLogin: 1/);
+  assert.match(apiSrc, /desktop widget: не подмешивать remembered\/hash initData/i);
   assert.match(swSrc, /callback=/);
   assert.match(swSrc, /boinya-c\\\/next\\/);
   assert.match(swSrc, /boinya-c-sw-v18-71125455/);

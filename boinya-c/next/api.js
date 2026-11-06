@@ -198,7 +198,12 @@
       var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
       if (u && u.id) return u;
     } catch (e) {}
-    return userFromInit(liveInitData()) || userFromInit(hashInitData()) || userFromInit(rememberedInit()) || userFromLogin(loginData()) || {};
+    var live = liveInitData();
+    if (live) return userFromInit(live) || {};
+    // Desktop Login Widget / session: не давать stale remembered Mini App init перебить identity.
+    var fromLogin = userFromLogin(loginData());
+    if (fromLogin) return fromLogin;
+    return userFromInit(hashInitData()) || userFromInit(rememberedInit()) || {};
   }
 
   function userFromLogin(raw) {
@@ -222,20 +227,22 @@
     var out = {};
     var src = params || {};
     Object.keys(src).forEach(function (k) { out[k] = src[k]; });
+    var live = liveInitData();
+    var login = loginData();
+    var desk = desktopSessionData();
+    // Desktop widget: не подмешивать remembered/hash initData к tgLogin (чужой identity).
+    // Live Mini App initData всегда главный; иначе — только явный out.initData.
     if (!out.initData) {
-      var raw = initData();
-      if (raw) out.initData = raw;
+      if (live) out.initData = live;
+      else if (!login && !desk) {
+        var raw = initData();
+        if (raw) out.initData = raw;
+      }
     }
-    // Desktop Login Widget: всегда прикладывать tgLogin/desktopSession рядом с initData.
-    // Иначе битый/пустой initData из WebApp.js глушит виджет и getMyAccess → authRequired.
-    if (!out.tgLogin) {
-      var login = loginData();
-      if (login) out.tgLogin = login;
-    }
-    if (!out.desktopSession) {
-      var desk = desktopSessionData();
-      if (desk) out.desktopSession = desk;
-    }
+    // Desktop Login Widget: stamp tgLogin/desktopSession когда нет live Mini App.
+    // Битый/пустой WebApp initData больше не глушит виджет (loginData() уже пуст при live).
+    if (!out.tgLogin && login) out.tgLogin = login;
+    if (!out.desktopSession && desk) out.desktopSession = desk;
     if (root.__BOINYA_C_CUTOVER__ && out.cutover == null && out.mode !== "live") out.cutover = "1";
     return out;
   }
@@ -341,7 +348,11 @@
           timedOut: true
         });
       }, timeoutMs || 22000);
-      var skip = { basket: 1, note: 1, permanentNote: 1, address: 1, phone: 1, geo: 1, survey: 1, addressFull: 1, payload: 1 };
+      // Auth/PII только в POST body: query калечит photo_url/подпись и светит login в URL/логах.
+      var skip = {
+        basket: 1, note: 1, permanentNote: 1, address: 1, phone: 1, geo: 1, survey: 1, addressFull: 1, payload: 1,
+        initData: 1, tgLogin: 1, desktopSession: 1, deskSession: 1, photo_url: 1, _tg: 1
+      };
       var q = Object.keys(params).filter(function (k) {
         if (skip[k]) return false;
         return params[k] != null && params[k] !== "";

@@ -1,0 +1,126 @@
+{
+  "main_module": "worker.js",
+  "compatibility_date": "2024-11-01",
+  "bindings_note": "TELEGRAM_BOT_TOKEN must be type=inherit on every PUT",
+  "bindings": [
+    {
+      "type": "d1",
+      "name": "DB",
+      "id": "0ddccc42-3444-4adb-9c15-68925880b146"
+    },
+    {
+      "type": "plain_text",
+      "name": "AUTH_ENFORCE",
+      "text": "1"
+    },
+    {
+      "type": "plain_text",
+      "name": "PEOPLE_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "OPS_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "DEFERRED_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "SUBS_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "WAREHOUSE_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "META_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "CUTTING_STRUCT_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "PRICE_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "PARTNER_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "GB_CANON",
+      "text": "d1-primary"
+    },
+    {
+      "type": "plain_text",
+      "name": "WEEK_D1_SYNC",
+      "text": "gas-authoritative"
+    },
+    {
+      "type": "plain_text",
+      "name": "WEEK_CLOSE_CANON",
+      "text": "d1-sync"
+    },
+    {
+      "type": "plain_text",
+      "name": "OWNER_TELEGRAM_IDS",
+      "text": "650923866"
+    },
+    {
+      "type": "plain_text",
+      "name": "PARTNER_OWNER_TIDS",
+      "text": "827494606,650923866"
+    },
+    {
+      "type": "plain_text",
+      "name": "PARTNER_OWNER_USERNAMES",
+      "text": "one_more_person_228"
+    },
+    {
+      "type": "plain_text",
+      "name": "SHEETS_MODE",
+      "text": "finish-only"
+    },
+    {
+      "type": "plain_text",
+      "name": "SHEETS_FINISH_ONLY",
+      "text": "1"
+    },
+    {
+      "type": "plain_text",
+      "name": "PREVIEW_ISOLATED",
+      "text": "1"
+    },
+    {
+      "type": "plain_text",
+      "name": "PREVIEW_MARKER",
+      "text": "preview-auth-h5-eabc"
+    },
+    {
+      "type": "plain_text",
+      "name": "GAS_ORIGIN",
+      "text": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev/__gas_stub_unused"
+    },
+    {
+      "type": "plain_text",
+      "name": "TELEGRAM_BOT_USERNAME",
+      "text": "BoinyaTest_bot"
+    },
+    {
+      "type": "inherit",
+      "name": "TELEGRAM_BOT_TOKEN"
+    }
+  ]
+}
