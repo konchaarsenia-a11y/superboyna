@@ -1044,8 +1044,9 @@ async function authLookupRole_(tid, env) {
         role = String(live.role || "none");
         status = String(live.access || "");
         if (live.customTabs) custom = live.customTabs;
+        // Preview stub role:none must not clobber a prior elevated ACL snap (prod→preview copy).
         try {
-          await putSnap_(env, "access:" + tid, Object.assign({}, live, { telegramId: tid, cachedAt: new Date().toISOString() }));
+          await accessPutSnapGuardStub_(env, "access:" + tid, live, tid);
         } catch (eP) {}
       }
     } catch (eG) {}
@@ -17422,6 +17423,34 @@ function unwrapGas_(text) {
   return json;
 }
 
+/**
+ * Preview isolated: gasProxy_ getMyAccess stub is role:none. Never let that
+ * overwrite a D1 access:<tid> ACL that already has a real role (e.g. prod→preview copy).
+ */
+async function accessPutSnapGuardStub_(env, snapKey, live, tid) {
+  if (!env || !env.DB || !snapKey || !live) return false;
+  const liveRole = authNormRole_((live && live.role) || "none");
+  const isStub = !!(live.previewStub || live.message === "preview_gas_stub");
+  if (isStub && (liveRole === "none" || liveRole === "pending" || liveRole === "denied")) {
+    try {
+      const cur = await getSnapRaw_(env, snapKey);
+      const curRole = authNormRole_((cur && cur.role) || "none");
+      if (curRole !== "none" && curRole !== "pending" && curRole !== "denied") {
+        return false;
+      }
+    } catch (eCur) {}
+  }
+  await putSnap_(
+    env,
+    snapKey,
+    Object.assign({}, live, {
+      telegramId: tid || live.telegramId || "",
+      cachedAt: new Date().toISOString()
+    })
+  );
+  return true;
+}
+
 async function cutoverGetMyAccess_(params, env, ctx) {
   const tid = String((params && params.telegramId) || "").trim();
   const snapKey = tid ? "access:" + tid : "";
@@ -17433,22 +17462,20 @@ async function cutoverGetMyAccess_(params, env, ctx) {
       snap = null;
     }
   }
+  // Elevated D1 ACL is enough (prod copies may omit status:"success").
+  const snapRole = authNormRole_((snap && snap.role) || "none");
   const snapOk =
-    snap &&
-    snap.status === "success" &&
-    snap.role &&
-    snap.role !== "none" &&
+    !!snap &&
+    snapRole !== "none" &&
+    snapRole !== "pending" &&
+    snapRole !== "denied" &&
     (!tid || !snap.telegramId || String(snap.telegramId) === tid);
 
   async function fetchLive_() {
     const live = await gasProxy_("getMyAccess", params, env, { write: false });
     if (live && live.status === "success" && snapKey && env && env.DB) {
       try {
-        const toStore = Object.assign({}, live, {
-          telegramId: tid || live.telegramId || "",
-          cachedAt: new Date().toISOString()
-        });
-        await putSnap_(env, snapKey, toStore);
+        await accessPutSnapGuardStub_(env, snapKey, live, tid);
       } catch (eS) {}
     }
     if (live && typeof live === "object") {
@@ -17459,7 +17486,9 @@ async function cutoverGetMyAccess_(params, env, ctx) {
   }
 
   if (snapOk) {
-    if (ctx && typeof ctx.waitUntil === "function") {
+    // Preview: no SWR refresh to stub — waitUntil fetchLive_ previously clobbered owner ACL.
+    const previewIso = env && String(env.PREVIEW_ISOLATED || "") === "1";
+    if (!previewIso && ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
           try {
@@ -17469,9 +17498,10 @@ async function cutoverGetMyAccess_(params, env, ctx) {
       );
     }
     snap.cutover = true;
-    snap.swr = true;
+    snap.swr = !previewIso;
     snap.fromGas = false;
     snap.sandbox = false;
+    if (!snap.status) snap.status = "success";
     return snap;
   }
 
