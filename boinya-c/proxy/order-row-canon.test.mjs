@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   orderMoveIsInPlace_,
   orderNickRenameIsInPlace_,
+  planClientNickRenameKeep_,
   planOrderMoveInPlace_,
   planOrderNickRenameKeep_
 } from "./order-row-canon.js";
@@ -102,12 +103,50 @@ test("#23 clash soft-deletes only the occupant, not the source", () => {
   assert.equal(plan.softDeleteClashIds.indexOf(plan.sourceId), -1);
 });
 
+test("#19 clients rename keeps same clients.id across underscore aliases", () => {
+  const clients = [
+    {
+      id: "cli_zzz_preview",
+      match_key: "ZZZ_PREVIEW",
+      nick: "zzz_preview"
+    }
+  ];
+  const plan = planClientNickRenameKeep_(clients, {
+    editClient: "zzz_preview",
+    // normalizeMatchKey_ strips _ → ZZZPREVIEW; DB may still hold ZZZ_PREVIEW
+    editAliases: ["ZZZPREVIEW", "ZZZ_PREVIEW"],
+    client: "zzz_preview_renamed",
+    newMatchKey: "ZZZ_PREVIEW_RENAMED",
+    orderClientId: "cli_zzz_preview"
+  });
+  assert.equal(plan.rename, true);
+  assert.equal(plan.keepId, "cli_zzz_preview");
+  assert.equal(plan.newMatchKey, "ZZZ_PREVIEW_RENAMED");
+  assert.deepEqual(plan.dropIds, []);
+});
+
+test("#19 clients rename drops accidental duplicate on new match_key", () => {
+  const clients = [
+    { id: "cli_zzz_preview", match_key: "ZZZ_PREVIEW", nick: "zzz_preview" },
+    { id: "c_deadbeef", match_key: "ZZZ_PREVIEW_RENAMED", nick: "zzz_preview_renamed" }
+  ];
+  const plan = planClientNickRenameKeep_(clients, {
+    editClient: "zzz_preview",
+    editAliases: ["ZZZ_PREVIEW", "ZZZPREVIEW"],
+    client: "zzz_preview_renamed",
+    orderClientId: "cli_zzz_preview"
+  });
+  assert.equal(plan.keepId, "cli_zzz_preview");
+  assert.deepEqual(plan.dropIds, ["c_deadbeef"]);
+});
+
 test("worker wires #19/#23 in-place planners", () => {
   assert.match(worker, /from "\.\/order-row-canon\.js"/);
   assert.match(worker, /planOrderNickRenameKeep_/);
   assert.match(worker, /orderNickRenameIsInPlace_/);
   assert.match(worker, /planOrderMoveInPlace_/);
   assert.match(worker, /orderMoveIsInPlace_/);
+  assert.match(worker, /planClientNickRenameKeep_/);
   assert.match(worker, /orders-pack2 #19/);
   assert.match(worker, /orders-pack2 #23/);
   assert.doesNotMatch(
@@ -118,4 +157,5 @@ test("worker wires #19/#23 in-place planners", () => {
   const block = worker.slice(ren, ren + 2200);
   assert.doesNotMatch(block, /UPDATE orders SET status = 'deleted'[\s\S]{0,120}editClient/);
   assert.match(block, /planOrderNickRenameKeep_/);
+  assert.match(worker, /planClientNickRenameKeep_/);
 });

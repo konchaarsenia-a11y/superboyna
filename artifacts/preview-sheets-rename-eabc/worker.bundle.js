@@ -1652,6 +1652,80 @@ function orderMoveIsInPlace_(plan) {
   return !!(plan && plan.ok && plan.sameRow && plan.sourceId && plan.targetId);
 }
 __name(orderMoveIsInPlace_, "orderMoveIsInPlace_");
+function planClientNickRenameKeep_(clients, opts) {
+  opts = opts || {};
+  const editClient = String(opts.editClient || "").trim();
+  const client = String(opts.client || "").trim();
+  const newMatchKey = normalizeMatchKeyCanon_(opts.newMatchKey || client);
+  const orderClientId = String(opts.orderClientId || opts.clientId || "").trim();
+  const fromKeys = [];
+  function addKey_(k) {
+    k = String(k || "").trim();
+    if (!k)
+      return;
+    if (fromKeys.indexOf(k) < 0)
+      fromKeys.push(k);
+    const stripped = k.replace(/[._@]/g, "");
+    if (stripped && fromKeys.indexOf(stripped) < 0)
+      fromKeys.push(stripped);
+  }
+  __name(addKey_, "addKey_");
+  addKey_(opts.editMatchKey);
+  addKey_(normalizeMatchKeyCanon_(editClient));
+  (opts.editAliases || []).forEach(addKey_);
+  if (!editClient || !client || editClient.toLowerCase() === client.toLowerCase()) {
+    return {
+      rename: false,
+      keepId: orderClientId || "",
+      newMatchKey,
+      fromKeys,
+      dropIds: []
+    };
+  }
+  const rows = clients || [];
+  let keepId = "";
+  if (orderClientId) {
+    const byId = rows.find(function(r) {
+      return r && String(r.id) === orderClientId;
+    });
+    if (byId)
+      keepId = String(byId.id);
+  }
+  const editLow = editClient.toLowerCase();
+  if (!keepId) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.id)
+        continue;
+      const mk = String(r.match_key || r.matchKey || "").trim();
+      const nick = String(r.nick || r.client || "").trim().toLowerCase();
+      if (fromKeys.indexOf(mk) >= 0 || nick === editLow) {
+        keepId = String(r.id);
+        break;
+      }
+    }
+  }
+  const dropIds = [];
+  rows.forEach(function(r) {
+    if (!r || !r.id)
+      return;
+    const id = String(r.id);
+    if (keepId && id === keepId)
+      return;
+    const mk = String(r.match_key || r.matchKey || "").trim();
+    const nick = String(r.nick || r.client || "").trim().toLowerCase();
+    if (mk === newMatchKey || nick === client.toLowerCase())
+      dropIds.push(id);
+  });
+  return {
+    rename: true,
+    keepId,
+    newMatchKey,
+    fromKeys,
+    dropIds
+  };
+}
+__name(planClientNickRenameKeep_, "planClientNickRenameKeep_");
 
 // cabinet-link.js
 var PUBLIC_PREFIXES = ["\u041F\u041F", "\u0420\u0417", "\u0411\u041F", "\u0410\u0424\u041A", "\u041F\u0410\u0420\u0422"];
@@ -28461,6 +28535,47 @@ async function noteSheetCall_(env, action) {
   }
 }
 __name(noteSheetCall_, "noteSheetCall_");
+function previewGasStub_(action, params, env) {
+  const a = String(action || "");
+  const mark = {
+    status: "success",
+    previewStub: true,
+    sheets: false,
+    external: false,
+    action: a,
+    message: "preview_gas_stub",
+    previewMarker: String(env && env.PREVIEW_MARKER || "preview-isolated")
+  };
+  if (/^finishFullWeek/i.test(a)) {
+    return Object.assign({}, mark, {
+      finished: false,
+      stubOnly: true,
+      tip: "D1-native closeWeekInD1_ handles week; stub proves no prod Sheets hit"
+    });
+  }
+  if (/^getMyAccess$/i.test(a)) {
+    return {
+      status: "success",
+      role: "none",
+      access: "none",
+      tabs: [],
+      previewStub: true,
+      action: a
+    };
+  }
+  return mark;
+}
+__name(previewGasStub_, "previewGasStub_");
+function gasOriginResolved_(env) {
+  const raw = env && env.GAS_ORIGIN != null ? String(env.GAS_ORIGIN).trim() : "";
+  if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
+    if (!raw || raw === GAS_ORIGIN)
+      return "";
+    return raw;
+  }
+  return raw || GAS_ORIGIN;
+}
+__name(gasOriginResolved_, "gasOriginResolved_");
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
   if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
@@ -28469,9 +28584,31 @@ async function gasProxy_(action, params, env, opts) {
   if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
     return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
   }
+  if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
+    try {
+      await noteSheetCall_(env, "previewStub:" + String(action || ""));
+    } catch (eNote) {
+    }
+    try {
+      await putSnap_(env, "previewGasStub:last", {
+        at: Date.now(),
+        action: String(action || ""),
+        external: false
+      });
+    } catch (eSnap) {
+    }
+    return previewGasStub_(action, params, env);
+  }
   try {
     await noteSheetCall_(env, action);
-    const origin = env && env.GAS_ORIGIN || GAS_ORIGIN;
+    const origin = gasOriginResolved_(env);
+    if (!origin) {
+      return {
+        status: "error",
+        message: "no_gas_origin",
+        action: String(action || "")
+      };
+    }
     const clean = {};
     Object.keys(params || {}).forEach(function(k) {
       if (k === "action" || k === "callback" || k === "_" || k === "cutover" || k === "allowDanger" || params[k] == null || params[k] === "") {
@@ -28608,7 +28745,9 @@ async function gasProxy_(action, params, env, opts) {
   } catch (e) {
     if (opts.write && /^(deleteClient|removeCalendarClient|moveClient|saveOrder|saveBooking)$/i.test(action)) {
       try {
-        const origin2 = env && env.GAS_ORIGIN || GAS_ORIGIN;
+        const origin2 = gasOriginResolved_(env);
+        if (!origin2)
+          throw new Error("no_gas_origin");
         const clean2 = {};
         Object.keys(params || {}).forEach(function(k) {
           if (k === "action" || k === "callback" || k === "_" || k === "cutover" || k === "allowDanger" || params[k] == null || params[k] === "") {
@@ -41074,26 +41213,76 @@ async function stageBAssignClient_(env, row, params) {
   var edit = params ? String(params.editClient || params.originalClient || "").trim() : "";
   var editMk = edit ? normalizeMatchKey_(edit) : "";
   var id = "";
-  if (editMk && editMk !== mk) {
-    var old = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
-    var neu = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
-    if (old && old.id && !(neu && neu.id)) {
-      await env.DB.prepare("UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?").bind(mk, String(row.client || ""), now, old.id).run();
-      id = String(old.id);
-    } else if (neu && neu.id)
-      id = String(neu.id);
-    else if (old && old.id)
-      id = String(old.id);
+  if (edit && editMk && editMk !== mk) {
+    var listed = [];
+    try {
+      var cq = await env.DB.prepare(
+        "SELECT id, match_key, nick FROM clients LIMIT 400"
+      ).all();
+      listed = cq && cq.results || [];
+    } catch (eListCl) {
+      listed = [];
+    }
+    var renamePlan = planClientNickRenameKeep_(listed, {
+      editClient: edit,
+      editMatchKey: editMk,
+      editAliases: matchKeyAliases_(edit),
+      client: String(row.client || ""),
+      newMatchKey: mk,
+      orderClientId: row.client_id || params && params.clientId || ""
+    });
+    if (renamePlan && renamePlan.keepId) {
+      id = String(renamePlan.keepId);
+      try {
+        await env.DB.prepare(
+          "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+        ).bind(mk, String(row.client || ""), now, id).run();
+      } catch (eUpMk) {
+        try {
+          await env.DB.prepare(
+            "DELETE FROM clients WHERE match_key = ? AND id != ?"
+          ).bind(mk, id).run();
+          await env.DB.prepare(
+            "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+          ).bind(mk, String(row.client || ""), now, id).run();
+        } catch (eUpMk2) {
+        }
+      }
+      var dropIds = renamePlan.dropIds || [];
+      for (var di = 0; di < dropIds.length; di++) {
+        if (!dropIds[di] || dropIds[di] === id)
+          continue;
+        try {
+          await env.DB.prepare("UPDATE orders SET client_id = ? WHERE client_id = ?").bind(id, dropIds[di]).run();
+        } catch (eRebind) {
+        }
+        try {
+          await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(dropIds[di]).run();
+        } catch (eDrop) {
+        }
+      }
+    }
   }
   if (!id) {
     var have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    if (!(have && have.id) && editMk) {
+      have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
+    }
+    if (!(have && have.id) && edit) {
+      var aliases = matchKeyAliases_(edit);
+      for (var ai = 0; ai < aliases.length && !(have && have.id); ai++) {
+        have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(aliases[ai]).first();
+      }
+    }
     id = have && have.id ? String(have.id) : stageBClientId_(mk);
   }
   await env.DB.prepare(
     "INSERT INTO clients (id, match_key, nick, label, phone, address, note, dogs_json, telegram, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', '', ?) ON CONFLICT(match_key) DO UPDATE SET nick = excluded.nick, phone = CASE WHEN excluded.phone != '' THEN excluded.phone ELSE clients.phone END, address = CASE WHEN excluded.address != '' THEN excluded.address ELSE clients.address END, note = CASE WHEN excluded.note != '' THEN excluded.note ELSE clients.note END, updated_at = excluded.updated_at"
   ).bind(id, mk, String(row.client || ""), String(row.client || ""), String(row.phone || ""), String(row.address || ""), String(row.note || ""), now).run();
   if (row.id) {
-    await env.DB.prepare("UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '')").bind(id, row.id).run();
+    await env.DB.prepare(
+      "UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '' OR client_id != ?)"
+    ).bind(id, row.id, id).run();
   }
   return id;
 }

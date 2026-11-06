@@ -56,6 +56,7 @@ import {
 import {
   orderMoveIsInPlace_,
   orderNickRenameIsInPlace_,
+  planClientNickRenameKeep_,
   planOrderMoveInPlace_,
   planOrderNickRenameKeep_
 } from "./order-row-canon.js";
@@ -25326,6 +25327,48 @@ async function noteSheetCall_(env, action) {
   try { console.log("SHEET_CALL " + String(action || "")); } catch (eLog) {}
 }
 
+/** Preview-only Sheets/GAS contract stub — никаких внешних отправок. */
+function previewGasStub_(action, params, env) {
+  const a = String(action || "");
+  const mark = {
+    status: "success",
+    previewStub: true,
+    sheets: false,
+    external: false,
+    action: a,
+    message: "preview_gas_stub",
+    previewMarker: String((env && env.PREVIEW_MARKER) || "preview-isolated")
+  };
+  if (/^finishFullWeek/i.test(a)) {
+    return Object.assign({}, mark, {
+      finished: false,
+      stubOnly: true,
+      tip: "D1-native closeWeekInD1_ handles week; stub proves no prod Sheets hit"
+    });
+  }
+  if (/^getMyAccess$/i.test(a)) {
+    return {
+      status: "success",
+      role: "none",
+      access: "none",
+      tabs: [],
+      previewStub: true,
+      action: a
+    };
+  }
+  return mark;
+}
+
+function gasOriginResolved_(env) {
+  const raw = env && env.GAS_ORIGIN != null ? String(env.GAS_ORIGIN).trim() : "";
+  // Пустая строка binding ≠ «взять прод»: на preview это дыра в прод webhook.
+  if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
+    if (!raw || raw === GAS_ORIGIN) return "";
+    return raw;
+  }
+  return raw || GAS_ORIGIN;
+}
+
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
   // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
@@ -25335,9 +25378,30 @@ async function gasProxy_(action, params, env, opts) {
   if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
     return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
   }
+  // Изолированный preview: никогда не ходим в прод GAS/Sheets.
+  if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
+    try {
+      await noteSheetCall_(env, "previewStub:" + String(action || ""));
+    } catch (eNote) {}
+    try {
+      await putSnap_(env, "previewGasStub:last", {
+        at: Date.now(),
+        action: String(action || ""),
+        external: false
+      });
+    } catch (eSnap) {}
+    return previewGasStub_(action, params, env);
+  }
   try {
     await noteSheetCall_(env, action);
-    const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
+    const origin = gasOriginResolved_(env);
+    if (!origin) {
+      return {
+        status: "error",
+        message: "no_gas_origin",
+        action: String(action || "")
+      };
+    }
     const clean = {};
     Object.keys(params || {}).forEach(function (k) {
       if (
@@ -25505,7 +25569,8 @@ async function gasProxy_(action, params, env, opts) {
       /^(deleteClient|removeCalendarClient|moveClient|saveOrder|saveBooking)$/i.test(action)
     ) {
       try {
-        const origin2 = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
+        const origin2 = gasOriginResolved_(env);
+        if (!origin2) throw new Error("no_gas_origin");
         const clean2 = {};
         Object.keys(params || {}).forEach(function (k) {
           if (
@@ -37444,19 +37509,76 @@ async function stageBAssignClient_(env, row, params) {
   var edit = params ? String(params.editClient || params.originalClient || "").trim() : "";
   var editMk = edit ? normalizeMatchKey_(edit) : "";
   var id = "";
-  if (editMk && editMk !== mk) {
-    var old = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
-    var neu = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
-    if (old && old.id && !(neu && neu.id)) {
-      await env.DB.prepare("UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?")
-        .bind(mk, String(row.client || ""), now, old.id)
-        .run();
-      id = String(old.id);
-    } else if (neu && neu.id) id = String(neu.id);
-    else if (old && old.id) id = String(old.id);
+  // #19: rename → тот же clients.id. normalizeMatchKey_ снимает «_», а в D1
+  // часто лежит ZZZ_PREVIEW — ищем aliases + order.client_id, не INSERT c_* дубля.
+  if (edit && editMk && editMk !== mk) {
+    var listed = [];
+    try {
+      var cq = await env.DB.prepare(
+        "SELECT id, match_key, nick FROM clients LIMIT 400"
+      ).all();
+      listed = (cq && cq.results) || [];
+    } catch (eListCl) {
+      listed = [];
+    }
+    var renamePlan = planClientNickRenameKeep_(listed, {
+      editClient: edit,
+      editMatchKey: editMk,
+      editAliases: matchKeyAliases_(edit),
+      client: String(row.client || ""),
+      newMatchKey: mk,
+      orderClientId: row.client_id || (params && params.clientId) || ""
+    });
+    if (renamePlan && renamePlan.keepId) {
+      id = String(renamePlan.keepId);
+      try {
+        await env.DB.prepare(
+          "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+        )
+          .bind(mk, String(row.client || ""), now, id)
+          .run();
+      } catch (eUpMk) {
+        // UNIQUE на новом match_key: снести чужой дубль и повторить
+        try {
+          await env.DB.prepare(
+            "DELETE FROM clients WHERE match_key = ? AND id != ?"
+          )
+            .bind(mk, id)
+            .run();
+          await env.DB.prepare(
+            "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+          )
+            .bind(mk, String(row.client || ""), now, id)
+            .run();
+        } catch (eUpMk2) {}
+      }
+      var dropIds = renamePlan.dropIds || [];
+      for (var di = 0; di < dropIds.length; di++) {
+        if (!dropIds[di] || dropIds[di] === id) continue;
+        try {
+          await env.DB.prepare("UPDATE orders SET client_id = ? WHERE client_id = ?")
+            .bind(id, dropIds[di])
+            .run();
+        } catch (eRebind) {}
+        try {
+          await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(dropIds[di]).run();
+        } catch (eDrop) {}
+      }
+    }
   }
   if (!id) {
     var have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    if (!(have && have.id) && editMk) {
+      have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
+    }
+    if (!(have && have.id) && edit) {
+      var aliases = matchKeyAliases_(edit);
+      for (var ai = 0; ai < aliases.length && !(have && have.id); ai++) {
+        have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?")
+          .bind(aliases[ai])
+          .first();
+      }
+    }
     id = have && have.id ? String(have.id) : stageBClientId_(mk);
   }
   await env.DB.prepare(
@@ -37471,8 +37593,11 @@ async function stageBAssignClient_(env, row, params) {
     .bind(id, mk, String(row.client || ""), String(row.client || ""), String(row.phone || ""), String(row.address || ""), String(row.note || ""), now)
     .run();
   if (row.id) {
-    await env.DB.prepare("UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '')")
-      .bind(id, row.id)
+    // rename: всегда привязать заказ к keepId (не только пустой client_id)
+    await env.DB.prepare(
+      "UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '' OR client_id != ?)"
+    )
+      .bind(id, row.id, id)
       .run();
   }
   return id;

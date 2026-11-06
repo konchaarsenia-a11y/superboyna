@@ -1,0 +1,92 @@
+{
+  "sha": "PENDING",
+  "previewWorker": "boinya-c-preview-eabc",
+  "previewUrl": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev",
+  "previewD1": {
+    "name": "boinya-c-preview-eabc",
+    "uuid": "0ddccc42-3444-4adb-9c15-68925880b146"
+  },
+  "production": {
+    "worker": "boinya-c",
+    "d1": "8ab3668c-a654-432c-9ebd-a1ac5c4db800",
+    "untouched": true
+  },
+  "authMode": "enforce",
+  "AUTH_ENFORCE_0": false,
+  "previewIsolated": true,
+  "uiStagingUrl": "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&proxy=https%3A%2F%2Fboinya-c-preview-eabc.konchaarsenia.workers.dev",
+  "uiLoginNeeds": "В CF Dashboard → Workers → boinya-c-preview-eabc → Settings → Variables → Encrypt TELEGRAM_BOT_TOKEN = токен бота Бойни (вручную). Agent не копирует prod secret. BotFather /setdomain уже konchaarsenia-a11y.github.io. Пока стоит ephemeral preview-only HMAC token — Login Widget не примет реальный Telegram login; API-проверки auth идут через штатный verifyTgInitData_.",
+  "matrix": {
+    "auth_enforce_spoof_rejected": "PASSED",
+    "auth_stranger_write_denied": "PASSED",
+    "auth_owner_signed_initData": "PASSED",
+    "auth_ui_telegram_login_widget": "NOT_VERIFIED",
+    "rename_no_deleted_insert": "PASSED",
+    "rename_stable_clients_id": "PASSED",
+    "rename_match_key_updated": "PASSED",
+    "rename_no_client_duplicate": "PASSED",
+    "move_single_active_row": "PASSED",
+    "move_reload_readback": "PASSED",
+    "sheets_banned_before_finish": "PASSED",
+    "finish_week_d1_sheets_false": "PASSED",
+    "preview_no_prod_d1_binding": "PASSED",
+    "ci_final_code": "PENDING"
+  },
+  "counts": {
+    "before_seed": {
+      "orders": 2,
+      "clients": 2,
+      "clients_ids": [
+        "cli_zzz_preview",
+        "cli_zzz_future"
+      ]
+    },
+    "after_rename_move_before_finish_readback": {
+      "mon": [],
+      "wed": [
+        [
+          "zzz_preview_renamed",
+          "ZZZ_PREVIEW_RENAMED"
+        ]
+      ],
+      "tue": [
+        [
+          "zzz_preview_b",
+          "ZZZPREVIEWB"
+        ]
+      ]
+    },
+    "after_all_d1": {
+      "orders_active": 3,
+      "orders_deleted": 0,
+      "clients": [
+        {
+          "id": "c_98fbfff7",
+          "match_key": "ZZZPREVIEWB",
+          "nick": "zzz_preview_b"
+        },
+        {
+          "id": "cli_zzz_future",
+          "match_key": "ZZZFUTURE",
+          "nick": "zzz_future"
+        },
+        {
+          "id": "cli_zzz_preview",
+          "match_key": "ZZZ_PREVIEW_RENAMED",
+          "nick": "zzz_preview_renamed"
+        }
+      ],
+      "renamed_order": {
+        "id": "Среда:ZZZPREVIEWRENAMED",
+        "client_id": "cli_zzz_preview",
+        "match_key": "ZZZ_PREVIEW_RENAMED"
+      },
+      "week_finished": "week_finished:2026-11-02=1"
+    }
+  },
+  "notes": [
+    "#19 clients: planClientNickRenameKeep_ + aliases — больше не создаёт c_* при ZZZ_PREVIEW vs ZZZPREVIEW",
+    "GAS_ORIGIN='' раньше падал на hardcoded prod webhook; PREVIEW_ISOLATED short-circuit + non-empty sentinel",
+    "finishFullWeek на preview: sheets=false fromD1; weekCloseBackup сохранён"
+  ]
+}

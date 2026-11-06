@@ -1,0 +1,23 @@
+{
+  "status": "success",
+  "message": "week_closed",
+  "mondayDate": "09.11.2026",
+  "prevMondayDate": "02.11.2026",
+  "prevMondayIso": "2026-11-02",
+  "courierDate": "09.11.2026",
+  "materializeAdded": 0,
+  "futureMoved": 1,
+  "archived": 2,
+  "backup": "weekCloseBackup:2026-11-02:2026-11-06T12-14-17-308Z",
+  "warehouseClose": {
+    "applied": false,
+    "reason": "stage_c_formula_ok_not_1"
+  },
+  "d1Verified": true,
+  "sandbox": false,
+  "sheets": false,
+  "fromD1": true,
+  "weekCloseCanon": "d1-only",
+  "cutover": true,
+  "action": "finishFullWeek"
+}

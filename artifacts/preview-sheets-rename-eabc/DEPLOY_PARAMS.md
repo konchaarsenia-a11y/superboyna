@@ -4,16 +4,12 @@
 |---|---|
 | Preview Worker | `boinya-c-preview-eabc` |
 | Preview URL | https://boinya-c-preview-eabc.konchaarsenia.workers.dev |
-| Preview D1 | `boinya-c-preview-eabc` / `0ddccc42-3444-4adb-9c15-68925880b146` |
-| Production Worker | `boinya-c` — **DO NOT MODIFY** |
-| Production D1 | `8ab3668c-a654-432c-9ebd-a1ac5c4db800` — **DO NOT BIND** |
-| Account | `390357cec5b74985576a04dbc68d5694` |
-| Bundle | `artifacts/preview-sheets-rename-eabc/worker.bundle.js` |
-| Metadata | `artifacts/preview-sheets-rename-eabc/metadata.json` |
-| Schema | `artifacts/preview-sheets-rename-eabc/schema.sql` |
-| Auth preview | `AUTH_ENFORCE=0` + owner `telegramId=650923866` (preview only) |
-| Sheets | `SHEETS_MODE=finish-only`, `GAS_ORIGIN=""` |
-| Crons / KV / R2 / queues / secrets from prod | none |
+| UI staging | https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&proxy=https%3A%2F%2Fboinya-c-preview-eabc.konchaarsenia.workers.dev |
+| Preview D1 | `0ddccc42-3444-4adb-9c15-68925880b146` |
+| Production Worker / D1 | `boinya-c` / `8ab3668c-…` — DO NOT TOUCH |
+| Auth | `authMode=enforce` via preview-only `TELEGRAM_BOT_TOKEN` secret (not AUTH_ENFORCE=0; not copied from prod Worker) |
+| UI Login Widget | Replace preview secret with real Boinya bot token **manually** in CF Dashboard (preview Worker only). Domain: `konchaarsenia-a11y.github.io` |
+| Sheets | `PREVIEW_ISOLATED=1` → in-process stub; never prod GAS_ORIGIN fallback |
+| Crons / KV / R2 / queues | none |
 
-Branch: `cursor/preview-sheets-rename-eabc` = #718 + #719 + match_key merge fix.
-Live matrix: `artifacts/preview-live-matrix/MATRIX.md`
+Matrix: `artifacts/preview-live-matrix2/MATRIX.md`

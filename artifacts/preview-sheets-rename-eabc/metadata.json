@@ -84,11 +84,6 @@
     },
     {
       "type": "plain_text",
-      "name": "AUTH_ENFORCE",
-      "text": "0"
-    },
-    {
-      "type": "plain_text",
       "name": "SHEETS_MODE",
       "text": "finish-only"
     },
@@ -110,7 +105,7 @@
     {
       "type": "plain_text",
       "name": "GAS_ORIGIN",
-      "text": ""
+      "text": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev/__gas_stub_unused"
     }
   ]
 }
