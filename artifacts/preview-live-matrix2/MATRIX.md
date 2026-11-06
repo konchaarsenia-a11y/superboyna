@@ -1,3 +1,9 @@
+## Staging UI (2026-11-06)
+
+**URL:** `https://boinya-c-preview-eabc.konchaarsenia.workers.dev/ui`  
+**SHA:** `14467514` · loginDomain `boinya-c-preview-eabc.konchaarsenia.workers.dev` · marker `sheets-finish-only-h2`  
+Pages+proxy **не** использовать (prod session). Exact finish E2E ждёт Login.
+
 # Preview matrix (strict)
 
 | Check | Result |
