@@ -31,7 +31,13 @@ test("preview logout UI: bar button + gate inject + hostname guard", () => {
   assert.match(worker, /data-act=['"]preview-eabc-logout['"]/);
   assert.match(worker, /__boinyaPreviewEabcLogout/);
   assert.match(worker, /location\.hostname\|\|''\)!==H/);
-  assert.match(worker, /location\.replace\('\/ui'\)/);
+  // Absolute preview origin — NOT path-only /ui (base href = github.io → 404).
+  assert.match(worker, /location\.replace\(dest\)/);
+  assert.match(worker, /var dest='https:\/\/'\+H\+'\/ui'/);
+  // live call must use dest, not a string literal path
+  const boot = worker.slice(worker.indexOf("__boinyaPreviewEabcLogout"), worker.indexOf("__boinyaPreviewEabcLogout") + 900);
+  assert.match(boot, /location\.replace\(dest\)/);
+  assert.doesNotMatch(boot, /location\.replace\(['"]\/ui['"]\)/);
   assert.match(worker, /getElementById\('nxGate'\)/);
   assert.match(worker, /PREVIEW_EABC_AUTH_KEYS_/);
 });

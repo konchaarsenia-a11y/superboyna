@@ -1302,7 +1302,7 @@ async function servePreviewSourceFile_(rel) {
     PREVIEW_UI_GIT_REF_ +
     "/boinya-c/" +
     safe +
-    "?v=auth-h5";
+    "?v=auth-h6";
   try {
     const upstream = await fetch(url, { cf: { cacheTtl: 0, cacheEverything: false } });
     if (!upstream.ok) {
@@ -1387,7 +1387,9 @@ function previewUiBootScript_(origin) {
     "try{if(navigator.serviceWorker&&navigator.serviceWorker.register){" +
     "navigator.serviceWorker.register=function(){return Promise.reject(new Error('preview-ui-no-sw'));};}}catch(e3){}" +
     "})();" +
-    // Preview-only: clear fixed 4 :preview-eabc keys + reload /ui (no prod keys, no session extract).
+    // Preview-only: clear fixed 4 :preview-eabc keys + reload preview /ui.
+    // Path-only /ui is wrong here: document <base> is github.io → 404 on Pages host.
+    // Always absolute https:// + PREVIEW_UI_LOGIN_HOST_ + /ui.
     "window.__boinyaPreviewEabcLogout=function(){" +
     "if(String(location.hostname||'')!==H)return;" +
     "var KEYS=" +
@@ -1395,7 +1397,8 @@ function previewUiBootScript_(origin) {
     ";" +
     "KEYS.forEach(function(k){try{localStorage.removeItem(k);}catch(eL){}" +
     "try{sessionStorage.removeItem(k);}catch(eS){}});" +
-    "location.replace('/ui');};" +
+    "var dest='https://'+H+'/ui';" +
+    "location.replace(dest);};" +
     "document.addEventListener('click',function(ev){" +
     "var t=ev&&ev.target;if(!t||!t.closest)return;" +
     "if(t.closest('#previewEabcLogoutBtn')||t.closest('[data-act=\"preview-eabc-logout\"]')){" +
@@ -1476,19 +1479,19 @@ async function servePreviewUi_(request, env) {
     // Auth bootstrap from branch tip (not stale production Pages).
     html = html.replace(
       /src="(?:\.\/)?next\/api\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/api.js?v=auth-h5"'
+      'src="' + origin + '/ui/next/api.js?v=auth-h6"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/api\.js[^']*'/g,
-      "src='" + origin + "/ui/next/api.js?v=auth-h5'"
+      "src='" + origin + "/ui/next/api.js?v=auth-h6'"
     );
     html = html.replace(
       /src="(?:\.\/)?next\/app\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/app.js?v=auth-h5"'
+      'src="' + origin + '/ui/next/app.js?v=auth-h6"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/app\.js[^']*'/g,
-      "src='" + origin + "/ui/next/app.js?v=auth-h5'"
+      "src='" + origin + "/ui/next/app.js?v=auth-h6'"
     );
     // Kill SW registration block if still present after boot override.
     html = html.replace(
