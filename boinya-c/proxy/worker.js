@@ -54,6 +54,12 @@ import {
   sheetsModeLabel_
 } from "./sheets-finish-only.js";
 import {
+  orderMoveIsInPlace_,
+  orderNickRenameIsInPlace_,
+  planOrderMoveInPlace_,
+  planOrderNickRenameKeep_
+} from "./order-row-canon.js";
+import {
   cabinetTestLink_,
   cabinetTestMatch_,
   cabinetTestView_,
@@ -14058,64 +14064,82 @@ async function saveOrder_(params, env, asBooking) {
     meta = await clampPpOrderSlotToCard_(env, client, meta, segSave);
   } catch (eClampPp) {}
 
-  // переименование при edit: снять старый nick (UI delete может не успеть)
-  if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
-    const editMk = normalizeMatchKey_(params.matchKey || editClient);
-    const editPoint = partnerOrderSaveKey_(editClient, params);
-    try {
-      if (editPoint && editPoint !== "ВАРКА") {
-        const rq = await env.DB.prepare(
-          "SELECT id, client, match_key, address, segment FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-        )
-          .bind(editMk, editPoint, editClient.toLowerCase())
-          .all();
-        const drop = ((rq && rq.results) || []).filter(function (row) {
-          return partnerSaveSibling_(row, editClient, params.address, editPoint);
-        });
-        for (let ri = 0; ri < drop.length; ri++) {
-          await env.DB.prepare(
-            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
-          )
-            .bind(now, drop[ri].id)
-            .run();
-        }
-      } else {
-        await env.DB.prepare(
-          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
-        )
-          .bind(now, editMk, editClient.toLowerCase(), editClient.toLowerCase())
-          .run();
-      }
-    } catch (eRen) {}
+  // orders-pack2 #19: смена ника = UPDATE той же строки (не soft-delete + insert).
+  // UI шлёт matchKey=старый; новый ключ — из client. PK составной: id может
+  // сохранить старый фрагмент ника; match_key/client обновляются.
+  const isEditSave =
+    toBool_(params.isEdit) || !!(oldDayParam || params.oldDate || params.editDate || editClient);
+  const renameEdit =
+    !!(editClient && editClient.toLowerCase() !== client.toLowerCase() && isEditSave);
+  if (renameEdit) {
+    // партнёрский ключ точки важнее «голого» ника
+    matchKey = partnerKey || normalizeMatchKey_(client) || matchKey;
   }
 
   let siblingRows = [];
   let sameRecordIds = [];
   try {
-    const sq = await env.DB.prepare(
-      "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
-    )
-      .bind(matchKey, client.toLowerCase())
-      .all();
+    const editMkLoad = renameEdit ? normalizeMatchKey_(editClient) : "";
+    let sq;
+    if (renameEdit && editMkLoad) {
+      sq = await env.DB.prepare(
+        "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
+      )
+        .bind(matchKey, editMkLoad, client.toLowerCase(), editClient.toLowerCase())
+        .all();
+    } else {
+      sq = await env.DB.prepare(
+        "SELECT id, date_iso, day_name, client, match_key, address, segment, status, meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?)"
+      )
+        .bind(matchKey, client.toLowerCase())
+        .all();
+    }
     siblingRows = (sq && sq.results) || [];
     if (partnerKey && partnerKey !== "ВАРКА") {
       siblingRows = siblingRows.filter(function (row) {
-        return partnerSaveSibling_(row, client, params.address, partnerKey);
+        return (
+          partnerSaveSibling_(row, client, params.address, partnerKey) ||
+          (renameEdit && partnerSaveSibling_(row, editClient, params.address, partnerKey))
+        );
       });
     }
   } catch (eSib) {}
-  const pickedSave = pickOrderSaveTarget_(siblingRows, {
-    day: day,
-    dateIso: dateIso,
-    segment: segSave,
-    matchKey: matchKey,
-    isEdit: toBool_(params.isEdit) || !!(oldDayParam || params.oldDate || params.editDate),
-    oldDay: oldDayParam,
-    oldDate: params.oldDate || params.editDate || ""
-  });
-  id = pickedSave.id;
-  sameRecordIds = pickedSave.deleteIds || [];
+
+  let renamePlan = null;
+  if (renameEdit) {
+    renamePlan = planOrderNickRenameKeep_(siblingRows, {
+      editClient: editClient,
+      editMatchKey: normalizeMatchKey_(editClient),
+      client: client,
+      day: day || oldDayParam,
+      dateIso: dateIso || coerceDateIso_(params.oldDate || params.editDate || "") || "",
+      oldDay: oldDayParam,
+      oldDate: params.oldDate || params.editDate || "",
+      segment: segSave
+    });
+  }
+
+  if (renamePlan && orderNickRenameIsInPlace_(renamePlan)) {
+    id = renamePlan.keepId;
+    matchKey = renamePlan.newMatchKey || matchKey;
+    sameRecordIds = (renamePlan.softDeleteIds || []).filter(function (x) {
+      return x && x !== id;
+    });
+  } else {
+    const pickedSave = pickOrderSaveTarget_(siblingRows, {
+      day: day,
+      dateIso: dateIso,
+      segment: segSave,
+      matchKey: matchKey,
+      isEdit: isEditSave,
+      oldDay: oldDayParam,
+      oldDate: params.oldDate || params.editDate || ""
+    });
+    id = pickedSave.id;
+    sameRecordIds = pickedSave.deleteIds || [];
+  }
   for (let di = 0; di < sameRecordIds.length; di++) {
+    if (sameRecordIds[di] === id) continue;
     try {
       await env.DB.prepare(
         "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
@@ -15890,12 +15914,31 @@ async function moveClient_(params, env) {
       await clearMoveArriveProtect_(env, fromDays[tj], matchKey, clearName, moveStartedAt);
     } catch (eTombEarly) {}
   }
-  // orders-pack2: #23 — настоящий перенос: UPDATE той же записи (дата/день/id), без delete+create
+  // orders-pack2 #23: перенос = UPDATE той же строки (PK может смениться с датой/днём).
+  // Не upsert+soft-delete источника. Чужой clash на целевом id — снять только его.
   let toLabel = "(calendar)";
   let moveIso = "";
   let moveNewId = "";
   let moveDayName = "";
-  if (newDay) {
+  const movePlan = planOrderMoveInPlace_(row, {
+    matchKey: matchKey,
+    newDay: newDay,
+    newDate: newDate
+  });
+  if (movePlan && orderMoveIsInPlace_(movePlan)) {
+    moveNewId = movePlan.targetId;
+    moveIso = movePlan.dateIso || "";
+    moveDayName = movePlan.dayName || "";
+    toLabel = newDay || newDate || moveNewId;
+    if (newDay && !moveIso) {
+      try {
+        const info = await dayDateInfo_(env, newDay);
+        moveIso = (info && info.iso) || coerceDateIso_(row.date_iso) || "";
+      } catch (eInfoMv) {
+        moveIso = coerceDateIso_(row.date_iso) || "";
+      }
+    }
+  } else if (newDay) {
     const info = await dayDateInfo_(env, newDay);
     moveIso =
       coerceDateIso_(newDate) ||
@@ -15936,29 +15979,40 @@ async function moveClient_(params, env) {
         )
         .run();
     } catch (eInPlace) {
-      // fallback: если PK id нельзя сменить на занятый — upsert + soft-delete старого
-      await upsertOrderRow_(env, {
-        id: moveNewId,
-        date_iso: moveIso || "",
-        day_name: moveDayName,
-        client: row.client,
-        match_key: matchKey,
-        address: row.address || "",
-        note: movedNote,
-        phone: row.phone || "",
-        basket_json: row.basket_json || "[]",
-        segment: row.segment || "",
-        source: row.source || "",
-        status: "active",
-        updated_at: now,
-        meta_json: JSON.stringify(meta)
-      });
-      if (String(row.id) !== moveNewId) {
+      // #23: ещё раз снять чужой clash и повторить UPDATE источника — без delete+create.
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND id != ? AND status = 'active'"
+        )
+          .bind(now, moveNewId, row.id)
+          .run();
+      } catch (eClash2) {}
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET id = ?, date_iso = ?, day_name = ?, note = ?, meta_json = ?, status = 'active', updated_at = ? WHERE id = ?"
+        )
+          .bind(
+            moveNewId,
+            moveIso || "",
+            moveDayName,
+            movedNote,
+            JSON.stringify(meta),
+            now,
+            row.id
+          )
+          .run();
+      } catch (eInPlace2) {
+        // последний шанс: обновить поля на том же PK (дата/день), не soft-delete источника
         try {
-          await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-            .bind(now, row.id)
+          await env.DB.prepare(
+            "UPDATE orders SET date_iso = ?, day_name = ?, note = ?, meta_json = ?, status = 'active', updated_at = ? WHERE id = ?"
+          )
+            .bind(moveIso || "", moveDayName, movedNote, JSON.stringify(meta), now, row.id)
             .run();
-        } catch (eDelFb) {}
+          moveNewId = String(row.id);
+        } catch (eKeepPk) {
+          throw eInPlace2;
+        }
       }
     }
   }

@@ -11,6 +11,8 @@ on:
       - "boinya-c/next/order-payload.js"
       - "boinya-c/next/orders-pack2.test.mjs"
       - "boinya-c/proxy/worker.js"
+      - "boinya-c/proxy/order-row-canon.js"
+      - "boinya-c/proxy/order-row-canon.test.mjs"
       - "boinya-c/next.html"
       - "boinya-c/index.html"
       - "boinya-c/sw.js"
@@ -26,6 +28,8 @@ on:
       - "boinya-c/next/order-payload.js"
       - "boinya-c/next/orders-pack2.test.mjs"
       - "boinya-c/proxy/worker.js"
+      - "boinya-c/proxy/order-row-canon.js"
+      - "boinya-c/proxy/order-row-canon.test.mjs"
       - "boinya-c/next.html"
       - "boinya-c/index.html"
       - "boinya-c/sw.js"
@@ -42,5 +46,7 @@ jobs:
           node-version: "22"
       - name: orders-pack2 (one test per TZ item + locks)
         run: node --test boinya-c/next/orders-pack2.test.mjs
+      - name: order row #19/#23 in-place canon
+        run: node --test boinya-c/proxy/order-row-canon.test.mjs
       - name: orders-page-fix locks still green
         run: node --test boinya-c/next/orders-page-fix.test.mjs
