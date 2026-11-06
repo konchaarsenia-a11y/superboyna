@@ -1,5 +1,5 @@
 {
-  "sha": "PENDING",
+  "sha": "ea0572f96a8dc55f1b10687b8b39143730c33df3",
   "previewWorker": "boinya-c-preview-eabc",
   "previewUrl": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev",
   "previewD1": {
@@ -88,5 +88,7 @@
     "#19 clients: planClientNickRenameKeep_ + aliases — больше не создаёт c_* при ZZZ_PREVIEW vs ZZZPREVIEW",
     "GAS_ORIGIN='' раньше падал на hardcoded prod webhook; PREVIEW_ISOLATED short-circuit + non-empty sentinel",
     "finishFullWeek на preview: sheets=false fromD1; weekCloseBackup сохранён"
-  ]
+  ],
+  "shaShort": "ea0572f9",
+  "deployVersion": "boinya-c-preview-eabc@ea0572f9"
 }
