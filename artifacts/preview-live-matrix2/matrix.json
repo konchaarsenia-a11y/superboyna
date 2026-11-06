@@ -2,6 +2,7 @@
   "sha": "eeadea75",
   "shaShort": "eeadea75",
   "deployVersion": "boinya-c-preview-eabc@eeadea75",
+  "codeTip": "7957dca0",
   "previewWorker": "boinya-c-preview-eabc",
   "previewUrl": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev",
   "previewD1": {
@@ -17,11 +18,25 @@
   "AUTH_ENFORCE_0": false,
   "previewIsolated": true,
   "uiStagingUrl": "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&proxy=https%3A%2F%2Fboinya-c-preview-eabc.konchaarsenia.workers.dev",
-  "uiLoginNeeds": "CF Dashboard → boinya-c-preview-eabc → Secrets → TELEGRAM_BOT_TOKEN = токен бота Бойни (вручную, не копировать из prod Worker). BotFather /setdomain: konchaarsenia-a11y.github.io. Сейчас на preview ephemeral HMAC token только для API verifyTgInitData_.",
+  "uiLoginNeeds": {
+    "supportsSeparateTestBot": true,
+    "path": "Telegram Login Widget → verifyTgInitData_ / desktop session (same TELEGRAM_BOT_TOKEN)",
+    "minimalUserStep": "BotFather test bot → /setdomain konchaarsenia-a11y.github.io → set preview Worker secrets (token via secure field, not chat)",
+    "secrets": {
+      "TELEGRAM_BOT_TOKEN": "required — test bot token only on boinya-c-preview-eabc",
+      "TELEGRAM_BOT_USERNAME": "recommended — test bot username without @",
+      "OWNER_TELEGRAM_IDS": "already set 650923866"
+    },
+    "doNot": [
+      "copy production Worker TELEGRAM_BOT_TOKEN",
+      "change production bot /setdomain",
+      "call synthetic HMAC initData a real UI login"
+    ]
+  },
   "matrix": {
     "auth_enforce_spoof_rejected": "PASSED",
     "auth_stranger_write_denied": "PASSED",
-    "auth_owner_signed_initData": "PASSED",
+    "auth_owner_signed_initData_api": "PASSED",
     "auth_ui_telegram_login_widget": "NOT_VERIFIED",
     "rename_no_deleted_insert": "PASSED",
     "rename_stable_clients_id": "PASSED",
@@ -29,10 +44,19 @@
     "rename_no_client_duplicate": "PASSED",
     "move_single_active_row": "PASSED",
     "move_reload_readback": "PASSED",
-    "sheets_banned_before_finish": "PASSED",
+    "sheets_banned_non_finish": "PASSED",
+    "sheets_finish_family_preview_stub": "PASSED",
     "finish_week_d1_sheets_false": "PASSED",
+    "finish_week_d1_is_not_sheets_write_proof": true,
     "preview_no_prod_d1_binding": "PASSED",
     "ci_final_code": "PASSED"
+  },
+  "sheetsStubContract": {
+    "file": "artifacts/preview-live-matrix2/sheets-stub-contract.json",
+    "passed": true,
+    "banned": "mirrorSheetClients → sheets_finish_only",
+    "allowed": "finishFullWeekProbe → previewStub/external:false",
+    "exactFinishContrast": "finishFullWeek → week_already_finished, sheets:false, fromD1, weekCloseCanon=d1-only"
   },
   "counts": {
     "before_seed": {

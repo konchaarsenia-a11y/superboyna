@@ -2295,7 +2295,65 @@ async function handleActionInner_(action, params, env, url, ctx) {
       // Sheets только при «Завершить неделю»; чтение/зеркало вне finish выключено.
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
-      deployMarker: "sheets-finish-only-h1"
+      deployMarker: "sheets-finish-only-h1",
+      // finishFullWeek + sheets:false = D1 closeWeekInD1_ only; NOT sheets-write gate proof.
+      d1CloseIsNotSheetsProof: true
+    };
+  }
+
+  // Preview-only: gasProxy_ contract (non-finish → sheets_finish_only; finish* → stub).
+  // Separate from closeWeekInD1_ (finishFullWeek sheets:false). No real Sheets / no prod GAS.
+  if (a === "previewSheetsContract" && String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+    const banned = await gasProxy_(
+      "getClients",
+      Object.assign({}, params || {}, { day: "Понедельник" }),
+      env,
+      { write: false }
+    );
+    const allowed = await gasProxy_(
+      "finishFullWeek",
+      Object.assign({}, params || {}, { confirm: "1" }),
+      env,
+      { write: true }
+    );
+    const bannedOk =
+      !!(banned &&
+        banned.status === "error" &&
+        /sheets_finish_only/i.test(String(banned.message || "")) &&
+        banned.sheetsFinishOnly === true &&
+        !banned.previewStub);
+    const allowedOk =
+      !!(allowed &&
+        allowed.status === "success" &&
+        allowed.previewStub === true &&
+        allowed.external === false &&
+        /^finishFullWeek$/i.test(String(allowed.action || "")));
+    return {
+      status: bannedOk && allowedOk ? "success" : "error",
+      message: bannedOk && allowedOk ? "sheets_stub_contract_ok" : "sheets_stub_contract_fail",
+      contract: "sheets_finish_only_vs_preview_stub",
+      note:
+        "D1 finishFullWeek sheets:false ≠ this proof. This only checks gasProxy_ gate under PREVIEW_ISOLATED.",
+      d1CloseSeparate: true,
+      banned: {
+        status: banned && banned.status,
+        message: banned && banned.message,
+        sheetsFinishOnly: !!(banned && banned.sheetsFinishOnly),
+        previewStub: !!(banned && banned.previewStub),
+        ok: bannedOk
+      },
+      allowed: {
+        status: allowed && allowed.status,
+        message: allowed && allowed.message,
+        previewStub: !!(allowed && allowed.previewStub),
+        external: allowed && allowed.external,
+        action: allowed && allowed.action,
+        stubOnly: !!(allowed && allowed.stubOnly),
+        ok: allowedOk
+      },
+      passed: !!(bannedOk && allowedOk),
+      cutover: true,
+      previewIsolated: true
     };
   }
 
