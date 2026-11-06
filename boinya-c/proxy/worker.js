@@ -1313,7 +1313,8 @@ const PREVIEW_UI_GIT_REF_ = "cursor/auth-post-ci-eabc";
 
 async function servePreviewSourceFile_(rel) {
   const safe = String(rel || "").replace(/^\/+/, "");
-  if (!/^next\/(api|app)\.js$/.test(safe)) {
+  // access.js too: Pages copy kept empty tabs:[] → «Нет доступа» for elevated roles.
+  if (!/^next\/(api|app|access)\.js$/.test(safe)) {
     return new Response("not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
   const url =
@@ -1321,7 +1322,7 @@ async function servePreviewSourceFile_(rel) {
     PREVIEW_UI_GIT_REF_ +
     "/boinya-c/" +
     safe +
-    "?v=auth-h6";
+    "?v=auth-h10";
   try {
     const upstream = await fetch(url, { cf: { cacheTtl: 0, cacheEverything: false } });
     if (!upstream.ok) {
@@ -1498,19 +1499,27 @@ async function servePreviewUi_(request, env) {
     // Auth bootstrap from branch tip (not stale production Pages).
     html = html.replace(
       /src="(?:\.\/)?next\/api\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/api.js?v=auth-h6"'
+      'src="' + origin + '/ui/next/api.js?v=auth-h10"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/api\.js[^']*'/g,
-      "src='" + origin + "/ui/next/api.js?v=auth-h6'"
+      "src='" + origin + "/ui/next/api.js?v=auth-h10'"
     );
     html = html.replace(
       /src="(?:\.\/)?next\/app\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/app.js?v=auth-h6"'
+      'src="' + origin + '/ui/next/app.js?v=auth-h10"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/app\.js[^']*'/g,
-      "src='" + origin + "/ui/next/app.js?v=auth-h6'"
+      "src='" + origin + "/ui/next/app.js?v=auth-h10'"
+    );
+    html = html.replace(
+      /src="(?:\.\/)?next\/access\.js[^"]*"/g,
+      'src="' + origin + '/ui/next/access.js?v=auth-h10"'
+    );
+    html = html.replace(
+      /src='(?:\.\/)?next\/access\.js[^']*'/g,
+      "src='" + origin + "/ui/next/access.js?v=auth-h10'"
     );
     // Kill SW registration block if still present after boot override.
     html = html.replace(
@@ -1660,6 +1669,7 @@ export default {
       if (url.pathname === "/ui/config.js") return servePreviewUiConfig_();
       if (url.pathname === "/ui/next/api.js") return servePreviewSourceFile_("next/api.js");
       if (url.pathname === "/ui/next/app.js") return servePreviewSourceFile_("next/app.js");
+      if (url.pathname === "/ui/next/access.js") return servePreviewSourceFile_("next/access.js");
       if (url.pathname === "/ui" || url.pathname === "/ui/" || url.pathname === "/ui/index.html") {
         return servePreviewUi_(request, env);
       }
@@ -2302,13 +2312,17 @@ async function authGetMyAccess_(params, actor, env, ctx) {
         verified: !!actor.verified,
         authVia: String(actor.authVia || ""),
         role: String(role || "none"),
+        access: String((res && res.access) || ""),
+        status: String((res && res.status) || ""),
+        tabsLen: Array.isArray(res && res.tabs) ? res.tabs.length : 0,
         authRequired: false,
         idEqOwnerEnv: idEqOwnerEnv,
         tidLen: String(tid || "").length,
         // Full-id SHA256 (canon); compare to prod ACL key fps — never store raw tid here.
         tidFp: tidFp || null,
         fpAlgo: "sha256:boinya.tg.id.v1",
-        previewStub: !!(res && res.previewStub)
+        previewStub: !!(res && res.previewStub),
+        authBuild: "preview-auth-h10-eabc"
       });
     } catch (eSafe) {}
   }
@@ -2636,6 +2650,11 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       deployMarker: "sheets-finish-only-h3",
+      // Preview-only auth UI build id (independent of sheets-finish deployMarker).
+      authBuildMarker:
+        String((env && env.PREVIEW_ISOLATED) || "") === "1"
+          ? String((env && env.PREVIEW_MARKER) || "preview-auth-h10-eabc")
+          : undefined,
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
       widgetAuth: "tgLogin-fallback+post"
     };

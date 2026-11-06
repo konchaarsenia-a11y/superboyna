@@ -1038,6 +1038,8 @@
         return;
       }
     access = ax().normalize(res);
+    // auth-h10: elevated role + empty tabs (normalize fills ROLE_TABS) must open UI.
+    // Do not let later stub getAssembly / warmProduction flip gate — gate only here.
     try {
       var akSave = api().accessStorageKey ? api().accessStorageKey() : "nx_access_v1";
       localStorage.setItem(akSave, JSON.stringify({ role: access.role, tabs: access.tabs, name: access.name, telegramId: access.telegramId }));
@@ -1046,10 +1048,16 @@
     if (res.desktopSession && api().rememberDesktopSession) api().rememberDesktopSession(res.desktopSession);
     if (u.first_name) access.name = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
     var role = access.role;
-    if (role === "none" || role === "pending" || role === "denied" || !access.tabs.length) {
-      if (role === "denied") showFail("Доступ закрыт", "Обратитесь к владельцу.", "");
-      else if (role === "pending") showFail("Заявка отправлена", "Ваша заявка отправлена! Пожалуйста, подождите...", "");
-      else showFail("Нет доступа", "К сожалению, у вас нет доступа. Нажмите ниже для отправки заявки",
+    if (role === "denied") {
+      showFail("Доступ закрыт", "Обратитесь к владельцу.", "");
+      return;
+    }
+    if (role === "pending") {
+      showFail("Заявка отправлена", "Ваша заявка отправлена! Пожалуйста, подождите...", "");
+      return;
+    }
+    if (role === "none" || !access.tabs.length) {
+      showFail("Нет доступа", "К сожалению, у вас нет доступа. Нажмите ниже для отправки заявки",
         '<button class="b-btn b-btn--main" type="button" data-act="gate-ask">Запросить доступ</button>');
       return;
     }

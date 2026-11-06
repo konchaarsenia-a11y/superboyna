@@ -132,8 +132,11 @@
   }
 
   function normalize(res) {
-    var role = String((res && res.role) || "none");
-    var tabs = Array.isArray(res && res.tabs) ? res.tabs.slice() : (ROLE_TABS[role] || []).slice();
+    var role = String((res && res.role) || "none").toLowerCase().trim();
+    // Empty array must NOT stick: owner/all with tabs:[] used to gate «Нет доступа»
+    // even when role is elevated (prod→preview snap / sandbox all+[]).
+    var tabs = Array.isArray(res && res.tabs) ? res.tabs.slice() : [];
+    if (!tabs.length) tabs = (ROLE_TABS[role] || []).slice();
     var custom = Array.isArray(res && res.customTabs) ? res.customTabs.slice() : [];
     tabs = allowedTabs(role, tabs);
     return {
@@ -142,7 +145,10 @@
       tabs: tabs,
       customTabs: custom,
       name: String((res && res.name) || ""),
-      telegramId: String((res && res.telegramId) || "")
+      telegramId: String((res && res.telegramId) || ""),
+      // pass-through status/access for diagnostics; gate uses role+tabs only
+      status: String((res && res.status) || ""),
+      access: String((res && res.access) || "")
     };
   }
 
