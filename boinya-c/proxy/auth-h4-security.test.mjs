@@ -81,3 +81,15 @@ test("gasProxy_ preview stub before sheets_finish_only (no getMyAccess skip)", (
   assert.ok(previewIdx > 0 && skipIdx > previewIdx);
   assert.match(head, /previewGasStub_/);
 });
+
+test("preview getMyAccess writes authLastSafe with idEqOwnerEnv (no ACL auto-owner)", () => {
+  const idx = worker.indexOf("async function authGetMyAccess_");
+  assert.ok(idx > 0);
+  const block = worker.slice(idx, idx + 3200);
+  assert.match(block, /idEqOwnerEnv/);
+  assert.match(block, /authLastSafe/);
+  assert.match(block, /PREVIEW_ISOLATED/);
+  // must not auto-assign owner from stub / softMiss
+  assert.doesNotMatch(block, /role\s*=\s*"owner"/);
+  assert.doesNotMatch(block, /OWNER_TELEGRAM_IDS.*=/);
+});

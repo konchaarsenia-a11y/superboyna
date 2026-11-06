@@ -2266,6 +2266,23 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   res.verified = !!actor.verified;
   res.authMode = authModeLabel_(env);
   if (actor.authVia) res.authVia = actor.authVia;
+  // Preview-only safe diag: equality vs OWNER allowlist — no extra PII beyond existing telegramId field.
+  if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
+    const idEqOwnerEnv = !!(tid && authOwnerIds_(env).indexOf(String(tid)) >= 0);
+    res.idEqOwnerEnv = idEqOwnerEnv;
+    try {
+      await putSnap_(env, "authLastSafe", {
+        at: new Date().toISOString(),
+        verified: !!actor.verified,
+        authVia: String(actor.authVia || ""),
+        role: String(role || "none"),
+        authRequired: false,
+        idEqOwnerEnv: idEqOwnerEnv,
+        tidLen: String(tid || "").length,
+        previewStub: !!(res && res.previewStub)
+      });
+    } catch (eSafe) {}
+  }
   // orders-pack2: desktop — обновлять долгоживущую сессию при успешном входе
   if (actor.verified && tid && (actor.authVia === "widget" || actor.authVia === "desktop-session")) {
     try {
