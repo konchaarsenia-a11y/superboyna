@@ -1066,15 +1066,13 @@ async function resolveActor_(params, env) {
   if (initData) {
     v = await verifyTgInitData_(initData, env);
     authVia = "webapp";
-  } else if (tgLogin) {
+  }
+  // Desktop Login Widget: не глушить tgLogin, если initData пустой/битый (частый desktop-браузерный кейс).
+  if (!(v && v.ok) && tgLogin) {
     v = await verifyTgLoginWidget_(tgLogin, env);
     authVia = "widget";
-    // orders-pack2: протухший tgLogin → долгая desktop-сессия
-    if (!(v && v.ok) && deskSess) {
-      v = await verifyDesktopSession_(deskSess, env);
-      authVia = "desktop-session";
-    }
-  } else if (deskSess) {
+  }
+  if (!(v && v.ok) && deskSess) {
     v = await verifyDesktopSession_(deskSess, env);
     authVia = "desktop-session";
   }
@@ -1291,6 +1289,44 @@ async function serveKlientCabinet_() {
 
 const PREVIEW_UI_PAGES_BASE_ = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c";
 const PREVIEW_UI_LOGIN_HOST_ = "boinya-c-preview-eabc.konchaarsenia.workers.dev";
+/** Branch tip for preview-only next/api.js + next/app.js (auth bootstrap); not production Pages. */
+const PREVIEW_UI_GIT_REF_ = "cursor/preview-sheets-rename-eabc";
+
+async function servePreviewSourceFile_(rel) {
+  const safe = String(rel || "").replace(/^\/+/, "");
+  if (!/^next\/(api|app)\.js$/.test(safe)) {
+    return new Response("not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
+  const url =
+    "https://raw.githubusercontent.com/konchaarsenia-a11y/superboyna/" +
+    PREVIEW_UI_GIT_REF_ +
+    "/boinya-c/" +
+    safe +
+    "?v=auth-h3";
+  try {
+    const upstream = await fetch(url, { cf: { cacheTtl: 0, cacheEverything: false } });
+    if (!upstream.ok) {
+      return new Response("preview source unavailable", {
+        status: 502,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+      });
+    }
+    const body = await upstream.text();
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/javascript; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0",
+        "X-Boinya-Preview-Src": safe
+      }
+    });
+  } catch (eSrc) {
+    return new Response("preview source error", {
+      status: 502,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+    });
+  }
+}
 
 function servePreviewUiConfig_() {
   const body =
@@ -1391,6 +1427,23 @@ async function servePreviewUi_(request, env) {
     html = html.replace(
       /src='(?:\.\/)?client\/config\.js[^']*'/g,
       "src='" + origin + "/ui/config.js'"
+    );
+    // Auth bootstrap from branch tip (not stale production Pages).
+    html = html.replace(
+      /src="(?:\.\/)?next\/api\.js[^"]*"/g,
+      'src="' + origin + '/ui/next/api.js?v=auth-h3"'
+    );
+    html = html.replace(
+      /src='(?:\.\/)?next\/api\.js[^']*'/g,
+      "src='" + origin + "/ui/next/api.js?v=auth-h3'"
+    );
+    html = html.replace(
+      /src="(?:\.\/)?next\/app\.js[^"]*"/g,
+      'src="' + origin + '/ui/next/app.js?v=auth-h3"'
+    );
+    html = html.replace(
+      /src='(?:\.\/)?next\/app\.js[^']*'/g,
+      "src='" + origin + "/ui/next/app.js?v=auth-h3'"
     );
     // Kill SW registration block if still present after boot override.
     html = html.replace(
@@ -1538,6 +1591,8 @@ export default {
     // Isolated preview UI (separate origin → separate storage; not production Pages).
     if (request.method === "GET" && String((env && env.PREVIEW_ISOLATED) || "") === "1") {
       if (url.pathname === "/ui/config.js") return servePreviewUiConfig_();
+      if (url.pathname === "/ui/next/api.js") return servePreviewSourceFile_("next/api.js");
+      if (url.pathname === "/ui/next/app.js") return servePreviewSourceFile_("next/app.js");
       if (url.pathname === "/ui" || url.pathname === "/ui/" || url.pathname === "/ui/index.html") {
         return servePreviewUi_(request, env);
       }
@@ -2412,6 +2467,24 @@ async function handleActionInner_(action, params, env, url, ctx) {
   }
 
   if (a === "ping" || a === "keepWarm") {
+    let botId = null;
+    let botUsername = "";
+    try {
+      botUsername = await telegramBotUsername_(env);
+    } catch (eBu) {
+      botUsername = String((env && env.TELEGRAM_BOT_USERNAME) || "").replace(/^@/, "");
+    }
+    try {
+      const token = authPrimaryBotToken_(env);
+      if (token && typeof fetch === "function") {
+        const meRes = await fetch("https://api.telegram.org/bot" + token + "/getMe");
+        const meBody = await meRes.json();
+        if (meBody && meBody.ok && meBody.result) {
+          botId = Number(meBody.result.id) || null;
+          if (meBody.result.username) botUsername = String(meBody.result.username);
+        }
+      }
+    } catch (eMe) {}
     return {
       status: "success",
       sandbox: !live,
@@ -2431,6 +2504,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       ordersCanon: ordersCanonLabel_(env),
       telegramCanon: hasTelegramToken_(env) ? "worker" : "sheets-fallback",
       hasTelegramToken: hasTelegramToken_(env),
+      botId: botId,
+      botUsername: botUsername || undefined,
       notifyGroup: notifyChatEnabledWorker_(env) ? "on" : "off",
       partnerCanon: partnerCanonLabel_(env),
       priceCanonV2: PRICE_CANON_V2_,
@@ -2443,8 +2518,9 @@ async function handleActionInner_(action, params, env, url, ctx) {
       // Sheets только при «Завершить неделю»; чтение/зеркало вне finish выключено.
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
-      deployMarker: "sheets-finish-only-h2",
-      weekCloseSheets: "d1-then-finishFullWeek-fromD1Close"
+      deployMarker: "sheets-finish-only-h3",
+      weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
+      widgetAuth: "tgLogin-fallback+post"
     };
   }
 

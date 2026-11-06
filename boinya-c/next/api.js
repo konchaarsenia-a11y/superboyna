@@ -226,12 +226,13 @@
       var raw = initData();
       if (raw) out.initData = raw;
     }
-    if (!out.initData && !out.tgLogin) {
+    // Desktop Login Widget: всегда прикладывать tgLogin/desktopSession рядом с initData.
+    // Иначе битый/пустой initData из WebApp.js глушит виджет и getMyAccess → authRequired.
+    if (!out.tgLogin) {
       var login = loginData();
       if (login) out.tgLogin = login;
     }
-    // orders-pack2: desktop session (предпочтительнее протухшего tgLogin)
-    if (!out.initData && !out.desktopSession) {
+    if (!out.desktopSession) {
       var desk = desktopSessionData();
       if (desk) out.desktopSession = desk;
     }
@@ -427,7 +428,12 @@
 
   function network(params, opts) {
     var action = String(params.action || "");
-    return WRITE.test(action) ? postWrite(params, opts.timeoutMs || 22000) : jsonp(params, opts.timeoutMs || 28000);
+    if (WRITE.test(action)) return postWrite(params, opts.timeoutMs || 22000);
+    // Auth payload (tgLogin/photo_url) в query JSONP легко калечится; POST body сохраняет подпись.
+    if (params && (params.tgLogin || params.desktopSession || params.initData)) {
+      return postWrite(params, opts.timeoutMs || 22000);
+    }
+    return jsonp(params, opts.timeoutMs || 28000);
   }
 
   function bounded(promise, ms) {

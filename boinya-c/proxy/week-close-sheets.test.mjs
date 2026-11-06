@@ -73,4 +73,6 @@ test("worker wires D1 close then Sheets fromD1Close (not preview-only)", () => {
   assert.doesNotMatch(block, /PREVIEW_ISOLATED[\s\S]{0,80}gasProxy_/);
   assert.match(worker, /servePreviewUi_/);
   assert.match(worker, /\/ui/);
+  assert.match(worker, /tgLogin-fallback\+post|verifyTgLoginWidget_/);
+  assert.match(worker, /servePreviewSourceFile_/);
 });

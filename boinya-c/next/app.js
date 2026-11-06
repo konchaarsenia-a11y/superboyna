@@ -974,10 +974,15 @@
       sh().main(sh().skeleton(4));
     }
     try {
-      var init = root.__NEXT_API_HOOK__ ? "hook" : await api().waitForInitData(1600);
+      // Desktop widget: не ждать initData, если уже есть tgLogin/desktopSession.
+      var loginEarly = api().loginData ? api().loginData() : "";
+      var deskEarly = api().desktopSessionData ? api().desktopSessionData() : "";
+      var init = root.__NEXT_API_HOOK__
+        ? "hook"
+        : (loginEarly || deskEarly ? "" : await api().waitForInitData(1600));
       if (ticket !== bootGen) return;
-      var login = !init && api().loginData ? api().loginData() : "";
-      var deskSess = !init && api().desktopSessionData ? api().desktopSessionData() : "";
+      var login = !init && (loginEarly || (api().loginData ? api().loginData() : ""));
+      var deskSess = !init && (deskEarly || (api().desktopSessionData ? api().desktopSessionData() : ""));
       if (!init && !login && !deskSess) {
         if (insideTelegramApp()) {
           if (hadCache) keepCached("Telegram ещё не ответил, показываю как было");
@@ -1008,12 +1013,23 @@
           return;
         }
         if (res && res.authRequired) {
-          if (!init && login) {
+          var reasonCode = String(res.reason || res.message || "auth_required");
+          if (!init && (login || deskSess)) {
             if (api().clearLogin) api().clearLogin();
-            await openDesktopGate();
+            var infoFail = null;
+            try {
+              infoFail = await api().apiGet({ action: "startDesktopAuth" }, { timeoutMs: 8000, retries: 0, cacheTtlMs: 0 });
+            } catch (eInfo) {
+              infoFail = null;
+            }
+            // Безопасный код отказа (без payload/ПДн) — чтобы не молча крутить виджет.
+            showDesktopLogin(
+              infoFail && infoFail.status === "success" ? infoFail : null,
+              "Подпись не принята (" + reasonCode + "). Войдите ещё раз через виджет."
+            );
             return;
           }
-          showFail("Нужен Telegram", "Подпись Telegram не прошла проверку. Нажмите «Повторить» или откройте мини-апп из бота.",
+          showFail("Нужен Telegram", "Подпись Telegram не прошла проверку (" + reasonCode + "). Нажмите «Повторить» или откройте мини-апп из бота.",
             '<button class="b-btn b-btn--main" type="button" data-act="gate-retry">Повторить</button>');
         } else {
           showFail("Нет связи", "Не удалось проверить доступ. Проверьте интернет и нажмите «Повторить».",
