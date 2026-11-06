@@ -668,6 +668,24 @@ function authHex_(bytes) {
   for (let i = 0; i < bytes.length; i++) s += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
   return s;
 }
+
+/**
+ * Preview ACL compare: fingerprint of FULL canonical Telegram id (not suffix).
+ * Formula (server + CF executor must match):
+ *   canon = String(tid).trim() where /^\d{5,20}$/
+ *   tidFp = hex_lower(SHA256(UTF8("boinya.tg.id.v1:" + canon)))
+ * Why: authLastSafe must allow prod↔preview principal match without logging raw id.
+ */
+function authCanonTelegramId_(tid) {
+  const s = String(tid == null ? "" : tid).trim();
+  return /^\d{5,20}$/.test(s) ? s : "";
+}
+async function authTelegramIdFp_(tid) {
+  const canon = authCanonTelegramId_(tid);
+  if (!canon) return "";
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", _tgEnc.encode("boinya.tg.id.v1:" + canon)));
+  return authHex_(bytes);
+}
 function authSafeEq_(a, b) {
   a = String(a || "");
   b = String(b || "");
@@ -2266,10 +2284,17 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   res.verified = !!actor.verified;
   res.authMode = authModeLabel_(env);
   if (actor.authVia) res.authVia = actor.authVia;
-  // Preview-only safe diag: equality vs OWNER allowlist — no extra PII beyond existing telegramId field.
+  // Preview-only safe diag: OWNER equality + SHA256 fp of full verified tid (no raw id in snap).
   if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
     const idEqOwnerEnv = !!(tid && authOwnerIds_(env).indexOf(String(tid)) >= 0);
     res.idEqOwnerEnv = idEqOwnerEnv;
+    let tidFp = "";
+    try {
+      tidFp = actor.verified ? await authTelegramIdFp_(tid) : "";
+    } catch (eFp) {
+      tidFp = "";
+    }
+    if (tidFp) res.tidFp = tidFp;
     try {
       await putSnap_(env, "authLastSafe", {
         at: new Date().toISOString(),
@@ -2279,6 +2304,9 @@ async function authGetMyAccess_(params, actor, env, ctx) {
         authRequired: false,
         idEqOwnerEnv: idEqOwnerEnv,
         tidLen: String(tid || "").length,
+        // Full-id SHA256 (canon); compare to prod ACL key fps — never store raw tid here.
+        tidFp: tidFp || null,
+        fpAlgo: "sha256:boinya.tg.id.v1",
         previewStub: !!(res && res.previewStub)
       });
     } catch (eSafe) {}
