@@ -1,7 +1,7 @@
 {
-  "sha": "a12ce9175a79b0abc2c4130d2022c9ed858bd6f1",
-  "shaShort": "a12ce917",
-  "deployVersion": "boinya-c-preview-eabc@a12ce917",
+  "sha": "b49b119e",
+  "shaShort": "b49b119e",
+  "deployVersion": "boinya-c-preview-eabc@b49b119e",
   "previewWorker": "boinya-c-preview-eabc",
   "previewUrl": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev",
   "previewD1": {
@@ -38,45 +38,20 @@
     "before_seed": {
       "orders": 2,
       "clients": 2,
-      "clients_ids": [
-        "cli_zzz_preview",
-        "cli_zzz_future"
-      ]
+      "clients_ids": ["cli_zzz_preview", "cli_zzz_future"]
     },
     "after_rename_move_readback": {
       "mon": [],
-      "wed": [
-        [
-          "zzz_preview_renamed",
-          "ZZZ_PREVIEW_RENAMED"
-        ]
-      ],
-      "tue": [
-        [
-          "zzz_preview_b",
-          "ZZZPREVIEWB"
-        ]
-      ]
+      "wed": [["zzz_preview_renamed", "ZZZ_PREVIEW_RENAMED"]],
+      "tue": [["zzz_preview_b", "ZZZPREVIEWB"]]
     },
     "after_all_d1": {
       "orders_active": 3,
       "orders_deleted": 0,
       "clients": [
-        {
-          "id": "c_98fbfff7",
-          "match_key": "ZZZPREVIEWB",
-          "nick": "zzz_preview_b"
-        },
-        {
-          "id": "cli_zzz_future",
-          "match_key": "ZZZFUTURE",
-          "nick": "zzz_future"
-        },
-        {
-          "id": "cli_zzz_preview",
-          "match_key": "ZZZ_PREVIEW_RENAMED",
-          "nick": "zzz_preview_renamed"
-        }
+        {"id": "c_98fbfff7", "match_key": "ZZZPREVIEWB", "nick": "zzz_preview_b"},
+        {"id": "cli_zzz_future", "match_key": "ZZZFUTURE", "nick": "zzz_future"},
+        {"id": "cli_zzz_preview", "match_key": "ZZZ_PREVIEW_RENAMED", "nick": "zzz_preview_renamed"}
       ],
       "renamed_order": {
         "id": "Среда:ZZZPREVIEWRENAMED",
