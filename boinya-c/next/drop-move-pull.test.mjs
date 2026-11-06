@@ -40,6 +40,12 @@ test("#26 нет materialize/pull UI", () => {
   assert.doesNotMatch(weekSrc, /data-act="wpull"/);
 });
 
-test("cache bump v71125455", () => {
-  assert.match(nextHtml, /v=71125455/);
+test("cache bump present (VER may rise; draft/pull stay gone)", () => {
+  // Allow cache bust bumps (71125455 → 71125456 → …); do not pin a stale VER.
+  assert.match(nextHtml, /\bv=7112545\d\b/);
+  assert.match(nextHtml, /var VER = "7112545\d"/);
+  // Behavioral lock from #23/#26 must survive any bump.
+  assert.doesNotMatch(weekSrc, /data-act="wstage"/);
+  assert.doesNotMatch(weekSrc, /data-act="wpull"/);
+  assert.doesNotMatch(appSrc, /data-act="wpull"/);
 });
