@@ -1290,7 +1290,7 @@ async function serveKlientCabinet_() {
 const PREVIEW_UI_PAGES_BASE_ = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c";
 const PREVIEW_UI_LOGIN_HOST_ = "boinya-c-preview-eabc.konchaarsenia.workers.dev";
 /** Branch tip for preview-only next/api.js + next/app.js (auth bootstrap); not production Pages. */
-const PREVIEW_UI_GIT_REF_ = "cursor/preview-sheets-rename-eabc";
+const PREVIEW_UI_GIT_REF_ = "cursor/auth-post-ci-eabc";
 
 async function servePreviewSourceFile_(rel) {
   const safe = String(rel || "").replace(/^\/+/, "");
@@ -1302,7 +1302,7 @@ async function servePreviewSourceFile_(rel) {
     PREVIEW_UI_GIT_REF_ +
     "/boinya-c/" +
     safe +
-    "?v=auth-h3";
+    "?v=auth-h4";
   try {
     const upstream = await fetch(url, { cf: { cacheTtl: 0, cacheEverything: false } });
     if (!upstream.ok) {
@@ -1431,19 +1431,19 @@ async function servePreviewUi_(request, env) {
     // Auth bootstrap from branch tip (not stale production Pages).
     html = html.replace(
       /src="(?:\.\/)?next\/api\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/api.js?v=auth-h3"'
+      'src="' + origin + '/ui/next/api.js?v=auth-h4"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/api\.js[^']*'/g,
-      "src='" + origin + "/ui/next/api.js?v=auth-h3'"
+      "src='" + origin + "/ui/next/api.js?v=auth-h4'"
     );
     html = html.replace(
       /src="(?:\.\/)?next\/app\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/app.js?v=auth-h3"'
+      'src="' + origin + '/ui/next/app.js?v=auth-h4"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/app\.js[^']*'/g,
-      "src='" + origin + "/ui/next/app.js?v=auth-h3'"
+      "src='" + origin + "/ui/next/app.js?v=auth-h4'"
     );
     // Kill SW registration block if still present after boot override.
     html = html.replace(
@@ -2196,7 +2196,15 @@ async function authGetMyAccess_(params, actor, env, ctx) {
   const r = await authLookupRole_(tid, env);
   let role = r.role && r.role !== "none" ? r.role : authNormRole_((res && res.role) || "none");
   if (!res || res.status !== "success") {
-    if (role === "none") {
+    // sheets_finish_only / preview stub miss — не транспортная ошибка (UI иначе «Нет связи»).
+    var softMiss =
+      res &&
+      (res.status === "skipped" ||
+        res.sheetsFinishOnly ||
+        res.previewStub ||
+        res.message === "sheets_finish_only" ||
+        res.message === "preview_gas_stub");
+    if (role === "none" && !softMiss) {
       return res && typeof res === "object" ? res : { status: "error", message: "gas_proxy_failed", action: "getMyAccess" };
     }
     res = { status: "success", telegramId: tid };
@@ -25730,14 +25738,8 @@ function gasOriginResolved_(env) {
 
 async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
-  // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
-  if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
-    return sheetsFinishOnlySkip_(action);
-  }
-  if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
-    return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
-  }
   // Изолированный preview: никогда не ходим в прод GAS/Sheets.
+  // Важно ДО sheets_finish_only: иначе getMyAccess → status:skipped → UI «Нет связи».
   if (env && String(env.PREVIEW_ISOLATED || "") === "1") {
     try {
       await noteSheetCall_(env, "previewStub:" + String(action || ""));
@@ -25750,6 +25752,13 @@ async function gasProxy_(action, params, env, opts) {
       });
     } catch (eSnap) {}
     return previewGasStub_(action, params, env);
+  }
+  // Sheets только finishFullWeek*: никаких чтений/зеркал вне «Завершить неделю».
+  if (isSheetsFinishOnly_(env) && !sheetsGasAllowed_(action)) {
+    return sheetsFinishOnlySkip_(action);
+  }
+  if (sheetsEdgeOff_(env) && /^(partner|gb[A-Z]|submitGoodboyTry$)/i.test(String(action || ""))) {
+    return { status: "skipped", sheetsReadonly: true, message: "sheets_readonly", action: String(action || "") };
   }
   try {
     await noteSheetCall_(env, action);

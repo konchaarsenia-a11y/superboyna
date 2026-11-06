@@ -58,9 +58,22 @@ test("worker wires finish-only gate in gasProxy_", () => {
   assert.match(worker, /sheetsModeLabel_/);
   const idx = worker.indexOf("async function gasProxy_");
   assert.ok(idx > 0, "gasProxy_ missing");
-  const head = worker.slice(idx, idx + 900);
+  const head = worker.slice(idx, idx + 1200);
   assert.match(head, /isSheetsFinishOnly_\(env\)/);
   assert.match(head, /sheetsGasAllowed_\(action\)/);
   assert.match(head, /sheetsFinishOnlySkip_\(action\)/);
   assert.match(worker, /sheetsMode:\s*sheetsModeLabel_\(env\)/);
+  // Preview stub must run before sheets_finish_only skip — иначе getMyAccess → «Нет связи».
+  const previewIdx = head.indexOf('PREVIEW_ISOLATED');
+  const skipIdx = head.indexOf("sheetsFinishOnlySkip_");
+  assert.ok(previewIdx > 0 && skipIdx > previewIdx, "PREVIEW_ISOLATED stub before finish-only skip");
+});
+
+test("authGetMyAccess soft-miss skipped (not transport fail)", () => {
+  const idx = worker.indexOf("async function authGetMyAccess_");
+  assert.ok(idx > 0);
+  const block = worker.slice(idx, idx + 2200);
+  assert.match(block, /softMiss/);
+  assert.match(block, /sheets_finish_only/);
+  assert.match(block, /previewStub|preview_gas_stub/);
 });
