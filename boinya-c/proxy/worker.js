@@ -54,8 +54,13 @@ import {
   sheetsModeLabel_
 } from "./sheets-finish-only.js";
 import {
+  buildWeekCloseSheetsParams_,
+  summarizeWeekCloseSheets_
+} from "./week-close-sheets.js";
+import {
   orderMoveIsInPlace_,
   orderNickRenameIsInPlace_,
+  planClientNickRenameKeep_,
   planOrderMoveInPlace_,
   planOrderNickRenameKeep_
 } from "./order-row-canon.js";
@@ -2294,6 +2299,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       // Sheets только при «Завершить неделю»; чтение/зеркало вне finish выключено.
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
+      weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
       deployMarker: "sheets-finish-only-h1"
     };
   }
@@ -3355,12 +3361,22 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
     },
     params
   );
+  // #19 rename: при смене client нельзя залипать на старом match_key
+  // (existing.match_key || incoming) прятал newMatchKey из planOrderNickRenameKeep_.
+  const clientRenamed =
+    !!(incoming.client &&
+      existing.client &&
+      String(incoming.client).trim().toLowerCase() !==
+        String(existing.client).trim().toLowerCase());
   return Object.assign({}, existing, incoming, {
     id: existing.id || incoming.id,
     day_name: incoming.day_name || existing.day_name || "",
     date_iso: incoming.date_iso || existing.date_iso || "",
     status: pickLiveOrderStatus_(existing.status, incoming.status),
-    match_key: existing.match_key || incoming.match_key,
+    match_key:
+      clientRenamed && incoming.match_key
+        ? incoming.match_key
+        : existing.match_key || incoming.match_key,
     client: incoming.client || existing.client,
     address: merged.address,
     phone: merged.phone,
@@ -19773,8 +19789,68 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   if (a === "finishFullWeek" && isWeekCloseD1Native_(env)) {
-    return closeWeekInD1_(params, env);
+    // #718: close in D1 first, then one allowed Sheets write (fromD1Close) — no Sheet reads / other GAS.
+    const closed = await closeWeekInD1_(params, env);
+    if (!(closed && closed.status === "success" && closed.message === "week_closed")) {
+      return closed;
+    }
+    let sheetsRes = null;
+    try {
+      sheetsRes = await gasProxy_(
+        "finishFullWeek",
+        buildWeekCloseSheetsParams_(closed, params || {}),
+        env,
+        { write: true }
+      );
+    } catch (eSh) {
+      sheetsRes = {
+        status: "error",
+        message: String((eSh && eSh.message) || eSh),
+        previewStub: false
+      };
+    }
+    const sum = summarizeWeekCloseSheets_(sheetsRes);
+    closed.weekCloseCanon = "d1-sheets";
+    closed.fromD1 = true;
+    closed.sheets = !sum.stub;
+    closed.sheetsWritten = !!sum.sheetsWritten;
+    closed.sheetsStatus = sum.status;
+    closed.sheetsMessage = sum.message;
+    closed.sheetsOk = !!sum.ok;
+    closed.previewStub = !!sum.stub;
+    if (sheetsRes && typeof sheetsRes === "object") {
+      closed.sheetsResult = {
+        status: sheetsRes.status,
+        message: sheetsRes.message,
+        previewStub: !!sheetsRes.previewStub,
+        external: sheetsRes.external,
+        fromD1Close: !!sheetsRes.fromD1Close,
+        sheetsWritten: !!sheetsRes.sheetsWritten
+      };
+    }
+    if (!sum.ok) {
+      closed.sheetsError = sum.message || "sheets_write_failed";
+    }
+    try {
+      await putSnap_(env, "weekBanner", {
+        status: "success",
+        finished: true,
+        pulled: true,
+        refused: false,
+        weekKey: closed.prevMondayIso || "",
+        action: "finishFullWeek",
+        syncedAt: new Date().toISOString(),
+        cutover: true,
+        fromD1: true,
+        sheets: !sum.stub,
+        sheetsOk: !!sum.ok,
+        weekCloseCanon: "d1-sheets"
+      });
+    } catch (eBan2) {}
+    return closed;
   }
+
+
 
   if (a === "finishFullWeek") {
     try {
@@ -37434,19 +37510,76 @@ async function stageBAssignClient_(env, row, params) {
   var edit = params ? String(params.editClient || params.originalClient || "").trim() : "";
   var editMk = edit ? normalizeMatchKey_(edit) : "";
   var id = "";
-  if (editMk && editMk !== mk) {
-    var old = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
-    var neu = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
-    if (old && old.id && !(neu && neu.id)) {
-      await env.DB.prepare("UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?")
-        .bind(mk, String(row.client || ""), now, old.id)
-        .run();
-      id = String(old.id);
-    } else if (neu && neu.id) id = String(neu.id);
-    else if (old && old.id) id = String(old.id);
+  // #19: rename → тот же clients.id. normalizeMatchKey_ снимает «_», а в D1
+  // часто лежит ZZZ_PREVIEW — ищем aliases + order.client_id, не INSERT c_* дубля.
+  if (edit && editMk && editMk !== mk) {
+    var listed = [];
+    try {
+      var cq = await env.DB.prepare(
+        "SELECT id, match_key, nick FROM clients LIMIT 400"
+      ).all();
+      listed = (cq && cq.results) || [];
+    } catch (eListCl) {
+      listed = [];
+    }
+    var renamePlan = planClientNickRenameKeep_(listed, {
+      editClient: edit,
+      editMatchKey: editMk,
+      editAliases: matchKeyAliases_(edit),
+      client: String(row.client || ""),
+      newMatchKey: mk,
+      orderClientId: row.client_id || (params && params.clientId) || ""
+    });
+    if (renamePlan && renamePlan.keepId) {
+      id = String(renamePlan.keepId);
+      try {
+        await env.DB.prepare(
+          "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+        )
+          .bind(mk, String(row.client || ""), now, id)
+          .run();
+      } catch (eUpMk) {
+        // UNIQUE на новом match_key: снести чужой дубль и повторить
+        try {
+          await env.DB.prepare(
+            "DELETE FROM clients WHERE match_key = ? AND id != ?"
+          )
+            .bind(mk, id)
+            .run();
+          await env.DB.prepare(
+            "UPDATE clients SET match_key = ?, nick = ?, updated_at = ? WHERE id = ?"
+          )
+            .bind(mk, String(row.client || ""), now, id)
+            .run();
+        } catch (eUpMk2) {}
+      }
+      var dropIds = renamePlan.dropIds || [];
+      for (var di = 0; di < dropIds.length; di++) {
+        if (!dropIds[di] || dropIds[di] === id) continue;
+        try {
+          await env.DB.prepare("UPDATE orders SET client_id = ? WHERE client_id = ?")
+            .bind(id, dropIds[di])
+            .run();
+        } catch (eRebind) {}
+        try {
+          await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(dropIds[di]).run();
+        } catch (eDrop) {}
+      }
+    }
   }
   if (!id) {
     var have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(mk).first();
+    if (!(have && have.id) && editMk) {
+      have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?").bind(editMk).first();
+    }
+    if (!(have && have.id) && edit) {
+      var aliases = matchKeyAliases_(edit);
+      for (var ai = 0; ai < aliases.length && !(have && have.id); ai++) {
+        have = await env.DB.prepare("SELECT id FROM clients WHERE match_key = ?")
+          .bind(aliases[ai])
+          .first();
+      }
+    }
     id = have && have.id ? String(have.id) : stageBClientId_(mk);
   }
   await env.DB.prepare(
@@ -37461,8 +37594,11 @@ async function stageBAssignClient_(env, row, params) {
     .bind(id, mk, String(row.client || ""), String(row.client || ""), String(row.phone || ""), String(row.address || ""), String(row.note || ""), now)
     .run();
   if (row.id) {
-    await env.DB.prepare("UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '')")
-      .bind(id, row.id)
+    // rename: всегда привязать заказ к keepId (не только пустой client_id)
+    await env.DB.prepare(
+      "UPDATE orders SET client_id = ? WHERE id = ? AND (client_id IS NULL OR client_id = '' OR client_id != ?)"
+    )
+      .bind(id, row.id, id)
       .run();
   }
   return id;
@@ -40992,6 +41128,7 @@ async function closeUpdateLanded_(env, update, before) {
 }
 
 async function closeWeekInD1_(params, env) {
+  // sheets/weekCloseCanon filled by caller after optional Sheets write (#718 d1-sheets).
   const canon = { sheets: false, fromD1: true, weekCloseCanon: "d1-only", cutover: true, action: "finishFullWeek" };
   if (!env || !env.DB) return Object.assign({ status: "error", message: "no_d1" }, canon);
   let ownerOk = false;

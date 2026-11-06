@@ -1293,8 +1293,13 @@
     } catch (e2) {}
     var addedN = Number(res.materializeAdded != null ? res.materializeAdded : (res.materialize && res.materialize.totalAdded)) || 0;
     sh().toast("Неделя закрыта. Пн: " + (res.mondayDate || "ок") + (addedN ? (" · из месяца +" + addedN) : ""));
-    var d1Only = !!(res.weekCloseCanon === "d1-only" || (res.fromD1 && res.sheets === false));
-    if (!d1Only) {
+    // D1 already closed (+ optional Sheets write). Do not force GAS resync.
+    var d1Native = !!(
+      res.fromD1 ||
+      res.weekCloseCanon === "d1-only" ||
+      res.weekCloseCanon === "d1-sheets"
+    );
+    if (!d1Native) {
       try {
         await api().apiGet({ action: "setWeekBannerState", weekKey: wk, finished: "1", pulled: "1", telegramId: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
       } catch (e3) {}

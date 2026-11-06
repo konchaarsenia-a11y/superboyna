@@ -150,3 +150,74 @@ export function orderNickRenameIsInPlace_(plan) {
 export function orderMoveIsInPlace_(plan) {
   return !!(plan && plan.ok && plan.sameRow && plan.sourceId && plan.targetId);
 }
+
+/**
+ * #19 clients: смена ника — тот же clients.id, UPDATE match_key/nick.
+ * Ищем старую строку по order.client_id, aliases(edit) и nick;
+ * не создаём c_* дубль на новый match_key.
+ * @returns {{rename:boolean, keepId:string, newMatchKey:string, fromKeys:string[], dropIds:string[]}}
+ */
+export function planClientNickRenameKeep_(clients, opts) {
+  opts = opts || {};
+  const editClient = String(opts.editClient || "").trim();
+  const client = String(opts.client || "").trim();
+  const newMatchKey = normalizeMatchKeyCanon_(opts.newMatchKey || client);
+  const orderClientId = String(opts.orderClientId || opts.clientId || "").trim();
+  const fromKeys = [];
+  function addKey_(k) {
+    k = String(k || "").trim();
+    if (!k) return;
+    if (fromKeys.indexOf(k) < 0) fromKeys.push(k);
+    const stripped = k.replace(/[._@]/g, "");
+    if (stripped && fromKeys.indexOf(stripped) < 0) fromKeys.push(stripped);
+  }
+  addKey_(opts.editMatchKey);
+  addKey_(normalizeMatchKeyCanon_(editClient));
+  (opts.editAliases || []).forEach(addKey_);
+  if (!editClient || !client || editClient.toLowerCase() === client.toLowerCase()) {
+    return {
+      rename: false,
+      keepId: orderClientId || "",
+      newMatchKey: newMatchKey,
+      fromKeys: fromKeys,
+      dropIds: []
+    };
+  }
+  const rows = clients || [];
+  let keepId = "";
+  if (orderClientId) {
+    const byId = rows.find(function (r) {
+      return r && String(r.id) === orderClientId;
+    });
+    if (byId) keepId = String(byId.id);
+  }
+  const editLow = editClient.toLowerCase();
+  if (!keepId) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.id) continue;
+      const mk = String(r.match_key || r.matchKey || "").trim();
+      const nick = String(r.nick || r.client || "").trim().toLowerCase();
+      if (fromKeys.indexOf(mk) >= 0 || nick === editLow) {
+        keepId = String(r.id);
+        break;
+      }
+    }
+  }
+  const dropIds = [];
+  rows.forEach(function (r) {
+    if (!r || !r.id) return;
+    const id = String(r.id);
+    if (keepId && id === keepId) return;
+    const mk = String(r.match_key || r.matchKey || "").trim();
+    const nick = String(r.nick || r.client || "").trim().toLowerCase();
+    if (mk === newMatchKey || nick === client.toLowerCase()) dropIds.push(id);
+  });
+  return {
+    rename: true,
+    keepId: keepId,
+    newMatchKey: newMatchKey,
+    fromKeys: fromKeys,
+    dropIds: dropIds
+  };
+}
