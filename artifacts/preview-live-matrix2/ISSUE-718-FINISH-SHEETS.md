@@ -1,27 +1,27 @@
-# #718 vs exact finishFullWeek (preview)
+# #718 exact finishFullWeek (preview) — D1 then Sheets write-only
 
-## Факт
+## Канон (production-candidate, без preview-only green)
 
-При `WEEK_CLOSE_CANON=d1-sync` → `isWeekCloseD1Native_` → exact `finishFullWeek` идёт в `closeWeekInD1_`.
+При `WEEK_CLOSE_CANON=d1-sync` / `isWeekCloseD1Native_`:
 
-**Production-эквивалент этого канона: GAS/Sheets при finish не вызываются.**  
-Это **не green** для формулировки #718 «Sheets пишутся (только) при Завершить неделю» — путь записи в Sheets на finish мёртв, gate `sheets_finish_only` разрешает finish*, но d1-native его не вызывает.
+1. `closeWeekInD1_` — закрытие в D1
+2. один разрешённый `gasProxy_('finishFullWeek', { fromD1Close:1, d1Report… })` — write-only в Sheets
+3. ответ: `weekCloseCanon=d1-sheets`, `fromD1=true`
 
-`finishFullWeekProbe` → `previewStub` ≠ exact finish.
+На preview (`PREVIEW_ISOLATED=1`) шаг 2 = stub (`previewStub=true`, `sheetsWritten=false`, **без** prod GAS).  
+Это проверяет wiring; live Sheets — после merge `Code.gs` `handleFinishFullWeekFromD1_` + clasp на main (сейчас production deploy запрещён).
 
-## Preview-only доводка (без ослабления production gate)
+## Не green раньше
 
-На `PREVIEW_ISOLATED=1` exact `finishFullWeek` теперь:
-
-1. `gasProxy_('finishFullWeek')` → stub (`previewSheetsGate.previewStub=true`, `sheetsWritten=false`)
-2. затем реальный `closeWeekInD1_`
-
-`issue718`: `preview_stub_ok_but_d1_native_still_no_real_sheets` — stub gate exercised, real Sheets всё равно не пишутся.
+`finishFullWeek` → только `closeWeekInD1_` (`sheets:false`, `weekCloseCanon=d1-only`) ≠ Sheets-write proof.  
+`finishFullWeekProbe` → stub ≠ exact finish.
 
 ## E2E статус
 
 | Шаг | Статус |
 |---|---|
-| Reseed artificial week Mon `2026-11-02`, `week_finished` cleared | DONE |
-| Deploy preview Worker with gate + inherit `TELEGRAM_BOT_TOKEN` | DONE |
-| Exact finish under owner Login (test bot HMAC) | **WAITING** — агент не извлекает live token; ephemeral HMAC → `bad_hash` |
+| Code: D1→fromD1Close Sheets path + unit tests | DONE (ветка) |
+| Staging `/ui` separate origin + auth ns | DONE |
+| Inherit `TELEGRAM_BOT_TOKEN` / DB preview | KEEP |
+| Exact finish under owner Login (test bot) | **WAITING** login на staging URL |
+| Production Worker / Pages / bot domain | **не трогаем** |

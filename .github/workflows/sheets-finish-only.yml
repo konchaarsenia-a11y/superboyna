@@ -6,6 +6,8 @@ on:
       - "boinya-c/proxy/worker.js"
       - "boinya-c/proxy/sheets-finish-only.js"
       - "boinya-c/proxy/sheets-finish-only.test.mjs"
+      - "boinya-c/proxy/week-close-sheets.js"
+      - "boinya-c/proxy/week-close-sheets.test.mjs"
       - ".github/workflows/sheets-finish-only.yml"
   push:
     branches: [main]
@@ -13,6 +15,8 @@ on:
       - "boinya-c/proxy/worker.js"
       - "boinya-c/proxy/sheets-finish-only.js"
       - "boinya-c/proxy/sheets-finish-only.test.mjs"
+      - "boinya-c/proxy/week-close-sheets.js"
+      - "boinya-c/proxy/week-close-sheets.test.mjs"
       - ".github/workflows/sheets-finish-only.yml"
 
 jobs:
@@ -24,4 +28,4 @@ jobs:
         with:
           node-version: "22"
       - name: Sheets only on finishFullWeek
-        run: node --test boinya-c/proxy/sheets-finish-only.test.mjs
+        run: node --test boinya-c/proxy/sheets-finish-only.test.mjs boinya-c/proxy/week-close-sheets.test.mjs

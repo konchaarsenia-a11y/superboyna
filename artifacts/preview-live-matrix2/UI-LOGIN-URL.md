@@ -1,38 +1,40 @@
 # Preview UI Login (test bot only)
 
-**Не утверждаю, что Login уже пройден** — нужен ваш реальный клик по виджету.
+**Не production Pages.** Отдельный origin → отдельный storage; prod-сессию не трогаем и не просим выходить.
 
 ## Подтверждённый staging URL
 
 ```
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&proxy=https%3A%2F%2Fboinya-c-preview-eabc.konchaarsenia.workers.dev
+https://boinya-c-preview-eabc.konchaarsenia.workers.dev/ui
 ```
 
-Открывать **целиком**, с `proxy=`. Без `proxy=` live Pages `config.js` молча ставит production Worker `boinya-c.konchaarsenia.workers.dev` (бот 8968047386 / prod DB) — так нельзя для этой проверки.
+Открывать **только** этот URL.  
+Не использовать `github.io/.../next.html?proxy=…` — тот origin общий с production и поднимает старую «C LIVE» сессию без виджета `@BoinyaTest_bot`.
 
-## Что должно быть на экране
+## Что должно быть на экране сразу
 
 | Параметр | Ожидание |
 |---|---|
-| API / webhook | `https://boinya-c-preview-eabc.konchaarsenia.workers.dev` |
-| Login Widget `data-telegram-login` | `BoinyaTest_bot` (id **9204491282**, не prod 8968047386) |
-| Источник username | `startDesktopAuth` → preview Worker (`TELEGRAM_BOT_USERNAME` / getMe) |
-| Подпись | штатный Login Widget hash → `verifyTgInitData_` preview `TELEGRAM_BOT_TOKEN` |
-| D1 | только `0ddccc42-3444-4adb-9c15-68925880b146` |
-| Auth | `authMode=enforce`, `AUTH_ENFORCE=1` |
+| Красная полоса | `PREVIEW-EABC · API https://boinya-c-preview-eabc.konchaarsenia.workers.dev` |
+| Синяя полоса | `@BoinyaTest_bot` + `/setdomain` host |
+| Badge | `C · PREVIEW-EABC` (не «C LIVE») |
+| API target | тот же workers.dev origin (`X-Boinya-Preview-Api`) |
+| Widget | `data-telegram-login=BoinyaTest_bot` |
+| Auth storage | `nx_tg_*:preview-eabc` на origin workers.dev |
+| D1 | `0ddccc42-3444-4adb-9c15-68925880b146` |
+| Auth | `authMode=enforce`, без bypass |
 
-## UI config (как это работает)
+## Шаги входа (без выхода из production)
 
-- Live Pages ещё **без** sticky-proxy / storage-isolation из этой ветки (они в git на `cursor/preview-sheets-rename-eabc`).
-- Поэтому **обязателен** query `proxy=…preview-eabc…` на каждый заход.
-- Рекомендуется чистое окно (или очистить `nx_tg_login_v1` / `nx_desk_sess_v1` / `nx_access_v1`), чтобы не подтянуть prod-сессию.
-- BotFather `/setdomain` на **тестовом** боте: `konchaarsenia-a11y.github.io` (loginDomain с preview уже такой).
+1. Открыть staging URL выше (лучше обычное окно; production можно оставить как есть).
+2. **Вариант A — Login Widget:** в BotFather у **только** `@BoinyaTest_bot` выполнить  
+   `/setdomain` → `boinya-c-preview-eabc.konchaarsenia.workers.dev`  
+   (без `https://`, без `/ui`; **prod bot domain не менять**). Затем нажать виджет на странице.
+3. **Вариант B — без setdomain:** кнопка «Открыть Telegram и подтвердить» → Start у `@BoinyaTest_bot` (`gbi_…`) → вернуться на вкладку (pollDesktopAuth).
+4. После входа — вкладка «Неделя» → exact «Завершить неделю» на artificial week (stub Sheets на preview).
 
-## API check (агент, без секрета)
+## API check (агент)
 
-- `ping`: `authMode=enforce`, `hasTelegramToken=true`, preview D1
-- `startDesktopAuth`: `botUsername=BoinyaTest_bot`, `desktopAuth=tg-login-widget`, `loginDomain=konchaarsenia-a11y.github.io`
-
-## После вашего Login
-
-Напишите «вошёл» — добьём exact `finishFullWeek` E2E на уже посеянной artificial неделе `2026-11-02` (агент **не** подписывает initData live test-bot токеном).
+- `GET /ui` → `X-Boinya-Preview-Ui: preview-eabc`, `X-Boinya-Login-Domain: boinya-c-preview-eabc.konchaarsenia.workers.dev`
+- `startDesktopAuth` → `botUsername=BoinyaTest_bot`, `loginDomain=boinya-c-preview-eabc.konchaarsenia.workers.dev`
+- `ping` → `authMode=enforce`, `hasTelegramToken=true`, `weekCloseSheets=d1-then-finishFullWeek-fromD1Close`

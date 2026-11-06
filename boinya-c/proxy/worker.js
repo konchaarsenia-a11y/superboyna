@@ -54,6 +54,10 @@ import {
   sheetsModeLabel_
 } from "./sheets-finish-only.js";
 import {
+  buildWeekCloseSheetsParams_,
+  summarizeWeekCloseSheets_
+} from "./week-close-sheets.js";
+import {
   orderMoveIsInPlace_,
   orderNickRenameIsInPlace_,
   planClientNickRenameKeep_,
@@ -132,6 +136,11 @@ function corsHeadersForRequest_(request) {
 
 function goodboyLoginDomainFromRequest_(request) {
   try {
+    // Preview UI host (Login Widget /setdomain) — not github.io production Pages.
+    if (request && request.url) {
+      const host = new URL(request.url).hostname;
+      if (/^boinya-c-preview-eabc\.konchaarsenia\.workers\.dev$/i.test(host)) return host;
+    }
     const origin = String((request && request.headers && request.headers.get("Origin")) || "").trim();
     if (!origin) return "konchaarsenia-a11y.github.io";
     if (GOODBOY_CORS_ORIGINS.indexOf(origin) < 0) return "konchaarsenia-a11y.github.io";
@@ -1280,6 +1289,133 @@ async function serveKlientCabinet_() {
   }
 }
 
+const PREVIEW_UI_PAGES_BASE_ = "https://konchaarsenia-a11y.github.io/superboyna/boinya-c";
+const PREVIEW_UI_LOGIN_HOST_ = "boinya-c-preview-eabc.konchaarsenia.workers.dev";
+
+function servePreviewUiConfig_() {
+  const body =
+    '(function(){"use strict";var PROXY=String(location.origin||"");' +
+    'window.__BOINYA_PREVIEW_UI__="preview-eabc";' +
+    'window.__BOINYA_AUTH_NS__="preview-eabc";' +
+    "window.__BOINYA_C_PROXY__=PROXY;window.__BOINYA_FAST_PROXY__=PROXY;" +
+    "window.__BOINYA_C_CUTOVER__=true;window.__BOINYA_C_ALLOW_WRITE__=true;" +
+    'window.__boinyaCBadgeLabel="C · PREVIEW-EABC";' +
+    'window.__boinyaCBadgeTitle="Preview Worker + preview D1 + @BoinyaTest_bot (не production)";' +
+    'window.__BOINYA_C__={edition:"C",sandbox:false,cutover:true,via:"worker",proxy:PROXY,preview:"preview-eabc",api:PROXY,bot:"BoinyaTest_bot"};' +
+    'try{document.title="Бойня PREVIEW-EABC";}catch(eT){}})();';
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-store, max-age=0"
+    }
+  });
+}
+
+/** Boot: force preview API + auth storage namespace (separate from prod Pages nx_tg_*). */
+function previewUiBootScript_(origin) {
+  return (
+    "<script>(function(){var O=" +
+    JSON.stringify(origin) +
+    ',H=' +
+    JSON.stringify(PREVIEW_UI_LOGIN_HOST_) +
+    ";" +
+    'window.__BOINYA_PREVIEW_UI__="preview-eabc";' +
+    'window.__BOINYA_AUTH_NS__="preview-eabc";' +
+    "window.__BOINYA_C_PROXY__=O;window.__BOINYA_FAST_PROXY__=O;" +
+    "window.__BOINYA_C_CUTOVER__=true;window.__BOINYA_C_ALLOW_WRITE__=true;" +
+    'window.__boinyaCBadgeLabel="C · PREVIEW-EABC";' +
+    'window.__boinyaCBadgeTitle="Preview Worker + preview D1 + @BoinyaTest_bot";' +
+    // Auth key namespace: wrap Storage so prod Pages keys are never read/written here.
+    "(function(){var SUF=':preview-eabc';var re=/^(nx_tg_|nx_desk_|nx_access_)/;" +
+    "function wrap(store){if(!store||store.__boinyaPvWrap)return;store.__boinyaPvWrap=1;" +
+    "var gi=store.getItem.bind(store),si=store.setItem.bind(store),ri=store.removeItem.bind(store);" +
+    "function k(x){x=String(x||'');return(re.test(x)&&x.indexOf(SUF)<0)?x+SUF:x;}" +
+    "store.getItem=function(x){return gi(k(x));};" +
+    "store.setItem=function(x,v){return si(k(x),v);};" +
+    "store.removeItem=function(x){return ri(k(x));};}" +
+    "try{wrap(window.sessionStorage);}catch(e1){}" +
+    "try{wrap(window.localStorage);}catch(e2){}" +
+    // Never register Pages SW on this origin (base href points at github.io assets).
+    "try{if(navigator.serviceWorker&&navigator.serviceWorker.register){" +
+    "navigator.serviceWorker.register=function(){return Promise.reject(new Error('preview-ui-no-sw'));};}}catch(e3){}" +
+    "})();" +
+    'try{document.title="Бойня PREVIEW-EABC · "+H;}catch(eT){}})();</script>'
+  );
+}
+
+function previewUiMarkerBar_(origin) {
+  return (
+    '<style id="previewEabcCss">#previewEabcBar,#previewEabcLogin{position:sticky;z-index:99999;color:#fff;' +
+    "font:600 13px/1.4 system-ui,sans-serif;text-align:center}" +
+    "#previewEabcBar{top:0;background:#6b1414;padding:10px 12px}" +
+    "#previewEabcLogin{top:0;background:#1a3a5c;padding:8px 12px;font-weight:500}" +
+    "#previewEabcBar code,#previewEabcLogin code{color:#ffe08a;font-weight:700}</style>" +
+    '<div id="previewEabcBar">PREVIEW-EABC · API <code>' +
+    origin +
+    "</code> · widget <code>@BoinyaTest_bot</code> · D1 preview · origin ≠ production Pages</div>" +
+    '<div id="previewEabcLogin">Вход: Login Widget или «Открыть Telegram». BotFather на <b>@BoinyaTest_bot</b> only: ' +
+    "<code>/setdomain</code> → <code>" +
+    PREVIEW_UI_LOGIN_HOST_ +
+    "</code> (prod bot domain не трогать)</div>"
+  );
+}
+
+async function servePreviewUi_(request, env) {
+  const origin = new URL(request.url).origin;
+  try {
+    const upstream = await fetch(PREVIEW_UI_PAGES_BASE_ + "/next.html?v=preview-eabc-ui2", {
+      cf: { cacheTtl: 30, cacheEverything: true }
+    });
+    if (!upstream.ok) {
+      return new Response("preview ui upstream unavailable", {
+        status: 502,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+      });
+    }
+    let html = await upstream.text();
+    const boot = previewUiBootScript_(origin);
+    const bar = previewUiMarkerBar_(origin);
+    if (!/<base\s/i.test(html)) {
+      html = html.replace(
+        /<head([^>]*)>/i,
+        '<head$1><base href="' + PREVIEW_UI_PAGES_BASE_ + '/">' + boot + bar
+      );
+    } else {
+      html = html.replace(/<head([^>]*)>/i, "<head$1>" + boot + bar);
+    }
+    html = html.replace(
+      /src="(?:\.\/)?client\/config\.js[^"]*"/g,
+      'src="' + origin + '/ui/config.js"'
+    );
+    html = html.replace(
+      /src='(?:\.\/)?client\/config\.js[^']*'/g,
+      "src='" + origin + "/ui/config.js'"
+    );
+    // Kill SW registration block if still present after boot override.
+    html = html.replace(
+      /navigator\.serviceWorker\.register\s*\([\s\S]*?\)\s*\.then\([\s\S]*?\)\s*\.catch\([\s\S]*?\)\s*;/g,
+      "/* preview-ui: sw disabled */;"
+    );
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0",
+        "X-Boinya-Preview-Ui": "preview-eabc",
+        "X-Boinya-Preview-Api": origin,
+        "X-Boinya-Preview-Bot": "BoinyaTest_bot",
+        "X-Boinya-Login-Domain": PREVIEW_UI_LOGIN_HOST_
+      }
+    });
+  } catch (eUi) {
+    return new Response("preview ui error", {
+      status: 502,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+    });
+  }
+}
+
 async function handleKlientTelegramWebhook_(request, env) {
   const secret = String((env && env.CLIENT_WEBHOOK_SECRET) || "").trim();
   const got = String(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "").trim();
@@ -1399,10 +1535,21 @@ export default {
     ) {
       return serveVarkaApp_();
     }
+    // Isolated preview UI (separate origin → separate storage; not production Pages).
+    if (request.method === "GET" && String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+      if (url.pathname === "/ui/config.js") return servePreviewUiConfig_();
+      if (url.pathname === "/ui" || url.pathname === "/ui/" || url.pathname === "/ui/index.html") {
+        return servePreviewUi_(request, env);
+      }
+    }
 
     const action = String(url.searchParams.get("action") || "").trim();
 
     if (request.method === "GET" && (!action || action === "health")) {
+      const previewUi =
+        String((env && env.PREVIEW_ISOLATED) || "") === "1"
+          ? (url.origin || "https://boinya-c-preview-eabc.konchaarsenia.workers.dev") + "/ui"
+          : "";
       return json({
         status: "ok",
         service: "boinya-c",
@@ -1411,7 +1558,8 @@ export default {
         d1: !!(env && env.DB),
         tip: "?action=getClients&day=Понедельник",
         varka: "/varka/ (Pages HTML + assets, not jsDelivr)",
-        klient: "/k"
+        klient: "/k",
+        previewUi: previewUi || undefined
       });
     }
 
@@ -2295,9 +2443,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       // Sheets только при «Завершить неделю»; чтение/зеркало вне finish выключено.
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
-      deployMarker: "sheets-finish-only-h1",
-      // finishFullWeek + sheets:false = D1 closeWeekInD1_ only; NOT sheets-write gate proof.
-      d1CloseIsNotSheetsProof: true
+      deployMarker: "sheets-finish-only-h2",
+      weekCloseSheets: "d1-then-finishFullWeek-fromD1Close"
     };
   }
 
@@ -19842,43 +19989,64 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   if (a === "finishFullWeek" && isWeekCloseD1Native_(env)) {
-    // Production/d1-native: Sheets/GAS не вызываются — несоответствие #718 «Sheets при finish».
-    // Preview-only: сначала разрешённый gasProxy_(finishFullWeek) → PREVIEW_ISOLATED stub,
-    // затем реальный closeWeekInD1_. Production gate (sheets_finish_only) не ослабляем.
-    let sheetsGate = null;
-    if (String((env && env.PREVIEW_ISOLATED) || "") === "1") {
-      try {
-        sheetsGate = await gasProxy_("finishFullWeek", params || {}, env, { write: true });
-      } catch (eGate) {
-        sheetsGate = {
-          status: "error",
-          message: String((eGate && eGate.message) || eGate),
-          previewStub: false
-        };
-      }
-    }
+    // #718: close in D1 first, then one allowed Sheets write (fromD1Close) — no Sheet reads / other GAS.
     const closed = await closeWeekInD1_(params, env);
-    if (closed && typeof closed === "object") {
-      if (sheetsGate) {
-        closed.previewSheetsGate = {
-          hit: true,
-          action: "finishFullWeek",
-          status: sheetsGate.status,
-          message: sheetsGate.message,
-          previewStub: !!sheetsGate.previewStub,
-          external: sheetsGate.external,
-          stubOnly: !!sheetsGate.stubOnly
-        };
-        closed.sheetsWritten = false;
-        closed.issue718 =
-          sheetsGate.previewStub === true
-            ? "preview_stub_ok_but_d1_native_still_no_real_sheets"
-            : "preview_sheets_gate_unexpected";
-      } else {
-        closed.issue718 = "d1_native_bypasses_gas_sheets_not_written_on_finish";
-        closed.sheetsWritten = false;
-      }
+    if (!(closed && closed.status === "success" && closed.message === "week_closed")) {
+      return closed;
     }
+    let sheetsRes = null;
+    try {
+      sheetsRes = await gasProxy_(
+        "finishFullWeek",
+        buildWeekCloseSheetsParams_(closed, params || {}),
+        env,
+        { write: true }
+      );
+    } catch (eSh) {
+      sheetsRes = {
+        status: "error",
+        message: String((eSh && eSh.message) || eSh),
+        previewStub: false
+      };
+    }
+    const sum = summarizeWeekCloseSheets_(sheetsRes);
+    closed.weekCloseCanon = "d1-sheets";
+    closed.fromD1 = true;
+    closed.sheets = !sum.stub;
+    closed.sheetsWritten = !!sum.sheetsWritten;
+    closed.sheetsStatus = sum.status;
+    closed.sheetsMessage = sum.message;
+    closed.sheetsOk = !!sum.ok;
+    closed.previewStub = !!sum.stub;
+    if (sheetsRes && typeof sheetsRes === "object") {
+      closed.sheetsResult = {
+        status: sheetsRes.status,
+        message: sheetsRes.message,
+        previewStub: !!sheetsRes.previewStub,
+        external: sheetsRes.external,
+        fromD1Close: !!sheetsRes.fromD1Close,
+        sheetsWritten: !!sheetsRes.sheetsWritten
+      };
+    }
+    if (!sum.ok) {
+      closed.sheetsError = sum.message || "sheets_write_failed";
+    }
+    try {
+      await putSnap_(env, "weekBanner", {
+        status: "success",
+        finished: true,
+        pulled: true,
+        refused: false,
+        weekKey: closed.prevMondayIso || "",
+        action: "finishFullWeek",
+        syncedAt: new Date().toISOString(),
+        cutover: true,
+        fromD1: true,
+        sheets: !sum.stub,
+        sheetsOk: !!sum.ok,
+        weekCloseCanon: "d1-sheets"
+      });
+    } catch (eBan2) {}
     return closed;
   }
 
@@ -25435,10 +25603,15 @@ function previewGasStub_(action, params, env) {
     previewMarker: String((env && env.PREVIEW_MARKER) || "preview-isolated")
   };
   if (/^finishFullWeek/i.test(a)) {
+    const fromD1 = !!(params && (params.fromD1Close === "1" || params.fromD1Close === true));
     return Object.assign({}, mark, {
       finished: false,
       stubOnly: true,
-      tip: "D1-native closeWeekInD1_ handles week; stub proves no prod Sheets hit"
+      fromD1Close: fromD1,
+      sheetsWritten: false,
+      tip: fromD1
+        ? "preview stub accepted D1→Sheets finish write payload (no real Sheets)"
+        : "preview_gas_stub finish*"
     });
   }
   if (/^getMyAccess$/i.test(a)) {
@@ -41222,6 +41395,7 @@ async function closeUpdateLanded_(env, update, before) {
 }
 
 async function closeWeekInD1_(params, env) {
+  // sheets/weekCloseCanon filled by caller after optional Sheets write (#718 d1-sheets).
   const canon = { sheets: false, fromD1: true, weekCloseCanon: "d1-only", cutover: true, action: "finishFullWeek" };
   if (!env || !env.DB) return Object.assign({ status: "error", message: "no_d1" }, canon);
   let ownerOk = false;

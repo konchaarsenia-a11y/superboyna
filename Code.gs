@@ -1523,6 +1523,138 @@ function replyFinishWeek_(callback, fromPost, obj) {
 }
 
 /**
+ * #718 write-only: D1 уже закрыл неделю. Ставим даты на листах из d1Report.
+ * Не читаем блоки заказов для решения; busy/lock как у обычного finish.
+ */
+function handleFinishFullWeekFromD1_(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || "").trim();
+  var confirm = String(json.confirm || "").trim();
+  if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {
+    return replyFinishWeek_(callback, fromPost, { status: "error", message: "need_confirm", fromD1Close: true });
+  }
+  if (!actorIsOwner_(tid)) {
+    return replyFinishWeek_(callback, fromPost, { status: "error", message: "owner_only", fromD1Close: true });
+  }
+  var report = json.d1Report;
+  if (typeof report === "string") {
+    try {
+      report = JSON.parse(report);
+    } catch (eRep) {
+      report = null;
+    }
+  }
+  if (!report || typeof report !== "object") {
+    return replyFinishWeek_(callback, fromPost, { status: "error", message: "need_d1_report", fromD1Close: true });
+  }
+  var existing = readFinishWeekJob_();
+  if (finishWeekJobActive_(existing)) {
+    return replyFinishWeek_(callback, fromPost, {
+      status: "accepted",
+      message: "week_finish_busy",
+      tip: "Перенос уже запущен. Подождите.",
+      state: existing.state,
+      fromD1Close: true
+    });
+  }
+  var lock = LockService.getScriptLock();
+  var got = false;
+  try {
+    lock.waitLock(3000);
+    got = true;
+  } catch (eLock) {}
+  if (!got) {
+    existing = readFinishWeekJob_();
+    if (finishWeekJobActive_(existing)) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "accepted",
+        message: "week_finish_busy",
+        fromD1Close: true
+      });
+    }
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "week_finish_schedule_failed",
+      tip: "Сервер занят. Sheets не записаны. Повторите.",
+      fromD1Close: true
+    });
+  }
+  try {
+    existing = readFinishWeekJob_();
+    if (finishWeekJobActive_(existing)) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "accepted",
+        message: "week_finish_busy",
+        fromD1Close: true
+      });
+    }
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+    var monStr = String(report.mondayDate || json.mondayDate || "").trim();
+    var monday = parseFlexibleDate_(monStr, tz);
+    if (!monday) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "error",
+        message: "bad_monday_date",
+        fromD1Close: true
+      });
+    }
+    monStr = Utilities.formatDate(monday, tz, "dd.MM.yyyy");
+    var futDate = new Date(monday.getTime());
+    futDate.setDate(futDate.getDate() + 7);
+    var futStr = Utilities.formatDate(futDate, tz, "dd.MM.yyyy");
+    var sheetManager = ss.getSheetByName("Прием заказов") || ss.getSheetByName("Приём заказов");
+    var sheetCourier = ss.getSheetByName("Доставки");
+    var sheetCutting = ss.getSheetByName("Нарезка");
+    var sheetFuture = ss.getSheetByName("Будущая неделя");
+    if (!sheetManager || !sheetCourier || !sheetCutting) {
+      return replyFinishWeek_(callback, fromPost, {
+        status: "error",
+        message: "missing_sheets",
+        fromD1Close: true
+      });
+    }
+    sheetManager.getRange("A1").setValue(monStr);
+    sheetCourier.getRange("A1").setValue(monStr);
+    sheetCutting.getRange("A1").setValue(monStr);
+    try {
+      sheetCourier.getRange("C2:Q2").setValue(false);
+    } catch (eClr) {}
+    if (sheetFuture) sheetFuture.getRange("A1").setValue(futStr);
+    var prevIso = String(report.prevMondayIso || json.prevMondayIso || "").trim();
+    if (prevIso) {
+      try {
+        PropertiesService.getScriptProperties().setProperty(finishWeekLockKey_(prevIso), "1");
+      } catch (eLk) {}
+    }
+    try {
+      bustClientsCache_();
+    } catch (eB) {}
+    return replyFinishWeek_(callback, fromPost, {
+      status: "success",
+      message: "week_closed",
+      sheetsWritten: true,
+      fromD1Close: true,
+      mondayDate: monStr,
+      prevMondayIso: prevIso,
+      courierDate: monStr
+    });
+  } catch (err) {
+    return replyFinishWeek_(callback, fromPost, {
+      status: "error",
+      message: "sheets_write_failed",
+      tip: String(err).slice(0, 160),
+      fromD1Close: true,
+      sheetsWritten: false
+    });
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (eRel) {}
+  }
+}
+
+/**
  * Тяжёлое закрытие вне HTTP: веб-приложение обрывает ответ ~30с, а сдвиг дат
  * стоит после склада — обрыв оставлял неделю незакрытой и вешал кнопку.
  * Повторный запуск, пока job свежий, не создаёт второй триггер (+7).
@@ -1678,6 +1810,10 @@ function handleGetFinishWeekStatus(json, callback, fromPost) {
 
 function handleFinishFullWeek(json, callback, fromPost) {
   json = json || {};
+  // #718: Worker already closed D1 — write-only stamp from d1Report (no sheet reads for decision).
+  if (json.fromD1Close === true || json.fromD1Close === "1" || json.fromD1Close === 1) {
+    return handleFinishFullWeekFromD1_(json, callback, fromPost);
+  }
   var tid = String(json.telegramId || "").trim();
   var confirm = String(json.confirm || "").trim();
   if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {

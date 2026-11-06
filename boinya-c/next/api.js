@@ -19,6 +19,9 @@
 
   function storageSuffix_() {
     try {
+      if (String(root.__BOINYA_AUTH_NS__ || root.__BOINYA_PREVIEW_UI__ || "") === "preview-eabc") {
+        return ":preview-eabc";
+      }
       var p = String(root.__BOINYA_C_PROXY__ || "");
       if (!p) return "";
       var host = new URL(p).host || "";
