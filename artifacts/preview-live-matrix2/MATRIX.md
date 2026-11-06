@@ -17,7 +17,7 @@
 | preview ≠ prod D1 binding | **PASSED** |
 | CI final code | **PENDING** |
 
-- SHA / deploy: `b49b119e` · `boinya-c-preview-eabc@b49b119e`
+- SHA / deploy: `eeadea75` · Worker tip builds from this branch; live checks ran on preview Worker with code from this tip family (`planClientNickRenameKeep_` + enforce auth)
 - Preview D1: `0ddccc42-3444-4adb-9c15-68925880b146`
 - Prod D1: `8ab3668c-a654-432c-9ebd-a1ac5c4db800` (untouched)
 - Auth: `authMode=enforce`, **no** `AUTH_ENFORCE=0`
