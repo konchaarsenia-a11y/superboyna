@@ -1,5 +1,7 @@
 {
-  "sha": "ea0572f96a8dc55f1b10687b8b39143730c33df3",
+  "sha": "a12ce9175a79b0abc2c4130d2022c9ed858bd6f1",
+  "shaShort": "a12ce917",
+  "deployVersion": "boinya-c-preview-eabc@a12ce917",
   "previewWorker": "boinya-c-preview-eabc",
   "previewUrl": "https://boinya-c-preview-eabc.konchaarsenia.workers.dev",
   "previewD1": {
@@ -15,7 +17,7 @@
   "AUTH_ENFORCE_0": false,
   "previewIsolated": true,
   "uiStagingUrl": "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/next.html?cutover=1&proxy=https%3A%2F%2Fboinya-c-preview-eabc.konchaarsenia.workers.dev",
-  "uiLoginNeeds": "В CF Dashboard → Workers → boinya-c-preview-eabc → Settings → Variables → Encrypt TELEGRAM_BOT_TOKEN = токен бота Бойни (вручную). Agent не копирует prod secret. BotFather /setdomain уже konchaarsenia-a11y.github.io. Пока стоит ephemeral preview-only HMAC token — Login Widget не примет реальный Telegram login; API-проверки auth идут через штатный verifyTgInitData_.",
+  "uiLoginNeeds": "CF Dashboard → boinya-c-preview-eabc → Secrets → TELEGRAM_BOT_TOKEN = токен бота Бойни (вручную, не копировать из prod Worker). BotFather /setdomain: konchaarsenia-a11y.github.io. Сейчас на preview ephemeral HMAC token только для API verifyTgInitData_.",
   "matrix": {
     "auth_enforce_spoof_rejected": "PASSED",
     "auth_stranger_write_denied": "PASSED",
@@ -41,7 +43,7 @@
         "cli_zzz_future"
       ]
     },
-    "after_rename_move_before_finish_readback": {
+    "after_rename_move_readback": {
       "mon": [],
       "wed": [
         [
@@ -83,12 +85,5 @@
       },
       "week_finished": "week_finished:2026-11-02=1"
     }
-  },
-  "notes": [
-    "#19 clients: planClientNickRenameKeep_ + aliases — больше не создаёт c_* при ZZZ_PREVIEW vs ZZZPREVIEW",
-    "GAS_ORIGIN='' раньше падал на hardcoded prod webhook; PREVIEW_ISOLATED short-circuit + non-empty sentinel",
-    "finishFullWeek на preview: sheets=false fromD1; weekCloseBackup сохранён"
-  ],
-  "shaShort": "ea0572f9",
-  "deployVersion": "boinya-c-preview-eabc@ea0572f9"
+  }
 }
