@@ -1,0 +1,5 @@
+wrangler_auth: no
+CLOUDFLARE_API_TOKEN: absent
+TELEGRAM_BOT_TOKEN: absent
+initData: absent
+desktopSession: absent
