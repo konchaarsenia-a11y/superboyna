@@ -32,7 +32,7 @@
     "sheets_banned_before_finish": "PASSED",
     "finish_week_d1_sheets_false": "PASSED",
     "preview_no_prod_d1_binding": "PASSED",
-    "ci_final_code": "PENDING"
+    "ci_final_code": "PASSED"
   },
   "counts": {
     "before_seed": {
