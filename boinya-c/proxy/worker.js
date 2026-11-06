@@ -1302,7 +1302,7 @@ async function servePreviewSourceFile_(rel) {
     PREVIEW_UI_GIT_REF_ +
     "/boinya-c/" +
     safe +
-    "?v=auth-h4";
+    "?v=auth-h5";
   try {
     const upstream = await fetch(url, { cf: { cacheTtl: 0, cacheEverything: false } });
     if (!upstream.ok) {
@@ -1348,6 +1348,17 @@ function servePreviewUiConfig_() {
   });
 }
 
+/**
+ * Preview-only logout: clear exactly 4 `:preview-eabc` keys on preview host, reload /ui.
+ * Injected by UI wrapper — not in production Pages / next/app.js.
+ */
+const PREVIEW_EABC_AUTH_KEYS_ = [
+  "nx_tg_login_v1:preview-eabc",
+  "nx_desk_sess_v1:preview-eabc",
+  "nx_access_v1:preview-eabc",
+  "nx_tg_init_v1:preview-eabc"
+];
+
 /** Boot: force preview API + auth storage namespace (separate from prod Pages nx_tg_*). */
 function previewUiBootScript_(origin) {
   return (
@@ -1376,6 +1387,35 @@ function previewUiBootScript_(origin) {
     "try{if(navigator.serviceWorker&&navigator.serviceWorker.register){" +
     "navigator.serviceWorker.register=function(){return Promise.reject(new Error('preview-ui-no-sw'));};}}catch(e3){}" +
     "})();" +
+    // Preview-only: clear fixed 4 :preview-eabc keys + reload /ui (no prod keys, no session extract).
+    "window.__boinyaPreviewEabcLogout=function(){" +
+    "if(String(location.hostname||'')!==H)return;" +
+    "var KEYS=" +
+    JSON.stringify(PREVIEW_EABC_AUTH_KEYS_) +
+    ";" +
+    "KEYS.forEach(function(k){try{localStorage.removeItem(k);}catch(eL){}" +
+    "try{sessionStorage.removeItem(k);}catch(eS){}});" +
+    "location.replace('/ui');};" +
+    "document.addEventListener('click',function(ev){" +
+    "var t=ev&&ev.target;if(!t||!t.closest)return;" +
+    "if(t.closest('#previewEabcLogoutBtn')||t.closest('[data-act=\"preview-eabc-logout\"]')){" +
+    "ev.preventDefault();window.__boinyaPreviewEabcLogout();}},true);" +
+    // On access-denied / desktop-login gate (#nxGate): inject logout into .dock actions.
+    "(function(){function inject(){try{" +
+    "if(String(location.hostname||'')!==H)return;" +
+    "var gate=document.getElementById('nxGate');" +
+    "if(!gate||gate.hidden)return;" +
+    "var txt=String(gate.textContent||'');" +
+    "if(!/Нет доступа|Войти через Telegram|Запросить доступ|Подпись не принята|Нужен Telegram|Нет связи/i.test(txt))return;" +
+    "if(gate.querySelector('[data-act=\"preview-eabc-logout\"]'))return;" +
+    "var host=gate.querySelector('.dock')||gate;" +
+    "var b=document.createElement('button');b.type='button';b.className='b-btn b-btn--sec';" +
+    "b.setAttribute('data-act','preview-eabc-logout');b.id='previewEabcLogoutGate';" +
+    "b.textContent='Сменить Telegram-аккаунт';b.style.cssText='margin-top:10px;width:100%';" +
+    "host.appendChild(b);}catch(eI){}}" +
+    "var mo=new MutationObserver(function(){inject();});" +
+    "try{mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']});}catch(eM){}" +
+    "setTimeout(inject,0);setTimeout(inject,400);setTimeout(inject,1200);})();" +
     'try{document.title="Бойня PREVIEW-EABC · "+H;}catch(eT){}})();</script>'
   );
 }
@@ -1386,14 +1426,19 @@ function previewUiMarkerBar_(origin) {
     "font:600 13px/1.4 system-ui,sans-serif;text-align:center}" +
     "#previewEabcBar{top:0;background:#6b1414;padding:10px 12px}" +
     "#previewEabcLogin{top:0;background:#1a3a5c;padding:8px 12px;font-weight:500}" +
-    "#previewEabcBar code,#previewEabcLogin code{color:#ffe08a;font-weight:700}</style>" +
+    "#previewEabcBar code,#previewEabcLogin code{color:#ffe08a;font-weight:700}" +
+    "#previewEabcLogoutBtn{display:inline-block;margin:8px 0 0;padding:8px 14px;border:0;border-radius:8px;" +
+    "background:#ffe08a;color:#1a3a5c;font:700 13px/1.2 system-ui,sans-serif;cursor:pointer}" +
+    "#previewEabcLogoutBtn:active{opacity:.85}</style>" +
     '<div id="previewEabcBar">PREVIEW-EABC · API <code>' +
     origin +
     "</code> · widget <code>@BoinyaTest_bot</code> · D1 preview · origin ≠ production Pages</div>" +
     '<div id="previewEabcLogin">Вход: Login Widget или «Открыть Telegram». BotFather на <b>@BoinyaTest_bot</b> only: ' +
     "<code>/setdomain</code> → <code>" +
     PREVIEW_UI_LOGIN_HOST_ +
-    "</code> (prod bot domain не трогать)</div>"
+    "</code> (prod bot domain не трогать)" +
+    '<div><button type="button" id="previewEabcLogoutBtn" data-act="preview-eabc-logout">' +
+    "Выйти из тестового входа</button></div></div>"
   );
 }
 
@@ -1431,19 +1476,19 @@ async function servePreviewUi_(request, env) {
     // Auth bootstrap from branch tip (not stale production Pages).
     html = html.replace(
       /src="(?:\.\/)?next\/api\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/api.js?v=auth-h4"'
+      'src="' + origin + '/ui/next/api.js?v=auth-h5"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/api\.js[^']*'/g,
-      "src='" + origin + "/ui/next/api.js?v=auth-h4'"
+      "src='" + origin + "/ui/next/api.js?v=auth-h5'"
     );
     html = html.replace(
       /src="(?:\.\/)?next\/app\.js[^"]*"/g,
-      'src="' + origin + '/ui/next/app.js?v=auth-h4"'
+      'src="' + origin + '/ui/next/app.js?v=auth-h5"'
     );
     html = html.replace(
       /src='(?:\.\/)?next\/app\.js[^']*'/g,
-      "src='" + origin + "/ui/next/app.js?v=auth-h4'"
+      "src='" + origin + "/ui/next/app.js?v=auth-h5'"
     );
     // Kill SW registration block if still present after boot override.
     html = html.replace(
