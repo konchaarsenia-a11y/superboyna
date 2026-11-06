@@ -1,3 +1,9 @@
+## auth-h3 (2026-11-06)
+
+Git `126c61e3` · marker `sheets-finish-only-h3` · `/ui?v=auth-h3`  
+Live blocker: `ping.botMe=fail:Not Found` (preview `TELEGRAM_BOT_TOKEN` invalid) — Widget Accept cannot verify until secret refreshed for `@BoinyaTest_bot` / `9204491282`.  
+Exact finish E2E: still waiting owner Login. sheets-finish-only CI: pass on PR.
+
 ## Staging UI (2026-11-06)
 
 **URL:** `https://boinya-c-preview-eabc.konchaarsenia.workers.dev/ui`  
