@@ -2469,6 +2469,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
   if (a === "ping" || a === "keepWarm") {
     let botId = null;
     let botUsername = "";
+    let botMe = "skip";
     try {
       botUsername = await telegramBotUsername_(env);
     } catch (eBu) {
@@ -2476,15 +2477,28 @@ async function handleActionInner_(action, params, env, url, ctx) {
     }
     try {
       const token = authPrimaryBotToken_(env);
-      if (token && typeof fetch === "function") {
+      if (!token) botMe = "no_token";
+      else if (typeof fetch !== "function") botMe = "no_fetch";
+      else {
         const meRes = await fetch("https://api.telegram.org/bot" + token + "/getMe");
-        const meBody = await meRes.json();
+        let meBody = null;
+        try {
+          meBody = await meRes.json();
+        } catch (eJ) {
+          meBody = null;
+        }
         if (meBody && meBody.ok && meBody.result) {
           botId = Number(meBody.result.id) || null;
           if (meBody.result.username) botUsername = String(meBody.result.username);
+          botMe = botId ? "ok" : "no_id";
+        } else {
+          // Telegram error description only — never token / auth payload.
+          botMe = "fail:" + String((meBody && meBody.description) || ("http_" + meRes.status)).slice(0, 80);
         }
       }
-    } catch (eMe) {}
+    } catch (eMe) {
+      botMe = "error:" + String((eMe && eMe.message) || eMe).slice(0, 80);
+    }
     return {
       status: "success",
       sandbox: !live,
@@ -2506,6 +2520,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       hasTelegramToken: hasTelegramToken_(env),
       botId: botId,
       botUsername: botUsername || undefined,
+      botMe: botMe,
       notifyGroup: notifyChatEnabledWorker_(env) ? "on" : "off",
       partnerCanon: partnerCanonLabel_(env),
       priceCanonV2: PRICE_CANON_V2_,
