@@ -1,0 +1,197 @@
+{
+  "marker": "pp-n2-artificial-alina-copy-t446u",
+  "nick": "zzz_test_pp_n2_alina_copy",
+  "subId": "test-alina-37",
+  "deliveries": 2,
+  "statedCost": "145",
+  "coef": "2.3",
+  "beforeMonthly": [
+    {
+      "cat": "chew",
+      "main": "УХО Г",
+      "name": "УХО Г",
+      "sub": "Обычное",
+      "value": 4,
+      "val": 4,
+      "key": "chew|УХО Г|ОБЫЧНОЕ"
+    },
+    {
+      "cat": "chew",
+      "main": "УТИНЫЕ ШЕИ ШТ.",
+      "name": "УТИНЫЕ ШЕИ ШТ.",
+      "sub": "",
+      "value": 4,
+      "val": 4,
+      "key": "chew|УТИНЫЕ ШЕИ ШТ.|"
+    },
+    {
+      "cat": "dressura",
+      "main": "СЕРДЦЕ",
+      "name": "СЕРДЦЕ",
+      "sub": "Целое",
+      "value": 60,
+      "val": 60,
+      "key": "dressura|СЕРДЦЕ|ЦЕЛОЕ"
+    },
+    {
+      "cat": "dressura",
+      "main": "РУБЕЦ Т",
+      "name": "РУБЕЦ Т",
+      "sub": "Крупное",
+      "value": 200,
+      "val": 200,
+      "key": "dressura|РУБЕЦ Т|КРУПНОЕ"
+    },
+    {
+      "cat": "chew",
+      "main": "КОЛЕНИ ШТ.",
+      "name": "КОЛЕНИ ШТ.",
+      "sub": "",
+      "value": 1,
+      "val": 1,
+      "key": "chew|КОЛЕНИ ШТ.|"
+    },
+    {
+      "cat": "chew",
+      "main": "ТРАХЕЯ",
+      "name": "ТРАХЕЯ",
+      "sub": "СРЕД",
+      "value": 6,
+      "val": 6,
+      "key": "chew|ТРАХЕЯ|СРЕД"
+    },
+    {
+      "cat": "dressura",
+      "main": "ЛЁГКОЕ",
+      "name": "ЛЁГКОЕ",
+      "sub": "Среднее",
+      "value": 600,
+      "val": 600,
+      "key": "dressura|ЛЁГКОЕ|СРЕДНЕЕ"
+    }
+  ],
+  "afterSplit": {
+    "basket": [
+      {
+        "cat": "chew",
+        "main": "УХО Г",
+        "name": "УХО Г",
+        "sub": "Обычное",
+        "value": 2,
+        "val": 2,
+        "key": "chew|УХО Г|ОБЫЧНОЕ"
+      },
+      {
+        "cat": "chew",
+        "main": "УТИНЫЕ ШЕИ ШТ.",
+        "name": "УТИНЫЕ ШЕИ ШТ.",
+        "sub": "",
+        "value": 2,
+        "val": 2,
+        "key": "chew|УТИНЫЕ ШЕИ ШТ.|"
+      },
+      {
+        "cat": "dressura",
+        "main": "СЕРДЦЕ",
+        "name": "СЕРДЦЕ",
+        "sub": "Целое",
+        "value": 30,
+        "val": 30,
+        "key": "dressura|СЕРДЦЕ|ЦЕЛОЕ"
+      },
+      {
+        "cat": "dressura",
+        "main": "РУБЕЦ Т",
+        "name": "РУБЕЦ Т",
+        "sub": "Крупное",
+        "value": 100,
+        "val": 100,
+        "key": "dressura|РУБЕЦ Т|КРУПНОЕ"
+      },
+      {
+        "cat": "chew",
+        "main": "КОЛЕНИ ШТ.",
+        "name": "КОЛЕНИ ШТ.",
+        "sub": "",
+        "value": 1,
+        "val": 1,
+        "key": "chew|КОЛЕНИ ШТ.|"
+      },
+      {
+        "cat": "chew",
+        "main": "ТРАХЕЯ",
+        "name": "ТРАХЕЯ",
+        "sub": "СРЕД",
+        "value": 3,
+        "val": 3,
+        "key": "chew|ТРАХЕЯ|СРЕД"
+      },
+      {
+        "cat": "dressura",
+        "main": "ЛЁГКОЕ",
+        "name": "ЛЁГКОЕ",
+        "sub": "Среднее",
+        "value": 300,
+        "val": 300,
+        "key": "dressura|ЛЁГКОЕ|СРЕДНЕЕ"
+      }
+    ],
+    "basket2": [
+      {
+        "cat": "chew",
+        "main": "УХО Г",
+        "name": "УХО Г",
+        "sub": "Обычное",
+        "value": 2,
+        "val": 2,
+        "key": "chew|УХО Г|ОБЫЧНОЕ"
+      },
+      {
+        "cat": "chew",
+        "main": "УТИНЫЕ ШЕИ ШТ.",
+        "name": "УТИНЫЕ ШЕИ ШТ.",
+        "sub": "",
+        "value": 2,
+        "val": 2,
+        "key": "chew|УТИНЫЕ ШЕИ ШТ.|"
+      },
+      {
+        "cat": "dressura",
+        "main": "СЕРДЦЕ",
+        "name": "СЕРДЦЕ",
+        "sub": "Целое",
+        "value": 30,
+        "val": 30,
+        "key": "dressura|СЕРДЦЕ|ЦЕЛОЕ"
+      },
+      {
+        "cat": "dressura",
+        "main": "РУБЕЦ Т",
+        "name": "РУБЕЦ Т",
+        "sub": "Крупное",
+        "value": 100,
+        "val": 100,
+        "key": "dressura|РУБЕЦ Т|КРУПНОЕ"
+      },
+      {
+        "cat": "chew",
+        "main": "ТРАХЕЯ",
+        "name": "ТРАХЕЯ",
+        "sub": "СРЕД",
+        "value": 3,
+        "val": 3,
+        "key": "chew|ТРАХЕЯ|СРЕД"
+      },
+      {
+        "cat": "dressura",
+        "main": "ЛЁГКОЕ",
+        "name": "ЛЁГКОЕ",
+        "sub": "Среднее",
+        "value": 300,
+        "val": 300,
+        "key": "dressura|ЛЁГКОЕ|СРЕДНЕЕ"
+      }
+    ]
+  },
+  "purpose": "isolated suggest→form→save/reload contract tests; never write to production"
+}

@@ -67,3 +67,5 @@ jobs:
         run: node --test boinya-c/next/partner-month.test.mjs
       - name: calendar day clean matches stats
         run: node --test boinya-c/next/cal-day-money.test.mjs
+      - name: PP N2 monthly fact = basket1+basket2
+        run: node --test boinya-c/next/pp-n2-monthly-sum.test.mjs
