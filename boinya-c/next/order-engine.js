@@ -1725,11 +1725,35 @@
       return out;
     }
 
+    function parseDeliveriesNEngine_(raw) {
+      if (typeof raw === "number" && isFinite(raw)) {
+        var nNum = Math.round(raw);
+        return nNum >= 1 ? nNum : 0;
+      }
+      var s = String(raw == null ? "" : raw).trim().replace(",", ".");
+      if (!s) return 0;
+      if (/^\d+(?:\.\d+)?$/.test(s)) {
+        var plain = Math.round(Number(s));
+        return plain >= 1 ? plain : 0;
+      }
+      var slash = s.match(/(\d+)\s*\/\s*(\d+)/);
+      if (slash) {
+        var den = Number(slash[2]);
+        return den >= 1 ? den : 0;
+      }
+      var lead = s.match(/(\d+)/);
+      if (lead) {
+        var nLead = Number(lead[1]);
+        return nLead >= 1 ? nLead : 0;
+      }
+      return 0;
+    }
+
     function currentPpSlotPayload_() {
       if (orderType !== "pp") return { deliverySlot: "", ppSlot: "", deliveriesN: "" };
       var slot = ppDeliverySlotManual;
-      var n = Number(ppDeliveriesN) || 0;
-      // N=1: никогда не писать «1/2» / «2/2»
+      var n = parseDeliveriesNEngine_(ppDeliveriesN);
+      // t442u: N=1 — только первая доставка; не «1/2» / «2/2».
       if (n === 1) {
         return { deliverySlot: 1, ppSlot: "1", deliveriesN: 1 };
       }
@@ -1754,9 +1778,11 @@
     if (orderDogCount < 2) orderBaskets[2] = b2.slice();
     basket = (orderBaskets[orderActiveDog] || []).slice();
     orderNotes = Array.isArray(s.notes) ? s.notes : [];
-    ppDeliverySlotManual = (s.ppSlotManual === 1 || s.ppSlotManual === 2) ? s.ppSlotManual : null;
-    ppDeliveriesN = Number(s.deliveriesN) || 0;
-    ppNeedManualSlot = !!s.needManualSlot;
+    ppDeliveriesN = parseDeliveriesNEngine_(s.deliveriesN);
+    // t442u: при N=1 слот только 1, даже если UI держал 2.
+    if (ppDeliveriesN === 1) ppDeliverySlotManual = 1;
+    else ppDeliverySlotManual = (s.ppSlotManual === 1 || s.ppSlotManual === 2) ? s.ppSlotManual : null;
+    ppNeedManualSlot = ppDeliveriesN >= 2 ? !!s.needManualSlot : false;
     retailPaidDelivery = !!s.retailPaidDelivery;
     retailPriceManual = !!s.retailPriceManual;
     if (s.retailDeliveryFee != null && isFinite(Number(s.retailDeliveryFee))) PRICE_RETAIL_DELIVERY_BYN = Number(s.retailDeliveryFee);

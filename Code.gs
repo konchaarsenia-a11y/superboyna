@@ -21131,7 +21131,13 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
     opts.deliverySlot != null ? opts.deliverySlot : (opts.slot != null ? opts.slot : opts.ppSlot),
     deliveriesN
   );
-  if (forced >= 1) {
+  // t442u: N=1 — только слот 1; forced/stale ПП2 игнорируем.
+  if (!(deliveriesN >= 2)) {
+    slot = 1;
+    suggestedSlot = 1;
+    needManualSlot = false;
+    forced = 0;
+  } else if (forced >= 1) {
     slot = forced;
   } else if (resolved.source === "stored" || resolved.source === "cycle" || resolved.source === "count") {
     // авто-слот уже посчитан с календарём/историей — не откатывать к «всегда 1»
@@ -21144,9 +21150,11 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   }
 
   var slot1Basket = cycle && cycle.slot1 && cycle.slot1.basket ? cycle.slot1.basket : [];
-  // t441u: как boinya-c/proxy/pp-per-delivery.js — ПП1=basket, ПП2=basket2, без half.
+  // t441u/t442u: ПП1=basket, ПП2=basket2 при N≥2; N=1 не читает basket2.
   var delivery1Src = clonePpBasket_(found.basket || []);
-  var delivery2Src = clonePpBasket_(found.basket2 || found.basketSlot2 || found.composition2 || []);
+  var delivery2Src = deliveriesN >= 2
+    ? clonePpBasket_(found.basket2 || found.basketSlot2 || found.composition2 || [])
+    : [];
   var hasBasket2 = delivery2Src.length > 0;
   var proposed = [];
   var remaining = [];
@@ -21157,25 +21165,25 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   if (!(deliveriesN >= 2)) {
     proposed = delivery1Src;
     compositionSource = "n1-whole";
-    hintCore = "ПП N=1 · состав целиком";
+    hintCore = "ПП N=1 · одна доставка · состав целиком";
   } else if (slot <= 1) {
     proposed = delivery1Src;
     remaining = hasBasket2 ? delivery2Src : [];
     legacyNoBasket2 = !hasBasket2;
-    compositionSource = hasBasket2 ? "per-delivery" : "legacy-slot1-whole";
+    compositionSource = hasBasket2 ? "per-delivery" : "n2-legacy-no-basket2-slot1";
     hintCore = hasBasket2
       ? ("ПП N=" + deliveriesN + " · слот 1/" + deliveriesN + " · доставка1 целиком")
-      : ("ПП N=" + deliveriesN + " · слот 1/" + deliveriesN + " · доставка1 целиком · нет basket2 (legacy, не делим)");
+      : ("ПП N=" + deliveriesN + " · слот 1/" + deliveriesN + " · доставка1 целиком · нет basket2 (N=2 legacy, не N=1; не делим)");
   } else if (hasBasket2) {
     proposed = delivery2Src;
     compositionSource = "per-delivery";
     hintCore = "ПП N=" + deliveriesN + " · слот 2/" + deliveriesN + " · доставка2 целиком";
   } else {
-    // t441u: нет basket2 — пусто, не half и не копия basket.
+    // t441u: нет basket2 — пусто, не half и не копия basket. Не путать с N=1.
     legacyNoBasket2 = true;
     needManualComposition = true;
-    compositionSource = "legacy-no-basket2";
-    hintCore = "ПП N=" + deliveriesN + " · слот 2/" + deliveriesN + " · нет basket2 — введи вручную или заполни доставку2 (legacy не делим)";
+    compositionSource = "n2-legacy-no-basket2-slot2";
+    hintCore = "ПП N=" + deliveriesN + " · слот 2/" + deliveriesN + " · нет basket2 — введи вручную или заполни доставку2 (N=2 legacy, не N=1)";
   }
   var monthly = delivery1Src;
 
@@ -21231,29 +21239,29 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
     phone: contact.phone || "",
     date: dateText,
     day: dayName || "",
-    deliveriesN: deliveriesN,
-    deliverySlot: slot,
-    ppSlot: formatPpSlotLabel_(slot, deliveriesN),
-    suggestedSlot: suggestedSlot,
-    needManualSlot: !!(needManualSlot && forced < 1),
+    deliveriesN: deliveriesN >= 1 ? deliveriesN : 1,
+    deliverySlot: deliveriesN >= 2 ? slot : 1,
+    ppSlot: formatPpSlotLabel_(deliveriesN >= 2 ? slot : 1, deliveriesN >= 1 ? deliveriesN : 1),
+    suggestedSlot: deliveriesN >= 2 ? suggestedSlot : 1,
+    needManualSlot: !!(deliveriesN >= 2 && needManualSlot && forced < 1),
     everSeenInApp: !!history.everSeen,
     daysSinceLastDelivery: history.daysSinceLastDelivery,
     lastSlot: history.lastSlot || 0,
     lastDeliveryDate: history.lastDeliveryDate || "",
-    hasPpSlotAnchor: !needManualSlot,
+    hasPpSlotAnchor: deliveriesN >= 2 ? !needManualSlot : true,
     paid: paid,
     askPaid: askPaid,
     factCost: factCost,
     monthlyBasket: monthly,
     delivery1Basket: delivery1Src,
-    delivery2Basket: hasBasket2 ? delivery2Src : [],
+    delivery2Basket: deliveriesN >= 2 && hasBasket2 ? delivery2Src : [],
     proposedBasket: proposed,
     slot1Basket: slot1Basket,
     remainingBasket: remaining,
-    legacyNoBasket2: !!legacyNoBasket2,
+    legacyNoBasket2: deliveriesN >= 2 ? !!legacyNoBasket2 : false,
     needManualComposition: !!needManualComposition,
     compositionSource: compositionSource,
-    hint: hintCore + (needManualSlot && forced < 1 ? " · уточни слот" : "")
+    hint: hintCore + (deliveriesN >= 2 && needManualSlot && forced < 1 ? " · уточни слот" : "")
   };
 }
 
@@ -21349,7 +21357,8 @@ function lookupPpDeliveries_(clientName) {
     var data = getCrmSheetValuesFast_(crmSs, "ПП");
     if (!data || data.length < 3) return 0;
     for (var r = 2; r < data.length; r++) {
-      if (nicksMatch_(data[r][0], clientName)) return Number(data[r][2]) || 0;
+      // t442u: «1»/«2» строкой — канон N, не Number вслепую.
+      if (nicksMatch_(data[r][0], clientName)) return parsePpDeliveriesN_(data[r][2]);
     }
   } catch (e) {}
   return 0;
@@ -23125,13 +23134,17 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
 }
 
 /** Месячное N. «2», «2/мес» → 2. Слот «1/2» → знаменатель 2, не 1. */
-function monthDeliveriesN_(raw) {
-  if (typeof raw === "number" && isFinite(raw) && raw >= 1) return Math.max(1, Math.round(raw));
+/** t442u: явная N доставок; пусто → 0 (не путать с N=1). «1»/«2»/«2/мес». */
+function parsePpDeliveriesN_(raw) {
+  if (typeof raw === "number" && isFinite(raw)) {
+    var nNum = Math.round(raw);
+    return nNum >= 1 ? nNum : 0;
+  }
   var s = String(raw == null ? "" : raw).trim().replace(",", ".");
-  if (!s) return 1;
+  if (!s) return 0;
   if (/^\d+(?:\.\d+)?$/.test(s)) {
     var plain = Math.round(Number(s));
-    return plain >= 1 ? plain : 1;
+    return plain >= 1 ? plain : 0;
   }
   var slash = s.match(/(\d+)\s*\/\s*(\d+)/);
   if (slash) {
@@ -23143,7 +23156,12 @@ function monthDeliveriesN_(raw) {
     var nLead = Number(lead[1]);
     if (nLead >= 1) return nLead;
   }
-  return 1;
+  return 0;
+}
+
+function monthDeliveriesN_(raw) {
+  var n = parsePpDeliveriesN_(raw);
+  return n >= 1 ? n : 1;
 }
 
 /**

@@ -1,13 +1,17 @@
 /**
- * t441u regression: per-delivery ПП1/ПП2 without half-split.
- * Mirrors UI mapping (proposedBasket → form → save as-is) on artificial data.
+ * t441u/t442u regression: per-delivery ПП1/ПП2 without half-split;
+ * N=1 = only first delivery; stale basket2 must not create PP2.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolvePpPerDeliverySuggest_, ppCloneBasket_ } from "./pp-per-delivery.js";
+import {
+  parsePpDeliveriesN_,
+  resolvePpPerDeliverySuggest_,
+  ppCloneBasket_
+} from "./pp-per-delivery.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -34,12 +38,43 @@ const odd = [
   { cat: "chew", main: "УХО Г", sub: "Обычное", value: 1 }
 ];
 
-test("N=1 keeps full basket, no basket2 needed", function () {
-  const r = resolvePpPerDeliverySuggest_({ basket: d1, basket2: d2, slot: 1, deliveriesN: 1 });
+test("parsePpDeliveriesN_ accepts string 1/2 and slash forms", function () {
+  assert.equal(parsePpDeliveriesN_(1), 1);
+  assert.equal(parsePpDeliveriesN_("1"), 1);
+  assert.equal(parsePpDeliveriesN_("2"), 2);
+  assert.equal(parsePpDeliveriesN_("2/мес"), 2);
+  assert.equal(parsePpDeliveriesN_("1/2"), 2);
+  assert.equal(parsePpDeliveriesN_(""), 0);
+  assert.equal(parsePpDeliveriesN_(null), 0);
+});
+
+test("N=1 keeps full basket; ignores stale basket2; forces slot1", function () {
+  const r = resolvePpPerDeliverySuggest_({
+    basket: d1,
+    basket2: d2,
+    slot: 2,
+    deliveriesN: "1"
+  });
+  assert.equal(r.deliveriesN, 1);
+  assert.equal(r.slot, 1);
   assert.equal(r.compositionSource, "n1-whole");
   assert.equal(qty(r.proposed, "ЛЁГКОЕ", "Среднее"), 400);
   assert.equal(qty(r.proposed, "ТРАХЕЯ", "СРЕД"), 4);
+  assert.equal((r.delivery2 || []).length, 0);
+  assert.equal(r.legacyNoBasket2, false);
   assert.equal(r.needManualComposition, false);
+});
+
+test("N=1 without basket2 is still N=1 (not legacy N=2)", function () {
+  const r = resolvePpPerDeliverySuggest_({
+    basket: d1,
+    basket2: [],
+    slot: 1,
+    deliveriesN: 1
+  });
+  assert.equal(r.compositionSource, "n1-whole");
+  assert.equal(r.legacyNoBasket2, false);
+  assert.equal(qty(r.proposed, "ЛЁГКОЕ", "Среднее"), 400);
 });
 
 test("ПП1 takes delivery1 whole (400+4), not half", function () {
@@ -53,7 +88,7 @@ test("ПП1 takes delivery1 whole (400+4), not half", function () {
 });
 
 test("ПП2 takes delivery2 whole (250+3), not remainder-half", function () {
-  const r = resolvePpPerDeliverySuggest_({ basket: d1, basket2: d2, slot: 2, deliveriesN: 2 });
+  const r = resolvePpPerDeliverySuggest_({ basket: d1, basket2: d2, slot: 2, deliveriesN: "2" });
   assert.equal(r.compositionSource, "per-delivery");
   assert.equal(qty(r.proposed, "ЛЁГКОЕ", "Среднее"), 250);
   assert.equal(qty(r.proposed, "ТРАХЕЯ", "СРЕД"), 3);
@@ -83,21 +118,46 @@ test("repeat «Состав из ПП» does not 400→200→100", function () {
   assert.notEqual(qty(again.proposed, "ЛЁГКОЕ", "Среднее"), 200);
 });
 
-test("legacy empty basket2: PP1 whole + flag, PP2 empty need manual", function () {
+test("N=2 empty basket2: PP1 whole + flag, PP2 empty need manual (not N=1)", function () {
   const s1 = resolvePpPerDeliverySuggest_({ basket: d1, basket2: [], slot: 1, deliveriesN: 2 });
-  assert.equal(s1.compositionSource, "legacy-slot1-whole");
+  assert.equal(s1.compositionSource, "n2-legacy-no-basket2-slot1");
   assert.equal(s1.legacyNoBasket2, true);
   assert.equal(qty(s1.proposed, "ЛЁГКОЕ", "Среднее"), 400);
   assert.equal((s1.remaining || []).length, 0);
+  assert.match(String(s1.hint), /N=2 legacy/);
 
   const s2 = resolvePpPerDeliverySuggest_({ basket: d1, basket2: null, slot: 2, deliveriesN: 2 });
-  assert.equal(s2.compositionSource, "legacy-no-basket2");
+  assert.equal(s2.compositionSource, "n2-legacy-no-basket2-slot2");
   assert.equal(s2.needManualComposition, true);
   assert.equal((s2.proposed || []).length, 0);
+  assert.match(String(s2.hint), /не N=1/);
+});
+
+test("artificial 2→1: stale basket2 dropped, only delivery1", function () {
+  // запись была N=2 с basket2; канон стал N=1 — не планируем ПП2.
+  const was2 = resolvePpPerDeliverySuggest_({
+    basket: d1,
+    basket2: d2,
+    slot: 2,
+    deliveriesN: 2
+  });
+  assert.equal(qty(was2.proposed, "ЛЁГКОЕ", "Среднее"), 250);
+
+  const now1 = resolvePpPerDeliverySuggest_({
+    basket: d1,
+    basket2: d2,
+    slot: 2,
+    deliveriesN: "1"
+  });
+  assert.equal(now1.deliveriesN, 1);
+  assert.equal(now1.slot, 1);
+  assert.equal(now1.compositionSource, "n1-whole");
+  assert.equal(qty(now1.proposed, "ЛЁГКОЕ", "Среднее"), 400);
+  assert.equal((now1.delivery2 || []).length, 0);
+  assert.notEqual(now1.compositionSource, was2.compositionSource);
 });
 
 test("UI mapping: proposed → form basket → save payload as-is (no second split)", function () {
-  // как orders.js fromPp + save: form holds proposed; saveOrder stores that basket.
   function mapApiBasketToLocal(list) {
     return ppCloneBasket_(list);
   }
@@ -110,7 +170,6 @@ test("UI mapping: proposed → form basket → save payload as-is (no second spl
     return { blocked: false, proposed: proposed };
   }
   function saveOrderBasket(formBasket) {
-    // saveOrder_ writes basket_json as given — no proposePpSlotBasket.
     return ppCloneBasket_(formBasket);
   }
 
@@ -135,9 +194,19 @@ test("UI mapping: proposed → form basket → save payload as-is (no second spl
   assert.equal(qty(saved2, "ЛЁГКОЕ", "Среднее"), 250);
   assert.equal(qty(saved2, "ТРАХЕЯ", "СРЕД"), 3);
 
-  // reload form from saved order (edit) — same qtys
   assert.equal(qty(mapApiBasketToLocal(saved1), "ЛЁГКОЕ", "Среднее"), 400);
   assert.equal(qty(mapApiBasketToLocal(saved2), "ЛЁГКОЕ", "Среднее"), 250);
+
+  // N=1 UI path: even with stale basket2 in suggest input, save only delivery1
+  const n1 = resolvePpPerDeliverySuggest_({ basket: d1, basket2: d2, slot: 2, deliveriesN: "1" });
+  const uiN1 = fromPpInsert({
+    proposedBasket: n1.proposed,
+    monthlyBasket: n1.delivery1,
+    needManualComposition: n1.needManualComposition,
+    legacyNoBasket2: n1.legacyNoBasket2
+  });
+  assert.equal(uiN1.blocked, false);
+  assert.equal(qty(saveOrderBasket(uiN1.proposed), "ЛЁГКОЕ", "Среднее"), 400);
 
   const legacy2 = resolvePpPerDeliverySuggest_({ basket: d1, basket2: [], slot: 2, deliveriesN: 2 });
   const uiLegacy = fromPpInsert({
@@ -150,34 +219,47 @@ test("UI mapping: proposed → form basket → save payload as-is (no second spl
   assert.equal(uiLegacy.proposed.length, 0);
 });
 
-test("worker wires resolvePpPerDeliverySuggest_ and drops half in getPpOrderSuggestD1_", function () {
+test("worker wires parsePpDeliveriesN_ + N=1 ignore basket2", function () {
   const worker = readFileSync(join(root, "boinya-c/proxy/worker.js"), "utf8");
+  assert.match(worker, /parsePpDeliveriesN_/);
   assert.match(worker, /resolvePpPerDeliverySuggest_/);
   assert.match(worker, /from "\.\/pp-per-delivery\.js"/);
   assert.match(worker, /legacyNoBasket2/);
   assert.match(worker, /needManualComposition/);
-  assert.match(worker, /delivery1Basket/);
-  assert.match(worker, /delivery2Basket/);
-  // half path must not remain inside getPpOrderSuggestD1_ body after delivery1Src
   const start = worker.indexOf("async function getPpOrderSuggestD1_");
   assert.ok(start > 0);
   const next = worker.indexOf("\nasync function ", start + 10);
-  const body = worker.slice(start, next > 0 ? next : start + 12000);
+  const body = worker.slice(start, next > 0 ? next : start + 16000);
   assert.doesNotMatch(body, /proposePpSlotBasketD1_\(/);
+  assert.match(body, /t442u/);
+  assert.match(body, /deliveriesN >= 2/);
 });
 
-test("orders.js refuses monthlyBasket fallback when needManualComposition", function () {
+test("orders.js N=1 parse + no PP2 toggle / force slot1 on fromPp", function () {
   const src = readFileSync(join(root, "boinya-c/next/orders.js"), "utf8");
+  assert.match(src, /parseDeliveriesN_/);
+  assert.match(src, /applyDeliveriesN_/);
+  assert.match(src, /t442u/);
   assert.match(src, /needManualComposition \|\| res\.legacyNoBasket2/);
+  assert.match(src, /nUi === 1/);
 });
 
-test("Code.gs buildPpOrderSuggest_ uses per-delivery, not proposePpSlotBasket_ half", function () {
+test("order-engine forces N=1 slot payload", function () {
+  const src = readFileSync(join(root, "boinya-c/next/order-engine.js"), "utf8");
+  assert.match(src, /parseDeliveriesNEngine_/);
+  assert.match(src, /ppDeliveriesN === 1/);
+  assert.match(src, /deliverySlot: 1, ppSlot: "1", deliveriesN: 1/);
+});
+
+test("Code.gs buildPpOrderSuggest_ N=1 ignore basket2 / parsePpDeliveriesN_", function () {
   const src = readFileSync(join(root, "Code.gs"), "utf8");
+  assert.match(src, /function parsePpDeliveriesN_/);
   const start = src.indexOf("function buildPpOrderSuggest_");
   assert.ok(start > 0);
   const next = src.indexOf("\nfunction ", start + 10);
-  const body = src.slice(start, next > 0 ? next : start + 8000);
-  assert.match(body, /t441u/);
+  const body = src.slice(start, next > 0 ? next : start + 9000);
+  assert.match(body, /t442u/);
   assert.match(body, /legacyNoBasket2/);
   assert.doesNotMatch(body, /proposePpSlotBasket_\(/);
+  assert.match(body, /deliveriesN >= 2/);
 });

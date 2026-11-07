@@ -48,6 +48,44 @@
   var whCopy = "";
 
   function eng() { return root.BoinyaOrderEngine; }
+
+  /** t442u: канон N доставок («1»/«2»); пусто → 0. */
+  function parseDeliveriesN_(raw) {
+    if (typeof raw === "number" && isFinite(raw)) {
+      var nNum = Math.round(raw);
+      return nNum >= 1 ? nNum : 0;
+    }
+    var s = String(raw == null ? "" : raw).trim().replace(",", ".");
+    if (!s) return 0;
+    if (/^\d+(?:\.\d+)?$/.test(s)) {
+      var plain = Math.round(Number(s));
+      return plain >= 1 ? plain : 0;
+    }
+    var slash = s.match(/(\d+)\s*\/\s*(\d+)/);
+    if (slash) {
+      var den = Number(slash[2]);
+      return den >= 1 ? den : 0;
+    }
+    var lead = s.match(/(\d+)/);
+    if (lead) {
+      var nLead = Number(lead[1]);
+      return nLead >= 1 ? nLead : 0;
+    }
+    return 0;
+  }
+
+  function applyDeliveriesN_(raw) {
+    var n = parseDeliveriesN_(raw);
+    state.deliveriesN = n;
+    // t442u: N=1 — только ПП1; не предлагать/держать слот 2.
+    if (n === 1) {
+      state.ppSlotManual = 1;
+      state.needManualSlot = false;
+    } else if (n < 2) {
+      state.needManualSlot = false;
+    }
+    return n;
+  }
   function pay() { return root.BoinyaOrderPayload; }
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -490,9 +528,10 @@
     var html = "";
     if (state.orderType === "pp") {
       html += '<button type="button" class="nx-link" data-act="from-pp">Из подписки ПП</button>';
-      if (state.deliveriesN === 1) {
+      // t442u: N=1 (в т.ч. строка «1») — без ПП2; N≥2 — две корзины.
+      if (parseDeliveriesN_(state.deliveriesN) === 1) {
         html += '<p class="b-note">Одна доставка в месяц, слот ПП1</p>';
-      } else {
+      } else if (parseDeliveriesN_(state.deliveriesN) >= 2) {
         html += '<p class="b-lbl">Слот ПП1 или ПП2</p><div class="nx-pp-toggle" role="group" aria-label="Слот ПП">' +
           segBtn("pp1", "ПП1", state.ppSlotManual === 1) +
           segBtn("pp2", "ПП2", state.ppSlotManual === 2) + "</div>";
@@ -977,10 +1016,9 @@
     }, { timeoutMs: 12000, cacheTtlMs: 15000 });
     if (!res || res.status !== "success") return;
     ppFact = res;
-    state.deliveriesN = Number(res.deliveries) || 0;
-    if (state.deliveriesN === 1) state.ppSlotManual = 1;
-    state.needManualSlot = !!(res.needManualSlot && state.deliveriesN >= 2);
-    if (!(state.ppSlotManual === 1 || state.ppSlotManual === 2) && state.deliveriesN >= 2) {
+    var nFact = applyDeliveriesN_(res.deliveries != null ? res.deliveries : res.deliveriesN);
+    state.needManualSlot = !!(res.needManualSlot && nFact >= 2);
+    if (nFact >= 2 && !(state.ppSlotManual === 1 || state.ppSlotManual === 2)) {
       var suggested = Number(res.suggestedSlot || res.deliverySlot) || 1;
       if (suggested >= 1) state.ppSlotManual = suggested;
     }
@@ -1674,18 +1712,33 @@
   async function fromPp() {
     if (state.orderType !== "pp") { sh().toast("Сначала тип заказа: ПП"); return; }
     if (String(state.client || "").trim().length < 2) { sh().toast("Укажи ник клиента ПП"); return; }
-    if (state.deliveriesN >= 2 && !(state.ppSlotManual === 1 || state.ppSlotManual === 2)) {
+    var nUi = parseDeliveriesN_(state.deliveriesN);
+    if (nUi === 1) state.ppSlotManual = 1;
+    if (nUi >= 2 && !(state.ppSlotManual === 1 || state.ppSlotManual === 2)) {
       sh().toast("Сначала выбери ПП 1 или ПП 2");
       return;
     }
     eng().applyState(state);
     var slot = eng().currentPpSlotPayload_();
     var req = { action: "getPpOrderSuggest", nick: state.client, day: state.day || "", date: state.deliveryDate || "" };
-    if (slot.deliverySlot) { req.deliverySlot = slot.deliverySlot; req.ppSlot = slot.ppSlot; }
+    // t442u: при N=1 не слать deliverySlot=2 / stale ПП2.
+    if (nUi === 1) {
+      req.deliverySlot = 1;
+      req.ppSlot = "1";
+      req.deliveriesN = 1;
+    } else if (slot.deliverySlot) {
+      req.deliverySlot = slot.deliverySlot;
+      req.ppSlot = slot.ppSlot;
+      if (slot.deliveriesN) req.deliveriesN = slot.deliveriesN;
+    }
     var res = await api().apiGet(req, { timeoutMs: 20000, cacheTtlMs: 0 });
     if (!res || res.status !== "success") { sh().toast("Не удалось прочитать лист ПП"); return; }
-    state.deliveriesN = Number(res.deliveriesN) || state.deliveriesN;
-    if (res.needManualSlot && !(state.ppSlotManual >= 1)) { sh().toast("Выбери ПП 1 или ПП 2"); paint(); return; }
+    var nSug = applyDeliveriesN_(res.deliveriesN != null ? res.deliveriesN : state.deliveriesN);
+    if (nSug >= 2 && res.needManualSlot && !(state.ppSlotManual >= 1)) {
+      sh().toast("Выбери ПП 1 или ПП 2");
+      paint();
+      return;
+    }
     if (res.cardMatch !== "ambiguous" && pay() && pay().fillEmptyContact) {
       pay().fillEmptyContact(state, {
         address: res.address || res.cardAddress || "",
@@ -1711,7 +1764,9 @@
     var ok = await sh().confirm({ title: "Состав из ПП", text: (res.hint || "Состав с листа ПП") + "\nВставить " + proposed.length + " поз.?", ok: "Вставить" });
     if (!ok) return;
     state.baskets[state.activeDog] = proposed;
-    if (res.deliverySlot >= 1) state.ppSlotManual = Number(res.deliverySlot);
+    // t442u: N=1 всегда ПП1; иначе слот из suggest.
+    if (nSug === 1) state.ppSlotManual = 1;
+    else if (res.deliverySlot >= 1) state.ppSlotManual = Number(res.deliverySlot);
     syncRetail();
     paint();
     // orders-page-fix: #10 — после разворота ПП подтянуть постоянные
@@ -1941,7 +1996,7 @@
         if (!(Number(state.couponPrice) > 0)) { await sh().alert({ text: "Укажите цену всей пачки купонов (BYN)" }); return; }
       }
     }
-    if (state.orderType === "pp" && state.deliveriesN >= 2 && !(state.ppSlotManual === 1 || state.ppSlotManual === 2)) {
+    if (state.orderType === "pp" && parseDeliveriesN_(state.deliveriesN) >= 2 && !(state.ppSlotManual === 1 || state.ppSlotManual === 2)) {
       await sh().alert({ text: "Укажи какая сейчас доставка: ПП 1 или ПП 2" });
       return;
     }
@@ -2658,7 +2713,10 @@
       if (m) slot = Number(m[1]) || 0;
     }
     if (slot === 1 || slot === 2) next.ppSlotManual = slot;
-    if (client.deliveriesN) next.deliveriesN = Number(client.deliveriesN) || 0;
+    if (client.deliveriesN != null && client.deliveriesN !== "") {
+      next.deliveriesN = parseDeliveriesN_(client.deliveriesN);
+      if (next.deliveriesN === 1) next.ppSlotManual = 1;
+    }
     var basket = (client.basket || []).map(function (g) {
       return basketFromClient(g);
     });
