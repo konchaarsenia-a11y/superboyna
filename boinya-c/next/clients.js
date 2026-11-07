@@ -1433,7 +1433,7 @@
     if (!opts.basketChanged) {
       try { seedCardRawCostIfNeeded_(); } catch (eSeed) {}
       if (Number(card._rawCost) > 0) {
-        try { applyCardPpQuoteLocal_({ overwriteStated: true }); } catch (eSync) {}
+        try { applyCardPpQuoteLocal_({}); } catch (eSync) {}
       }
     }
   }
@@ -1453,14 +1453,31 @@
   }
 
   function cardBasketList_() {
-    /* Как econ(): себес одной доставки; N учитывается формулой (+7.60×N), не суммой двух слотов. */
-    return card ? (card.basket || []).slice() : [];
+    /* t448u: N≥2 месячный fact = basket1+basket2; N=1 только basket1 (stale2 игнор).
+       Формула/coef/пакеты те же (+7.60×N). Legacy N2 с пустым basket2 = как раньше. */
+    if (!card) return [];
+    var n = monthN(card.deliveries || 1);
+    var out = (card.basket || []).slice();
+    if (n >= 2) {
+      var b2 = card.basket2 || [];
+      for (var i = 0; i < b2.length; i++) out.push(b2[i]);
+    }
+    return out;
   }
 
   /** Указанная/факт > 0; строки «0» / 0 с листа — как пусто (нельзя инвертировать сырьё). */
   function ppPositiveMoney_(v) {
     var n = Number(String(v == null ? "" : v).replace(",", ".").replace(/\s/g, ""));
     return isFinite(n) && n > 0 ? n : 0;
+  }
+
+  /** t448u: fact можно освежить; указанную клиента не затираем (кроме явного coef / пустой). */
+  function cardOverwriteStated_(opts) {
+    opts = opts || {};
+    if (opts.overwriteStated === false) return false;
+    if (opts.overwriteStated === true) return true;
+    if (card && card.coefTouched) return true;
+    return !ppPositiveMoney_(card && card.statedCost);
   }
 
   /**
@@ -1586,7 +1603,7 @@
       card._rawCostAtCoef = String(card.coef || "");
       card._awaitLiveRaw = false;
       if (card.coefTouched || card.priceDirty) {
-        try { applyCardPpQuoteLocal_({ overwriteStated: true }); } catch (eQ) {}
+        try { applyCardPpQuoteLocal_({}); } catch (eQ) {}
       }
     }
   }
@@ -1594,11 +1611,12 @@
   function applyCardPpQuoteLocal_(opts) {
     opts = opts || {};
     if (!(card && card.sheet === "ПП")) return null;
+    var overwriteStated = cardOverwriteStated_(opts);
     var list = cardBasketList_();
     if (!list.length) {
       card.calcFactCost = "";
       card.priceCapNote = "";
-      if (opts.overwriteStated !== false) {
+      if (overwriteStated) {
         card.statedCost = "";
         card.statedTouched = false;
       }
@@ -1634,7 +1652,7 @@
     } else {
       card.priceCapNote = "старая схема ×2.3+11+6N";
     }
-    if (opts.overwriteStated !== false) {
+    if (overwriteStated) {
       card.statedCost = total > 0 ? total : "";
       card.statedTouched = false;
     }
@@ -1651,6 +1669,7 @@
     opts = opts || {};
     if (!(card && card.sheet === "ПП")) return null;
     if (!opts.force && !card.priceDirty) return null;
+    var overwriteStated = cardOverwriteStated_(opts);
     seedCardRawCostIfNeeded_();
     var list = cardBasketList_();
     if (!list.length) {
@@ -1659,7 +1678,7 @@
       card._rawCostSource = "";
       card._rawCostAtCoef = "";
       card.priceCapNote = "";
-      if (opts.overwriteStated !== false) {
+      if (overwriteStated) {
         card.statedCost = "";
         card.statedTouched = false;
       }
@@ -1668,7 +1687,7 @@
       return null;
     }
     var seq = ++cardPriceSeq;
-    var localQ = applyCardPpQuoteLocal_({ overwriteStated: opts.overwriteStated });
+    var localQ = applyCardPpQuoteLocal_({ overwriteStated: overwriteStated });
     var nDel = monthN((document.getElementById("cxN") || {}).value || card.deliveries || 1);
     card.deliveries = String(nDel);
     var scheme = card.scheme || "RAW26";
@@ -1719,7 +1738,7 @@
     } else {
       card.priceCapNote = "старая схема ×2.3+11+6N";
     }
-    if (opts.overwriteStated !== false) {
+    if (overwriteStated) {
       card.statedCost = total > 0 ? total : "";
       card.statedTouched = false;
     }
@@ -2029,9 +2048,9 @@
   async function saveCard() {
     flushClientNotes();
     if (!card) return;
-    /* Пересчёт цены только если владелец менял coef/состав/пакеты/N/фракции — не при правке адреса. */
+    /* Пересчёт fact при dirty; указанную с формы не затираем (t448u split/monthly). */
     if (card.sheet === "ПП" && card.priceDirty) {
-      try { await refreshCardPpPrice_({ force: true }); } catch (ePrice) {}
+      try { await refreshCardPpPrice_({ force: true, overwriteStated: false }); } catch (ePrice) {}
     }
     var wishes = staffWishes_(card.wishes || "");
     var persistCoef = card.sheet === "ПП" && !!(card.coefSaved || card.coefTouched);

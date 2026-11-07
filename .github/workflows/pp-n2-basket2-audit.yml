@@ -1,0 +1,45 @@
+name: pp-n2-basket2-audit
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/pp-n2-basket2-audit.yml
+      - scripts/pp-n2-basket2-audit.mjs
+      - boinya-c/proxy/pp-per-delivery.js
+      - boinya-c/proxy/pp-per-delivery.test.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Unit split/classify
+        run: node --test boinya-c/proxy/pp-per-delivery.test.mjs
+      - name: RO audit production PP N=2 empty basket2 (full compositions)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PP_N2_AUDIT_OUT: ${{ github.workspace }}/artifacts/pp-n2-basket2-audit
+          PP_N2_PRIOR_AUDIT: ${{ github.workspace }}/scripts/pp-n2-audit-prior-fingerprints.json
+        run: |
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          mkdir -p "$PP_N2_AUDIT_OUT"
+          node scripts/pp-n2-basket2-audit.mjs
+          test -f "$PP_N2_AUDIT_OUT/migrate-ui-pack.json"
+          test -f "$PP_N2_AUDIT_OUT/audit.full.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pp-n2-basket2-audit-full
+          path: artifacts/pp-n2-basket2-audit/
+          if-no-files-found: warn
