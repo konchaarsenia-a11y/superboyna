@@ -10,7 +10,11 @@ import { fileURLToPath } from "node:url";
 import {
   parsePpDeliveriesN_,
   resolvePpPerDeliverySuggest_,
-  ppCloneBasket_
+  ppCloneBasket_,
+  splitQtyForPpSlot_,
+  splitMonthlyBasketToTwoDeliveries_,
+  classifyPpCardForN2Split_,
+  ppBasketItemKey_
 } from "./pp-per-delivery.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -262,4 +266,106 @@ test("Code.gs buildPpOrderSuggest_ N=1 ignore basket2 / parsePpDeliveriesN_", fu
   assert.match(body, /legacyNoBasket2/);
   assert.doesNotMatch(body, /proposePpSlotBasket_\(/);
   assert.match(body, /deliveriesN >= 2/);
+});
+
+test("t444u staff split: dressura floor / chew ceil; 1+2 = monthly", function () {
+  assert.equal(splitQtyForPpSlot_(5, false, 1), 2);
+  assert.equal(splitQtyForPpSlot_(5, false, 2), 3);
+  assert.equal(splitQtyForPpSlot_(5, true, 1), 3);
+  assert.equal(splitQtyForPpSlot_(5, true, 2), 2);
+  assert.equal(splitQtyForPpSlot_(1, false, 1), 1);
+  assert.equal(splitQtyForPpSlot_(1, false, 2), 0);
+
+  const monthly = [
+    { cat: "dressura", main: "ЛЁГКОЕ", sub: "Среднее", value: 401 },
+    { cat: "chew", main: "ТРАХЕЯ", sub: "СРЕД", value: 5 }
+  ];
+  const split = splitMonthlyBasketToTwoDeliveries_(monthly);
+  assert.equal(split.ok, true);
+  assert.equal(qty(split.delivery1, "ЛЁГКОЕ", "Среднее"), 200);
+  assert.equal(qty(split.delivery2, "ЛЁГКОЕ", "Среднее"), 201);
+  assert.equal(qty(split.delivery1, "ТРАХЕЯ", "СРЕД"), 3);
+  assert.equal(qty(split.delivery2, "ТРАХЕЯ", "СРЕД"), 2);
+  assert.equal(
+    qty(split.delivery1, "ЛЁГКОЕ", "Среднее") + qty(split.delivery2, "ЛЁГКОЕ", "Среднее"),
+    401
+  );
+  assert.equal(qty(split.delivery1, "ТРАХЕЯ", "СРЕД") + qty(split.delivery2, "ТРАХЕЯ", "СРЕД"), 5);
+});
+
+test("t444u classify: migrate N=2 empty basket2; skip N=1; already; ambiguous", function () {
+  const monthly = [
+    { cat: "dressura", main: "СЕРДЦЕ", sub: "Ломтики", value: 100 },
+    { cat: "chew", main: "УХО Г", sub: "Обычное", value: 2 }
+  ];
+  const m = classifyPpCardForN2Split_({
+    sheet: "ПП",
+    deliveries: "2",
+    basket: monthly,
+    basket2: []
+  });
+  assert.equal(m.kind, "migrate");
+  assert.equal(qty(m.delivery1, "СЕРДЦЕ", "Ломтики") + qty(m.delivery2, "СЕРДЦЕ", "Ломтики"), 100);
+
+  assert.equal(
+    classifyPpCardForN2Split_({ sheet: "ПП", deliveries: "1", basket: monthly, basket2: [] }).kind,
+    "skip_n1"
+  );
+  assert.equal(
+    classifyPpCardForN2Split_({
+      sheet: "ПП",
+      deliveries: 2,
+      basket: monthly,
+      basket2: [{ cat: "dressura", main: "СЕРДЦЕ", sub: "Ломтики", value: 50 }]
+    }).kind,
+    "already"
+  );
+  assert.equal(
+    classifyPpCardForN2Split_({ sheet: "ПП", deliveries: "2", basket: [], basket2: [] }).kind,
+    "ambiguous"
+  );
+  assert.equal(
+    classifyPpCardForN2Split_({ sheet: "ПП", deliveries: "3", basket: monthly }).kind,
+    "ambiguous"
+  );
+});
+
+test("t444u after staff split, suggest takes whole baskets; manual slot still free", function () {
+  const monthly = d1.concat([{ cat: "chew", main: "УХО Г", sub: "Обычное", value: 1 }]);
+  const split = splitMonthlyBasketToTwoDeliveries_(monthly);
+  assert.equal(split.ok, true);
+  const s1 = resolvePpPerDeliverySuggest_({
+    basket: split.delivery1,
+    basket2: split.delivery2,
+    slot: 1,
+    deliveriesN: 2
+  });
+  const s2 = resolvePpPerDeliverySuggest_({
+    basket: split.delivery1,
+    basket2: split.delivery2,
+    slot: 2,
+    deliveriesN: 2
+  });
+  assert.equal(s1.compositionSource, "per-delivery");
+  assert.equal(s2.compositionSource, "per-delivery");
+  assert.equal(s1.legacyNoBasket2, false);
+  assert.deepEqual(
+    s1.proposed.map(function (x) {
+      return ppBasketItemKey_(x) + "=" + x.value;
+    }),
+    split.delivery1.map(function (x) {
+      return ppBasketItemKey_(x) + "=" + x.value;
+    })
+  );
+  // ручной выбор слота 2 не запрещён автоопределением
+  assert.equal(s2.slot, 2);
+  assert.equal(s2.needManualComposition, false);
+});
+
+test("worker wires /admin/pp-n2-split", function () {
+  const worker = readFileSync(join(root, "boinya-c/proxy/worker.js"), "utf8");
+  assert.match(worker, /\/admin\/pp-n2-split/);
+  assert.match(worker, /ppN2BasketSplitAdmin_/);
+  assert.match(worker, /split-pp-n2-basket-2026-11-07/);
+  assert.match(worker, /classifyPpCardForN2Split_/);
 });
