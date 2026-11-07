@@ -1,40 +1,41 @@
-# BLOCKER: monthly economics vs basket1-only fact (sub37)
+# RESOLVED by t448u
 
-## Вердикт
+See `/opt/cursor/artifacts/pp-n2-first-client/ECONOMICS_FIX_t448u.md` and repo harness.
 
-**Не сохранять split сейчас.** Факт/экономика карточки считают **только `card.basket` (доставка1)**, не `basket+basket2`.
+# t448u — месячный fact = basket1+basket2 (N≥2)
 
-Код (`boinya-c/next/clients.js`):
+## Что изменено (узко)
 
-```js
-function cardBasketList_() {
-  /* Как econ(): себес одной доставки; N учитывается формулой (+7.60×N), не суммой двух слотов. */
-  return card ? (card.basket || []).slice() : [];
-}
-```
+`boinya-c/next/clients.js`:
+- `cardBasketList_()` — при N≥2 склеивает `basket`+`basket2` для fact/quote; при N=1 только `basket` (stale2 игнор).
+- `cardOverwriteStated_()` + save `overwriteStated: false` — указанная клиента не затирается при refresh fact после split/состава; coefTouched по-прежнему может обновить указанную.
 
-Сейчас у sub37 в `basket` лежит **полный месячный** состав → факт ~145.43 / указанная 145 при N=2, coef 2.3, пакеты U1=0 U2=4 U3=6 УП4=2.
+Формула RAW26 / coef / пакеты / 7.60×N **не менялись**.
 
-Если записать half в `basket` и half в `basket2`:
+## Проверено (artificial sub37 copy)
 
-1. Правка состава → `scheduleCardPpRecalc_({ basketChanged: true })` → `priceDirty`
-2. `saveCard()` при `priceDirty` зовёт `refreshCardPpPrice_({ force: true })` с **overwriteStated по умолчанию**
-3. `liveCalc`/`quotePp` идут по **половине** сырья + recover с половины + те же 7.60×N и пакеты карточки
-4. **Указанная/факт уедут вниз** (не «месячная» экономика). Формулу скрыто не меняем.
+| Проверка | Результат |
+|---|---|
+| Monthly before split @ coef 2.3, packs 0/4/6/2 | fact **145.43** |
+| After split 1+2 same raw | fact **145.43** |
+| Stated | **145** неизменна |
+| Half-only (старый баг) | 111.87 ≠ monthly |
+| N=1 + stale basket2 | monthly list = basket1 only |
+| PR723 suggest slot1/2 | целые корзины, без half |
+| Odd (колени 1) | слот1=1, слот2=0 |
+| Harness | 6/6 pass |
 
-Сообщение клиенту наоборот конкатит `basket+basket2` — это другой путь, не факт карточки.
+## Не проверено / не сделано
 
-## Что нельзя делать
+- Browser production save sub37 — **ждёт ваш UI save + read-back**
+- Остальные 7 карточек migrate
+- Merge/deploy в prod runtime
 
-- Сохранять split, пока не зафиксирован безопасный путь **без** пересчёта stated/fact/пакетов
-- Скрыто менять `cardBasketList_` / формулу «чтобы сошлось»
+## Безопасный порядок релиза
 
-## Что можно без записи
+1. **Сначала** этот UI-fix (`cardBasketList_` sum) — на legacy N2 с пустым basket2 поведение = как раньше (sum = basket1).
+2. **Потом** staff split+save первых 8 (с UI, где уже sum) — fact не падает с половины; stated/coef/packs не трогаем.
+3. **Не** выкатывать per-delivery suggest как единственный путь заказов, пока legacy без basket2 не разложены (ПП2 будет пустым / legacy flag) — либо мигрировать 8 до опоры на per-delivery в проде заказов.
+4. Merge PR723 после green harness + ваш read-back first-client.
 
-- Backup + payload mapping (ниже)
-- Artificial harness PR723 на копии составов (suggest/slots), без production save
-
-## Условие снятия blocker (отдельное решение владельца)
-
-Либо явный safe-save: правка только basket/basket2, **жёстко** оставить statedCost=145, calcFactCost как было, packCounts, coef, без `refreshCardPpPrice_` overwrite;  
-либо отдельный канон «факт = basket1+basket2» — это **смена бизнес-модели**, не этот шаг.
+Запрещено: сохранять split на старом UI (basket1-only fact) — half→~111 и priceDirty overwrite.

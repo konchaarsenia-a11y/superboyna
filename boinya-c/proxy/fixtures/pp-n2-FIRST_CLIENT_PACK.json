@@ -1,8 +1,11 @@
 {
-  "marker": "pp-n2-first-client-pack-t446u",
-  "hold": true,
-  "doNotSave": true,
-  "blocker": "ECONOMICS_BLOCKER.md",
+  "marker": "pp-n2-first-client-pack-t448u",
+  "hold": false,
+  "doNotAutoSave": true,
+  "awaitBrowserUiSaveAndReadback": true,
+  "blocker": false,
+  "economicsFix": "ECONOMICS_FIX_t448u.md",
+  "safeOrder": "ECONOMICS_FIX_t448u.md §Безопасный порядок",
   "identity": {
     "identityKey": "sub:37",
     "nick": "alinagidayathanova",
@@ -271,155 +274,166 @@
       "up4": 2
     }
   },
-  "payloadMapping": {
+  "exactSavePayload": {
+    "marker": "pp-n2-sub37-exact-save-payload-t448u",
+    "doNotAutoSave": true,
+    "awaitBrowserUiSaveAndReadback": true,
+    "identity": {
+      "subId": "37",
+      "nick": "alinagidayathanova",
+      "sheet": "ПП"
+    },
     "action": "saveSubscription",
-    "nick": "alinagidayathanova",
-    "subId": "37",
-    "sheet": "ПП",
-    "segment": "ПП",
-    "deliveries": "2",
-    "statedCost": "145",
-    "coef": "2.3",
-    "basket": [
-      {
-        "cat": "chew",
-        "main": "УХО Г",
-        "name": "УХО Г",
-        "sub": "Обычное",
-        "value": 2,
-        "val": 2
+    "fields": {
+      "subId": "37",
+      "nick": "alinagidayathanova",
+      "sheet": "ПП",
+      "deliveries": 2,
+      "statedCost": "145",
+      "calcFactCost": "145.43",
+      "coef": "2.3",
+      "packCounts": {
+        "u1": 0,
+        "u2": 4,
+        "u3": 6,
+        "up4": 2
       },
-      {
-        "cat": "chew",
-        "main": "УТИНЫЕ ШЕИ ШТ.",
-        "name": "УТИНЫЕ ШЕИ ШТ.",
-        "sub": "",
-        "value": 2,
-        "val": 2
-      },
-      {
-        "cat": "dressura",
-        "main": "СЕРДЦЕ",
-        "name": "СЕРДЦЕ",
-        "sub": "Целое",
-        "value": 30,
-        "val": 30
-      },
-      {
-        "cat": "dressura",
-        "main": "РУБЕЦ Т",
-        "name": "РУБЕЦ Т",
-        "sub": "Крупное",
-        "value": 100,
-        "val": 100
-      },
-      {
-        "cat": "chew",
-        "main": "КОЛЕНИ ШТ.",
-        "name": "КОЛЕНИ ШТ.",
-        "sub": "",
-        "value": 1,
-        "val": 1
-      },
-      {
-        "cat": "chew",
-        "main": "ТРАХЕЯ",
-        "name": "ТРАХЕЯ",
-        "sub": "СРЕД",
-        "value": 3,
-        "val": 3
-      },
-      {
-        "cat": "dressura",
-        "main": "ЛЁГКОЕ",
-        "name": "ЛЁГКОЕ",
-        "sub": "Среднее",
-        "value": 300,
-        "val": 300
-      }
-    ],
-    "basket2": [
-      {
-        "cat": "chew",
-        "main": "УХО Г",
-        "name": "УХО Г",
-        "sub": "Обычное",
-        "value": 2,
-        "val": 2
-      },
-      {
-        "cat": "chew",
-        "main": "УТИНЫЕ ШЕИ ШТ.",
-        "name": "УТИНЫЕ ШЕИ ШТ.",
-        "sub": "",
-        "value": 2,
-        "val": 2
-      },
-      {
-        "cat": "dressura",
-        "main": "СЕРДЦЕ",
-        "name": "СЕРДЦЕ",
-        "sub": "Целое",
-        "value": 30,
-        "val": 30
-      },
-      {
-        "cat": "dressura",
-        "main": "РУБЕЦ Т",
-        "name": "РУБЕЦ Т",
-        "sub": "Крупное",
-        "value": 100,
-        "val": 100
-      },
-      {
-        "cat": "chew",
-        "main": "ТРАХЕЯ",
-        "name": "ТРАХЕЯ",
-        "sub": "СРЕД",
-        "value": 3,
-        "val": 3
-      },
-      {
-        "cat": "dressura",
-        "main": "ЛЁГКОЕ",
-        "name": "ЛЁГКОЕ",
-        "sub": "Среднее",
-        "value": 300,
-        "val": 300
-      }
-    ],
-    "uiMapping": {
-      "slot1": "Доставка 1 → body.basket",
-      "slot2": "Доставка 2 → body.basket2",
-      "save": "cl-save → apiPost saveSubscription",
-      "doNotSendUnlessUnchanged": [
-        "statedCost",
-        "deliveries",
-        "coef",
-        "address",
-        "phone",
-        "wishes"
+      "basket": [
+        {
+          "cat": "chew",
+          "main": "УХО Г",
+          "name": "УХО Г",
+          "sub": "Обычное",
+          "value": 2,
+          "val": 2,
+          "key": "chew|УХО Г|ОБЫЧНОЕ"
+        },
+        {
+          "cat": "chew",
+          "main": "УТИНЫЕ ШЕИ ШТ.",
+          "name": "УТИНЫЕ ШЕИ ШТ.",
+          "sub": "",
+          "value": 2,
+          "val": 2,
+          "key": "chew|УТИНЫЕ ШЕИ ШТ.|"
+        },
+        {
+          "cat": "dressura",
+          "main": "СЕРДЦЕ",
+          "name": "СЕРДЦЕ",
+          "sub": "Целое",
+          "value": 30,
+          "val": 30,
+          "key": "dressura|СЕРДЦЕ|ЦЕЛОЕ"
+        },
+        {
+          "cat": "dressura",
+          "main": "РУБЕЦ Т",
+          "name": "РУБЕЦ Т",
+          "sub": "Крупное",
+          "value": 100,
+          "val": 100,
+          "key": "dressura|РУБЕЦ Т|КРУПНОЕ"
+        },
+        {
+          "cat": "chew",
+          "main": "КОЛЕНИ ШТ.",
+          "name": "КОЛЕНИ ШТ.",
+          "sub": "",
+          "value": 1,
+          "val": 1,
+          "key": "chew|КОЛЕНИ ШТ.|"
+        },
+        {
+          "cat": "chew",
+          "main": "ТРАХЕЯ",
+          "name": "ТРАХЕЯ",
+          "sub": "СРЕД",
+          "value": 3,
+          "val": 3,
+          "key": "chew|ТРАХЕЯ|СРЕД"
+        },
+        {
+          "cat": "dressura",
+          "main": "ЛЁГКОЕ",
+          "name": "ЛЁГКОЕ",
+          "sub": "Среднее",
+          "value": 300,
+          "val": 300,
+          "key": "dressura|ЛЁГКОЕ|СРЕДНЕЕ"
+        }
+      ],
+      "basket2": [
+        {
+          "cat": "chew",
+          "main": "УХО Г",
+          "name": "УХО Г",
+          "sub": "Обычное",
+          "value": 2,
+          "val": 2,
+          "key": "chew|УХО Г|ОБЫЧНОЕ"
+        },
+        {
+          "cat": "chew",
+          "main": "УТИНЫЕ ШЕИ ШТ.",
+          "name": "УТИНЫЕ ШЕИ ШТ.",
+          "sub": "",
+          "value": 2,
+          "val": 2,
+          "key": "chew|УТИНЫЕ ШЕИ ШТ.|"
+        },
+        {
+          "cat": "dressura",
+          "main": "СЕРДЦЕ",
+          "name": "СЕРДЦЕ",
+          "sub": "Целое",
+          "value": 30,
+          "val": 30,
+          "key": "dressura|СЕРДЦЕ|ЦЕЛОЕ"
+        },
+        {
+          "cat": "dressura",
+          "main": "РУБЕЦ Т",
+          "name": "РУБЕЦ Т",
+          "sub": "Крупное",
+          "value": 100,
+          "val": 100,
+          "key": "dressura|РУБЕЦ Т|КРУПНОЕ"
+        },
+        {
+          "cat": "chew",
+          "main": "ТРАХЕЯ",
+          "name": "ТРАХЕЯ",
+          "sub": "СРЕД",
+          "value": 3,
+          "val": 3,
+          "key": "chew|ТРАХЕЯ|СРЕД"
+        },
+        {
+          "cat": "dressura",
+          "main": "ЛЁГКОЕ",
+          "name": "ЛЁГКОЕ",
+          "sub": "Среднее",
+          "value": 300,
+          "val": 300,
+          "key": "dressura|ЛЁГКОЕ|СРЕДНЕЕ"
+        }
       ]
     },
-    "conditional": {
-      "onlyIf": "BLOCKED — see ECONOMICS_BLOCKER.md",
-      "else": "ABORT — owner changed card; do not overwrite"
-    },
-    "packCounts": {
-      "u1": 0,
-      "u2": 4,
-      "u3": 6,
-      "up4": 2
-    },
-    "calcFactCost": "145.43",
-    "blocker": true,
-    "doNotSave": true,
-    "reason": "cardBasketList_/saveCard refresh overwrites economics from half basket1"
+    "mustNotChange": [
+      "statedCost=145",
+      "coef=2.3",
+      "packCounts u1/u2/u3/up4 = 0/4/6/2",
+      "calcFactCost≈145.43 (monthly 1+2)",
+      "orders/dates/ACL",
+      "crm contact fields"
+    ],
+    "sumInvariant": "qty(basket)+qty(basket2) == qty(beforeMonthly)",
+    "preconditionUi": "clients.js with t448u cardBasketList_ sum deployed to the UI you save from",
+    "builtAt": "2026-11-07T16:52:12.249857+00:00"
   },
   "ci": {
     "holdSha_perDelivery_green": "4feaa727a03576113581da60109beea8be5a989a",
-    "fullAuditRun": 42390172344,
-    "fullAuditSha": "576e8079462ba1c2de20a5964b99e31fe7d13c7a",
-    "freshness_sub37": "unchanged_since_prior"
+    "economicsFixPendingPush": true
   }
 }
