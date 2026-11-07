@@ -1,0 +1,128 @@
+{
+  "auditedAt": "2026-11-07T14:28:00Z",
+  "marker": "pp-n2-basket2-audit-t444u-prior",
+  "migrate": [
+    {
+      "identityKey": "sub:37",
+      "nick": "alinagidayathanova",
+      "subId": "37",
+      "basketFinger": "chew|КОЛЕНИ ШТ.|=1;chew|ТРАХЕЯ|СРЕД=6;chew|УТИНЫЕ ШЕИ ШТ.|=4;chew|УХО Г|Обычное=4;dressura|ЛЁГКОЕ|Среднее=600;dressura|РУБЕЦ Т|Крупное=200;dressura|СЕРДЦЕ|Целое=60",
+      "beforeSample": {
+        "chew|УХО Г|Обычное": 4,
+        "chew|УТИНЫЕ ШЕИ ШТ.|": 4,
+        "dressura|СЕРДЦЕ|Целое": 60,
+        "dressura|РУБЕЦ Т|Крупное": 200,
+        "chew|КОЛЕНИ ШТ.|": 1,
+        "chew|ТРАХЕЯ|СРЕД": 6,
+        "dressura|ЛЁГКОЕ|Среднее": 600
+      },
+      "statedCost": "145"
+    },
+    {
+      "identityKey": "sub:22",
+      "nick": "evgenia_In",
+      "subId": "22",
+      "basketFinger": "chew|БЫЧИЙ КОРЕНЬ|МАЛ=2;chew|ЛОП ХРЯЩ ШТ.|=1;chew|СТАНОВАЯ ЖИЛА|ПАЛК=4;dressura|ЛЁГКОЕ|Мелкое=100;dressura|ПОЧКИ|Ломтики=50;dressura|СЕРДЦЕ|Ломтики=50",
+      "beforeSample": {
+        "dressura|ЛЁГКОЕ|Мелкое": 100,
+        "dressura|СЕРДЦЕ|Ломтики": 50,
+        "dressura|ПОЧКИ|Ломтики": 50,
+        "chew|БЫЧИЙ КОРЕНЬ|МАЛ": 2,
+        "chew|ЛОП ХРЯЩ ШТ.|": 1,
+        "chew|СТАНОВАЯ ЖИЛА|ПАЛК": 4
+      },
+      "statedCost": "60"
+    },
+    {
+      "identityKey": "sub:26",
+      "nick": "viihrova",
+      "subId": "26",
+      "basketFinger": "chew|БЫЧИЙ КОРЕНЬ|СРЕД=2;chew|ТРАХЕЯ|БОЛ=3;dressura|ЛЁГКОЕ|Среднее=300;dressura|ПОЧКИ|Целое=100;dressura|СЕРДЦЕ|Целое=100;veg|ЯБЛОКИ|=20",
+      "beforeSample": {
+        "dressura|ЛЁГКОЕ|Среднее": 300,
+        "dressura|СЕРДЦЕ|Целое": 100,
+        "dressura|ПОЧКИ|Целое": 100,
+        "chew|БЫЧИЙ КОРЕНЬ|СРЕД": 2,
+        "chew|ТРАХЕЯ|БОЛ": 3,
+        "veg|ЯБЛОКИ|": 20
+      },
+      "statedCost": "105"
+    },
+    {
+      "identityKey": "sub:34",
+      "nick": "Наталья Фалютинская",
+      "subId": "34",
+      "basketFinger": "chew|БЫЧИЙ КОРЕНЬ|БОЛ=2;chew|НОСЫ ШТ.|=3;chew|ПЕРЕПЕЛКИ ШТ.|=2;chew|УХО Г|Обычное=2;chew|УХО К|Обычное=1;dressura|ЛЁГКОЕ|Мелкое=240;dressura|ПОЧКИ|Ломтики=60;dressura|РУБЕЦ Т|Среднее=40;dressura|СЕРДЦЕ|Ломтики=60",
+      "beforeSample": {
+        "dressura|ЛЁГКОЕ|Мелкое": 240,
+        "dressura|СЕРДЦЕ|Ломтики": 60,
+        "dressura|РУБЕЦ Т|Среднее": 40,
+        "dressura|ПОЧКИ|Ломтики": 60,
+        "chew|УХО Г|Обычное": 2,
+        "chew|УХО К|Обычное": 1,
+        "chew|НОСЫ ШТ.|": 3,
+        "chew|ПЕРЕПЕЛКИ ШТ.|": 2,
+        "chew|БЫЧИЙ КОРЕНЬ|БОЛ": 2
+      },
+      "statedCost": "115"
+    },
+    {
+      "identityKey": "sub:47",
+      "nick": "_madmazelka_",
+      "subId": "47",
+      "basketFinger": "chew|БЫЧИЙ КОРЕНЬ|СРЕД=1;chew|ЛОП ХРЯЩ ШТ.|=3;chew|ТРАХЕЯ|СРЕД=3;dressura|ЛЁГКОЕ|Большое=150;dressura|СЕРДЦЕ|Целое=60",
+      "beforeSample": {
+        "dressura|ЛЁГКОЕ|Большое": 150,
+        "dressura|СЕРДЦЕ|Целое": 60,
+        "chew|ТРАХЕЯ|СРЕД": 3,
+        "chew|БЫЧИЙ КОРЕНЬ|СРЕД": 1,
+        "chew|ЛОП ХРЯЩ ШТ.|": 3
+      },
+      "statedCost": "63"
+    },
+    {
+      "identityKey": "nick:_BORDERCOLLIE_OLLIE_",
+      "nick": "_bordercollie_ollie_",
+      "subId": "",
+      "basketFinger": "chew|СТАНОВАЯ ЖИЛА|СРЕД=2;chew|УХО Г|ПОЛОВИНКА=4;dressura|ЛЁГКОЕ|Среднее=100;dressura|РУБЕЦ Т|Среднее=50;dressura|СЕРДЦЕ|Ломтики=50;veg|ЯБЛОКИ|=30",
+      "beforeSample": {
+        "dressura|ЛЁГКОЕ|Среднее": 100,
+        "dressura|СЕРДЦЕ|Ломтики": 50,
+        "dressura|РУБЕЦ Т|Среднее": 50,
+        "chew|УХО Г|ПОЛОВИНКА": 4,
+        "chew|СТАНОВАЯ ЖИЛА|СРЕД": 2,
+        "veg|ЯБЛОКИ|": 30
+      },
+      "statedCost": "62"
+    },
+    {
+      "identityKey": "nick:PITELLZINHO",
+      "nick": "Pitellzinho",
+      "subId": "",
+      "basketFinger": "chew|БЫЧИЙ КОРЕНЬ|СРЕД=6;chew|ЛОП ХРЯЩ ШТ.|=4;chew|УХО Г|Обычное=8;chew|УХО К|Обычное=2",
+      "beforeSample": {
+        "chew|БЫЧИЙ КОРЕНЬ|СРЕД": 6,
+        "chew|ЛОП ХРЯЩ ШТ.|": 4,
+        "chew|УХО Г|Обычное": 8,
+        "chew|УХО К|Обычное": 2
+      },
+      "statedCost": "90"
+    },
+    {
+      "identityKey": "nick:MASHA_KORIK",
+      "nick": "Masha_korik",
+      "subId": "",
+      "basketFinger": "chew|БЫЧИЙ КОРЕНЬ|СРЕД=2;chew|ЛОП ХРЯЩ ШТ.|=1;chew|СТАНОВАЯ ЖИЛА|СРЕД=1;chew|ТРАХЕЯ|СРЕД=2;dressura|ЛЁГКОЕ|Среднее=100;dressura|ПОЧКИ|Ломтики=20;dressura|СЕРДЦЕ|Ломтики=50",
+      "beforeSample": {
+        "dressura|ЛЁГКОЕ|Среднее": 100,
+        "dressura|СЕРДЦЕ|Ломтики": 50,
+        "dressura|ПОЧКИ|Ломтики": 20,
+        "chew|БЫЧИЙ КОРЕНЬ|СРЕД": 2,
+        "chew|ТРАХЕЯ|СРЕД": 2,
+        "chew|СТАНОВАЯ ЖИЛА|СРЕД": 1,
+        "chew|ЛОП ХРЯЩ ШТ.|": 1
+      },
+      "statedCost": "63"
+    }
+  ]
+}
