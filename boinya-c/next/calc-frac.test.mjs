@@ -34,8 +34,9 @@ function row(name, sub, val, cat) {
 
 test("расчёт предлагает те же фракции, что заказ", () => {
   assert.deepEqual(words("dressura", "ЛЁГКОЕ"), ["ломтики", "палочки", "крупный кубик", "средний кубик", "мелкий кубик", "очень мелкий кубик"]);
-  assert.deepEqual(words("dressura", "СЕРДЦЕ"), ["ломтики", "кусочки", "мелкие кусочки", "очень мелкие кусочки"]);
-  assert.deepEqual(words("dressura", "РУБЕЦ Т"), ["ломтики", "кусочки", "мелкие кусочки", "очень мелкие кусочки"]);
+  /* t449u: Целое в picker (label «целое»); РУБЕЦ Крупное снова видно. */
+  assert.deepEqual(words("dressura", "СЕРДЦЕ"), ["целое", "ломтики", "кусочки", "мелкие кусочки", "очень мелкие кусочки"]);
+  assert.deepEqual(words("dressura", "РУБЕЦ Т"), ["ломтики", "крупные кусочки", "кусочки", "мелкие кусочки", "очень мелкие кусочки"]);
   assert.deepEqual(words("dressura", "ПОЧКИ"), ["кусочки", "мелкие кусочки"]);
   assert.deepEqual(words("other", "ИНДЕЙКА"), ["ломтики", "кусочки", "мелкие кусочки"]);
   assert.equal(api.catalogFractionsForUi_("other", "ИНДЕЙКА").indexOf("Полоски"), -1);
@@ -103,7 +104,7 @@ test("чеклист нового расчёта не оставляет скр�
   assert.equal(subOf("ИНДЕЙКА"), "Кусочки");
   assert.equal(subOf("ЛЁГКОЕ"), "Полоски");
   assert.equal(subOf("СЕРДЦЕ"), "Кусочки");
-  assert.equal(subOf("РУБЕЦ Т"), "Среднее");
+  assert.equal(subOf("РУБЕЦ Т"), "Крупное"); /* t449u: Крупное снова в UI, не snap на Среднее */
   assert.equal(goods(list.filter((it) => it.main === "ИНДЕЙКА")), 17);
   assert.equal(goods(list.filter((it) => it.main === "ЛЁГКОЕ")), 10);
   assert.equal(api.humanFraction("ИНДЕЙКА", "Полоски"), "полоски");
