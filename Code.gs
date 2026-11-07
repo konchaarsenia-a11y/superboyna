@@ -21144,11 +21144,40 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   }
 
   var slot1Basket = cycle && cycle.slot1 && cycle.slot1.basket ? cycle.slot1.basket : [];
-  var monthly = clonePpBasket_(found.basket || []);
-  var proposed = proposePpSlotBasket_(monthly, slot, deliveriesN, slot1Basket);
-  var remaining = (deliveriesN >= 2 && slot <= 1)
-    ? proposePpSlotBasket_(monthly, 2, deliveriesN, proposed)
-    : remainderPpBasket_(monthly, slot1Basket.length ? slot1Basket : (slot >= 2 ? proposed : []));
+  // t441u: как boinya-c/proxy/pp-per-delivery.js — ПП1=basket, ПП2=basket2, без half.
+  var delivery1Src = clonePpBasket_(found.basket || []);
+  var delivery2Src = clonePpBasket_(found.basket2 || found.basketSlot2 || found.composition2 || []);
+  var hasBasket2 = delivery2Src.length > 0;
+  var proposed = [];
+  var remaining = [];
+  var legacyNoBasket2 = false;
+  var needManualComposition = false;
+  var compositionSource = "";
+  var hintCore = "";
+  if (!(deliveriesN >= 2)) {
+    proposed = delivery1Src;
+    compositionSource = "n1-whole";
+    hintCore = "ПП N=1 · состав целиком";
+  } else if (slot <= 1) {
+    proposed = delivery1Src;
+    remaining = hasBasket2 ? delivery2Src : [];
+    legacyNoBasket2 = !hasBasket2;
+    compositionSource = hasBasket2 ? "per-delivery" : "legacy-slot1-whole";
+    hintCore = hasBasket2
+      ? ("ПП N=" + deliveriesN + " · слот 1/" + deliveriesN + " · доставка1 целиком")
+      : ("ПП N=" + deliveriesN + " · слот 1/" + deliveriesN + " · доставка1 целиком · нет basket2 (legacy, не делим)");
+  } else if (hasBasket2) {
+    proposed = delivery2Src;
+    compositionSource = "per-delivery";
+    hintCore = "ПП N=" + deliveriesN + " · слот 2/" + deliveriesN + " · доставка2 целиком";
+  } else {
+    // t441u: нет basket2 — пусто, не half и не копия basket.
+    legacyNoBasket2 = true;
+    needManualComposition = true;
+    compositionSource = "legacy-no-basket2";
+    hintCore = "ПП N=" + deliveriesN + " · слот 2/" + deliveriesN + " · нет basket2 — введи вручную или заполни доставку2 (legacy не делим)";
+  }
+  var monthly = delivery1Src;
 
   var paid = null;
   if (cycle && cycle.paid) paid = cycle.paid;
@@ -21216,13 +21245,15 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
     askPaid: askPaid,
     factCost: factCost,
     monthlyBasket: monthly,
+    delivery1Basket: delivery1Src,
+    delivery2Basket: hasBasket2 ? delivery2Src : [],
     proposedBasket: proposed,
     slot1Basket: slot1Basket,
     remainingBasket: remaining,
-    hint: deliveriesN >= 2
-      ? ("ПП N=" + deliveriesN + " · доставка " + slot + "/" + deliveriesN + (slot >= 2 ? " (остаток)" : " (доля)") +
-        (needManualSlot && forced < 1 ? " · уточни слот" : ""))
-      : (deliveriesN === 1 ? "ПП N=1 · состав целиком" : "ПП: состав с листа")
+    legacyNoBasket2: !!legacyNoBasket2,
+    needManualComposition: !!needManualComposition,
+    compositionSource: compositionSource,
+    hint: hintCore + (needManualSlot && forced < 1 ? " · уточни слот" : "")
   };
 }
 

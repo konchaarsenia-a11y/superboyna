@@ -5,6 +5,8 @@ on:
     paths:
       - "boinya-c/next/**"
       - "boinya-c/proxy/worker.js"
+      - "boinya-c/proxy/pp-per-delivery.js"
+      - "boinya-c/proxy/pp-per-delivery.test.mjs"
       - "Code.gs"
       - "scripts/check-next-undef.mjs"
       - "scripts/check-worker-build.mjs"
@@ -16,6 +18,8 @@ on:
     paths:
       - "boinya-c/next/**"
       - "boinya-c/proxy/worker.js"
+      - "boinya-c/proxy/pp-per-delivery.js"
+      - "boinya-c/proxy/pp-per-delivery.test.mjs"
       - "Code.gs"
       - "scripts/check-next-undef.mjs"
       - "scripts/check-worker-build.mjs"
@@ -59,6 +63,8 @@ jobs:
         run: node boinya-c/next/week-close-d1.test.mjs
       - name: AFK does not return to PP
         run: node boinya-c/proxy/afk-guard.test.mjs
+      - name: PP per-delivery baskets no half-split
+        run: node --test boinya-c/proxy/pp-per-delivery.test.mjs
       - name: Sheets only on finishFullWeek
         run: node --test boinya-c/proxy/sheets-finish-only.test.mjs
       - name: address parts stay separate

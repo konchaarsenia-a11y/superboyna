@@ -47,6 +47,7 @@ import {
   weightedAvgPieceCost_
 } from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
+import { resolvePpPerDeliverySuggest_ } from "./pp-per-delivery.js";
 import {
   isSheetsFinishOnly_,
   sheetsFinishOnlySkip_,
@@ -29687,7 +29688,9 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
       ? null
       : Number(String(factRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
 
-  const monthly = clonePpBasketD1_(basket);
+  // t441u: basket = доставка1, basket2 = доставка2; monthly здесь = delivery1 (не сумма/half).
+  const delivery1Src = clonePpBasketD1_(basket);
+  const delivery2Src = clonePpBasketD1_(local.basket2 || local.basketSlot2 || local.composition2 || []);
   let slot = 1;
   let suggestedSlot = 1;
   let needManualSlot = false;
@@ -29720,11 +29723,15 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     if (forced >= 1 || stored >= 1) needManualSlot = false;
   }
 
-  const proposed = proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket);
-  const remaining =
-    deliveriesN >= 2 && slot <= 1
-      ? proposePpSlotBasketD1_(monthly, 2, deliveriesN, proposed)
-      : remainderPpBasketD1_(monthly, slot1Basket.length ? slot1Basket : slot >= 2 ? proposed : []);
+  // t441u: без proposePpSlotBasketD1_ half — ПП1/ПП2 целиком; legacy без basket2 не выдумываем.
+  const per = resolvePpPerDeliverySuggest_({
+    basket: delivery1Src,
+    basket2: delivery2Src,
+    slot: slot,
+    deliveriesN: deliveriesN
+  });
+  const proposed = per.proposed || [];
+  const remaining = per.remaining || [];
 
   let askPaid = true;
   if (deliveriesN >= 1) {
@@ -29732,10 +29739,8 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     else askPaid = true;
   }
 
-  const hint =
-    deliveriesN <= 1
-      ? "ПП N=1 · состав целиком · d1"
-      : "ПП N=" + deliveriesN + " · слот " + slot + (needManualSlot ? " · спросить" : "") + " · d1";
+  let hint = String(per.hint || "") + " · d1";
+  if (needManualSlot) hint += " · спросить слот";
 
   const suggestOut = {
     status: "success",
@@ -29761,10 +29766,16 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     paid: null,
     askPaid: askPaid,
     factCost: factCost,
-    monthlyBasket: monthly,
+    // monthlyBasket оставлен = доставка1 (compat UI); явные delivery* для mapping.
+    monthlyBasket: delivery1Src,
+    delivery1Basket: per.delivery1 || delivery1Src,
+    delivery2Basket: per.delivery2 || [],
     proposedBasket: proposed,
     slot1Basket: slot1Basket,
     remainingBasket: remaining,
+    legacyNoBasket2: !!per.legacyNoBasket2,
+    needManualComposition: !!per.needManualComposition,
+    compositionSource: per.compositionSource || "",
     hint: hint,
     cutover: true,
     fromD1: true,

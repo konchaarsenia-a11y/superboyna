@@ -1698,8 +1698,15 @@
       if (pay() && pay().absorbGluedAddress) pay().absorbGluedAddress(state, eng());
     }
     if (res.phone && !state.phone) state.phone = res.phone;
+    // t441u: не подменять ПП2 monthlyBasket/delivery1, если suggest сказал «нет basket2».
     var proposed = eng().mapApiBasketToLocal(res.proposedBasket || []);
-    if (!proposed.length) proposed = eng().mapApiBasketToLocal(res.monthlyBasket || res.remainingBasket || []);
+    if (!proposed.length) {
+      if (res.needManualComposition || res.legacyNoBasket2) {
+        sh().toast(res.hint || "Нет состава этой доставки — введи вручную");
+        return;
+      }
+      proposed = eng().mapApiBasketToLocal(res.monthlyBasket || res.remainingBasket || []);
+    }
     if (!proposed.length) { sh().toast("В листе ПП пустой состав"); return; }
     var ok = await sh().confirm({ title: "Состав из ПП", text: (res.hint || "Состав с листа ПП") + "\nВставить " + proposed.length + " поз.?", ok: "Вставить" });
     if (!ok) return;
