@@ -362,10 +362,9 @@ test("t444u after staff split, suggest takes whole baskets; manual slot still fr
   assert.equal(s2.needManualComposition, false);
 });
 
-test("worker wires /admin/pp-n2-split", function () {
+test("worker has no /admin/pp-n2-split surface (staff saveSubscription only)", function () {
   const worker = readFileSync(join(root, "boinya-c/proxy/worker.js"), "utf8");
-  assert.match(worker, /\/admin\/pp-n2-split/);
-  assert.match(worker, /ppN2BasketSplitAdmin_/);
-  assert.match(worker, /split-pp-n2-basket-2026-11-07/);
-  assert.match(worker, /classifyPpCardForN2Split_/);
+  assert.doesNotMatch(worker, /\/admin\/pp-n2-split/);
+  assert.doesNotMatch(worker, /ppN2BasketSplitAdmin_/);
+  assert.doesNotMatch(worker, /PP_N2_SPLIT_ADMIN_TOKEN/);
 });
