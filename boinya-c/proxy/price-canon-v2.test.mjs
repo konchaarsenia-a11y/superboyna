@@ -12,7 +12,12 @@ import {
   weightedAvgPcsPerKg_,
   annotatePieceBatchHints_,
   PRICE_COST_SEED_1110_,
-  PRICE_CANON_V2_SEED_FROM_
+  PRICE_CANON_V2_SEED_FROM_,
+  PRICE_SKU_CATALOG_,
+  isPriceSkuActive_,
+  activePriceSkuCatalog_,
+  retiredPriceSkuIds_,
+  catalogRowById_
 } from "./price-canon-v2.js";
 
 test("sku_id: ШТ. и шт. → один id (колени/носы/шеи)", () => {
@@ -96,4 +101,29 @@ test("lookupCostV2: map from versions, missing → null (не 0)", () => {
   assert.equal(root.unitPrice, 2.5);
   const miss = lookupCostV2_(costs, "НЕСУЩЕСТВУЮЩЕЕ", "");
   assert.equal(miss, null);
+});
+
+test("t467u: только GUBY+KOPYTO retired; resolve остаётся; live costs без них", () => {
+  assert.deepEqual(retiredPriceSkuIds_().sort(), ["GUBY", "KOPYTO"]);
+  assert.equal(isPriceSkuActive_("GUBY"), false);
+  assert.equal(isPriceSkuActive_("KOPYTO"), false);
+  assert.equal(isPriceSkuActive_("KOLENI"), true);
+  assert.equal(PRICE_SKU_CATALOG_.length, 52);
+  assert.equal(activePriceSkuCatalog_().length, 50);
+  assert.ok(catalogRowById_("GUBY"));
+  assert.ok(catalogRowById_("KOPYTO"));
+  /* старые имена всё ещё резолвятся (история/текст), но не в live map */
+  assert.equal(resolvePriceSkuId_("ГУБЫ шт.", ""), "GUBY");
+  assert.equal(resolvePriceSkuId_("КОПЫТО ШТ.", ""), "KOPYTO");
+  const versions = [
+    { sku_id: "KOLENI", cost: 1.17, effectiveFrom: "2026-10-11", source: "sheet" },
+    { sku_id: "KOPYTO", cost: 7, effectiveFrom: "2026-10-11", source: "sheet" },
+    { sku_id: "GUBY", cost: 1, effectiveFrom: "2026-10-11", source: "sheet" }
+  ];
+  const costs = costsMapFromVersionsV2_(versions, "2026-11-08");
+  assert.equal(costs.KOLENI.unitPrice, 1.17);
+  assert.equal(costs.KOPYTO, undefined);
+  assert.equal(costs.GUBY, undefined);
+  assert.equal(lookupCostV2_(costs, "КОПЫТО шт.", ""), null);
+  assert.equal(lookupCostV2_(costs, "ГУБЫ шт.", ""), null);
 });
