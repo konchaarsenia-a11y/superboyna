@@ -102,6 +102,8 @@
       _rawCostSource: "",
       _rawCostAtCoef: "",
       priceCapNote: "",
+      /* t454u: ON = ручные ПП1/ПП2; OFF = auto-разделение monthly. */
+      ppManualDist: false,
       dogName: "", dogBreed: "", dogWeight: "",
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
       surveyBp2Due: "", surveyFinalDue: "", ownerTelegramId: "", ownerName: "",
@@ -841,6 +843,15 @@
         priceBits += '<p class="b-lbl">Состав доставки</p><div class="b-seg">' +
           '<button type="button" class="b-seg__item' + (c.slot === 1 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="1">Доставка 1</button>' +
           '<button type="button" class="b-seg__item' + (c.slot === 2 ? " b-seg__item--on" : "") + '" data-act="cl-slot" data-n="2">Доставка 2</button></div>';
+        if (c.sheet === "ПП") {
+          /* t454u: тумблер ручного распределения ПП1/ПП2. */
+          priceBits += '<label class="b-note" style="display:flex;align-items:center;gap:8px;margin-top:8px">' +
+            '<input type="checkbox" id="cxManualDist" data-act="cl-manual-dist"' +
+            (c.ppManualDist ? " checked" : "") + "> Ручное распределение</label>";
+          if (!c.ppManualDist) {
+            priceBits += '<p class="b-note">Авто: нечёт → в ПП1 на 1 больше; сумма 1+2 = месяц</p>';
+          }
+        }
       }
     }
     priceBits += basketBlock();
@@ -1465,6 +1476,64 @@
     return out;
   }
 
+  /** t454u: уже разные слоты или явный флаг → manual; не сбрасывать при открытии. */
+  function cardInferManualDist_() {
+    if (!(card && card.sheet === "ПП")) return false;
+    return !!eng().inferPpManualDistribution_({
+      deliveriesN: card.deliveries,
+      basket: card.basket,
+      basket2: card.basket2,
+      ppManualDist: card.ppManualDist
+    });
+  }
+
+  /**
+   * t454u: auto materialize monthly→ПП1/ПП2 без basketChanged (сырьё/указанная не трогаем).
+   * forceFromSum: manual→auto — сумма слотов → снова auto.
+   */
+  function cardMaterializeAutoSplit_(opts) {
+    opts = opts || {};
+    if (!(card && card.sheet === "ПП")) return false;
+    var n = monthN(card.deliveries || 1);
+    if (n < 2) return false;
+    var mat = eng().materializePpAutoSplit_({
+      deliveriesN: n,
+      basket: card.basket,
+      basket2: card.basket2,
+      ppManualDist: opts.forceFromSum ? true : card.ppManualDist,
+      forceFromSum: !!opts.forceFromSum
+    });
+    if (!mat || !mat.ok) {
+      sh().toast((mat && mat.reason) || "Не удалось авто-разделить");
+      return false;
+    }
+    if (mat.skipped && !opts.forceFromSum) return true;
+    card.basket = mat.delivery1 || [];
+    card.basket2 = mat.delivery2 || [];
+    card.ppManualDist = false;
+    if (!card.slot || card.slot < 1) card.slot = 1;
+    return true;
+  }
+
+  /** Правка состава в auto → включаем ручное (авто больше не перезапишет). */
+  function cardMarkManualDistIfEditing_() {
+    if (!(card && card.sheet === "ПП")) return;
+    if (monthN(card.deliveries || 1) < 2) return;
+    if (card.ppManualDist) return;
+    card.ppManualDist = true;
+  }
+
+  function cardApplyPpDistOnOpen_() {
+    if (!(card && card.sheet === "ПП")) return;
+    var n = monthN(card.deliveries || 1);
+    if (n < 2) {
+      card.ppManualDist = false;
+      return;
+    }
+    card.ppManualDist = cardInferManualDist_();
+    if (!card.ppManualDist) cardMaterializeAutoSplit_({});
+  }
+
   /** Указанная/факт > 0; строки «0» / 0 с листа — как пусто (нельзя инвертировать сырьё). */
   function ppPositiveMoney_(v) {
     var n = Number(String(v == null ? "" : v).replace(",", ".").replace(/\s/g, ""));
@@ -1893,6 +1962,7 @@
     var list = activeBasket().slice();
     list.push(built.item);
     setActiveBasket(list);
+    cardMarkManualDistIfEditing_();
     crumbDraft = null;
     sh().closeTop("ok");
     paint();
@@ -1970,6 +2040,9 @@
     card.basketBp2Keep = Array.isArray(res.basketBp2)
       ? card.basketBp2.map(function (it) { return Object.assign({}, it); })
       : null;
+    /* t454u: явный флаг или unequal slots → manual; иначе auto-materialize in-memory. */
+    card.ppManualDist = !!eng().parsePpManualDist_(res.ppManualDist);
+    cardApplyPpDistOnOpen_();
     if (card.sheet === "БП" || String(sheet || "") === "БП") {
       if (!card.basketBp1.length && card.basket.length) card.basketBp1 = card.basket.slice();
     }
@@ -2048,6 +2121,10 @@
   async function saveCard() {
     flushClientNotes();
     if (!card) return;
+    /* t454u: auto N2 — материализуем ПП1/ПП2 перед записью (без повторного half на suggest). */
+    if (card.sheet === "ПП" && monthN(card.deliveries || 1) >= 2 && !card.ppManualDist) {
+      cardMaterializeAutoSplit_({});
+    }
     /* Пересчёт fact при dirty; указанную с формы не затираем (t448u split/monthly). */
     if (card.sheet === "ПП" && card.priceDirty) {
       try { await refreshCardPpPrice_({ force: true, overwriteStated: false }); } catch (ePrice) {}
@@ -2090,6 +2167,8 @@
       statedTouched: card.statedTouched ? "1" : "0",
       basket: card.sheet === "БП" ? card.basketBp1 : card.basket,
       basket2: Number(card.deliveries) >= 2 ? card.basket2 : undefined,
+      /* t454u: ручное распределение ПП1/ПП2. */
+      ppManualDist: card.sheet === "ПП" && Number(card.deliveries) >= 2 && card.ppManualDist ? "1" : "0",
       /* Пустой coef → GAS/D1 не штампует [COEF:] на старые карточки без тега. */
       coef: card.sheet === "ПП" ? coefOut : "",
       scheme: card.sheet === "ПП" ? (card.scheme || "") : "",
@@ -2290,6 +2369,7 @@
     if (parsed.n) {
       writeLineGrams_(it, parsed.n);
       if (kind === "cl-gqty-in" && view === "card" && card && card.sheet === "ПП") {
+        cardMarkManualDistIfEditing_();
         scheduleCardPpRecalc_({ basketChanged: true });
       } else if (kind === "cl-gqty-in" && (seg === "calc" || view === "card")) {
         schedulePpMessage();
@@ -2314,6 +2394,7 @@
     } else writeLineGrams_(it, next);
     if (fromPick) paintPick();
     else {
+      cardMarkManualDistIfEditing_();
       paint();
       if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
       else if (seg === "calc" || view === "card") schedulePpMessage();
@@ -2405,6 +2486,24 @@
       return true;
     }
     if (act === "cl-slot") { if (card) card.slot = Number(node.getAttribute("data-n")) || 1; paint(); return true; }
+    if (act === "cl-manual-dist") {
+      /* t454u: тумблер «Ручное распределение». */
+      if (!(card && card.sheet === "ПП")) return true;
+      var wantManual = node && node.type === "checkbox" ? !!node.checked : !card.ppManualDist;
+      if (wantManual) {
+        if (!card.ppManualDist) {
+          /* auto→manual: сначала материализуем слоты, потом правим вручную. */
+          cardMaterializeAutoSplit_({});
+          card.ppManualDist = true;
+        }
+      } else if (card.ppManualDist) {
+        /* manual→auto: сумма слотов → auto, без потери qty. */
+        cardMaterializeAutoSplit_({ forceFromSum: true });
+        card.ppManualDist = false;
+      }
+      paint();
+      return true;
+    }
     if (act === "cl-deep") { deep = !deep; paint(); return true; }
     if (act === "cl-coef") {
       applyPpCoef_(node.getAttribute("data-v"), { soft: false, fallback: PP_COEF_DEFAULT });
@@ -2457,6 +2556,7 @@
       var list = activeBasket().slice();
       list.splice(Number(node.getAttribute("data-i")), 1);
       setActiveBasket(list);
+      cardMarkManualDistIfEditing_();
       paint();
       if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });
       else schedulePpMessage();
@@ -2464,6 +2564,7 @@
     }
     if (act === "cl-clear") {
       setActiveBasket([]);
+      cardMarkManualDistIfEditing_();
       if (seg === "calc" && view !== "card") {
         price.retailDelivery = "";
         price.message = "";
@@ -2685,6 +2786,7 @@
     var list = activeBasket().slice();
     list.push({ cat: cat, main: name, name: name, sub: sub || "", val: qtyN, value: qtyN, gramManual: !pieceAsk });
     setActiveBasket(list);
+    cardMarkManualDistIfEditing_();
     sh().closeTop("ok");
     paint();
     if (view === "card" && card && card.sheet === "ПП") scheduleCardPpRecalc_({ basketChanged: true });

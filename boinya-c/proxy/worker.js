@@ -48,6 +48,11 @@ import {
 } from "./price-canon-v2.js";
 import { duplicateSheetBlocked_, planAfkPpSplit_ } from "./afk-guard.js";
 import {
+  parsePpDeliveriesN_,
+  parsePpManualDist_,
+  resolvePpPerDeliverySuggest_
+} from "./pp-per-delivery.js";
+import {
   isSheetsFinishOnly_,
   sheetsFinishOnlySkip_,
   sheetsGasAllowed_,
@@ -27483,6 +27488,8 @@ async function upsertSubscription_(params, env) {
   if (params.basket2 != null) row.basket2 = parseMaybeJson_(params.basket2);
   if (params.basketSlot2 != null) row.basket2 = parseMaybeJson_(params.basketSlot2);
   if (params.composition2 != null) row.basket2 = parseMaybeJson_(params.composition2);
+  /* t454u: ручное распределение ПП1/ПП2 (D1 row field). */
+  if (params.ppManualDist != null) row.ppManualDist = parsePpManualDist_(params.ppManualDist) ? "1" : "0";
   if (params.packCounts != null) row.packCounts = parseMaybeJson_(params.packCounts);
   if (params.basketBp1 != null) row.basketBp1 = parseMaybeJson_(params.basketBp1);
   if (params.basketBp2 != null) row.basketBp2 = parseMaybeJson_(params.basketBp2);
@@ -29678,7 +29685,8 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     return gasSuggest;
   }
 
-  const deliveriesN = Math.max(1, Number(local.deliveries) || 1);
+  /* t454u: N из deliveries; состав — resolvePpPerDeliverySuggest_ (auto/manual, без half). */
+  const deliveriesN = Math.max(1, parsePpDeliveriesN_(local.deliveries) || 1);
   const matchKey = normalizeMatchKey_(local.nick || nick);
   const asOfIso = resolveAsOfIsoD1_(params);
   const factRaw = local.factCost;
@@ -29687,7 +29695,12 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
       ? null
       : Number(String(factRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
 
-  const monthly = clonePpBasketD1_(basket);
+  const delivery1Src = clonePpBasketD1_(basket);
+  const delivery2Src =
+    deliveriesN >= 2
+      ? clonePpBasketD1_(local.basket2 || local.basketSlot2 || local.composition2 || [])
+      : [];
+  const ppManualDist = parsePpManualDist_(local.ppManualDist);
   let slot = 1;
   let suggestedSlot = 1;
   let needManualSlot = false;
@@ -29718,24 +29731,33 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     slot = picked.slot;
     suggestedSlot = picked.slot;
     if (forced >= 1 || stored >= 1) needManualSlot = false;
+  } else {
+    slot = 1;
+    suggestedSlot = 1;
+    needManualSlot = false;
+    hasAnchor = true;
   }
 
-  const proposed = proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket);
-  const remaining =
-    deliveriesN >= 2 && slot <= 1
-      ? proposePpSlotBasketD1_(monthly, 2, deliveriesN, proposed)
-      : remainderPpBasketD1_(monthly, slot1Basket.length ? slot1Basket : slot >= 2 ? proposed : []);
+  const per = resolvePpPerDeliverySuggest_({
+    basket: delivery1Src,
+    basket2: delivery2Src,
+    slot: slot,
+    deliveriesN: deliveriesN,
+    ppManualDist: ppManualDist
+  });
+  const proposed = per.proposed || [];
+  const remaining = per.remaining || [];
+  slot = Number(per.slot) || slot;
+  const outN = Number(per.deliveriesN) || deliveriesN;
 
   let askPaid = true;
-  if (deliveriesN >= 1) {
-    if (deliveriesN === 1 || slot <= 1) askPaid = true;
+  if (outN >= 1) {
+    if (outN === 1 || slot <= 1) askPaid = true;
     else askPaid = true;
   }
 
-  const hint =
-    deliveriesN <= 1
-      ? "ПП N=1 · состав целиком · d1"
-      : "ПП N=" + deliveriesN + " · слот " + slot + (needManualSlot ? " · спросить" : "") + " · d1";
+  let hint = String(per.hint || "") + " · d1";
+  if (needManualSlot && outN >= 2) hint += " · спросить слот";
 
   const suggestOut = {
     status: "success",
@@ -29748,12 +29770,12 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     phone: local.phone || "",
     date: (params && (params.date || params.deliveryDate)) || asOfIso,
     day: (params && params.day) || "",
-    deliveriesN: deliveriesN,
+    deliveriesN: outN,
     deliverySlot: slot,
-    ppSlot: formatPpSlotLabelD1_(slot, deliveriesN),
-    suggestedSlot: suggestedSlot,
-    needManualSlot: needManualSlot,
-    hasPpSlotAnchor: hasAnchor || !needManualSlot,
+    ppSlot: formatPpSlotLabelD1_(slot, outN),
+    suggestedSlot: outN <= 1 ? 1 : suggestedSlot,
+    needManualSlot: outN >= 2 ? needManualSlot : false,
+    hasPpSlotAnchor: outN <= 1 ? true : hasAnchor || !needManualSlot,
     everSeenInApp: true,
     daysSinceLastDelivery: prior.lastDate ? null : null,
     lastSlot: prior.lastSlot || 0,
@@ -29761,10 +29783,16 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     paid: null,
     askPaid: askPaid,
     factCost: factCost,
-    monthlyBasket: monthly,
+    monthlyBasket: delivery1Src,
+    delivery1Basket: per.delivery1 || delivery1Src,
+    delivery2Basket: outN >= 2 ? per.delivery2 || [] : [],
     proposedBasket: proposed,
     slot1Basket: slot1Basket,
     remainingBasket: remaining,
+    legacyNoBasket2: outN >= 2 ? !!per.legacyNoBasket2 : false,
+    needManualComposition: !!per.needManualComposition,
+    compositionSource: per.compositionSource || "",
+    ppManualDist: !!per.ppManualDist,
     hint: hint,
     cutover: true,
     fromD1: true,

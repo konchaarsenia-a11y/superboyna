@@ -1726,6 +1726,203 @@
       return out;
     }
 
+    /* t454u: UI-копия pp-per-delivery (авто N2 + manual). */
+    function ppCloneRowWithQtyUi_(it, qty) {
+      var src = it || {};
+      var row = {};
+      Object.keys(src).forEach(function (k) {
+        if (k === "value" || k === "val") return;
+        var v = src[k];
+        if (Array.isArray(v)) {
+          row[k] = v.map(function (x) {
+            return x && typeof x === "object" ? Object.assign({}, x) : x;
+          });
+        } else row[k] = v;
+      });
+      var q = Number(qty) || 0;
+      row.cat = src.cat || "";
+      row.main = src.main || src.name || "";
+      row.name = src.name || src.main || "";
+      row.sub = src.sub || "";
+      row.value = q;
+      row.val = q;
+      return row;
+    }
+    function ppBasketItemKeyUi_(it) {
+      return String((it && it.cat) || "").trim().toLowerCase() + "|" +
+        String((it && (it.main || it.name)) || "").trim().toUpperCase() + "|" +
+        String((it && it.sub) || "").trim().toUpperCase();
+    }
+    function ppBasketHasQtyUi_(list) {
+      for (var i = 0; i < (list || []).length; i++) {
+        if ((Number(list[i].value != null ? list[i].value : list[i].val) || 0) > 0) return true;
+      }
+      return false;
+    }
+    function isPpChewItemUi_(it) {
+      var cat = String((it && it.cat) || "").toLowerCase();
+      if (cat === "chews" || cat === "chew") return true;
+      if (cat === "dressura") return false;
+      return /шт\.?|колен|копыт|нос|ухо|уши|шея|хрящ|лоп|хвост|рога?|сустав|быч|трахе|аорт|станова|переп|губ|утин/i.test(
+        String((it && (it.main || it.name)) || "")
+      );
+    }
+    function splitQtyForPpSlotUi_(qty, isChew, slot) {
+      var v = Number(qty) || 0;
+      if (v <= 0) return 0;
+      void isChew; /* t454u: слот1 ceil — нечёт +1 в первую */
+      var first = Math.ceil(v / 2);
+      if (slot <= 1) return first;
+      return Math.max(0, v - first);
+    }
+    function ppQtyMapUi_(list) {
+      var m = Object.create(null);
+      (list || []).forEach(function (it) {
+        var v = Number(it.value != null ? it.value : it.val) || 0;
+        if (v <= 0) return;
+        var k = ppBasketItemKeyUi_(it);
+        m[k] = (m[k] || 0) + v;
+      });
+      return m;
+    }
+    function ppQtyMapsEqualUi_(a, b) {
+      var ka = Object.keys(a || {}).sort();
+      var kb = Object.keys(b || {}).sort();
+      if (ka.length !== kb.length) return false;
+      for (var i = 0; i < ka.length; i++) {
+        if (ka[i] !== kb[i] || (a[ka[i]] || 0) !== (b[ka[i]] || 0)) return false;
+      }
+      return true;
+    }
+    function ppMergeBasketsAsMonthlyUi_(basket, basket2) {
+      var map = Object.create(null);
+      var meta = Object.create(null);
+      function add(list) {
+        (list || []).forEach(function (it) {
+          var v = Number(it.value != null ? it.value : it.val) || 0;
+          if (v <= 0) return;
+          var k = ppBasketItemKeyUi_(it);
+          map[k] = (map[k] || 0) + v;
+          if (!meta[k]) meta[k] = it;
+        });
+      }
+      add(basket);
+      add(basket2);
+      return Object.keys(map).map(function (k) {
+        return ppCloneRowWithQtyUi_(meta[k], map[k]);
+      });
+    }
+    function splitMonthlyBasketToTwoDeliveriesUi_(monthly) {
+      var full = [];
+      (monthly || []).forEach(function (it) {
+        var v = Number(it.value != null ? it.value : it.val) || 0;
+        if (v > 0) full.push(ppCloneRowWithQtyUi_(it, v));
+      });
+      var delivery1 = [];
+      var delivery2 = [];
+      for (var i = 0; i < full.length; i++) {
+        var it = full[i];
+        var chew = isPpChewItemUi_(it);
+        var q1 = splitQtyForPpSlotUi_(it.value, chew, 1);
+        var q2 = splitQtyForPpSlotUi_(it.value, chew, 2);
+        if (q1 + q2 !== Number(it.value)) {
+          return { ok: false, reason: "qty_split_mismatch", value: it.value, q1: q1, q2: q2 };
+        }
+        if (q1 > 0) delivery1.push(ppCloneRowWithQtyUi_(it, q1));
+        if (q2 > 0) delivery2.push(ppCloneRowWithQtyUi_(it, q2));
+      }
+      return { ok: true, delivery1: delivery1, delivery2: delivery2, monthly: full };
+    }
+    function parsePpManualDistUi_(raw) {
+      if (raw === true || raw === 1 || raw === "1") return true;
+      if (raw === false || raw === 0 || raw === "0" || raw == null || raw === "") return false;
+      var s = String(raw).trim().toLowerCase();
+      return s === "1" || s === "true" || s === "yes" || s === "on";
+    }
+    function inferPpManualDistributionUi_(opts) {
+      opts = opts || {};
+      if (parsePpManualDistUi_(opts.ppManualDist)) return true;
+      var n = Math.round(Number(opts.deliveriesN) || 0);
+      if (n < 2) return false;
+      var b1 = opts.basket || [];
+      var b2 = opts.basket2 || [];
+      if (!ppBasketHasQtyUi_(b2)) return false;
+      var monthly = ppMergeBasketsAsMonthlyUi_(b1, b2);
+      var split = splitMonthlyBasketToTwoDeliveriesUi_(monthly);
+      if (!split.ok) return true;
+      if (!ppQtyMapsEqualUi_(ppQtyMapUi_(b1), ppQtyMapUi_(split.delivery1))) return true;
+      if (!ppQtyMapsEqualUi_(ppQtyMapUi_(b2), ppQtyMapUi_(split.delivery2))) return true;
+      return false;
+    }
+    function materializePpAutoSplitUi_(opts) {
+      opts = opts || {};
+      var n = Math.round(Number(opts.deliveriesN) || 0);
+      var b1 = (opts.basket || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      var b2 = (opts.basket2 || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      if (n < 2) {
+        return { ok: true, skipped: true, reason: "n1", delivery1: b1, delivery2: [], ppManualDist: false };
+      }
+      if (!opts.forceFromSum && ppBasketHasQtyUi_(b2) && !parsePpManualDistUi_(opts.ppManualDist)) {
+        return { ok: true, skipped: true, reason: "already_split", delivery1: b1, delivery2: b2, ppManualDist: false };
+      }
+      var monthly = opts.forceFromSum || ppBasketHasQtyUi_(b2) ? ppMergeBasketsAsMonthlyUi_(b1, b2) : b1;
+      var split = splitMonthlyBasketToTwoDeliveriesUi_(monthly);
+      if (!split.ok) return { ok: false, reason: split.reason || "split_fail", detail: split };
+      return { ok: true, skipped: false, delivery1: split.delivery1, delivery2: split.delivery2, monthly: split.monthly, ppManualDist: false };
+    }
+    function resolvePpPerDeliverySuggestUi_(opts) {
+      opts = opts || {};
+      var n = Math.max(1, Math.round(Number(opts.deliveriesN) || 1));
+      var slot = n <= 1 ? 1 : Math.max(1, Number(opts.slot) || 1);
+      var delivery1In = (opts.basket || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      var delivery2In = n >= 2 ? (opts.basket2 || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; }) : [];
+      var has2 = ppBasketHasQtyUi_(delivery2In);
+      var manual = n >= 2 && inferPpManualDistributionUi_(opts);
+      if (n <= 1) {
+        return {
+          proposed: delivery1In, remaining: [], delivery1: delivery1In, delivery2: [],
+          deliveriesN: 1, slot: 1, legacyNoBasket2: false, needManualComposition: false,
+          ppManualDist: false, compositionSource: "n1-whole"
+        };
+      }
+      var delivery1 = delivery1In;
+      var delivery2 = delivery2In;
+      var source = has2 ? (manual ? "per-delivery-manual" : "per-delivery") : "n2-auto-split";
+      if (!has2) {
+        var split = splitMonthlyBasketToTwoDeliveriesUi_(delivery1In);
+        if (!split.ok) {
+          return {
+            proposed: [], remaining: [], delivery1: delivery1In, delivery2: [],
+            deliveriesN: n, slot: slot, legacyNoBasket2: true, needManualComposition: true,
+            ppManualDist: false, compositionSource: "n2-auto-split-fail"
+          };
+        }
+        delivery1 = split.delivery1;
+        delivery2 = split.delivery2;
+        source = "n2-auto-split";
+      }
+      if (slot <= 1) {
+        return {
+          proposed: delivery1, remaining: delivery2, delivery1: delivery1, delivery2: delivery2,
+          deliveriesN: n, slot: 1, legacyNoBasket2: !has2, needManualComposition: false,
+          ppManualDist: manual, compositionSource: source
+        };
+      }
+      return {
+        proposed: delivery2, remaining: [], delivery1: delivery1, delivery2: delivery2,
+        deliveriesN: n, slot: 2, legacyNoBasket2: !has2, needManualComposition: false,
+        ppManualDist: manual, compositionSource: source
+      };
+    }
+
     function currentPpSlotPayload_() {
       if (orderType !== "pp") return { deliverySlot: "", ppSlot: "", deliveriesN: "" };
       var slot = ppDeliverySlotManual;
@@ -1821,6 +2018,18 @@
     isCrumbBasketItemUi_: isCrumbBasketItemUi_,
     crumbBasketDisplayMain_: crumbBasketDisplayMain_,
     crumbBasketSubLabel_: crumbBasketSubLabel_,
+    /* t454u: зеркало proxy/pp-per-delivery.js для карточки (без ESM import). */
+    ppCloneRowWithQty_: ppCloneRowWithQtyUi_,
+    ppBasketItemKey_: ppBasketItemKeyUi_,
+    ppBasketHasQty_: ppBasketHasQtyUi_,
+    isPpChewItem_: isPpChewItemUi_,
+    splitQtyForPpSlot_: splitQtyForPpSlotUi_,
+    splitMonthlyBasketToTwoDeliveries_: splitMonthlyBasketToTwoDeliveriesUi_,
+    ppMergeBasketsAsMonthly_: ppMergeBasketsAsMonthlyUi_,
+    parsePpManualDist_: parsePpManualDistUi_,
+    inferPpManualDistribution_: inferPpManualDistributionUi_,
+    materializePpAutoSplit_: materializePpAutoSplitUi_,
+    resolvePpPerDeliverySuggest_: resolvePpPerDeliverySuggestUi_,
     PRICE_RETAIL_DELIVERY_BYN: function () { return PRICE_RETAIL_DELIVERY_BYN; },
     PRICE_RETAIL_FREE_FROM: function () { return PRICE_RETAIL_FREE_FROM; },
     MINSK_CENTER: { lat: 53.9023, lon: 27.5619 },
