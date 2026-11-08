@@ -71,3 +71,5 @@ jobs:
         run: node --test boinya-c/next/pp-n2-monthly-sum.test.mjs
       - name: PP picker Целое/Крупное map
         run: node --test boinya-c/next/pp-n2-picker-map.test.mjs
+      - name: PP N2 auto-split + manual toggle
+        run: node --test boinya-c/next/pp-n2-oneshot-split.test.mjs boinya-c/proxy/pp-per-delivery.test.mjs
