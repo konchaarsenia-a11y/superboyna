@@ -83,7 +83,31 @@ function boot(card) {
     unitForItem: function (cat) { return cat === "chew" ? "шт" : "гр"; },
     prettyProductName: function (name) { return String(name || ""); },
     catalogItemsForUi_: function () { return []; },
-    catalogFractionsForUi_: function () { return []; }
+    catalogFractionsForUi_: function () { return []; },
+    /* t454u stubs: keep existing slots; no throw in openCard paint path */
+    parsePpManualDist_: function (raw) {
+      return raw === true || raw === 1 || raw === "1";
+    },
+    inferPpManualDistribution_: function (opts) {
+      opts = opts || {};
+      if (opts.ppManualDist === true || opts.ppManualDist === "1" || opts.ppManualDist === 1) return true;
+      var b2 = opts.basket2 || [];
+      for (var i = 0; i < b2.length; i++) {
+        if ((Number(b2[i].value != null ? b2[i].value : b2[i].val) || 0) > 0) return true;
+      }
+      return false;
+    },
+    materializePpAutoSplit_: function (opts) {
+      opts = opts || {};
+      return {
+        ok: true,
+        skipped: true,
+        reason: "test-stub",
+        delivery1: (opts.basket || []).slice(),
+        delivery2: (opts.basket2 || []).slice(),
+        ppManualDist: false
+      };
+    }
   };
   vm.runInNewContext(fs.readFileSync(path.resolve(here, "access.js"), "utf8"), sandbox, { filename: "access.js" });
   sandbox.window.BoinyaPrice = {

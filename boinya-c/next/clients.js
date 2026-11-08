@@ -1479,7 +1479,9 @@
   /** t454u: уже разные слоты или явный флаг → manual; не сбрасывать при открытии. */
   function cardInferManualDist_() {
     if (!(card && card.sheet === "ПП")) return false;
-    return !!eng().inferPpManualDistribution_({
+    var e = eng();
+    if (!e || typeof e.inferPpManualDistribution_ !== "function") return !!card.ppManualDist;
+    return !!e.inferPpManualDistribution_({
       deliveriesN: card.deliveries,
       basket: card.basket,
       basket2: card.basket2,
@@ -1496,7 +1498,9 @@
     if (!(card && card.sheet === "ПП")) return false;
     var n = monthN(card.deliveries || 1);
     if (n < 2) return false;
-    var mat = eng().materializePpAutoSplit_({
+    var e = eng();
+    if (!e || typeof e.materializePpAutoSplit_ !== "function") return false;
+    var mat = e.materializePpAutoSplit_({
       deliveriesN: n,
       basket: card.basket,
       basket2: card.basket2,
@@ -2041,8 +2045,8 @@
       ? card.basketBp2.map(function (it) { return Object.assign({}, it); })
       : null;
     /* t454u: явный флаг или unequal slots → manual; иначе auto-materialize in-memory. */
-    card.ppManualDist = !!eng().parsePpManualDist_(res.ppManualDist);
-    cardApplyPpDistOnOpen_();
+    card.ppManualDist = !!(eng().parsePpManualDist_ && eng().parsePpManualDist_(res.ppManualDist));
+    try { cardApplyPpDistOnOpen_(); } catch (eDist) { /* stub/eng без t454u — карточку всё равно рисуем */ }
     if (card.sheet === "БП" || String(sheet || "") === "БП") {
       if (!card.basketBp1.length && card.basket.length) card.basketBp1 = card.basket.slice();
     }
