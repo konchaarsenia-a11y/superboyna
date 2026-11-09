@@ -326,7 +326,8 @@
       fracs: [
         { sku: "СТАНОВАЯ ЖИЛА / БОЛ", skuId: "ZHILA_L", label: "БОЛ", share: 1, top: true },
         { sku: "СТАНОВАЯ ЖИЛА / СРЕД", skuId: "ZHILA_M", label: "СРЕД", share: 0.5 },
-        { sku: "СТАНОВАЯ ЖИЛА / ПАЛК", skuId: "ZHILA_PALK", label: "ПАЛК", share: 0.25 }
+        /* t496: палочка = 1/8 целой (4 палки из половинки), не 1/4. */
+        { sku: "СТАНОВАЯ ЖИЛА / ПАЛК", skuId: "ZHILA_PALK", label: "ПАЛК", share: 0.125 }
       ]
     },
     {
