@@ -500,7 +500,8 @@
           pcsPerKg: cur && (cur.pcsPerKg != null ? cur.pcsPerKg : cur.pcs_per_kg != null ? cur.pcs_per_kg : null),
           shrinkPct: null,
           shrink: null,
-          effectiveFrom: cur ? (cur.effectiveFrom || cur.effective_from) : today,
+          /* t501: дата новой записи = сегодня; не подставлять seed/старый effective_from в инпут. */
+          effectiveFrom: today,
           builtin: null,
           history: picked.hist,
           batches: [],
@@ -960,7 +961,7 @@
     show: show,
     refreshQuiet: refreshQuiet,
     onAct: onAct,
-    /* t496: pure helpers для unit-теста diff/confirm. */
+    /* t496/t501: pure helpers для unit-теста diff/confirm/даты фракций. */
     _rcTest: {
       normField: rcNormField_,
       makeSnap: rcMakeSnap_,
@@ -970,7 +971,8 @@
       confirmText: rcConfirmText_,
       cost100: cost100FromKgShrinkUi_,
       costPiece: costPieceFromKgPcsUi_,
-      chewGroups: CHEW_FRAC_GROUPS_
+      chewGroups: CHEW_FRAC_GROUPS_,
+      expandChew: expandChewFracItems_
     }
   };
 })(typeof window !== "undefined" ? window : globalThis);
