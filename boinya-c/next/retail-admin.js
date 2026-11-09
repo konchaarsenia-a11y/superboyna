@@ -287,11 +287,152 @@
     return String(Math.round(((a * w) / n) * 10000) / 10000);
   }
 
+  /* t495: норма имени для матча родитель↔фракция. */
+  function rcNormSku_(s) {
+    return String(s || "")
+      .trim()
+      .toUpperCase()
+      .replace(/Ё/g, "Е")
+      .replace(/\s+/g, " ");
+  }
+
+  /* t495: канон долей жевалок; UI-строки с sku_id для saveRawCost/costs-map. */
+  var CHEW_FRAC_GROUPS_ = [
+    {
+      parent: "БЫЧИЙ КОРЕНЬ",
+      family: "koren",
+      fracs: [
+        { sku: "БЫЧИЙ КОРЕНЬ / ОГР", skuId: "KOREN_XL", label: "ОГР", share: 1, top: true },
+        { sku: "БЫЧИЙ КОРЕНЬ / БОЛ", skuId: "KOREN_L", label: "БОЛ", share: 0.5 },
+        { sku: "БЫЧИЙ КОРЕНЬ / СРЕД", skuId: "KOREN_M", label: "СРЕД", share: 0.25 },
+        { sku: "БЫЧИЙ КОРЕНЬ / МАЛ", skuId: "KOREN_S", label: "МАЛ", share: 0.125 },
+        { sku: "БЫЧИЙ КОРЕНЬ / ОЧ МАЛ", skuId: "KOREN_XS", label: "ОЧ МАЛ", share: 0.0625 }
+      ]
+    },
+    {
+      parent: "ТРАХЕЯ",
+      family: "traheya",
+      fracs: [
+        { sku: "ТРАХЕЯ / ОГР", skuId: "TRAHEYA_XL", label: "ОГР", share: 1, top: true },
+        { sku: "ТРАХЕЯ / БОЛ", skuId: "TRAHEYA_L", label: "БОЛ", share: 0.5 },
+        { sku: "ТРАХЕЯ / СРЕД", skuId: "TRAHEYA_M", label: "СРЕД", share: 0.25 },
+        { sku: "ТРАХЕЯ / ПЛАСТ", skuId: "TRAHEYA_PLAST", label: "ПЛАСТ", share: 0.25 },
+        { sku: "ТРАХЕЯ / МАЛ", skuId: "TRAHEYA_S", label: "МАЛ", share: 0.125 }
+      ]
+    },
+    {
+      parent: "СТАНОВАЯ ЖИЛА",
+      family: "zhila",
+      fracs: [
+        { sku: "СТАНОВАЯ ЖИЛА / БОЛ", skuId: "ZHILA_L", label: "БОЛ", share: 1, top: true },
+        { sku: "СТАНОВАЯ ЖИЛА / СРЕД", skuId: "ZHILA_M", label: "СРЕД", share: 0.5 },
+        { sku: "СТАНОВАЯ ЖИЛА / ПАЛК", skuId: "ZHILA_PALK", label: "ПАЛК", share: 0.25 }
+      ]
+    },
+    {
+      parent: "АОРТА",
+      family: "aorta",
+      fracs: [
+        { sku: "АОРТА", skuId: "AORTA", label: "целая", share: 1, top: true },
+        { sku: "АОРТА / ПОЛОВИНКА", skuId: "AORTA_HALF", label: "ПОЛОВИНКА", share: 0.5 }
+      ]
+    },
+    {
+      parent: "УХО Г",
+      family: "uho_g",
+      fracs: [
+        { sku: "УХО Г", skuId: "UHO_G", label: "целое", share: 1, top: true },
+        { sku: "УХО Г / ПОЛОВИНКА", skuId: "UHO_G_HALF", label: "ПОЛОВИНКА", share: 0.5 }
+      ]
+    }
+  ];
+
+  /* t495: селектор атрибута с «/» в sku. */
+  function rcAttrSel_(attr, val) {
+    return "[" + attr + '="' + String(val || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+  }
+
+  /* t495: актуальная версия + история по sku_id (fallback по имени). */
+  function rcPickFracVer_(versions, skuId, skuLabel, today) {
+    var best = null;
+    var hist = [];
+    var want = rcNormSku_(skuLabel);
+    (versions || []).forEach(function (v) {
+      if (!v) return;
+      var id = String(v.sku_id || v.skuId || "").trim();
+      var nm = rcNormSku_(v.sku);
+      if (!((skuId && id === skuId) || nm === want)) return;
+      hist.push(v);
+      var from = String(v.effectiveFrom || v.effective_from || "").slice(0, 10);
+      if (from && from <= today && (!best || from >= String(best.effectiveFrom || best.effective_from || ""))) {
+        best = v;
+      }
+    });
+    return { cur: best, hist: hist };
+  }
+
+  /* t495: родитель без sku_id → заголовок + строки фракций; УХО К не трогаем. */
+  function expandChewFracItems_(items, versions) {
+    var today = new Date().toISOString().slice(0, 10);
+    var byParent = Object.create(null);
+    CHEW_FRAC_GROUPS_.forEach(function (g) {
+      byParent[rcNormSku_(g.parent)] = g;
+    });
+    var out = [];
+    (items || []).forEach(function (it) {
+      var g = byParent[rcNormSku_(it && it.sku)];
+      if (!g) {
+        out.push(it);
+        return;
+      }
+      /* t495: общая строка без ввода — только метка группы. */
+      out.push({
+        headerOnly: true,
+        sku: g.parent,
+        family: g.family,
+        note: "фракции по sku_id · шт/кг нижних = шт/кг высшей ÷ доля"
+      });
+      g.fracs.forEach(function (fr) {
+        var picked = rcPickFracVer_(versions, fr.skuId, fr.sku, today);
+        var cur = picked.cur;
+        out.push({
+          sku: fr.sku,
+          skuId: fr.skuId,
+          piece: true,
+          family: g.family,
+          share: fr.share,
+          top: !!fr.top,
+          fracLabel: fr.label,
+          cost: cur && cur.cost != null ? cur.cost : null,
+          costKg: cur && (cur.costKg != null ? cur.costKg : cur.cost_kg != null ? cur.cost_kg : null),
+          pcsPerKg: cur && (cur.pcsPerKg != null ? cur.pcsPerKg : cur.pcs_per_kg != null ? cur.pcs_per_kg : null),
+          shrinkPct: null,
+          shrink: null,
+          effectiveFrom: cur ? (cur.effectiveFrom || cur.effective_from) : today,
+          builtin: null,
+          history: picked.hist,
+          batches: [],
+          batchAvg: null,
+          batchPcsPerKg: null,
+          lastBatchCost: null,
+          lastBatchPcsPerKg: null,
+          calcCost: cur && cur.cost != null ? cur.cost : null
+        });
+      });
+    });
+    return out;
+  }
+
   function costRows(items, note) {
     var box = document.getElementById("rawCostAdmin");
     if (!box || !isOwner()) return;
     var today = new Date().toISOString().slice(0, 10);
     var rows = (items || []).map(function (it) {
+      /* t495: заголовок группы жевалок без полей ввода. */
+      if (it && it.headerOnly) {
+        return '<div class="nx-line" style="align-items:flex-start;flex-wrap:wrap;margin-top:10px" data-rc-header="' + esc(it.family || "") + '">' +
+          '<div class="b-grow"><b>' + esc(it.sku) + '</b><div class="b-note">' + esc(it.note || "фракции") + "</div></div></div>";
+      }
       var piece = !!it.piece;
       var costVal = it.cost == null || it.cost === "" ? "" : String(it.cost);
       var kgVal = it.costKg == null || it.costKg === "" ? "" : String(it.costKg);
@@ -305,11 +446,18 @@
         if (h.pcsPerKg != null && h.pcsPerKg !== "") extra += ", шт/кг " + h.pcsPerKg;
         if (h.shrinkPct != null && h.shrinkPct !== "") extra += ", усушка " + h.shrinkPct + "%";
         if (!extra && h.shrink != null && h.shrink !== "") extra = ", выход " + h.shrink;
-        return String(h.effectiveFrom || "").slice(0, 10) + " · " + c + extra;
+        return String(h.effectiveFrom || h.effective_from || "").slice(0, 10) + " · " + c + extra;
       }).join("; ");
-      var builtin = it.builtin == null || it.builtin === "" ? "в таблице пусто" : ("в коде " + it.builtin);
+      var builtin = it.builtin == null || it.builtin === ""
+        ? (it.skuId ? ("sku_id " + it.skuId) : "в таблице пусто")
+        : ("в коде " + it.builtin);
+      if (it.fracLabel) builtin += " · " + it.fracLabel + (it.share != null ? (" ×" + it.share) : "");
       var inputs;
       var batchBlock = "";
+      var famAttrs = (it.family
+        ? (' data-rc-family="' + esc(it.family) + '" data-rc-share="' + esc(String(it.share == null ? "" : it.share)) + '"' +
+          (it.top ? ' data-rc-top="1"' : ""))
+        : "");
       if (piece) {
         /* chew-pcs-kg: ввод цена/кг + шт/кг → себес; партии — сравнение. */
         var piecePreview = kgVal !== "" && pcsKgVal !== "" ? costPieceFromKgPcsUi_(kgVal, pcsKgVal) : costVal;
@@ -319,6 +467,7 @@
         if (it.batchPcsPerKg != null) hintParts.push("факт шт/кг " + it.batchPcsPerKg);
         if (it.lastBatchCost != null) hintParts.push("партия " + it.lastBatchCost + "/шт");
         if (it.batchAvg != null) hintParts.push("ср. партий " + it.batchAvg);
+        if (it.top) hintParts.push("высшая: шт/кг нижних = это ÷ доля");
         var avgNote = hintParts.join(" · ");
         var batHist = (it.batches || []).map(function (b) {
           return String(b.batchDate || "").slice(0, 10) + " · " + b.costPiece + "/шт (" + b.costKg + "×" + b.weightKg + "/" + b.pieces + ")";
@@ -350,7 +499,7 @@
           '<label class="b-field" style="width:138px;flex:none"><input class="b-field__input" type="date" data-rc-sku="' + esc(it.sku) + '" data-rc-field="from" value="' + esc(String(it.effectiveFrom || today).slice(0, 10)) + '"></label>' +
           '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="rc-save" data-sku="' + esc(it.sku) + '">Внести</button>';
       }
-      return '<div class="nx-line" style="align-items:flex-start;flex-wrap:wrap" data-rc-row="' + esc(it.sku) + '" data-rc-piece="' + (piece ? "1" : "0") + '" data-rc-sku-id="' + esc(it.skuId || "") + '">' +
+      return '<div class="nx-line" style="align-items:flex-start;flex-wrap:wrap" data-rc-row="' + esc(it.sku) + '" data-rc-piece="' + (piece ? "1" : "0") + '" data-rc-sku-id="' + esc(it.skuId || "") + '"' + famAttrs + ">" +
         '<div class="b-grow"><b>' + esc(it.sku) + '</b><div class="b-note">' + esc(builtin) + (piece ? " · шт" : " · г") + "</div>" +
         (hist ? '<div class="b-note">версии: ' + esc(hist) + "</div>" : "") +
         "</div>" +
@@ -362,7 +511,8 @@
       '<p class="b-note">Единый канон D1 (sku_id). Google-книга прайса на расчёт не влияет. Новая версия — с даты; карточки не переписываем.</p>' +
       '<p class="b-note">' + esc(note || "") + "</p>" +
       /* chew-pcs-kg: цена/кг + шт/кг → себес; партии не меняют шт/кг. */
-      '<p class="b-note">Граммы: BYN/кг + усушка % → 100 г. Штуки: BYN/кг + среднее шт/кг → себес/шт. Партии — сравнение (себес партии и факт шт/кг), автоматически шт/кг не перезаписывают. Старые версии и цены клиентов не трогаем.</p>' +
+      /* t495: фракции жевалок — отдельные строки; автозаполнение шт/кг не сохраняет само. */
+      '<p class="b-note">Граммы: BYN/кг + усушка % → 100 г. Штуки: BYN/кг + среднее шт/кг → себес/шт. Жевалки — по фракциям (sku_id); у высшей шт/кг заполняет нижние ÷ доля, «Внести» по строке. Партии — сравнение, шт/кг руками не перезаписывают. Старые версии и цены клиентов не трогаем.</p>' +
       '<button type="button" class="b-btn b-btn--main" data-act="rc-publish" style="margin:8px 0">Обновить прайс</button>' +
       (rows || '<p class="b-note">Пусто</p>');
     /* raw-kg-shrink + chew-pcs-kg: живой пересчёт 100г / себес шт / партии. */
@@ -374,26 +524,61 @@
       if (!sku) return;
       var f = costFields(sku);
       if (field === "costKg" || field === "shrinkPct") {
-        var out = box.querySelector('[data-rc-out="' + sku.replace(/"/g, "") + '"]');
-        if (out) {
+        var outEl = box.querySelector(rcAttrSel_("data-rc-out", sku));
+        if (outEl) {
           var v = cost100FromKgShrinkUi_(f.costKg, f.shrinkPct);
-          out.innerHTML = "100г: <b>" + esc(v || "—") + "</b>";
+          outEl.innerHTML = "100г: <b>" + esc(v || "—") + "</b>";
         }
       }
       if (field === "costKg" || field === "pcsPerKg") {
-        var pout = box.querySelector('[data-rc-pout="' + sku.replace(/"/g, "") + '"]');
+        var pout = box.querySelector(rcAttrSel_("data-rc-pout", sku));
         if (pout) {
           var pv = costPieceFromKgPcsUi_(f.costKg, f.pcsPerKg);
           pout.innerHTML = "шт: <b>" + esc(pv || "—") + "</b>";
         }
+        /* t495: высшая фракция → подсказка кг/шт/кг нижним (без save). */
+        var row = box.querySelector(rcAttrSel_("data-rc-row", sku));
+        if (row && row.getAttribute("data-rc-top") === "1" && (field === "pcsPerKg" || field === "costKg")) {
+          fillChewFracFromTop_(box, row, f);
+        }
       }
       if (field === "batchKg" || field === "batchWeight" || field === "batchPcs") {
-        var bout = box.querySelector('[data-rc-bout="' + sku.replace(/"/g, "") + '"]');
+        var bout = box.querySelector(rcAttrSel_("data-rc-bout", sku));
         if (!bout) return;
         var bp = costPieceFromBatchUi_(f.batchKg, f.batchWeight, f.batchPcs);
         bout.innerHTML = "партия: <b>" + esc(bp || "—") + "</b>";
       }
     };
+  }
+
+  /* t495: кг копируем; шт/кг = шт_высшей / доля; save только по «Внести». */
+  function fillChewFracFromTop_(box, topRow, topFields) {
+    var family = topRow.getAttribute("data-rc-family") || "";
+    if (!family) return;
+    var topKg = topFields.costKg;
+    var topPcs = Number(String(topFields.pcsPerKg == null ? "" : topFields.pcsPerKg).replace(",", "."));
+    var nodes = box.querySelectorAll('[data-rc-family="' + family.replace(/"/g, "") + '"]');
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      var row = nodes[i];
+      if (row.getAttribute("data-rc-top") === "1") continue;
+      var share = Number(row.getAttribute("data-rc-share"));
+      if (!(share > 0)) continue;
+      var sku = row.getAttribute("data-rc-row");
+      if (!sku) continue;
+      var kgInp = row.querySelector('[data-rc-field="costKg"]');
+      var pcsInp = row.querySelector('[data-rc-field="pcsPerKg"]');
+      if (kgInp && topKg != null && String(topKg) !== "") kgInp.value = String(topKg);
+      if (pcsInp && isFinite(topPcs) && topPcs > 0) {
+        pcsInp.value = String(Math.round((topPcs / share) * 10000) / 10000);
+      }
+      var pout = box.querySelector(rcAttrSel_("data-rc-pout", sku));
+      if (pout) {
+        var ff = costFields(sku);
+        var pv2 = costPieceFromKgPcsUi_(ff.costKg, ff.pcsPerKg);
+        pout.innerHTML = "шт: <b>" + esc(pv2 || "—") + "</b>";
+      }
+    }
   }
 
   async function loadRawCosts() {
@@ -408,13 +593,14 @@
       box.innerHTML = '<p class="b-lbl" style="margin-top:0">Себес сырья</p><p class="b-note">Не загрузился.</p>';
       return;
     }
-    costRows(res.items || [], res.shrinkNote || "");
+    /* t495: развернуть родителей жевалок в строки фракций. */
+    costRows(expandChewFracItems_(res.items || [], res.versions || []), res.shrinkNote || "");
   }
 
   function costFields(sku) {
     /* chew-pcs-kg: costKg+pcsPerKg для calc; batch* — статистика партий. */
     var out = { cost: "", shrink: "", costKg: "", shrinkPct: "", pcsPerKg: "", from: "", piece: false, batchKg: "", batchWeight: "", batchPcs: "", skuId: "" };
-    var row = document.querySelector('[data-rc-row="' + String(sku || "").replace(/"/g, "") + '"]');
+    var row = document.querySelector(rcAttrSel_("data-rc-row", sku));
     if (row && row.getAttribute("data-rc-piece") === "1") out.piece = true;
     if (row) out.skuId = row.getAttribute("data-rc-sku-id") || "";
     var nodes = document.querySelectorAll("[data-rc-sku]");
@@ -438,6 +624,8 @@
       sku: sku,
       effectiveFrom: f.from
     };
+    /* t495: явный sku_id фракции → costs-map. */
+    if (f.skuId) body.skuId = f.skuId;
     /* chew-pcs-kg: штуки — кг + шт/кг; граммы — кг+%. */
     if (f.piece) {
       body.costKg = f.costKg;
