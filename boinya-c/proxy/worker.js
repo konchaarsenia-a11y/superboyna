@@ -63,6 +63,9 @@ import {
   summarizeWeekCloseSheets_
 } from "./week-close-sheets.js";
 import {
+  moveShouldRetireKeepPkSource_,
+  moveTwinScanDates_,
+  moveTwinScanDays_,
   orderMoveIsInPlace_,
   orderNickRenameIsInPlace_,
   planClientNickRenameKeep_,
@@ -15983,6 +15986,12 @@ async function moveClient_(params, env) {
         )
           .bind(now, moveNewId, row.id)
           .run();
+        // t502: deleted target PK still occupies id — DROP so in-place rename can proceed
+        await env.DB.prepare(
+          "DELETE FROM orders WHERE id = ? AND id != ? AND status = 'deleted'"
+        )
+          .bind(moveNewId, row.id)
+          .run();
       }
     } catch (eClash) {}
     try {
@@ -16006,6 +16015,12 @@ async function moveClient_(params, env) {
           "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND id != ? AND status = 'active'"
         )
           .bind(now, moveNewId, row.id)
+          .run();
+        // t502: retry path — clear deleted target PK before second rename attempt
+        await env.DB.prepare(
+          "DELETE FROM orders WHERE id = ? AND id != ? AND status = 'deleted'"
+        )
+          .bind(moveNewId, row.id)
           .run();
       } catch (eClash2) {}
       try {
@@ -16107,8 +16122,9 @@ async function moveClient_(params, env) {
         (info2 && info2.iso) ||
         coerceDateIso_(row.date_iso) ||
         "";
+      const canonId = newDay + ":" + matchKey;
       await upsertOrderRow_(env, {
-        id: newDay + ":" + matchKey,
+        id: canonId,
         date_iso: iso2,
         day_name: newDay,
         client: row.client,
@@ -16123,6 +16139,16 @@ async function moveClient_(params, env) {
         updated_at: new Date().toISOString(),
         meta_json: JSON.stringify(meta)
       });
+      // t502: keep-PK fallback left source id recolored — retire it after canonical upsert
+      if (moveShouldRetireKeepPkSource_(row.id, canonId)) {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active' AND id != ?"
+          )
+            .bind(new Date().toISOString(), row.id, canonId)
+            .run();
+        } catch (eRetireKp) {}
+      }
       await putMoveArriveProtect_(env, newDay, matchKey, clearName);
       await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
     } catch (eFinal) {}
@@ -16134,11 +16160,12 @@ async function moveClient_(params, env) {
       : newDate
         ? "CAL:" + matchKey + ":" + newDate
         : "";
+    // t502: twins on newDay/newDate after keep-PK recolor (confettins Суббота→Вторник)
     await retireSameDeliveryTwins_(env, {
       matchKey: matchKey,
       client: clearName || client,
-      fromDays: fromDays,
-      dates: [oldDate, row.date_iso],
+      fromDays: moveTwinScanDays_(fromDays, newDay),
+      dates: moveTwinScanDates_(oldDate, row.date_iso, newDate, moveIso),
       keepId: keepMoveId
     });
   } catch (eTwinMove) {}

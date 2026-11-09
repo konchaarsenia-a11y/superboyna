@@ -4,6 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  moveShouldRetireKeepPkSource_,
+  moveTwinScanDates_,
+  moveTwinScanDays_,
   orderMoveIsInPlace_,
   orderNickRenameIsInPlace_,
   planClientNickRenameKeep_,
@@ -100,7 +103,37 @@ test("#23 clash soft-deletes only the occupant, not the source", () => {
   assert.equal(plan.ok, true);
   assert.equal(plan.sourceId, "Пн:ZZZ");
   assert.deepEqual(plan.softDeleteClashIds, ["Вт:ZZZ"]);
+  assert.deepEqual(plan.hardClearClashIds, []);
   assert.equal(plan.softDeleteClashIds.indexOf(plan.sourceId), -1);
+});
+
+test("t502 deleted target PK is hard-clear, not soft-delete clash", () => {
+  const row = {
+    id: "Суббота:ZZZ_TEST",
+    match_key: "ZZZ_TEST",
+    client: "zzz_test",
+    date_iso: "2026-11-07"
+  };
+  const plan = planOrderMoveInPlace_(row, {
+    matchKey: "ZZZ_TEST",
+    newDay: "Вторник",
+    newDate: "2026-11-10",
+    occupants: [{ id: "Вторник:ZZZ_TEST", status: "deleted" }]
+  });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.targetId, "Вторник:ZZZ_TEST");
+  assert.deepEqual(plan.softDeleteClashIds, []);
+  assert.deepEqual(plan.hardClearClashIds, ["Вторник:ZZZ_TEST"]);
+});
+
+test("t502 twin scan includes destination day/date after keep-PK recolor", () => {
+  assert.deepEqual(moveTwinScanDays_(["Суббота"], "Вторник"), ["Суббота", "Вторник"]);
+  assert.deepEqual(
+    moveTwinScanDates_("2026-11-07", "2026-11-07", "2026-11-10", "2026-11-10"),
+    ["2026-11-07", "2026-11-10"]
+  );
+  assert.equal(moveShouldRetireKeepPkSource_("Суббота:ZZZ_TEST", "Вторник:ZZZ_TEST"), true);
+  assert.equal(moveShouldRetireKeepPkSource_("Вторник:ZZZ_TEST", "Вторник:ZZZ_TEST"), false);
 });
 
 test("#19 clients rename keeps same clients.id across underscore aliases", () => {
@@ -158,4 +191,13 @@ test("worker wires #19/#23 in-place planners", () => {
   assert.doesNotMatch(block, /UPDATE orders SET status = 'deleted'[\s\S]{0,120}editClient/);
   assert.match(block, /planOrderNickRenameKeep_/);
   assert.match(worker, /planClientNickRenameKeep_/);
+});
+
+test("t502 worker clears deleted target PK and retires keep-PK twin", () => {
+  assert.match(worker, /moveShouldRetireKeepPkSource_/);
+  assert.match(worker, /moveTwinScanDays_/);
+  assert.match(worker, /moveTwinScanDates_/);
+  assert.match(worker, /t502: deleted target PK still occupies id/);
+  assert.match(worker, /t502: keep-PK fallback left source id recolored/);
+  assert.match(worker, /DELETE FROM orders WHERE id = \? AND id != \? AND status = 'deleted'/);
 });

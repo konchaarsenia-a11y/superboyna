@@ -126,10 +126,14 @@ export function planOrderMoveInPlace_(row, opts) {
     return { ok: false, message: "no_target", sourceId: String(row.id), targetId: "", softDeleteClashIds: [] };
   }
   const clash = [];
+  // t502: deleted occupant on target PK still blocks SQLite UPDATE id=
+  const hardClearClashIds = [];
   (opts.occupants || []).forEach(function (o) {
     if (!o || !o.id) return;
     if (String(o.id) === String(row.id)) return;
-    if (String(o.id) === targetId && String(o.status || "active") !== "deleted") clash.push(String(o.id));
+    if (String(o.id) !== targetId) return;
+    if (String(o.status || "active") === "deleted") hardClearClashIds.push(String(o.id));
+    else clash.push(String(o.id));
   });
   return {
     ok: true,
@@ -139,8 +143,46 @@ export function planOrderMoveInPlace_(row, opts) {
     dayName: dayName,
     matchKey: matchKey,
     softDeleteClashIds: clash,
+    hardClearClashIds: hardClearClashIds,
     sameRow: true
   };
+}
+
+/** t502: twin scan must include destination day, not only fromDays. */
+export function moveTwinScanDays_(fromDays, newDay) {
+  const days = [];
+  (fromDays || []).forEach(function (d) {
+    d = String(d || "").trim();
+    if (d && days.indexOf(d) < 0) days.push(d);
+  });
+  const nd = String(newDay || "").trim();
+  if (nd && days.indexOf(nd) < 0) days.push(nd);
+  return days;
+}
+
+/** t502: twin scan must include newDate/moveIso after keep-PK recolor. */
+export function moveTwinScanDates_(oldDate, rowDateIso, newDate, moveIso) {
+  const dates = [];
+  function add(d) {
+    d = String(d || "").trim();
+    if (!d) return;
+    if (dates.indexOf(d) < 0) dates.push(d);
+  }
+  add(oldDate);
+  add(rowDateIso);
+  add(newDate);
+  add(moveIso);
+  return dates;
+}
+
+/**
+ * t502: after keep-PK fallback + canonical upsert, retire the old source id.
+ * In-memory sourceId stays old even when SQL rename succeeded (no-op delete).
+ */
+export function moveShouldRetireKeepPkSource_(sourceId, canonId) {
+  const src = String(sourceId || "").trim();
+  const canon = String(canonId || "").trim();
+  return !!(src && canon && src !== canon);
 }
 
 export function orderNickRenameIsInPlace_(plan) {
