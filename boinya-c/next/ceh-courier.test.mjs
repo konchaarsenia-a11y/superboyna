@@ -240,10 +240,24 @@ test("партнёру видна сумма заказа, рознице пол
   assert.match(retail.street, /эт\.3/);
   assert.match(retail.street, /кв\.10/);
   assert.match(retail.street, /зелёная дверь/);
-  const pp = addr({ segment: "ПП", address: "Немига 5", entrance: "2", floor: "3", flat: "10", doorCode: "55" });
+  assert.equal(retail.street.includes("·"), false);
+  const pp = addr({
+    segment: "ПП",
+    address: "улица Яна Чечота · 11",
+    entrance: "3",
+    floor: "2",
+    flat: "70",
+    doorCode: "55"
+  });
+  assert.equal(pp.street, "улица Яна Чечота, 11");
   assert.equal(pp.street.includes("этаж"), false);
-  assert.match(pp.details, /этаж 3/);
+  assert.equal(pp.street.includes("·"), false);
+  assert.match(pp.details, /подъезд 3/);
+  assert.match(pp.details, /этаж 2/);
+  assert.match(pp.details, /кв 70/);
   assert.match(pp.details, /домофон 55/);
+  assert.equal(pp.details.includes("·"), false);
   assert.match(prodSrc, /Этаж и квартира/);
+  assert.match(prodSrc, /t506/);
   assert.match(appSrc, /prod\(\)\.warm\(\)/);
 });
