@@ -2008,6 +2008,19 @@ var ASM_CHEW_PER_BIG = 4;
         var mix4Kind = String(mix4Exec[1]).toLowerCase();
         var mix4Title = mix4Kind === "hypo" ? "Гипоаллергенные" : (mix4Kind === "veg" ? "Овощи/фрукты" : "Мясные (дрессура)");
         var mix4Val = Number(item && (item.val != null ? item.val : item.value)) || 0;
+        // t509: одна конкретная присыпка — имя сырья, не «Мясные (дрессура)»
+        var oneSrc = "";
+        if (Array.isArray(item && item.sources)) {
+          var keptSrc = [];
+          item.sources.forEach(function (s) {
+            if (!s || isChewCrumbSource_(s)) return;
+            var nm = String((s.name || s.main) || "").trim();
+            if (!nm || isChewProductName_(nm)) return;
+            keptSrc.push(nm);
+          });
+          if (keptSrc.length === 1) oneSrc = keptSrc[0];
+        }
+        if (oneSrc) return clientFacingName_(oneSrc) + " — " + mix4Val + " г";
         return mix4Title + " — " + mix4Val + " г";
       }
       var mixExec = /^mix3:(mix|meat|hypo)$/i.exec(mixTag);
