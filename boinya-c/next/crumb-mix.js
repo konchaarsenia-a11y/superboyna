@@ -301,6 +301,28 @@
     return String(name || "").toLowerCase().replace(/(^|\s)(\S)/g, function (_, sp, ch) { return sp + ch.toUpperCase(); });
   }
 
+  /** t512/t513: одна подпись крошки (карточка / просмотр / как crumbClientMessageLine_). */
+  function crumbLineLabel(g, pretty) {
+    if (!g || !isCrumb(g)) return "";
+    var src = sourcesOf(g);
+    var kind4 = mix4KindOf(g);
+    var schemeKind = kind4 || mix3KindOf(g);
+    var rawG = g.val != null ? g.val : g.value;
+    var bit = rawG != null && rawG !== "" ? (" — " + rawG + " г") : "";
+    if (src.length === 1) {
+      var oneQty = componentQtyList(g, src);
+      var gShow = oneQty[0] > 0 ? oneQty[0] : rawG;
+      var bit1 = gShow != null && gShow !== "" ? (" — " + gShow + " г") : "";
+      return titleOf(src[0].name || src[0].main, pretty) + bit1;
+    }
+    if (kind4) return mix4Title(kind4) + bit;
+    if (schemeKind) return mix3Title(schemeKind) + bit;
+    if (src.length >= 2) return "Крошка микс" + bit;
+    var parent = String(g.name || g.main || "").trim();
+    if (parent && !/^крошка$/i.test(parent)) return singleLabel(parent, rawG);
+    return "Крошка" + bit;
+  }
+
   function nominative(name, pretty) {
     return String(titleOf(name, pretty) || name || "").toLowerCase();
   }
@@ -396,21 +418,10 @@
     var src = sourcesOf(g);
     var kind4 = mix4KindOf(g);
     var schemeKind = kind4 || mix3KindOf(g);
-    if (isCrumb(g) && schemeKind && src.length) {
-      var totalM = Number(g.val != null ? g.val : g.value);
-      var headM = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
-      if (isFinite(totalM) && totalM > 0) headM += " — " + totalM + " " + (g.unit || "г");
-      var qtyM = componentQtyList(g, src);
-      var partsM = src.map(function (s, si) {
-        var label = nominative(s.name || s.main, pretty);
-        var text = qtyM[si] > 0 ? (label + " — " + qtyM[si] + " г") : label;
-        return '<div class="mix-part">' + esc(text) + "</div>";
-      }).join("");
-      return '<div class="mix"><div class="mix-title">' + esc(headM) + '</div><div class="mix-parts">' + partsM + "</div></div>";
-    }
+    /* Несколько источников — заголовок микса + доли (сборка/карточка). */
     if (isCrumb(g) && src.length >= 2) {
       var total = Number(g.val != null ? g.val : g.value);
-      var head = "Крошка микс";
+      var head = kind4 ? mix4Title(kind4) : (schemeKind ? mix3Title(schemeKind) : "Крошка микс");
       if (isFinite(total) && total > 0) head += " — " + total + " " + (g.unit || "г");
       var qtyMix = componentQtyList(g, src);
       var parts = src.map(function (s, si) {
@@ -420,23 +431,9 @@
       }).join("");
       return '<div class="mix"><div class="mix-title">' + esc(head) + '</div><div class="mix-parts">' + parts + "</div></div>";
     }
-    if (isCrumb(g) && src.length === 1) {
-      var oneQty = componentQtyList(g, src);
-      var grams = oneQty[0] > 0 ? oneQty[0] : (g.val != null ? g.val : g.value);
-      return "<div>" + esc(singleLabel(src[0].name || src[0].main, grams)) + "</div>";
-    }
-    if (isCrumb(g) && schemeKind) {
-      var totalTier = Number(g.val != null ? g.val : g.value);
-      var headTier = kind4 ? mix4Title(kind4) : mix3Title(schemeKind);
-      if (isFinite(totalTier) && totalTier > 0) headTier += " — " + totalTier + " " + (g.unit || "г");
-      return "<div>" + esc(headTier) + "</div>";
-    }
+    /* t512/t513: один источник / микс без долей — crumbLineLabel (как сообщение клиенту). */
     if (isCrumb(g)) {
-      var val = g.val != null ? g.val : g.value;
-      var parent = String(g.name || g.main || "").trim();
-      if (parent && !/^крошка$/i.test(parent)) return "<div>" + esc(singleLabel(parent, val)) + "</div>";
-      var bit = val != null && val !== "" ? (" — " + val + " г") : "";
-      return "<div>" + esc("Крошка" + bit) + "</div>";
+      return "<div>" + esc(crumbLineLabel(g, pretty)) + "</div>";
     }
     var nm = titleOf(g.name || g.main || "", pretty);
     var v = g.val != null ? g.val : g.value;
@@ -621,11 +618,11 @@
     linesHtml: linesHtml,
     rowHtml: lineHtml,
     singleLabel: singleLabel,
+    crumbLineLabel: crumbLineLabel,
     mix3KindOf: mix3KindOf,
     mix3Title: mix3Title,
-    plainLabel: function (g) {
-      var html = lineHtml(g);
-      return String(html || "").replace(/<[^>]+>/g, "");
+    plainLabel: function (g, pretty) {
+      return crumbLineLabel(g, pretty) || String(lineHtml(g, pretty) || "").replace(/<[^>]+>/g, "");
     },
     genitive: genitive,
     organParts: organParts,

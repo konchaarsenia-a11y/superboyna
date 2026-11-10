@@ -165,7 +165,9 @@
     if (!c) return;
     var who = splitWho(c);
     var mix = root.BoinyaCrumbMix;
-    var lines = mix && mix.linesHtml ? mix.linesHtml(c.basket || c.items || []) : "";
+    /* t513: та же подпись крошки, что в карточке (prettyProductName). */
+    var pretty = (root.BoinyaOrderEngine && root.BoinyaOrderEngine.prettyProductName) || null;
+    var lines = mix && mix.linesHtml ? mix.linesHtml(c.basket || c.items || [], pretty) : "";
     var otRow = logic().resolveOrderType(c);
     var slotNow = logic().ppSlotNumber(c.deliverySlot || c.ppSlot);
     var slotNote = "";
