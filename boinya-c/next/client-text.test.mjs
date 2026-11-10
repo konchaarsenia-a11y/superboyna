@@ -48,6 +48,23 @@ test("новые тексты называют позиции и фракции 
   assert.match(retail, /Гипоаллергенные — 20 г/);
   assert.equal(/Крупное|Ухо К|Ухо Г|Рубец Т|Микс мясной/.test(retail), false);
 
+  // t509: одна присыпка с источником — имя сырья, не «Мясные (дрессура)»
+  const crumbs = price.composePpClientMessage([
+    row("Крошка", "", 50, "crumb", {
+      crumbKind: "mix4:dress",
+      sources: [{ cat: "dressura", name: "ПОЧКИ", main: "ПОЧКИ", val: 50, value: 50 }],
+      ratio: [50]
+    }),
+    row("Крошка", "", 50, "crumb", {
+      crumbKind: "mix4:dress",
+      sources: [{ cat: "dressura", name: "БАРАНЬЕ ЛЁГКОЕ", main: "БАРАНЬЕ ЛЁГКОЕ", val: 50, value: 50 }],
+      ratio: [50]
+    })
+  ], 1, "", 52, 43, "RAW26", {});
+  assert.match(crumbs, /Почки — 50 г/);
+  assert.match(crumbs, /Баранье лёгкое — 50 г/);
+  assert.equal(crumbs.includes("Мясные (дрессура) — 50 г"), false);
+
   const pp = price.composePpClientMessage([
     row("ЛЁГКОЕ", "Полоски", 100),
     row("СЕРДЦЕ", "Мелкое", 100),
