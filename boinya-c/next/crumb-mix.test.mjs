@@ -129,8 +129,39 @@ test("single crumb shows the source", () => {
     value: 50
   };
   const html = mix.linesHtml([row]);
-  assert.match(html, /Крошка рубца — 50 г/);
-  assert.doesNotMatch(html, /Крошка 50(?! )/);
+  // t512/t513: имя сырья, не «Крошка рубца»
+  assert.match(html, /Рубец Т — 50 г/);
+  assert.doesNotMatch(html, /Крошка рубца/);
+  assert.doesNotMatch(html, /Крошка — 50 г/);
+});
+
+test("t512/t513 mix4 single source labels like client message", () => {
+  const pretty = (n) => eng.prettyProductName(n);
+  const pochki = {
+    cat: "crumb",
+    main: "КРОШКА",
+    crumbKind: "mix4:dress",
+    sources: [{ cat: "dressura", name: "ПОЧКИ", main: "ПОЧКИ", val: 50, value: 50 }],
+    ratio: [50],
+    value: 50,
+    val: 50
+  };
+  const baran = {
+    cat: "crumb",
+    main: "КРОШКА",
+    crumbKind: "mix4:dress",
+    sources: [{ cat: "dressura", name: "БАРАНЬЕ ЛЁГКОЕ", main: "БАРАНЬЕ ЛЁГКОЕ", val: 50, value: 50 }],
+    ratio: [50],
+    value: 50,
+    val: 50
+  };
+  assert.equal(mix.crumbLineLabel(pochki, pretty), "Почки — 50 г");
+  assert.equal(mix.crumbLineLabel(baran, pretty), "Баранье лёгкое — 50 г");
+  const html = mix.linesHtml([pochki, baran], pretty);
+  assert.match(html, /Почки — 50 г/);
+  assert.match(html, /Баранье лёгкое — 50 г/);
+  assert.doesNotMatch(html, /Крошка — 50 г/);
+  assert.doesNotMatch(html, /Мясные \(дрессура\) — 50 г/);
 });
 
 test("genitive for every allowed crumb source", () => {
@@ -170,7 +201,7 @@ test("display hides a chew inside a crumb", () => {
   const html = mix.linesHtml([row]);
   assert.doesNotMatch(html, /трахе/i);
   assert.doesNotMatch(html, /Крошка микс/);
-  assert.match(html, /Крошка лёгкого — 40 г/);
+  assert.match(html, /Лёгкое — 40 г/);
   const mixed = {
     cat: "crumb",
     value: 120,

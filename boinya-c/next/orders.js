@@ -443,19 +443,20 @@
     var name = eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name);
     var sub = "";
     if (crumb && srcs.length >= 2) {
-      name = "Крошка микс — " + grams + " г";
+      /* t512: заголовок микса через общую подпись. */
+      name = mix.crumbLineLabel
+        ? mix.crumbLineLabel(it, eng().prettyProductName)
+        : ("Крошка микс — " + grams + " г");
       sub = '<div class="mix-parts">' + srcs.map(function (s, si) {
         var q = mix.partQty(it, s, si, srcs.length);
         var label = String(eng().prettyProductName(s.name || s.main) || s.name || s.main || "").toLowerCase();
         return '<div class="mix-part">' + esc(label + (q ? " — " + q.qty + " г" : "")) + "</div>";
       }).join("") + "</div>";
-    } else if (crumb && srcs.length === 1) {
-      var q1 = mix.partQty(it, srcs[0], 0, 1);
-      name = mix.singleLabel(srcs[0].name || srcs[0].main, q1 ? q1.qty : grams);
     } else if (crumb) {
-      var parent = String(it.main || it.name || "").trim();
-      if (parent && !/^крошка$/i.test(parent)) name = mix.singleLabel(parent, grams);
-      else name = grams != null && grams !== "" ? ("Крошка — " + grams + " г") : "Крошка";
+      /* t512: один источник → Почки / Баранье лёгкое, не «Крошка — N г». */
+      name = mix.crumbLineLabel
+        ? mix.crumbLineLabel(it, eng().prettyProductName)
+        : (grams != null && grams !== "" ? ("Крошка — " + grams + " г") : "Крошка");
     } else if (it.sub) sub = esc(eng().humanFraction(it.main, it.sub));
     var price = "";
     if (state.orderType === "retail") {
