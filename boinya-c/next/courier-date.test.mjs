@@ -72,6 +72,39 @@ test("две записи 29.10 и одна 30.10 с днём «Будущая �
   assert.equal(retail[2].entrance, "2");
 });
 
+test("t506: после GAS без meta merge добирает entrance/floor/flat с D1", () => {
+  const api = boot();
+  const gasLike = [
+    {
+      name: "polotno_an",
+      matchKey: "POLOTNOAN",
+      segment: "ПП",
+      dateIso: "2026-11-09",
+      address: "улица Яна Чечота · 11"
+    }
+  ];
+  const fromOrders = [
+    {
+      id: "Будущая неделя:POLOTNOAN",
+      name: "polotno_an",
+      matchKey: "POLOTNOAN",
+      segment: "ПП",
+      dateIso: "2026-11-09",
+      address: "улица Яна Чечота · 11",
+      entrance: "3",
+      doorCode: "",
+      floor: "2",
+      flat: "70"
+    }
+  ];
+  const merged = api.courierMergeDateRows_(gasLike, fromOrders, "2026-11-09");
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].entrance, "3");
+  assert.equal(merged[0].floor, "2");
+  assert.equal(merged[0].flat, "70");
+  assert.equal(merged[0].address, "улица Яна Чечота · 11");
+});
+
 test("наложение курьера только читает заказы этой даты", () => {
   const overlay = src.slice(src.indexOf("async function overlayCourierByDate_"), src.indexOf("async function getCourier_("));
   assert.match(overlay, /date_iso = \?/);
@@ -80,4 +113,7 @@ test("наложение курьера только читает заказы �
   assert.equal(overlay.includes("putSnap_"), false);
   assert.match(src, /hit = await overlayCourierByDate_\(env, day, hit\)/);
   assert.match(src, /a !== "getCourier" && a !== "getAssembly"/);
+  // t506: GAS-revalidate курьера снова накладывает D1-части адреса
+  assert.match(src, /mergeCourierAddrPartsOnto_/);
+  assert.match(src, /t506/);
 });

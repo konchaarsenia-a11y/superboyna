@@ -1456,17 +1456,32 @@
     return "";
   }
 
+  /* t506: в адресе курьера без «·» — только запятые. */
+  function courierFmtStreet_(s) {
+    return String(s || "")
+      .replace(/[ \t]*·[ \t]*/g, ", ")
+      .replace(/(?:,\s*){2,}/g, ", ")
+      .replace(/^,\s*|,\s*$/g, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim();
+  }
+
   function addrBits(c) {
     var client = typeof c === "string" ? { address: c } : (c || {});
     var pay = root.BoinyaOrderPayload;
     var parts = pay && pay.addressParts ? pay.addressParts(client, eng()) : null;
-    if (!parts) return { street: String(client.address || "").trim(), details: "" };
+    if (!parts) {
+      return { street: courierFmtStreet_(client.address || ""), details: "" };
+    }
     var bits = [];
     if (parts.entrance) bits.push("подъезд " + parts.entrance);
     if (parts.doorCode) bits.push("домофон " + parts.doorCode);
     if (parts.floor) bits.push("этаж " + parts.floor);
     if (parts.flat) bits.push("кв " + parts.flat);
-    return { street: parts.street || String(client.address || "").trim(), details: bits.join(", ") };
+    return {
+      street: courierFmtStreet_(parts.street || client.address || ""),
+      details: bits.join(", ")
+    };
   }
 
   function retailClient_(c) {
@@ -1482,7 +1497,8 @@
     var pay = root.BoinyaOrderPayload;
     var full = pay && pay.showAddress ? String(pay.showAddress(c, eng()) || "").trim() : "";
     var comment = String((c && (c.addressComment || c.addrComment || c.addressNote)) || "").trim();
-    if (comment && full.indexOf(comment) < 0) full = full ? (full + " · " + comment) : comment;
+    // t506: в курьере без «·»
+    if (comment && full.indexOf(comment) < 0) full = full ? (full + ", " + comment) : comment;
     var raw = String((c && c.address) || "").trim();
     if (!full) full = raw || bits.street;
     else if (raw) {
@@ -1491,10 +1507,10 @@
       };
       var a = compact(full);
       var b = compact(raw);
-      if (b && a.indexOf(b) < 0 && b.indexOf(a) < 0) full = full + " · " + raw;
+      if (b && a.indexOf(b) < 0 && b.indexOf(a) < 0) full = full + ", " + raw;
       else if (b.length > a.length) full = raw;
     }
-    return { street: full || bits.street, details: bits.details };
+    return { street: courierFmtStreet_(full || bits.street), details: bits.details };
   }
 
   function partnerOrderMoney_(c) {

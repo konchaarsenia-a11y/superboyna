@@ -13267,13 +13267,29 @@ function courierIdentityKeys_(c) {
   return keys;
 }
 
+/* t506: GAS/snap часто без meta — добрать entrance/doorCode/floor/flat с D1 orders. */
+function mergeCourierAddrPartsOnto_(dst, src) {
+  if (!dst || !src) return dst;
+  ["entrance", "doorCode", "floor", "flat"].forEach(function (k) {
+    const next = String(src[k] == null ? "" : src[k]).trim();
+    if (!next) return;
+    if (!String(dst[k] == null ? "" : dst[k]).trim()) dst[k] = next;
+  });
+  return dst;
+}
+
 /* Снимок дня может помнить прошлый четверг. В ответ входят только заказы этой даты, плюс те, у кого день недели другой. */
 function courierMergeDateRows_(existing, incoming, iso) {
   const want = coerceDateIso_(iso) || "";
   const kept = [];
   const seen = Object.create(null);
+  const byKey = Object.create(null);
   function mark(c) {
-    courierIdentityKeys_(c).forEach(function (k) { if (k) seen[k] = true; });
+    courierIdentityKeys_(c).forEach(function (k) {
+      if (!k) return;
+      seen[k] = true;
+      byKey[k] = c;
+    });
   }
   (existing || []).forEach(function (c) {
     if (!c) return;
@@ -13285,7 +13301,18 @@ function courierMergeDateRows_(existing, incoming, iso) {
   (incoming || []).forEach(function (c) {
     if (!c) return;
     const keys = courierIdentityKeys_(c);
-    if (keys.length && keys.some(function (k) { return seen[k]; })) return;
+    let hit = null;
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i] && seen[keys[i]]) {
+        hit = byKey[keys[i]];
+        break;
+      }
+    }
+    if (hit) {
+      // t506: не пропускать D1-части адреса у уже известного клиента (после GAS-revalidate)
+      mergeCourierAddrPartsOnto_(hit, c);
+      return;
+    }
     mark(c);
     kept.push(c);
   });
@@ -23692,6 +23719,8 @@ async function cutoverStoreRead_(a, params, env, payload) {
           if (old.delivered) c.delivered = true;
           if (old.assembled) c.assembled = true;
         }
+        // t506: не затирать meta-части адреса ответом GAS
+        mergeCourierAddrPartsOnto_(c, old);
       });
       if (recentC || opsP) {
         const inGas = indexByMatchAliases_(payload.clients);
@@ -23703,6 +23732,11 @@ async function cutoverStoreRead_(a, params, env, payload) {
       }
       payload.flagsTouchedAt = prevC.flagsTouchedAt || 0;
     }
+    // t506: добрать entrance/doorCode/floor/flat из D1 orders до записи snap
+    try {
+      const patched = await overlayCourierByDate_(env, params.day, payload);
+      if (patched && Array.isArray(patched.clients)) payload = patched;
+    } catch (e506) {}
     await putSnap_(env, "courier:" + params.day, payload);
     return;
   }
