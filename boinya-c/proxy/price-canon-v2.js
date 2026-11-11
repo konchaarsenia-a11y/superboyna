@@ -37,14 +37,16 @@ export const PRICE_SKU_CATALOG_ = [
   { id: "TRAHEYA_M", name: "ТРАХЕЯ", sub: "СРЕД", piece: 1, aliases: ["ТРАХЕЯ СРЕДНЯЯ", "ТРАХЕЯ / Среднее"] },
   { id: "TRAHEYA_L", name: "ТРАХЕЯ", sub: "БОЛ", piece: 1, aliases: ["ТРАХЕЯ БОЛЬШАЯ", "ТРАХЕЯ / Большое"] },
   { id: "TRAHEYA_XL", name: "ТРАХЕЯ", sub: "ОГР", piece: 1, aliases: ["ТРАХЕЯ ОГРОМНАЯ"] },
-  { id: "KOPYTO", name: "КОПЫТО", piece: 1, aliases: ["КОПЫТО ШТ.", "КОПЫТО шт."] },
+  /* t467u: retired — не в активном справочнике; строка и aliases остаются для истории/resolve. */
+  { id: "KOPYTO", name: "КОПЫТО", piece: 1, active: 0, aliases: ["КОПЫТО ШТ.", "КОПЫТО шт."] },
   { id: "ZHILA_PALK", name: "СТАНОВАЯ ЖИЛА", sub: "ПАЛК", piece: 1, aliases: ["СТАНОВЫЕ ПАЛОЧКИ", "СТАНОВАЯ ЖИЛА / ПАЛК"] },
   { id: "ZHILA_M", name: "СТАНОВАЯ ЖИЛА", sub: "СРЕД", piece: 1, aliases: ["СТАНОВАЯ ЖИЛА СРЕДНЯЯ", "СТАНОВАЯ ЖИЛА / Среднее"] },
   { id: "ZHILA_L", name: "СТАНОВАЯ ЖИЛА", sub: "БОЛ", piece: 1, aliases: ["СТАНОВАЯ ЖИЛА БОЛЬШАЯ", "СТАНОВАЯ ЖИЛА / Большое"] },
   { id: "AORTA", name: "АОРТА", piece: 1, aliases: ["АОРТА ШТ.", "АОРТА шт."] },
   { id: "AORTA_HALF", name: "АОРТА", sub: "ПОЛОВИНКА", piece: 1, aliases: ["АОРТА ПОЛОВИНКА"] },
   { id: "UTINYE_SHEI", name: "УТИНЫЕ ШЕИ", piece: 1, aliases: ["УТИНЫЕ ШЕИ ШТ.", "УТИНЫЕ ШЕИ шт.", "УТИНЫЕ  ШЕИ"] },
-  { id: "GUBY", name: "ГУБЫ", piece: 1, aliases: ["ГУБЫ ШТ.", "ГУБЫ шт."] },
+  /* t467u: retired — убраны из picker раньше; D1 price_sku ещё active=1 до apply. */
+  { id: "GUBY", name: "ГУБЫ", piece: 1, active: 0, aliases: ["ГУБЫ ШТ.", "ГУБЫ шт."] },
   { id: "NOSY", name: "НОСЫ", piece: 1, aliases: ["НОСЫ ШТ.", "НОСЫ шт."] },
   { id: "KNIZHKA", name: "КНИЖКА", piece: 0, aliases: [] },
   { id: "VYMYA", name: "ВЫМЯ", piece: 0, aliases: [] },
@@ -209,6 +211,29 @@ export function catalogRowById_(id) {
     if (PRICE_SKU_CATALOG_[i].id === id) return PRICE_SKU_CATALOG_[i];
   }
   return null;
+}
+
+/** t467u: active по умолчанию 1; явный active:0 = выведен из действующего справочника. */
+export function isPriceSkuActive_(rowOrId) {
+  const row = typeof rowOrId === "string" ? catalogRowById_(rowOrId) : rowOrId;
+  if (!row) return false;
+  return row.active === 0 || row.active === false ? false : true;
+}
+
+/** Только действующие sku (без retired). Resolve/aliases по полному каталогу. */
+export function activePriceSkuCatalog_() {
+  return PRICE_SKU_CATALOG_.filter(function (row) {
+    return isPriceSkuActive_(row);
+  });
+}
+
+/** Ids, помеченные retired в коде (сейчас только ГУБЫ/КОПЫТО). */
+export function retiredPriceSkuIds_() {
+  return PRICE_SKU_CATALOG_.filter(function (row) {
+    return !isPriceSkuActive_(row);
+  }).map(function (row) {
+    return row.id;
+  });
 }
 
 export function displayKeyForSku_(row) {
@@ -453,10 +478,12 @@ export async function seedPriceSkuCatalog_(env) {
   const now = new Date().toISOString();
   for (let i = 0; i < PRICE_SKU_CATALOG_.length; i++) {
     const row = PRICE_SKU_CATALOG_[i];
+    const active = isPriceSkuActive_(row) ? 1 : 0;
+    /* t467u: active пишем и на CONFLICT — иначе retired снова active=1 после seed. */
     await env.DB.prepare(
-      "INSERT INTO price_sku (id, name, sub, piece, aliases, active, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?) " +
+      "INSERT INTO price_sku (id, name, sub, piece, aliases, active, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
         "ON CONFLICT(id) DO UPDATE SET name = excluded.name, sub = excluded.sub, piece = excluded.piece, " +
-        "aliases = excluded.aliases, updated_at = excluded.updated_at"
+        "aliases = excluded.aliases, active = excluded.active, updated_at = excluded.updated_at"
     )
       .bind(
         row.id,
@@ -464,10 +491,33 @@ export async function seedPriceSkuCatalog_(env) {
         row.sub || "",
         row.piece ? 1 : 0,
         JSON.stringify(row.aliases || []),
+        active,
         now
       )
       .run();
   }
+}
+
+/**
+ * t467u: штатное исключение из активного справочника без DELETE.
+ * Пишет active=0 только для retired ids; raw_cost_ver / retail / orders не трогает.
+ * Вызывать явно при apply (не из migrate автоматически в этом PR).
+ */
+export async function retireInactivePriceSkus_(env) {
+  if (!env || !env.DB) return { status: "error", message: "нет DB" };
+  await ensurePriceCanonV2Schema_(env);
+  const ids = retiredPriceSkuIds_();
+  const now = new Date().toISOString();
+  let n = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const r = await env.DB.prepare(
+      "UPDATE price_sku SET active = 0, updated_at = ? WHERE id = ? AND active != 0"
+    )
+      .bind(now, ids[i])
+      .run();
+    n += (r && r.meta && r.meta.changes) || (r && r.changes) || 0;
+  }
+  return { status: "success", ids: ids, updated: n, historyUntouched: true };
 }
 
 export async function seedRawCosts1110_(env, actorTg) {
@@ -522,6 +572,8 @@ export function costsMapFromVersionsV2_(versions, asOf) {
   Object.keys(best).forEach(function (id) {
     const cat = catalogRowById_(id);
     if (!cat) return;
+    /* t467u: retired sku не в live costs-map; версии в raw_cost_ver остаются. */
+    if (!isPriceSkuActive_(cat)) return;
     const hit = best[id];
     if (hit.cost == null || hit.cost === "" || !isFinite(Number(hit.cost))) return;
     const unit = Number(hit.cost);
