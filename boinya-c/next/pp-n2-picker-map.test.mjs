@@ -175,16 +175,14 @@ function catFor_(it) {
   return "dressura";
 }
 
-test("picker: Целое and Крупное selectable; heart labels distinct", function () {
+test("picker: сердце без Целое; РУБЕЦ Крупное на месте", function () {
+  /* t516u-clients #7 */
   const api = loadUiEngine_();
   const heart = pickerOptions_(api, "dressura", "СЕРДЦЕ");
-  assert.ok(heart.some(function (o) { return o.value === "Целое"; }));
+  assert.equal(heart.some(function (o) { return o.value === "Целое"; }), false);
   assert.ok(heart.some(function (o) { return o.value === "Ломтики"; }));
-  const cel = heart.find(function (o) { return o.value === "Целое"; });
   const lom = heart.find(function (o) { return o.value === "Ломтики"; });
-  assert.equal(cel.label, "целое");
   assert.equal(lom.label, "ломтики");
-  assert.notEqual(cel.label, lom.label);
 
   const rumen = pickerOptions_(api, "dressura", "РУБЕЦ Т");
   assert.ok(rumen.some(function (o) { return o.value === "Крупное"; }));
@@ -198,7 +196,7 @@ test("browser instructions map: 5 fracs", function () {
   const api = loadUiEngine_();
   [
     ["chew", "УХО Г", "Обычное", "целое"],
-    ["dressura", "СЕРДЦЕ", "Целое", "целое"],
+    ["dressura", "СЕРДЦЕ", "Ломтики", "ломтики"],
     ["chew", "ТРАХЕЯ", "СРЕД", "средняя"],
     ["dressura", "ЛЁГКОЕ", "Среднее", "средний кубик"],
     ["dressura", "РУБЕЦ Т", "Крупное", "крупные кусочки"]
@@ -232,7 +230,9 @@ test("full artificial sub37: picker→split→payload→reopen; N2 econ; odd kne
   monthly.forEach(function (it) {
     const cat = catFor_(it);
     const name = it.main || it.name;
-    const stored = it.sub || "";
+    let stored = it.sub || "";
+    /* t516u-clients #7: живое Целое у сердца читаем как Ломтики. */
+    if (/сердц/i.test(name) && /^цел/i.test(stored)) stored = "Ломтики";
     const qty = Number(it.value != null ? it.value : it.val) || 0;
     if (stored) {
       const hit = pickStored_(api, cat, name, stored);
@@ -241,7 +241,14 @@ test("full artificial sub37: picker→split→payload→reopen; N2 econ; odd kne
       rebuilt = askQtyPush_(rebuilt, cat, name, "", qty);
     }
   });
-  mapsEqual(qtyMap(rebuilt), qtyMap(monthly));
+  const expectedMap = qtyMap(monthly);
+  Object.keys(expectedMap).forEach(function (k) {
+    if (/СЕРДЦЕ\|ЦЕЛОЕ/i.test(k)) {
+      expectedMap[k.replace(/ЦЕЛОЕ/i, "ЛОМТИКИ")] = expectedMap[k];
+      delete expectedMap[k];
+    }
+  });
+  mapsEqual(qtyMap(rebuilt), expectedMap);
 
   const split = splitMonthly_(rebuilt);
   const kKnee = "chew|КОЛЕНИ ШТ.|";
@@ -254,7 +261,7 @@ test("full artificial sub37: picker→split→payload→reopen; N2 econ; odd kne
       sum[k] = (sum[k] || 0) + v;
     });
   });
-  mapsEqual(sum, qtyMap(monthly));
+  mapsEqual(sum, expectedMap);
 
   const payload = {
     action: "saveSubscription",
@@ -272,9 +279,9 @@ test("full artificial sub37: picker→split→payload→reopen; N2 econ; odd kne
 
   const re1 = eng.mapApiBasketToLocal(payload.basket);
   const re2 = eng.mapApiBasketToLocal(payload.basket2);
-  mapsEqual(qtyMap(re1.concat(re2)), qtyMap(monthly));
+  mapsEqual(qtyMap(re1.concat(re2)), expectedMap);
   assert.ok(re1.concat(re2).some(function (it) {
-    return /СЕРДЦ/i.test(it.main || it.name) && it.sub === "Целое";
+    return /СЕРДЦ/i.test(it.main || it.name) && /ломт/i.test(String(it.sub || ""));
   }));
   assert.ok(re1.concat(re2).some(function (it) {
     return /РУБЕЦ/i.test(it.main || it.name) && it.sub === "Крупное";
@@ -287,10 +294,10 @@ test("full artificial sub37: picker→split→payload→reopen; N2 econ; odd kne
   assert.notDeepEqual(qtyMap(n1only), qtyMap(re1.concat(re2)));
 });
 
-test("Ломтики ≠ Целое in picker", function () {
+test("сердце Целое больше не в picker", function () {
   const api = loadUiEngine_();
+  const heart = pickerOptions_(api, "dressura", "СЕРДЦЕ");
+  assert.equal(heart.some(function (o) { return /^цел/i.test(o.value); }), false);
   const lom = pickStored_(api, "dressura", "СЕРДЦЕ", "Ломтики");
-  const cel = pickStored_(api, "dressura", "СЕРДЦЕ", "Целое");
-  assert.notEqual(lom.value, cel.value);
-  assert.notEqual(lom.label, cel.label);
+  assert.equal(lom.label, "ломтики");
 });

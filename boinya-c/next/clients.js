@@ -93,7 +93,7 @@
   function blankCard() {
     return {
       nick: "", label: "", subId: "", sheet: "ПП", deliveries: "2", status: "",
-      wishes: "", address: "", phone: "", basket: [], basket2: [],
+      wishes: "", igNick: "", address: "", phone: "", basket: [], basket2: [],
       factCost: "", statedCost: "", calcFactCost: "", statedTouched: false,
       coef: PP_COEF_DEFAULT, scheme: "RAW26", coefSaved: false, coefTouched: false,
       priceDirty: false,
@@ -108,8 +108,34 @@
       packCounts: { u1: 0, u2: 0, u3: 0, up4: 0 },
       surveyBp2Due: "", surveyFinalDue: "", ownerTelegramId: "", ownerName: "",
       basketBp1: [], basketBp2: [], bpTab: 1, slot: 1, econ: null,
-      bpWeeks: "", bpWeeksSet: false, bpOutcome: "", extendPrice: null
+      bpWeeks: "", bpWeeksSet: false, bpOutcome: "", bpKind: "", extendPrice: null
     };
+  }
+
+  /** t516u-clients #7: сердце «Целое» → «Ломтики» (жевалки не трогаем). */
+  function normalizeHeartWhole_(list) {
+    if (!Array.isArray(list)) return list;
+    var changed = false;
+    list.forEach(function (it) {
+      if (!it) return;
+      var main = String(it.main || it.name || "");
+      var sub = String(it.sub || "").trim();
+      if (!/сердц/i.test(main)) return;
+      if (!/^цел/i.test(sub)) return;
+      it.sub = "Ломтики";
+      changed = true;
+    });
+    return changed;
+  }
+
+  function normalizeCardHeartFractions_() {
+    if (!card) return false;
+    var keys = ["basket", "basket2", "basketBp1", "basketBp2"];
+    var any = false;
+    keys.forEach(function (k) {
+      if (normalizeHeartWhole_(card[k])) any = true;
+    });
+    return any;
   }
 
   function canSubs() {
@@ -336,6 +362,30 @@
     return true;
   }
 
+  function coefInterestBlock_(coef) {
+    /* t516u-clients #9: всегда все 5 ступеней + разница в рублях. */
+    var lib = root.BoinyaCoefInterest;
+    if (!lib || !lib.html) return "";
+    var fact = null;
+    var turn = 0;
+    if (view === "card" && card && card.sheet === "ПП") {
+      fact = card.econ || null;
+      turn = Number(String(card.statedCost || card.calcFactCost || "").replace(",", ".")) || 0;
+      if (!(turn > 0) && fact && fact.factCost != null) turn = Number(fact.factCost) || 0;
+    } else if (view === "calc" || seg === "calc") {
+      fact = (price && price._lastFact) || null;
+      turn = Number(price && price.subTotal) || 0;
+      if (!(turn > 0) && fact && fact.factCost != null) turn = Number(fact.factCost) || 0;
+    }
+    if (!fact && !(turn > 0)) return "";
+    if (fact && !fact.deliveriesN) {
+      fact = Object.assign({}, fact, {
+        deliveriesN: view === "card" && card ? monthN(card.deliveries) : monthN(price && price.deliveriesN)
+      });
+    }
+    return lib.html(turn, fact || 0, esc);
+  }
+
   function coefBlockHtml_(coef) {
     var shown = effectivePpCoef_(coef);
     var html = '<p class="b-lbl">Коэффициент</p><div class="b-row">';
@@ -345,6 +395,7 @@
     html += "</div>";
     html += field("cxCoef", shown, "свой, напр. 2.4", 'inputmode="decimal"');
     html += '<p class="b-note">По умолчанию 2.6. Свой: от 1 до 5, точка или запятая. Заготовки — быстрый выбор.</p>';
+    html += coefInterestBlock_(coef);
     return html;
   }
 
@@ -483,6 +534,11 @@
     if (sheet === "БП") {
       rows = rows.filter(function (s) { return !isRetailMarkedSub_(s); });
       rows = groupBpSubscriptions_(rows);
+      /* t516u-clients #10: активные отдельно от завершённых/отказа. */
+      rows = rows.filter(function (s) {
+        var o = W() ? W().outcomeOf(s.bpOutcome) : "";
+        return o !== "refuse" && o !== "done";
+      });
     }
     if (q) {
       rows = rows.filter(function (s) {
@@ -490,6 +546,16 @@
       });
     }
     return rows;
+  }
+
+  function bpArchiveRows_(kind) {
+    var rows = groupBpSubscriptions_(subs.filter(function (s) {
+      return sheetKey_(s) === "БП" && !isRetailMarkedSub_(s);
+    }));
+    return rows.filter(function (s) {
+      var o = W() ? W().outcomeOf(s.bpOutcome) : "";
+      return o === kind;
+    });
   }
 
   function subDropKey_(s) {
@@ -566,8 +632,7 @@
     if (subsLoading && !subs.length) html += sh().skeleton(4);
     else if (subsError && !subs.length) html += sh().errorBox({ title: "Не удалось загрузить", text: subsError, act: "cl-refresh" });
     else if (!rows.length) html += '<p class="b-note">В этом списке пусто.</p>';
-    html += '<div class="b-list">';
-    rows.forEach(function (s, i) {
+    function renderSubRow_(s, i) {
       var key = String(s.subId || s.nick || i);
       var mark = editMode
         ? '<button type="button" class="b-chip' + (picked[key] ? " b-chip--on" : "") + '" data-act="cl-pick" data-key="' + esc(key) + '">' + (picked[key] ? "Выбран" : "Выбрать") + "</button>"
@@ -575,7 +640,7 @@
       var who = String(s.label || s.nick || "Без ника").split(/\s*[·•]\s*/);
       var dog = who[0] || s.nick || "Без ника";
       var nick = who[1] || "";
-      html += '<button type="button" class="row" data-act="cl-open" data-nick="' + esc(s.nick || "") + '" data-sub="' + esc(s.subId || "") + '" data-sheet="' + esc(s.sheet || sheetOf(seg)) + '">' +
+      return '<button type="button" class="row" data-act="cl-open" data-nick="' + esc(s.nick || "") + '" data-sub="' + esc(s.subId || "") + '" data-sheet="' + esc(s.sheet || sheetOf(seg)) + '">' +
         '<span class="avatar" aria-hidden="true">' + esc(String(dog).slice(0, 1).toUpperCase()) + "</span>" +
         '<span class="who"><span class="name">' + esc(dog) + "</span>" +
         (nick ? '<span class="sub">' + esc(nick) + "</span>" : "") +
@@ -583,14 +648,30 @@
         "</span>" +
         (function () {
           var pill = "";
-          if (seg === "bp" && W() && W().listLabel) pill = W().listLabel(s.status, s.bpOutcome);
+          if (seg === "bp" && W() && W().listLabel) pill = W().listLabel(s.status, s.bpOutcome, s.bpKind);
           else if (seg === "bp") pill = "БП";
           else pill = s.status || "";
           return pill ? '<span class="pill pill--ok">' + esc(pill) + "</span>" : "";
         })() +
         mark + "</button>";
-    });
+    }
+    html += '<div class="b-list">';
+    rows.forEach(function (s, i) { html += renderSubRow_(s, i); });
     html += "</div>";
+    if (seg === "bp") {
+      var doneRows = bpArchiveRows_("done");
+      var refuseRows = bpArchiveRows_("refuse");
+      if (doneRows.length) {
+        html += '<p class="b-lbl" style="margin-top:16px">Завершённые</p><div class="b-list">';
+        doneRows.forEach(function (s, i) { html += renderSubRow_(s, "d" + i); });
+        html += "</div>";
+      }
+      if (refuseRows.length) {
+        html += '<p class="b-lbl" style="margin-top:16px">Отказ</p><div class="b-list">';
+        refuseRows.forEach(function (s, i) { html += renderSubRow_(s, "r" + i); });
+        html += "</div>";
+      }
+    }
     if (showBpForm) {
       sh().dock('<div class="nx-actions"><button type="button" class="b-btn b-btn--sec" data-act="cl-bp-cancel">Отмена</button>' +
         '<button type="button" class="b-btn b-btn--main" data-act="cl-bp-save">Сохранить</button></div>');
@@ -603,19 +684,27 @@
   }
 
   function bpForm() {
+    /* t516u-clients #10: бесплатный / по себесу; без пожеланий; опросник +4 дня. */
     return '<article class="b-card" style="margin-top:12px">' +
       '<p class="b-lbl">Новый клиент БП</p>' +
       field("cxBpNick", "", "Ник") +
+      '<p class="b-lbl">Тип БП</p><div class="b-seg">' +
+      '<button type="button" class="b-seg__item b-seg__item--on" data-act="cl-bp-kind" data-k="free">Бесплатный</button>' +
+      '<button type="button" class="b-seg__item" data-act="cl-bp-kind" data-k="cost">По себестоимости</button></div>' +
+      '<input type="hidden" id="cxBpKind" value="free">' +
       '<p class="b-lbl">Дата опросника</p>' + field("cxBpDate", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
       '<p class="b-lbl">Менеджер</p><label class="b-field"><select class="b-field__input" id="cxBpOwner" data-k="cxBpOwner">' + ownerOptions("") + "</select></label>" +
       field("cxBpAddress", "", "Адрес") +
       field("cxBpPhone", "", "Телефон") +
-      area("cxBpWishes", "", "Пожелания") +
       "</article>";
   }
 
   function paintSurvey() {
-    var rows = surveys.slice();
+    /* t516u-clients #3/#10: без «Сохранить отв.»; опросник на менеджере карточки БП. */
+    var rows = surveys.filter(function (it) {
+      var st = String((it && it.status) || "").toLowerCase();
+      return st !== "sent" && st !== "done" && st !== "cancelled" && st !== "canceled";
+    });
     var html = segBar();
     html += actions(
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-add">+ Опросник</button>' +
@@ -625,9 +714,8 @@
     if (showSurveyForm) {
       html += '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Новый опросник</p>' +
         field("cxSvNick", "", "Ник") +
-        '<p class="b-note">После БП</p>' +
+        '<p class="b-note">Напоминание менеджеру карточки БП</p>' +
         field("cxSvDue", ymdPlusDaysLocal_("", 4), "", 'type="date"') +
-        '<label class="b-field"><select class="b-field__input" id="cxSvOwner" data-k="cxSvOwner">' + ownerOptions("") + "</select></label>" +
         "</article>";
     }
     rows.forEach(function (it, i) {
@@ -635,10 +723,8 @@
       html += '<article class="b-card" style="margin-top:8px">' +
         (editMode ? '<button type="button" class="b-chip' + (picked[id] ? " b-chip--on" : "") + '" data-act="cl-pick" data-key="' + esc(id) + '">' + (picked[id] ? "Выбран" : "Выбрать") + "</button>" : "") +
         '<p class="b-li__title" style="margin:8px 0 0">' + esc(it.nick || "Без ника") + "</p>" +
-        '<p class="b-note">' + esc("После БП " + (it.dueDate || "") + " " + (it.status || "")) + "</p>" +
-        '<label class="b-field"><select class="b-field__input" id="svOwn' + i + '" data-k="svOwn' + i + '" data-i="' + i + '">' + ownerOptions(it.ownerTelegramId) + "</select></label>" +
+        '<p class="b-note">' + esc("Опросник " + (it.dueDate || "") + (it.ownerName ? (" · " + it.ownerName) : "")) + "</p>" +
         actions(
-          '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-owner" data-i="' + i + '">Сохранить отв.</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="sent">Отправлено</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="done">Готово</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="cancelled">Отмена</button>'
@@ -663,8 +749,15 @@
   }
 
   function fracHtml(prefix, fr) {
+    /* t516u-clients #8: сетка с nowrap-подписями — не ломать «Ломтики…» по буквам. */
     var keys = [["slices", "Ломтики"], ["strips", "Полоски"], ["large", "Крупное"], ["medium", "Среднее"], ["small", "Мелкое"], ["extraSmall", "Очень мелкое"]];
-    return packsHtml(prefix, fr, keys);
+    var html = '<div class="nx-frac-rates">';
+    keys.forEach(function (k) {
+      html += '<label class="nx-frac-rate"><span class="nx-frac-rate__lab">' + esc(k[1]) + '</span>' +
+        '<input class="b-field__input" data-k="' + prefix + k[0] + '" value="' + esc((fr && fr[k[0]]) || 0) + '" inputmode="numeric"></label>';
+    });
+    html += "</div>";
+    return html;
   }
 
   function groupBox(title, inner) {
@@ -690,6 +783,20 @@
     }
   }
 
+  /** t516u-clients #1: месячный оборот ПП = одна цена подписки, не сумма двух отгрузок и не ×N. */
+  function subMonthlyTurnover_(s) {
+    if (!s) return 0;
+    var turn = Number(s.turnover);
+    if (isFinite(turn) && turn > 0) return turn;
+    var stated = Number(String(s.statedCost != null ? s.statedCost : "").replace(",", "."));
+    if (isFinite(stated) && stated > 0) return stated;
+    var client = Number(s.clientPrice);
+    if (isFinite(client) && client > 0) return client;
+    var fact = Number(String(s.factCost != null ? s.factCost : "").replace(",", "."));
+    if (isFinite(fact) && fact > 0) return fact;
+    return 0;
+  }
+
   function ppListTotals_(list) {
     var seen = {};
     var turnover = 0;
@@ -703,9 +810,7 @@
       if (seen[key]) return;
       seen[key] = true;
       n++;
-      var turn = Number(s.turnover);
-      if (!isFinite(turn)) turn = 0;
-      turnover += turn;
+      turnover += subMonthlyTurnover_(s);
       if (s.cost != null && s.cost !== "") {
         costKnown = true;
         cost += Number(s.cost) || 0;
@@ -787,25 +892,34 @@
     if (!all.length && ppMoneyState !== "ok") return "";
     var fromStats = (ppMoneyState === "ok" && ppMoney && ppMoney.turnover != null) ? ppMoney : null;
     var fromList = all.length ? ppListTotals_(all) : null;
-    var t = fromStats || ((ppMoneyState === "err" || ppMoneyState === "ok") ? fromList : null);
-    var turn = t ? t.turnover : null;
-    var income = t ? t.income : null;
-    var cost = t ? t.cost : null;
-    var wait = !t && ppMoneyState !== "ok" && ppMoneyState !== "err";
+    /* t516u-clients #1: D1 statedCost один раз — источник оборота; себес/приход из stats если в списке нет cost. */
+    var turn = null;
+    var cost = null;
+    var income = null;
+    if (fromList && fromList.turnover > 0) turn = fromList.turnover;
+    else if (fromStats) turn = fromStats.turnover;
+    if (fromList && fromList.cost != null) cost = fromList.cost;
+    else if (fromStats) cost = fromStats.cost;
+    if (fromList && fromList.income != null && fromList.cost != null) income = fromList.income;
+    else if (fromStats) income = fromStats.income;
+    else if (turn != null && cost != null) income = Math.round((turn - cost) * 100) / 100;
+    var wait = turn == null && ppMoneyState !== "ok" && ppMoneyState !== "err";
     return '<div class="nx-counters nx-pp-totals" style="margin:8px 0 12px">' +
       '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(turn)) + "</b><span>Оборот</span></div>" +
       '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(income)) + "</b><span>Приход</span></div>" +
       '<div class="nx-count"><b>' + esc(wait ? "…" : moneyFixed(cost)) + "</b><span>Себес</span></div>" +
       "</div>" +
-      '<p class="b-note">Цена один раз. Если оплата отмечена, она на слоте ПП1 или ПП2. Пока оплаты нет, оборот — сумма цен подписок.</p>';
+      '<p class="b-note">Оборот = сумма цен подписок один раз (не ×N доставок). Сырьё/нарезка/пакеты/фракции — один раз; дважды только доставка.</p>';
   }
 
   function paintCard() {
     var c = card;
     var html = segBar();
     html += '<button type="button" class="nx-link" data-act="cl-back">← К списку</button>';
+    /* t516u-clients #4: ник IG отдельно; пожелания в карточке не показываем (теги COEF/SCHEME остаются в фоне). */
     var clientFields = '<p class="b-lbl">Имя</p>' + field("cxLabel", c.label, "Имя") +
       '<p class="b-lbl">Ник</p>' + field("cxNick", c.nick, "Ник") +
+      '<p class="b-lbl">Instagram</p>' + field("cxIgNick", c.igNick || "", "@ник") +
       '<p class="b-lbl">Телефон</p>' + field("cxPhone", c.phone, "Телефон") +
       '<p class="b-lbl">Адрес</p>' + field("cxAddress", c.addrStreet, "Адрес") +
       '<p class="b-lbl">Подъезд</p>' + field("cxEnt", c.addrEntrance, "Подъезд") +
@@ -822,7 +936,7 @@
       '<p class="b-lbl">Вес, кг</p>' + field("cxWeight", c.dogWeight, "кг"));
     var subFields = '<p class="b-lbl">Лист</p><p class="b-note">' + esc(c.sheet || "ПП") + "</p>" +
       (c.sheet === "БП"
-        ? '<p class="b-lbl">Статус</p><p class="b-note">БП</p>'
+        ? '<p class="b-lbl">Статус</p><p class="b-note">' + esc((W() && W().listLabel ? W().listLabel(c.status, c.bpOutcome, c.bpKind) : "БП")) + "</p>"
         : '<p class="b-lbl">Статус</p>' + field("cxStatus", c.status, "Статус")) +
       '<p class="b-lbl">Доставок</p>' + field("cxN", c.deliveries, "1", 'inputmode="numeric"') +
       (c.sheet === "ПП" ? '<p class="b-note" id="cxDelivLine">' + esc(delivLine(c.deliveries)) + "</p>" : "") +
@@ -830,12 +944,12 @@
       '<p class="b-lbl">Код</p><p class="b-note">' + esc(c.publicId || "—") + "</p>" +
       '<p class="b-lbl">ID</p>' + field("cxSubId", c.subId, "ID");
     if (c.sheet === "БП") {
-      var wkLab = W() ? W().statusLabel(c.bpWeeks, c.bpOutcome) : "";
+      /* t516u-clients #10: без БП2/ФИНАЛ; один опросник + кнопка второй недели. */
+      var wkLab = W() ? W().statusLabel(c.bpWeeks, c.bpOutcome, c.bpKind) : "";
       if (wkLab) subFields += '<p class="b-lbl">Итог</p><p class="b-note">' + esc(wkLab) + "</p>";
-      subFields += '<p class="b-lbl">Опросник</p>' + field("cxSv2", c.surveyBp2Due, "", 'type="date"') +
-        '<p class="b-lbl">Дата опросника</p>' + field("cxSvF", c.surveyFinalDue, "", 'type="date"');
+      if (c.bpKind) subFields += '<p class="b-lbl">Тип БП</p><p class="b-note">' + esc(c.bpKind === "cost" ? "по себестоимости" : "бесплатный") + "</p>";
+      subFields += '<p class="b-lbl">Дата опросника</p>' + field("cxSvF", c.surveyFinalDue || c.surveyBp2Due || "", "", 'type="date"');
     }
-    subFields += '<p class="b-lbl">Пожелания</p>' + area("cxWishes", c.wishes, "Пожелания");
     html += groupBox("Подписка", subFields);
     var priceBits = "";
     if (c.sheet === "ПП" || c.sheet === "АФК") {
@@ -880,10 +994,13 @@
       '<button type="button" class="b-btn b-btn--sec" data-act="cl-delete">Удалить</button>'
     );
     if (c.sheet === "БП") {
-      var closed = W() && (W().outcomeOf(c.bpOutcome) === "done" || W().outcomeOf(c.bpOutcome) === "pp");
+      /* t516u-clients #10: убрать «Отметить контакт»; добавить «Вторая неделя». */
+      var closed = W() && (W().outcomeOf(c.bpOutcome) === "done" || W().outcomeOf(c.bpOutcome) === "pp" || W().outcomeOf(c.bpOutcome) === "refuse");
       var bpActs = '<button type="button" class="b-btn b-btn--main" data-act="cl-to-pp">Переход → расчёт ПП</button>';
+      if (!closed && Number(c.bpWeeks) !== 2) {
+        bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-bp-week2">Вторая неделя</button>';
+      }
       if (!closed) bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-bp-done">Завершён</button>';
-      bpActs += '<button type="button" class="b-btn b-btn--sec" data-act="cl-touch">Отметить контакт</button>';
       html += actions(bpActs);
     }
     sh().dock('<button type="button" class="b-btn b-btn--main" data-act="cl-save">Сохранить</button>');
@@ -1139,6 +1256,7 @@
       scheduleCardPpRecalc_();
     }
     if (k === "cxStatus" && card) card.status = v;
+    if (k === "cxIgNick" && card) card.igNick = String(v || "").replace(/^@+/, "").trim();
     if (k === "cxWishes" && card) card.wishes = v;
     if (k === "cxAddress" && card) { card.addrStreet = v; joinAddr(); }
     if (k === "cxEnt" && card) { card.addrEntrance = v; joinAddr(); }
@@ -2044,6 +2162,8 @@
     card.basketBp2Keep = Array.isArray(res.basketBp2)
       ? card.basketBp2.map(function (it) { return Object.assign({}, it); })
       : null;
+    /* t516u-clients #7: нормализуем сердце Целое→Ломтики при открытии. */
+    normalizeCardHeartFractions_();
     /* t454u: явный флаг или unequal slots → manual; иначе auto-materialize in-memory. */
     card.ppManualDist = !!(eng().parsePpManualDist_ && eng().parsePpManualDist_(res.ppManualDist));
     try { cardApplyPpDistOnOpen_(); } catch (eDist) { /* stub/eng без t454u — карточку всё равно рисуем */ }
@@ -2065,10 +2185,13 @@
     card.serviceGeo = serviceGeoOf_(res.wishes || "", res.serviceGeo);
     var parsedBp = W() ? W().parseWishes(res.wishes || "") : null;
     card.wishes = staffWishes_(res.wishes || "");
+    /* t516u-clients #4: IG отдельно от имени/ника. */
+    card.igNick = String(res.igNick || igHandleFromSubNick_(res.nick) || igHandleFromSubNick_(res.label) || "").replace(/^@+/, "");
     if (parsedBp && parsedBp.bpWeeksSet) {
       card.bpWeeks = parsedBp.bpWeeks;
       card.bpWeeksSet = true;
       if (!card.bpOutcome && parsedBp.bpOutcome) card.bpOutcome = parsedBp.bpOutcome;
+      if (parsedBp.bpKind) card.bpKind = parsedBp.bpKind;
     }
     if (res.bpWeeksSet === true || res.bpWeeksSet === "1" || res.bpWeeksSet === 1) {
       card.bpWeeksSet = true;
@@ -2125,6 +2248,8 @@
   async function saveCard() {
     flushClientNotes();
     if (!card) return;
+    /* t516u-clients #7: при сохранении сердце Целое → Ломтики. */
+    normalizeCardHeartFractions_();
     /* t454u: auto N2 — материализуем ПП1/ПП2 перед записью (без повторного half на suggest). */
     if (card.sheet === "ПП" && monthN(card.deliveries || 1) >= 2 && !card.ppManualDist) {
       cardMaterializeAutoSplit_({});
@@ -2160,6 +2285,7 @@
       deliveries: card.deliveries || "",
       ppStatus: card.status || "",
       wishes: wishes,
+      igNick: card.igNick || "",
       address: card.address || "",
       phone: card.phone || "",
       doorCode: card.doorCode || "",
@@ -2460,7 +2586,19 @@
       return true;
     }
     if (act === "cl-bp-add") { showBpForm = true; loadPeople().then(paint); return true; }
+    if (act === "cl-bp-kind") {
+      var kindEl = document.getElementById("cxBpKind");
+      if (kindEl) kindEl.value = node.getAttribute("data-k") || "free";
+      var segItems = document.querySelectorAll('[data-act="cl-bp-kind"]');
+      for (var bi = 0; bi < segItems.length; bi++) {
+        var on = segItems[bi].getAttribute("data-k") === (kindEl && kindEl.value);
+        if (on) segItems[bi].classList.add("b-seg__item--on");
+        else segItems[bi].classList.remove("b-seg__item--on");
+      }
+      return true;
+    }
     if (act === "cl-bp-done") { doneBp(); return true; }
+    if (act === "cl-bp-week2") { extendBpWeek2(); return true; }
     if (act === "cl-bp-cancel") { showBpForm = false; paint(); return true; }
     if (act === "cl-bp-save") { saveBp(); return true; }
     if (act === "cl-edit-mode") { editMode = !editMode; if (!editMode) picked = {}; paint(); return true; }
@@ -2585,7 +2723,8 @@
     if (act === "cl-econ") { econ(); return true; }
     if (act === "cl-recalc") { recalcCard(); return true; }
     if (act === "cl-to-pp") { toPp(); return true; }
-    if (act === "cl-touch") { touchBp(); return true; }
+    /* t516u-clients #10: «Отметить контакт» убрана — no-op на старых кнопках. */
+    if (act === "cl-touch") { sh().toast("Контакт больше не отмечаем — смотри опросник"); return true; }
     if (act === "cl-mode") {
       var nextMode = node.getAttribute("data-m") === "retail" ? "retail" : "pp";
       if (nextMode !== price.mode) price.retailDelivery = "";
@@ -2650,16 +2789,19 @@
   }
 
   async function saveBp() {
+    /* t516u-clients #10: карточка БП + опросник; задачу «Предложить переход на ПП» не ставим. */
     var nick = (document.getElementById("cxBpNick") || {}).value || "";
     nick = String(nick).trim();
     if (!nick) { sh().toast("Укажи ник"); return; }
-    var fresh = W() && W().newCardFields ? W().newCardFields() : { status: "БП1", surveyKind: "final", bpWeeks: "1" };
+    var fresh = W() && W().newCardFields ? W().newCardFields() : { status: "БП", surveyKind: "final", bpWeeks: "1" };
     var ownerId = (document.getElementById("cxBpOwner") || {}).value || "";
-    if (!ownerId) { sh().toast("Выбери ответственного менеджера"); return; }
+    if (!ownerId) { sh().toast("Выбери менеджера карточки"); return; }
     var ownerName = "";
     people.forEach(function (p) { if (String(p.telegramId) === String(ownerId)) ownerName = p.name || ""; });
     var surveyDate = (document.getElementById("cxBpDate") || {}).value || ymdPlusDaysLocal_("", 4);
-    var wishes = staffWishes_((document.getElementById("cxBpWishes") || {}).value || "");
+    var bpKind = String((document.getElementById("cxBpKind") || {}).value || "free");
+    var wishes = "";
+    if (W() && W().stampWishes) wishes = W().stampWishes("", { bpWeeks: 1, bpKind: bpKind });
     var address = (document.getElementById("cxBpAddress") || {}).value || "";
     var phone = (document.getElementById("cxBpPhone") || {}).value || "";
     var payload = {
@@ -2668,9 +2810,9 @@
       label: nick,
       createCard: "1",
       needSurvey: "1",
-      status: fresh.status || "БП1",
-      ppStatus: fresh.ppStatus || fresh.status || "БП1",
-      stage: fresh.stage || "БП1",
+      status: fresh.status || "БП",
+      ppStatus: fresh.ppStatus || fresh.status || "БП",
+      stage: fresh.stage || "БП",
       sheet: "БП",
       segment: "БП",
       surveyDate: surveyDate,
@@ -2681,13 +2823,12 @@
       ownerTelegramId: ownerId,
       ownerName: ownerName,
       basket: "[]",
-      bpWeeks: "1"
+      bpWeeks: "1",
+      bpKind: bpKind,
+      skipPpRemind: "1"
     };
     var res = await api().apiGet(payload, { timeoutMs: 60000, cacheTtlMs: 0 });
     if (!res || (res.status !== "success" && res.status !== "accepted")) { sh().toast("Не создалось: " + ((res && res.message) || "нет ответа")); return; }
-    if (W()) {
-      try { await api().apiPost(W().remindBody(nick, ownerId)); } catch (eRm) {}
-    }
     subs = subs.filter(function (s) {
       return !(sheetKey_(s) === "БП" && String(s.nick || "").trim().toUpperCase() === nick.toUpperCase());
     });
@@ -3005,6 +3146,59 @@
     await markBpOutcome("done", "Завершён", "Завершить БП? Новых доставок по этой карточке не будет", "БП завершён");
   }
 
+  async function extendBpWeek2() {
+    /* t516u-clients #10: вторая неделя по сниженной цене после 1-й (бесплатной или по себесу). */
+    if (!card || card.sheet !== "БП") return;
+    var ok = await sh().confirm({
+      title: "Вторая неделя",
+      text: "Открыть вторую неделю по сниженной цене для «" + (card.label || card.nick) + "»?",
+      ok: "Открыть",
+      cancel: "Отмена"
+    });
+    if (!ok) return;
+    card.bpWeeks = 2;
+    card.bpWeeksSet = true;
+    card.bpOutcome = "extend";
+    card.surveyFinalDue = ymdPlusDaysLocal_("", 4);
+    if (W() && W().stampWishes) {
+      card.wishes = W().stampWishes(card.wishes || "", { bpWeeks: 2, bpOutcome: "extend", bpKind: card.bpKind || "" });
+    }
+    try {
+      await api().apiPost({
+        action: "saveSubscription",
+        nick: card.nick || card.label,
+        label: card.label || card.nick,
+        subId: card.subId || "",
+        sheet: "БП",
+        segment: "БП",
+        ppStatus: card.status || "БП",
+        wishes: card.wishes || "",
+        bpWeeks: 2,
+        bpOutcome: "extend",
+        bpKind: card.bpKind || "",
+        surveyFinalDue: card.surveyFinalDue,
+        ownerTelegramId: card.ownerTelegramId || "",
+        needSurvey: true
+      });
+    } catch (eW2) {}
+    try {
+      await api().apiGet({
+        action: "saveSurvey",
+        nick: card.nick || card.label,
+        kind: "week2",
+        dueDate: card.surveyFinalDue,
+        stage: "БП",
+        status: "planned",
+        templateId: "survey_final",
+        ownerTelegramId: card.ownerTelegramId || "",
+        ownerName: card.ownerName || "",
+        _: String(Date.now())
+      }, { timeoutMs: 45000, cacheTtlMs: 0 });
+    } catch (eSv) {}
+    sh().toast("Вторая неделя · опросник на " + card.surveyFinalDue);
+    paint();
+  }
+
   async function toPp() {
     if (!card) return;
     var ok = await sh().confirm({ title: "БП → ПП", text: "Перевести «" + (card.label || card.nick) + "» с БП в ПП?\nПопадёт в статистику «стало ПП», затем откроется расчёт.", ok: "Перевести", cancel: "Отмена" });
@@ -3180,14 +3374,19 @@
     paint();
   }
 
-  function surveyByIndex(i) { return surveys.filter(surveyVisible)[i]; }
+  function surveyByIndex(i) {
+    return surveys.filter(function (it) {
+      var st = String((it && it.status) || "").toLowerCase();
+      return st !== "sent" && st !== "done" && st !== "cancelled" && st !== "canceled";
+    })[i];
+  }
   function surveyVisible() { return true; }
 
   async function surveyStatus(i, status) {
+    /* t516u-clients #3: Отправлено/Готово/Отмена убирают строку из активных. */
     var it = surveyByIndex(i);
     if (!it) return;
-    var ownEl = document.getElementById("svOwn" + i);
-    var ownerId = ownEl ? ownEl.value : (it.ownerTelegramId || "");
+    var ownerId = it.ownerTelegramId || "";
     var ownerName = it.ownerName || "";
     people.forEach(function (p) { if (String(p.telegramId) === String(ownerId)) ownerName = p.name || ownerName; });
     var res = await api().apiGet({
@@ -3198,13 +3397,18 @@
       dueDate: String(it.dueDate || "").slice(0, 10),
       stage: it.stage || "",
       status: status,
-      templateId: it.templateId || (String(it.kind || "").indexOf("final") >= 0 ? "survey_final" : "survey_bp2"),
+      templateId: it.templateId || "survey_final",
       ownerTelegramId: ownerId,
       ownerName: ownerName,
       _: String(Date.now())
     }, { timeoutMs: 45000, cacheTtlMs: 0 });
     if (!res || res.status !== "success") { sh().toast("Не вышло: " + ((res && res.message) || "Deploy")); return; }
-    sh().toast(status === "sent" ? "Отправлено — напоминания выкл." : (status === "done" ? "Готово" : "Отменено"));
+    if (it.id) {
+      try {
+        await api().apiGet({ action: "deleteSurvey", id: it.id, _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      } catch (eDel) {}
+    }
+    sh().toast(status === "sent" ? "Отправлено — убрано из списка" : (status === "done" ? "Готово — убрано" : "Отменено — убрано"));
     await loadSurveys();
     paint();
   }
@@ -3322,6 +3526,8 @@
     currentSeg: currentSeg,
     ppListTotals_: ppListTotals_,
     ppMoneyFromStats_: ppMoneyFromStats_,
+    subMonthlyTurnover_: subMonthlyTurnover_,
+    normalizeHeartWhole_: normalizeHeartWhole_,
     retailCalcChoice_: retailCalcChoice_
   };
 })(window);

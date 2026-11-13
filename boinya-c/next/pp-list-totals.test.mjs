@@ -30,6 +30,16 @@ test("итог ПП: цена один раз на клиента, слоты н
   assert.equal(sum.income, 130);
 });
 
+test("t516u #1: без turnover берём statedCost один раз, не ×N", () => {
+  const sum = totals([
+    { sheet: "ПП", subId: "a", nick: "ann", deliveries: 2, statedCost: 90 },
+    { sheet: "ПП", subId: "b", nick: "bob", deliveries: 1, statedCost: "50" },
+    { sheet: "ПП", subId: "a", nick: "ann", deliveries: 2, statedCost: 90 }
+  ]);
+  assert.equal(sum.clients, 2);
+  assert.equal(sum.turnover, 140);
+});
+
 test("себес без ячейки не выдумывается", () => {
   const sum = totals([
     { sheet: "ПП", subId: "a", turnover: 50, cost: null },

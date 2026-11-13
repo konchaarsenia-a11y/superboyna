@@ -1,4 +1,5 @@
-/* БП — одна неделя. Нет тега у старой записи — читаем как раньше, 2 недели, и не переписываем. */
+/* БП — новая модель (t516u-clients #10): бесплатный / по себесу; 1 неделя + опц. вторая.
+   Нет БП2/ФИНАЛ. Опросник = напоминание менеджеру карточки. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -7,53 +8,73 @@
   "use strict";
 
   function weeksOf(raw) {
-    if (raw == null || raw === "") return 2;
-    return Number(raw) === 1 ? 1 : 2;
+    if (raw == null || raw === "") return 1;
+    return Number(raw) === 2 ? 2 : 1;
+  }
+
+  function kindOf(raw) {
+    var s = String(raw || "").trim().toLowerCase();
+    if (s === "cost" || s === "себес" || s === "себестоимость" || s === "paid") return "cost";
+    if (s === "free" || s === "бесплатный" || s === "бесплат") return "free";
+    return "";
   }
 
   function outcomeOf(raw) {
     var s = String(raw || "").trim().toLowerCase();
-    if (s === "extend" || s === "extended" || s === "продлён" || s === "продлен") return "extend";
+    if (s === "extend" || s === "extended" || s === "продлён" || s === "продлен" || s === "week2") return "extend";
     if (s === "pp" || s === "пп") return "pp";
     if (s === "done" || s === "completed" || s === "завершён" || s === "завершен") return "done";
+    if (s === "refuse" || s === " отказ" || s === "отказ" || s === "archive") return "refuse";
     return "";
   }
 
-  function statusLabel(weeks, outcome) {
+  function statusLabel(weeks, outcome, kind) {
     var o = outcomeOf(outcome);
     if (o === "pp") return "перешёл в ПП";
     if (o === "done") return "завершён";
+    if (o === "extend" || weeksOf(weeks) === 2) return "вторая неделя";
+    if (o === "refuse") return "отказ";
+    var k = kindOf(kind);
+    if (k === "cost") return "по себестоимости";
+    if (k === "free") return "бесплатный";
     return "";
   }
 
-  function listLabel(status, outcome) {
-    var extra = statusLabel(null, outcome);
-    return extra ? ("БП, " + extra) : "БП";
+  function listLabel(status, outcome, kind) {
+    var extra = statusLabel(null, outcome, kind);
+    if (extra) return "БП, " + extra;
+    if (/БП2|ФИНАЛ/i.test(String(status || ""))) return "БП";
+    return "БП";
   }
 
   function countsInBpList(row) {
     row = row || {};
     var sh = String(row.sheet || row.segment || "").trim().toUpperCase();
     if (sh === "BP") sh = "БП";
-    return sh === "БП";
+    if (sh !== "БП") return false;
+    var o = outcomeOf(row.bpOutcome);
+    return o !== "refuse";
   }
 
-  function newCardFields() {
+  function newCardFields(kind) {
+    var k = kindOf(kind) || "free";
     return {
       sheet: "БП",
       segment: "БП",
-      status: "БП1",
-      stage: "БП1",
-      ppStatus: "БП1",
+      status: "БП",
+      stage: "БП",
+      ppStatus: "БП",
       bpWeeks: "1",
+      bpKind: k,
       surveyKind: "final",
       createCard: true,
-      needSurvey: true
+      needSurvey: true,
+      skipPpRemind: true
     };
   }
 
   function remindTitle(name) {
-    return "Предложить переход на ПП: " + String(name || "").trim();
+    return "Опросник БП: " + String(name || "").trim();
   }
 
   function remindId(nick) {
@@ -86,11 +107,15 @@
   function parseWishes(wishes) {
     var w = String(wishes || "");
     var mw = w.match(/\[BPW:([12])\]/i);
-    var mo = w.match(/\[BPOUT:(extend|pp|done)\]/i);
+    var mo = w.match(/\[BPOUT:(extend|pp|done|refuse|week2)\]/i);
+    var mk = w.match(/\[BPKIND:(free|cost)\]/i);
+    var out = mo ? String(mo[1]).toLowerCase() : "";
+    if (out === "week2") out = "extend";
     return {
-      bpWeeks: mw ? Number(mw[1]) : 2,
+      bpWeeks: mw ? Number(mw[1]) : 1,
       bpWeeksSet: !!mw,
-      bpOutcome: mo ? String(mo[1]).toLowerCase() : ""
+      bpOutcome: out,
+      bpKind: mk ? String(mk[1]).toLowerCase() : ""
     };
   }
 
@@ -98,6 +123,7 @@
     return String(wishes || "")
       .replace(/\[BPW:[^\]]*\]/gi, "")
       .replace(/\[BPOUT:[^\]]*\]/gi, "")
+      .replace(/\[BPKIND:[^\]]*\]/gi, "")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -110,42 +136,23 @@
     if (meta.bpWeeks != null && meta.bpWeeks !== "") weeks = weeksOf(meta.bpWeeks);
     var outcome = parsed.bpOutcome;
     if (meta.bpOutcome != null) outcome = outcomeOf(meta.bpOutcome);
+    var kind = parsed.bpKind;
+    if (meta.bpKind != null && meta.bpKind !== "") kind = kindOf(meta.bpKind);
     var tags = "";
     if (weeks === 1 || weeks === 2) tags += "[BPW:" + weeks + "]";
     if (outcome) tags += "[BPOUT:" + outcome + "]";
+    if (kind) tags += "[BPKIND:" + kind + "]";
     return (base + (base && tags ? " " : "") + tags).trim();
   }
 
+  /** t516u-clients #10: при создании БП deferred-задачу перехода в ПП не ставим. */
   function remindBody(nick, telegramId) {
-    var when = new Date();
-    var title = remindTitle(nick);
-    var tid = String(telegramId || "").trim();
-    return {
-      action: "saveDeferred",
-      telegramId: tid,
-      id: remindId(nick),
-      mode: "remind",
-      title: title,
-      clientNick: String(nick || "").trim(),
-      status: "open",
-      silent: "1",
-      remindAt: when.toISOString(),
-      remindAtMs: String(when.getTime()),
-      payload: JSON.stringify({
-        mode: "remind",
-        title: title,
-        bpWeeks: 1,
-        remindSilent: true,
-        remindSent: true,
-        client: String(nick || "").trim(),
-        targetTelegramId: tid,
-        forTelegramId: tid
-      })
-    };
+    return null;
   }
 
   return {
     weeksOf: weeksOf,
+    kindOf: kindOf,
     outcomeOf: outcomeOf,
     statusLabel: statusLabel,
     listLabel: listLabel,

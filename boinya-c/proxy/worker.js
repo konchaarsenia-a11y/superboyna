@@ -2763,10 +2763,27 @@ function parseBasket_(raw) {
     }
   }
   try {
-    return normalizeBasketAliasesD1_(arr);
-  } catch (eAl) {
-    return arr;
-  }
+    arr = normalizeBasketAliasesD1_(arr);
+  } catch (eAl) {}
+  /* t516u-clients #7: сердце Целое → Ломтики на любом чтении basket. */
+  try {
+    arr = normalizeHeartWholeBasketD1_(arr);
+  } catch (eH) {}
+  return arr;
+}
+
+function normalizeHeartWholeBasketD1_(arr) {
+  if (!Array.isArray(arr)) return arr;
+  return arr.map(function (it) {
+    if (!it || typeof it !== "object") return it;
+    const main = String(it.main || it.name || "");
+    const sub = String(it.sub || "").trim();
+    if (!/сердц/i.test(main)) return it;
+    if (!/^цел/i.test(sub)) return it;
+    const copy = Object.assign({}, it);
+    copy.sub = "Ломтики";
+    return copy;
+  });
 }
 
 /** Опечатки SKU: Аортаа→Аорта, ухо ГА→ухо Г. На read+write, чтобы UI никогда не показывал «аортаа». */
@@ -21250,12 +21267,49 @@ async function handleCutover_(a, params, env, ctx) {
               d1SubRes = gasMove;
             }
             if (d1SubRes && d1SubRes.status === "success") {
+              /* t516u-clients #2: БП→ПП через любой moveSubscription — в статистику (не только кнопка карточки). */
+              let bpToPpCounted = false;
+              try {
+                const fromSh = String(params.fromSheet || (gasMove && gasMove.fromSheet) || "").toUpperCase();
+                const toSh = String(params.toSheet || (gasMove && gasMove.toSheet) || "").toUpperCase();
+                const fromBp = fromSh === "БП" || fromSh === "BP";
+                const toPp = toSh === "ПП" || toSh === "PP";
+                if (fromBp && toPp && env && env.DB) {
+                  const convSnap = (await getSnapRaw_(env, "bpToPpConversions")) || { items: [] };
+                  const nickConv = String(params.nick || params.label || (gasMove && gasMove.nick) || "").trim();
+                  if (nickConv) {
+                    const mk = normalizeMatchKey_(nickConv);
+                    const monthKey = new Date().toISOString().slice(0, 7);
+                    const already = (convSnap.items || []).some(function (it) {
+                      return (
+                        normalizeMatchKey_(it.nick || it.label || "") === mk &&
+                        String(it.monthKey || "").slice(0, 7) === monthKey
+                      );
+                    });
+                    if (!already) {
+                      convSnap.items = (convSnap.items || []).concat([
+                        {
+                          nick: nickConv,
+                          label: params.label || nickConv,
+                          subId: (gasMove && gasMove.subId) || params.subId || "",
+                          at: new Date().toISOString(),
+                          monthKey: monthKey,
+                          source: "moveSubscription"
+                        }
+                      ]);
+                      await putSnap_(env, "bpToPpConversions", convSnap);
+                    }
+                    bpToPpCounted = true;
+                  }
+                }
+              } catch (eConvMove) {}
               return Object.assign({}, gasMove, d1SubRes, {
                 cutover: true,
                 sandbox: false,
                 d1Verified: true,
                 gasVerified: true,
                 optimistic: false,
+                bpToPpCounted: bpToPpCounted,
                 subsCanon: subsCanonLabel_(env),
                 action: a
               });
@@ -39630,16 +39684,18 @@ async function stageNCallback_(env, cq, send) {
     return { kind: "defdone", sent: true };
   }
   if (sv) {
+    /* t516u-clients #3: кнопка «Отправлено» в боте убирает опросник из активных. */
     const id = sv[1];
     const snap = (await getSnapRaw_(env, "listSurvey")) || { items: [] };
+    const keep = [];
     (snap.items || []).forEach(function (row) {
-      if (String(row.id) === id) {
-        row.status = "sent";
-        row.sentAt = new Date().toISOString();
-      }
+      if (String(row.id) === id) return;
+      keep.push(row);
     });
+    snap.items = keep;
+    snap.count = keep.length;
     try { await putSnap_(env, "listSurvey", snap); } catch (ePut) {}
-    try { await telegramAnswerCallbackWorker_(env, cq.id, "Отмечено"); } catch (eA) {}
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Убрано из списка"); } catch (eA) {}
     try { await stageNClearMarkup_(env, cq); } catch (eM) {}
     return { kind: "svsent", sent: true };
   }

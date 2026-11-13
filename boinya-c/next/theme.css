@@ -617,6 +617,69 @@ a.nx-tel {
   overflow-wrap: anywhere;
 }
 
+/* t516u-clients #8: подписи наценки фракций не ломать по буквам в узком ряду */
+.nx-frac-rates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+@media (min-width: 520px) {
+  .nx-frac-rates { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.nx-frac-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--b-line);
+  border-radius: 12px;
+  background: var(--b-surface);
+}
+.nx-frac-rate__lab {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--b-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.nx-frac-rate .b-field__input {
+  margin: 0;
+  min-height: 40px;
+}
+
+/* t516u-clients #9: градация выгоды у коэффициента */
+.nx-coef-interest { margin-top: 8px; }
+.nx-coef-interest__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 1px solid var(--b-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.nx-coef-interest__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--b-text-2);
+  border-top: 1px solid var(--b-line);
+}
+.nx-coef-interest__row:first-child { border-top: 0; }
+.nx-coef-interest__row--on {
+  background: rgba(255, 107, 26, 0.14);
+  color: var(--b-text);
+  font-weight: 700;
+}
+.nx-coef-interest__gap { white-space: nowrap; }
+
 .mix-list .mix + .mix,
 .mix-list .mix + div,
 .mix-list div + .mix { margin-top: 6px; }
