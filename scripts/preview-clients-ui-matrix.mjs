@@ -191,10 +191,10 @@ async function shot(name) {
   return p;
 }
 
-async function injectAuth() {
-  await page.evaluate((initData) => {
-    const user = { id: 650923866, first_name: "Arseniy", username: "arseny" };
-    const login = { initData, user, at: Date.now() };
+await page.addInitScript((initData) => {
+  const user = { id: 650923866, first_name: "Arseniy", username: "arseny" };
+  const login = { initData, user, at: Date.now() };
+  try {
     sessionStorage.setItem("nx_tg_init_v1", initData);
     sessionStorage.setItem("nx_tg_login_v1", JSON.stringify(login));
     sessionStorage.setItem("nx_desk_sess_v1", JSON.stringify(login));
@@ -205,8 +205,8 @@ async function injectAuth() {
       "nx_access_v1",
       JSON.stringify({ status: "success", role: "owner", access: "active", telegramId: "650923866", tabs: [] })
     );
-  }, init);
-}
+  } catch (e) {}
+}, init);
 
 async function gotoApp(qs) {
   const url =
@@ -216,9 +216,10 @@ async function gotoApp(qs) {
     Date.now() +
     (qs ? "&" + qs : "");
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await injectAuth();
-  await page.reload({ waitUntil: "networkidle", timeout: 90000 }).catch(() => {});
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(2800);
+  // dismiss gate if still shown
+  await page.locator('[data-act="gate-retry"]').click({ timeout: 1500 }).catch(() => {});
+  await page.waitForTimeout(1200);
 }
 
 async function clickAct(act) {
