@@ -1719,6 +1719,8 @@ function isWriteAction_(a) {
   // явные чтения / списки — не write (даже если имя начинается с partner*)
   if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|poll|warehousePreview|checkOrderWarehouse)/i.test(a)) return false;
   if (a === "startDesktopAuth") return false;
+  if (a === "previewMintInitData") return false;
+  if (a === "previewBpTick") return true;
   if (
     a === "getMyAccess" ||
     a === "telegramStatus" ||
@@ -2312,6 +2314,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
+  }
+  /* Preview-only: подпись initData без TELEGRAM_BOT_TOKEN у агента. */
+  if (/^previewMintInitData$/i.test(a)) {
+    return previewMintInitData_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
