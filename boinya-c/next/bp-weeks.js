@@ -1,11 +1,16 @@
 /* БП — новая модель (t516u-clients #10): бесплатный / по себесу; 1 неделя + опц. вторая.
-   Нет БП2/ФИНАЛ. Опросник = напоминание менеджеру карточки. */
+   Нет БП2/ФИНАЛ. Опросник = напоминание менеджеру карточки.
+   Архив: done <7д в активных; ≥7д → «Завершённые»; ≥14д бездействия → «Отказ» + notify. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.BoinyaBpWeeks = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
+
+  var DAY_MS = 86400000;
+  var DONE_ARCHIVE_MS = 7 * DAY_MS;
+  var REFUSE_ARCHIVE_MS = 14 * DAY_MS;
 
   function weeksOf(raw) {
     if (raw == null || raw === "") return 1;
@@ -109,13 +114,17 @@
     var mw = w.match(/\[BPW:([12])\]/i);
     var mo = w.match(/\[BPOUT:(extend|pp|done|refuse|week2)\]/i);
     var mk = w.match(/\[BPKIND:(free|cost)\]/i);
+    var md = w.match(/\[BPDONE:([^\]]+)\]/i);
+    var mn = w.match(/\[BPNOTIFIED:([^\]]+)\]/i);
     var out = mo ? String(mo[1]).toLowerCase() : "";
     if (out === "week2") out = "extend";
     return {
       bpWeeks: mw ? Number(mw[1]) : 1,
       bpWeeksSet: !!mw,
       bpOutcome: out,
-      bpKind: mk ? String(mk[1]).toLowerCase() : ""
+      bpKind: mk ? String(mk[1]).toLowerCase() : "",
+      bpDoneAt: md ? String(md[1]).trim() : "",
+      bpRefuseNotifiedAt: mn ? String(mn[1]).trim() : ""
     };
   }
 
@@ -124,6 +133,8 @@
       .replace(/\[BPW:[^\]]*\]/gi, "")
       .replace(/\[BPOUT:[^\]]*\]/gi, "")
       .replace(/\[BPKIND:[^\]]*\]/gi, "")
+      .replace(/\[BPDONE:[^\]]*\]/gi, "")
+      .replace(/\[BPNOTIFIED:[^\]]*\]/gi, "")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -138,16 +149,95 @@
     if (meta.bpOutcome != null) outcome = outcomeOf(meta.bpOutcome);
     var kind = parsed.bpKind;
     if (meta.bpKind != null && meta.bpKind !== "") kind = kindOf(meta.bpKind);
+    var doneAt = parsed.bpDoneAt;
+    if (meta.bpDoneAt != null) doneAt = String(meta.bpDoneAt || "").trim();
+    var notified = parsed.bpRefuseNotifiedAt;
+    if (meta.bpRefuseNotifiedAt != null) notified = String(meta.bpRefuseNotifiedAt || "").trim();
     var tags = "";
     if (weeks === 1 || weeks === 2) tags += "[BPW:" + weeks + "]";
     if (outcome) tags += "[BPOUT:" + outcome + "]";
     if (kind) tags += "[BPKIND:" + kind + "]";
+    if (doneAt) tags += "[BPDONE:" + doneAt + "]";
+    if (notified) tags += "[BPNOTIFIED:" + notified + "]";
     return (base + (base && tags ? " " : "") + tags).trim();
   }
 
   /** t516u-clients #10: при создании БП deferred-задачу перехода в ПП не ставим. */
   function remindBody(nick, telegramId) {
     return null;
+  }
+
+  function doneAtMs(row, nowMs) {
+    row = row || {};
+    var raw = row.bpDoneAt || "";
+    if (!raw && row.wishes) raw = parseWishes(row.wishes).bpDoneAt;
+    if (!raw && row._savedAt && outcomeOf(row.bpOutcome || (row.wishes && parseWishes(row.wishes).bpOutcome)) === "done") {
+      raw = row._savedAt;
+    }
+    var n = Number(raw);
+    if (isFinite(n) && n > 1e11) return n;
+    if (isFinite(n) && n > 1e9 && n < 1e11) return n * 1000;
+    var t = Date.parse(String(raw || ""));
+    if (isFinite(t)) return t;
+    return 0;
+  }
+
+  /**
+   * active — обычный / свежий «завершён» (<7д)
+   * done — секция «Завершённые» (≥7д)
+   * refuse — архив «Отказ»
+   */
+  function archiveBucket(row, nowMs) {
+    row = row || {};
+    var now = nowMs != null ? Number(nowMs) : Date.now();
+    var parsed = row.wishes ? parseWishes(row.wishes) : {};
+    var outcome = outcomeOf(row.bpOutcome || parsed.bpOutcome);
+    if (outcome === "refuse") return "refuse";
+    if (outcome === "pp") return "pp";
+    if (outcome !== "done") return "active";
+    var at = doneAtMs(Object.assign({}, row, { bpDoneAt: row.bpDoneAt || parsed.bpDoneAt }), now);
+    if (!at) return "active";
+    if (now - at >= DONE_ARCHIVE_MS) return "done";
+    return "active";
+  }
+
+  function shouldAutoRefuse(row, nowMs) {
+    row = row || {};
+    var now = nowMs != null ? Number(nowMs) : Date.now();
+    var parsed = row.wishes ? parseWishes(row.wishes) : {};
+    var outcome = outcomeOf(row.bpOutcome || parsed.bpOutcome);
+    if (outcome === "refuse" || outcome === "pp") return false;
+    if (outcome !== "done") return false;
+    var at = doneAtMs(Object.assign({}, row, { bpDoneAt: row.bpDoneAt || parsed.bpDoneAt }), now);
+    if (!at) return false;
+    return now - at >= REFUSE_ARCHIVE_MS;
+  }
+
+  function surveyPhase(survey, sub) {
+    var kind = String((survey && (survey.kind || survey.templateId)) || "").toLowerCase();
+    var weeks = sub ? weeksOf(sub.bpWeeks) : 1;
+    if (/week2|w2/.test(kind)) return "week2";
+    if (weeks === 2 && /final/.test(kind)) return "week2";
+    if (/bp2|week1|w1|final/.test(kind)) return weeks === 2 ? "week2" : "week1";
+    return weeks === 2 ? "week2" : "week1";
+  }
+
+  function surveyChoices(phase) {
+    if (phase === "week2") {
+      return [
+        { id: "pp", label: "Переход на ПП" },
+        { id: "refuse", label: "Отказ" }
+      ];
+    }
+    return [
+      { id: "pp", label: "Переход на ПП" },
+      { id: "week2", label: "Вторая неделя" },
+      { id: "refuse", label: "Отказ" }
+    ];
+  }
+
+  function surveyKindLabel(phase) {
+    return phase === "week2" ? "БП · 2-я неделя" : "БП · 1-я неделя";
   }
 
   return {
@@ -164,6 +254,14 @@
     parseWishes: parseWishes,
     strip: strip,
     stampWishes: stampWishes,
-    remindBody: remindBody
+    remindBody: remindBody,
+    DONE_ARCHIVE_MS: DONE_ARCHIVE_MS,
+    REFUSE_ARCHIVE_MS: REFUSE_ARCHIVE_MS,
+    doneAtMs: doneAtMs,
+    archiveBucket: archiveBucket,
+    shouldAutoRefuse: shouldAutoRefuse,
+    surveyPhase: surveyPhase,
+    surveyChoices: surveyChoices,
+    surveyKindLabel: surveyKindLabel
   };
 });

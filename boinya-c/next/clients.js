@@ -534,10 +534,14 @@
     if (sheet === "БП") {
       rows = rows.filter(function (s) { return !isRetailMarkedSub_(s); });
       rows = groupBpSubscriptions_(rows);
-      /* t516u-clients #10: активные отдельно от завершённых/отказа. */
+      /* t516u-clients #10: активные + «завершён» <7д; ≥7д → Завершённые; отказ отдельно. */
       rows = rows.filter(function (s) {
-        var o = W() ? W().outcomeOf(s.bpOutcome) : "";
-        return o !== "refuse" && o !== "done";
+        if (!W() || !W().archiveBucket) {
+          var o = W() ? W().outcomeOf(s.bpOutcome) : "";
+          return o !== "refuse" && o !== "done";
+        }
+        var bucket = W().archiveBucket(enrichBpRow_(s));
+        return bucket === "active";
       });
     }
     if (q) {
@@ -548,13 +552,31 @@
     return rows;
   }
 
+  function enrichBpRow_(s) {
+    s = s || {};
+    if ((!s.bpOutcome || !s.bpDoneAt || !s.bpKind) && W() && W().parseWishes) {
+      var p = W().parseWishes(s.wishes || "");
+      return Object.assign({}, s, {
+        bpOutcome: s.bpOutcome || p.bpOutcome || "",
+        bpDoneAt: s.bpDoneAt || p.bpDoneAt || "",
+        bpKind: s.bpKind || p.bpKind || "",
+        bpWeeks: s.bpWeeks != null && s.bpWeeks !== "" ? s.bpWeeks : p.bpWeeks
+      });
+    }
+    return s;
+  }
+
   function bpArchiveRows_(kind) {
     var rows = groupBpSubscriptions_(subs.filter(function (s) {
       return sheetKey_(s) === "БП" && !isRetailMarkedSub_(s);
     }));
     return rows.filter(function (s) {
-      var o = W() ? W().outcomeOf(s.bpOutcome) : "";
-      return o === kind;
+      var row = enrichBpRow_(s);
+      if (!W() || !W().archiveBucket) {
+        var o = W() ? W().outcomeOf(row.bpOutcome) : "";
+        return o === kind;
+      }
+      return W().archiveBucket(row) === kind;
     });
   }
 
@@ -720,13 +742,19 @@
     }
     rows.forEach(function (it, i) {
       var id = String(it.id || i);
+      var phase = W() && W().surveyPhase ? W().surveyPhase(it) : "week1";
+      var phaseLab = W() && W().surveyKindLabel ? W().surveyKindLabel(phase) : "Опросник БП";
+      var choices = W() && W().surveyChoices ? W().surveyChoices(phase) : [];
+      var choiceBtns = choices.map(function (c) {
+        return '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-choice" data-i="' + i + '" data-choice="' + esc(c.id) + '">' + esc(c.label) + "</button>";
+      }).join("");
       html += '<article class="b-card" style="margin-top:8px">' +
         (editMode ? '<button type="button" class="b-chip' + (picked[id] ? " b-chip--on" : "") + '" data-act="cl-pick" data-key="' + esc(id) + '">' + (picked[id] ? "Выбран" : "Выбрать") + "</button>" : "") +
         '<p class="b-li__title" style="margin:8px 0 0">' + esc(it.nick || "Без ника") + "</p>" +
-        '<p class="b-note">' + esc("Опросник " + (it.dueDate || "") + (it.ownerName ? (" · " + it.ownerName) : "")) + "</p>" +
+        '<p class="b-note">' + esc(phaseLab + " · " + (it.dueDate || "") + (it.ownerName ? (" · " + it.ownerName) : "")) + "</p>" +
         actions(
+          choiceBtns +
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="sent">Отправлено</button>' +
-          '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="done">Готово</button>' +
           '<button type="button" class="b-btn b-btn--sec" data-act="cl-sv-st" data-i="' + i + '" data-st="cancelled">Отмена</button>'
         ) + "</article>";
     });
@@ -2320,6 +2348,17 @@
       if (card.basketBp2Keep && card.basketBp2Keep.length) body.basketBp2 = card.basketBp2Keep;
       if (card.bpWeeksSet) body.bpWeeks = String(card.bpWeeks);
       body.bpOutcome = card.bpOutcome || "";
+      body.bpKind = card.bpKind || "";
+      body.bpDoneAt = card.bpDoneAt || "";
+      if (W() && W().stampWishes) {
+        body.wishes = W().stampWishes(wishes || "", {
+          bpWeeks: card.bpWeeksSet ? card.bpWeeks : undefined,
+          bpOutcome: card.bpOutcome || "",
+          bpKind: card.bpKind || "",
+          bpDoneAt: card.bpDoneAt || ""
+        });
+        body.note = body.wishes;
+      }
     }
     var res = await api().apiPost(body);
     if (!res || res.status !== "success") { sh().toast((res && res.message) || "ошибка записи"); return false; }
@@ -2774,6 +2813,7 @@
     if (act === "cl-sv-cancel") { showSurveyForm = false; paint(); return true; }
     if (act === "cl-sv-save") { saveSurvey(); return true; }
     if (act === "cl-sv-st") { surveyStatus(Number(node.getAttribute("data-i")), node.getAttribute("data-st")); return true; }
+    if (act === "cl-sv-choice") { surveyChoice(Number(node.getAttribute("data-i")), node.getAttribute("data-choice")); return true; }
     if (act === "cl-sv-owner") { surveyOwner(Number(node.getAttribute("data-i"))); return true; }
     if (act === "cl-sv-del") { delSurveys(); return true; }
     if (act === "cl-pick-type") { pick.type = node.getAttribute("data-t"); paint(); return true; }
@@ -3143,7 +3183,26 @@
 
   async function doneBp() {
     if (!card) return;
-    await markBpOutcome("done", "Завершён", "Завершить БП? Новых доставок по этой карточке не будет", "БП завершён");
+    var ok = await sh().confirm({
+      title: "Завершён",
+      text: "Завершить БП? Новых доставок по этой карточке не будет. Через неделю — в «Завершённые», через 2 — в «Отказ».",
+      ok: "Завершён",
+      cancel: "Отмена"
+    });
+    if (!ok) return;
+    var doneIso = new Date().toISOString();
+    card.bpOutcome = "done";
+    card.bpDoneAt = doneIso;
+    if (W() && W().stampWishes) {
+      card.wishes = W().stampWishes(card.wishes || "", {
+        bpWeeks: card.bpWeeks || 1,
+        bpOutcome: "done",
+        bpKind: card.bpKind || "",
+        bpDoneAt: doneIso
+      });
+    }
+    var saved = await saveCard();
+    if (saved) sh().toast("БП завершён");
   }
 
   async function extendBpWeek2() {
@@ -3410,6 +3469,44 @@
     }
     sh().toast(status === "sent" ? "Отправлено — убрано из списка" : (status === "done" ? "Готово — убрано" : "Отменено — убрано"));
     await loadSurveys();
+    paint();
+  }
+
+  /* t516u-clients #10: выбор в опроснике → ПП / вторая неделя / отказ. */
+  async function surveyChoice(i, choice) {
+    var it = surveyByIndex(i);
+    if (!it) return;
+    var ch = String(choice || "").toLowerCase();
+    if (ch !== "pp" && ch !== "week2" && ch !== "refuse") return;
+    var nick = String(it.nick || "").trim();
+    if (!nick) return;
+    var ok = await sh().confirm({
+      title: ch === "pp" ? "В ПП" : (ch === "week2" ? "Вторая неделя" : "Отказ"),
+      text: "«" + nick + "»: " + (ch === "pp" ? "перевести в ПП" : (ch === "week2" ? "открыть вторую неделю" : "архив Отказ")) + "?",
+      ok: "Да",
+      cancel: "Отмена"
+    });
+    if (!ok) return;
+    try {
+      var res = await api().apiPost({
+        action: "applyBpSurveyChoice",
+        surveyId: it.id || "",
+        nick: nick,
+        choice: ch,
+        ownerTelegramId: it.ownerTelegramId || "",
+        _: String(Date.now())
+      });
+      if (!res || (res.status !== "success" && res.status !== "accepted")) {
+        sh().toast((res && res.message) || "Не применилось");
+        return;
+      }
+      sh().toast(ch === "pp" ? "В ПП" : (ch === "week2" ? "Вторая неделя" : "Отказ"));
+    } catch (eCh) {
+      sh().toast((eCh && eCh.message) || "Ошибка");
+      return;
+    }
+    await loadSurveys();
+    await loadSubs(true);
     paint();
   }
 

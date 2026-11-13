@@ -69,6 +69,34 @@ test("UI: вторая неделя, без Отметить контакт / С
   assert.equal(clients.indexOf(">Сохранить отв.<"), -1);
   assert.match(clients, /cl-bp-done/);
   assert.match(clients, /ensureBpFromOrder/);
+  assert.match(clients, /cl-sv-choice/);
+  assert.match(clients, /applyBpSurveyChoice/);
+  assert.match(clients, /archiveBucket/);
+});
+
+test("архив: 7д → Завершённые, 14д → отказ", () => {
+  var now = Date.parse("2026-11-13T12:00:00Z");
+  var recent = {
+    sheet: "БП",
+    bpOutcome: "done",
+    bpDoneAt: new Date(now - 3 * 86400000).toISOString()
+  };
+  var archived = {
+    sheet: "БП",
+    bpOutcome: "done",
+    bpDoneAt: new Date(now - 8 * 86400000).toISOString()
+  };
+  var refuseReady = {
+    sheet: "БП",
+    bpOutcome: "done",
+    bpDoneAt: new Date(now - 15 * 86400000).toISOString()
+  };
+  assert.equal(W.archiveBucket(recent, now), "active");
+  assert.equal(W.archiveBucket(archived, now), "done");
+  assert.equal(W.shouldAutoRefuse(refuseReady, now), true);
+  assert.equal(W.shouldAutoRefuse(archived, now), false);
+  assert.deepEqual(W.surveyChoices("week1").map(function (c) { return c.id; }), ["pp", "week2", "refuse"]);
+  assert.deepEqual(W.surveyChoices("week2").map(function (c) { return c.id; }), ["pp", "refuse"]);
 });
 
 test("карточка БП пишется в D1 на обоих путях", () => {
@@ -78,4 +106,7 @@ test("карточка БП пишется в D1 на обоих путях", ()
   assert.match(worker, /sheet: "БП"/);
   assert.match(worker, /bpToPpConversions/);
   assert.match(worker, /normalizeHeartWholeBasketD1_/);
+  assert.match(worker, /stageNBpLifecycle_/);
+  assert.match(worker, /applyBpSurveyChoiceD1_/);
+  assert.match(worker, /svchoice:/);
 });

@@ -1108,7 +1108,7 @@ async function resolveActor_(params, env) {
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -1144,7 +1144,7 @@ const AUTH_TAB_RULES = [
   { re: /^(saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch)$/i, tabs: AUTH_TABS_ORDERS },
   { re: /^unlockSubs$/i, tabs: ["subsScreen", "subDetailScreen"] },
   { re: /^(saveTemplate|deleteTemplate)$/i, tabs: ["templatesScreen.texts", "orderScreen"] },
-  { re: /^(saveSurvey|deleteSurvey|deleteSurveyBatch|repairSurveys|forceSurveyRemind)$/i, tabs: ["templatesScreen", "orderScreen"] },
+  { re: /^(saveSurvey|deleteSurvey|deleteSurveyBatch|repairSurveys|forceSurveyRemind|applyBpSurveyChoice|previewBpTick)$/i, tabs: ["templatesScreen", "orderScreen", "clientsScreen", "subsScreen", "subDetailScreen"] },
   {
     re: /^(calcPrice|calcPpFact|getPpFactCost|getPpOrderSuggest|migratePpToRaw26Scheme|getRetailPriceList)$/i,
     tabs: ["orderScreen", "clientsScreen", "priceScreen", "subsScreen", "subDetailScreen", "retailPriceScreen", "partnerHubScreen"]
@@ -2308,7 +2308,9 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      deployMarker: "sheets-finish-only-h1"
+      deployMarker: "clients-bp-lifecycle-h1",
+      previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
+      bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
   }
 
@@ -22097,6 +22099,23 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^forceSurveyRemind$/i.test(a)) {
       return forceSurveyRemindD1_(params, env, ctx);
     }
+    /* t516u-clients #10: выбор опросника ПП/вторая неделя/отказ. */
+    if (/^applyBpSurveyChoice$/i.test(a)) {
+      return applyBpSurveyChoiceD1_(params, env, ctx);
+    }
+    /* Preview/time-warp: прогон архива БП + опросников с now=… */
+    if (/^previewBpTick$/i.test(a)) {
+      if (String((env && env.PREVIEW_ISOLATED) || "") !== "1" && !toBool_(params && params.allowDanger)) {
+        return { status: "error", message: "preview_only", cutover: true };
+      }
+      const when = params && params.now ? new Date(params.now) : new Date();
+      const life = await stageNBpLifecycle_(env, { send: true, now: when, force: true });
+      const survey = await stageNSurvey_(env, { send: true, now: when });
+      return { status: "success", cutover: true, lifecycle: life, survey: survey, now: when.toISOString() };
+    }
+    if (/^previewMintInitData$/i.test(a)) {
+      return previewMintInitData_(params, env);
+    }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
       const staffRes = await gasProxy_(a, params, env, { write: true });
@@ -27331,11 +27350,16 @@ async function rememberBpCardFromOrder_(params, env) {
     const weeks = String(weeksRaw == null || weeksRaw === "" ? "1" : weeksRaw) === "2" ? "2" : "1";
     row.bpWeeks = weeks;
     row.bpWeeksSet = true;
+    const kindRawBp = String(survey.bpKind || params.bpKind || "free").toLowerCase();
+    const kindBp = kindRawBp === "cost" || kindRawBp === "paid" ? "cost" : "free";
+    row.bpKind = kindBp;
     const base = String(params.wishes || params.note || "")
       .replace(/\[BPW:[^\]]*\]/gi, "")
+      .replace(/\[BPKIND:[^\]]*\]/gi, "")
       .replace(/\s+/g, " ")
       .trim();
-    row.wishes = (base + " [BPW:" + weeks + "]").trim();
+    /* t516u-clients #10: теги недели и вида на новой карточке БП. */
+    row.wishes = (base + " [BPW:" + weeks + "][BPKIND:" + kindBp + "]").trim();
   }
   const saved = await upsertSubscription_(row, env);
   const needSurvey =
@@ -27608,6 +27632,26 @@ async function upsertSubscription_(params, env) {
   if (params.packCounts != null) row.packCounts = parseMaybeJson_(params.packCounts);
   if (params.basketBp1 != null) row.basketBp1 = parseMaybeJson_(params.basketBp1);
   if (params.basketBp2 != null) row.basketBp2 = parseMaybeJson_(params.basketBp2);
+  /* t516u-clients #10: исход/вид/дата завершения БП — в поля и теги wishes. */
+  if (params.bpOutcome != null) row.bpOutcome = String(params.bpOutcome || "").trim();
+  if (params.bpKind != null) row.bpKind = String(params.bpKind || "").trim();
+  if (params.bpDoneAt != null) row.bpDoneAt = String(params.bpDoneAt || "").trim();
+  if (params.bpWeeks != null && params.bpWeeks !== "") {
+    row.bpWeeks = String(params.bpWeeks) === "2" ? "2" : "1";
+    row.bpWeeksSet = true;
+  }
+  if (
+    String(row.sheet || row.segment || "").toUpperCase() === "БП" &&
+    (row.bpOutcome || row.bpKind || row.bpDoneAt || row.bpWeeksSet)
+  ) {
+    row.wishes = stampBpWishesD1_(row.wishes || "", {
+      bpWeeks: row.bpWeeks,
+      bpOutcome: row.bpOutcome,
+      bpKind: row.bpKind,
+      bpDoneAt: row.bpDoneAt,
+      bpRefuseNotifiedAt: row.bpRefuseNotifiedAt
+    });
+  }
   if (params.ppStatus) {
     row.status = params.ppStatus;
     row.stage = params.ppStatus;
@@ -32554,11 +32598,31 @@ async function telegramSendPhotoWorker_(env, chatId, photoBase64, caption) {
 async function telegramSendTextWorker_(env, chatId, text, markup) {
   const token = getTelegramTokenWorker_(env);
   const id = chatId != null ? String(chatId).trim() : "";
-  if (!token) {
-    return { ok: false, error: "no_token", message: "no_token", description: "Нет TELEGRAM_BOT_TOKEN в Worker secrets" };
-  }
   if (!id) {
     return { ok: false, error: "no_chat", message: "no_chat", description: "Пустой chat id" };
+  }
+  /* Preview: клиентам/сотрудникам не слать — только owner или заглушка в snap. */
+  if (String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+    const owners = authOwnerIds_(env).map(String);
+    const allow = owners.indexOf(id) >= 0;
+    const stub = {
+      ok: true,
+      previewStub: true,
+      stubOnly: !allow,
+      chat_id: id,
+      text: String(text || "").slice(0, 500),
+      hasMarkup: !!markup
+    };
+    try {
+      const prev = (await getSnapRaw_(env, "previewTgStub:last")) || { items: [] };
+      const items = Array.isArray(prev.items) ? prev.items.slice(-40) : [];
+      items.push(Object.assign({ at: Date.now() }, stub));
+      await putSnap_(env, "previewTgStub:last", { items: items, at: Date.now() });
+    } catch (eStub) {}
+    if (!allow) return stub;
+  }
+  if (!token) {
+    return { ok: false, error: "no_token", message: "no_token", description: "Нет TELEGRAM_BOT_TOKEN в Worker secrets" };
   }
   const payload = {
     chat_id: id,
@@ -33742,8 +33806,272 @@ function personalizeSurveyBodyD1_(body, nick) {
   return t;
 }
 
+/* t516u-clients #10: теги БП в wishes (зеркало next/bp-weeks.js). */
+function stampBpWishesD1_(wishes, meta) {
+  meta = meta || {};
+  const base = String(wishes || "")
+    .replace(/\[BPW:[^\]]*\]/gi, "")
+    .replace(/\[BPOUT:[^\]]*\]/gi, "")
+    .replace(/\[BPKIND:[^\]]*\]/gi, "")
+    .replace(/\[BPDONE:[^\]]*\]/gi, "")
+    .replace(/\[BPNOTIFIED:[^\]]*\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  let weeks = "";
+  if (meta.bpWeeks != null && meta.bpWeeks !== "") weeks = String(meta.bpWeeks) === "2" ? "2" : "1";
+  else {
+    const mw = String(wishes || "").match(/\[BPW:([12])\]/i);
+    if (mw) weeks = mw[1];
+  }
+  let outcome = String(meta.bpOutcome != null ? meta.bpOutcome : "").trim().toLowerCase();
+  if (outcome === "week2") outcome = "extend";
+  if (outcome && !/^(extend|pp|done|refuse)$/.test(outcome)) outcome = "";
+  let kind = String(meta.bpKind != null ? meta.bpKind : "").trim().toLowerCase();
+  if (kind === "paid") kind = "cost";
+  if (kind && kind !== "free" && kind !== "cost") kind = "";
+  const doneAt = String(meta.bpDoneAt != null ? meta.bpDoneAt : "").trim();
+  const notified = String(meta.bpRefuseNotifiedAt != null ? meta.bpRefuseNotifiedAt : "").trim();
+  let tags = "";
+  if (weeks) tags += "[BPW:" + weeks + "]";
+  if (outcome) tags += "[BPOUT:" + outcome + "]";
+  if (kind) tags += "[BPKIND:" + kind + "]";
+  if (doneAt) tags += "[BPDONE:" + doneAt + "]";
+  if (notified) tags += "[BPNOTIFIED:" + notified + "]";
+  return (base + (base && tags ? " " : "") + tags).trim();
+}
+
+function parseBpWishesD1_(wishes) {
+  const w = String(wishes || "");
+  const mw = w.match(/\[BPW:([12])\]/i);
+  const mo = w.match(/\[BPOUT:(extend|pp|done|refuse|week2)\]/i);
+  const mk = w.match(/\[BPKIND:(free|cost)\]/i);
+  const md = w.match(/\[BPDONE:([^\]]+)\]/i);
+  const mn = w.match(/\[BPNOTIFIED:([^\]]+)\]/i);
+  let out = mo ? String(mo[1]).toLowerCase() : "";
+  if (out === "week2") out = "extend";
+  return {
+    bpWeeks: mw ? Number(mw[1]) : 1,
+    bpWeeksSet: !!mw,
+    bpOutcome: out,
+    bpKind: mk ? String(mk[1]).toLowerCase() : "",
+    bpDoneAt: md ? String(md[1]).trim() : "",
+    bpRefuseNotifiedAt: mn ? String(mn[1]).trim() : ""
+  };
+}
+
+function bpDoneAtMsD1_(row, nowMs) {
+  const parsed = parseBpWishesD1_((row && row.wishes) || "");
+  const raw = (row && row.bpDoneAt) || parsed.bpDoneAt || "";
+  const n = Number(raw);
+  if (isFinite(n) && n > 1e11) return n;
+  if (isFinite(n) && n > 1e9 && n < 1e11) return n * 1000;
+  const t = Date.parse(String(raw || ""));
+  return isFinite(t) ? t : 0;
+}
+
+async function previewMintInitData_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only" };
+  }
+  const token = getTelegramTokenWorker_(env);
+  if (!token) return { status: "error", message: "no_token" };
+  const tid = String((params && params.telegramId) || authOwnerIds_(env)[0] || "650923866").trim();
+  const user = JSON.stringify({
+    id: Number(tid) || tid,
+    first_name: String((params && params.firstName) || "Arseniy"),
+    username: String((params && params.username) || "arseny")
+  });
+  const authDate = String(Math.floor(Date.now() / 1000));
+  const fields = { user: user, auth_date: authDate, query_id: "preview_" + authDate };
+  const keys = Object.keys(fields).sort();
+  const dataCheck = keys.map(function (k) { return k + "=" + fields[k]; }).join("\n");
+  const enc = new TextEncoder();
+  const secretKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode("WebAppData"),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const secret = await crypto.subtle.sign("HMAC", secretKey, enc.encode(token));
+  const dataKey = await crypto.subtle.importKey(
+    "raw",
+    secret,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", dataKey, enc.encode(dataCheck));
+  const hash = Array.from(new Uint8Array(sig)).map(function (b) {
+    return b.toString(16).padStart(2, "0");
+  }).join("");
+  const parts = keys.map(function (k) {
+    return encodeURIComponent(k) + "=" + encodeURIComponent(fields[k]);
+  });
+  parts.push("hash=" + hash);
+  return {
+    status: "success",
+    previewStub: true,
+    telegramId: tid,
+    initData: parts.join("&"),
+    authMode: "preview-mint"
+  };
+}
+
+async function applyBpSurveyChoiceD1_(params, env, ctx) {
+  const nick = String((params && (params.nick || params.client)) || "").trim();
+  const choice = String((params && params.choice) || "").trim().toLowerCase();
+  const surveyId = String((params && (params.surveyId || params.id)) || "").trim();
+  if (!nick) return { status: "error", message: "need_nick", cutover: true };
+  if (choice !== "pp" && choice !== "week2" && choice !== "refuse") {
+    return { status: "error", message: "bad_choice", cutover: true };
+  }
+  if (surveyId) {
+    try {
+      await deleteFromList_(env, "listSurvey", "items", { id: surveyId }, "id");
+    } catch (eDel) {}
+  }
+  if (choice === "week2") {
+    const due = new Date();
+    due.setDate(due.getDate() + 4);
+    const dueYmd = due.toISOString().slice(0, 10);
+    const saved = await upsertSubscription_({
+      action: "saveSubscription",
+      nick: nick,
+      sheet: "БП",
+      segment: "БП",
+      bpWeeks: 2,
+      bpOutcome: "extend",
+      surveyFinalDue: dueYmd,
+      needSurvey: true
+    }, env);
+    try {
+      await upsertInList_(
+        env,
+        "listSurvey",
+        "items",
+        {
+          id: bpSurveyStableId_(nick, "week2"),
+          nick: nick,
+          kind: "week2",
+          dueDate: dueYmd,
+          stage: "БП",
+          status: "planned",
+          templateId: "survey_final",
+          ownerTelegramId: String((params && params.ownerTelegramId) || ""),
+          linkedSheet: "БП"
+        },
+        "id"
+      );
+    } catch (eSv) {}
+    return { status: "success", cutover: true, choice: "week2", saved: saved, surveyDue: dueYmd };
+  }
+  if (choice === "refuse") {
+    const doneIso = new Date().toISOString();
+    const saved = await upsertSubscription_({
+      action: "saveSubscription",
+      nick: nick,
+      sheet: "БП",
+      segment: "БП",
+      bpOutcome: "refuse",
+      bpDoneAt: doneIso
+    }, env);
+    return { status: "success", cutover: true, choice: "refuse", saved: saved };
+  }
+  const marked = await upsertSubscription_({
+    action: "saveSubscription",
+    nick: nick,
+    sheet: "БП",
+    segment: "БП",
+    bpOutcome: "pp"
+  }, env);
+  let moved = null;
+  try {
+    moved = await upsertSubscription_({
+      action: "moveSubscription",
+      nick: nick,
+      fromSheet: "БП",
+      toSheet: "ПП"
+    }, env);
+  } catch (eMv) {
+    moved = { status: "error", message: String(eMv) };
+  }
+  try {
+    const convSnap = (await getSnapRaw_(env, "bpToPpConversions")) || { items: [] };
+    const items = Array.isArray(convSnap.items) ? convSnap.items : [];
+    items.push({ nick: nick, at: Date.now(), source: "survey_choice" });
+    convSnap.items = items;
+    await putSnap_(env, "bpToPpConversions", convSnap);
+  } catch (eConv) {}
+  return { status: "success", cutover: true, choice: "pp", marked: marked, moved: moved };
+}
+
+async function stageNBpLifecycle_(env, opts) {
+  opts = opts || {};
+  const now = opts.now instanceof Date ? opts.now : stageNNow_(opts.now);
+  const nowMs = now.getTime();
+  const send = !!opts.send;
+  const snap = (await getSnapRaw_(env, "listSubscriptions")) || { subscriptions: [] };
+  const arr = Array.isArray(snap.subscriptions) ? snap.subscriptions : [];
+  const DONE_MS = 7 * 86400000;
+  const REFUSE_MS = 14 * 86400000;
+  const wouldArchive = [];
+  const wouldRefuse = [];
+  const notified = [];
+  let changed = false;
+  for (let i = 0; i < arr.length; i++) {
+    const row = arr[i] || {};
+    const sheet = String(row.sheet || row.segment || "").toUpperCase();
+    if (sheet !== "БП" && sheet !== "BP") continue;
+    const parsed = parseBpWishesD1_(row.wishes || "");
+    const outcome = String(row.bpOutcome || parsed.bpOutcome || "").toLowerCase();
+    if (outcome === "refuse" || outcome === "pp") continue;
+    if (outcome !== "done") continue;
+    const at = bpDoneAtMsD1_(Object.assign({}, row, { bpDoneAt: row.bpDoneAt || parsed.bpDoneAt }), nowMs);
+    if (!at) continue;
+    const age = nowMs - at;
+    if (age >= DONE_MS) wouldArchive.push({ nick: row.nick || row.label, ageDays: Math.floor(age / 86400000) });
+    if (age < REFUSE_MS) continue;
+    wouldRefuse.push({ nick: row.nick || row.label, ageDays: Math.floor(age / 86400000) });
+    const tid = String(row.ownerTelegramId || "").trim();
+    const already = String(row.bpRefuseNotifiedAt || parsed.bpRefuseNotifiedAt || "").trim();
+    if (!already && tid && send) {
+      const text =
+        "⚠️ БП «" + (row.nick || row.label || "") + "» скоро уйдёт в архив «Отказ» (2 недели бездействия после «Завершён»).\n" +
+        "Переведи в ПП или открой вторую неделю, если ещё актуально.";
+      try { await telegramSendTextWorker_(env, tid, text, null); } catch (eN) {}
+      notified.push(tid);
+      row.bpRefuseNotifiedAt = now.toISOString();
+    }
+    if (send) {
+      row.bpOutcome = "refuse";
+      row.wishes = stampBpWishesD1_(row.wishes || "", {
+        bpWeeks: row.bpWeeks || parsed.bpWeeks,
+        bpOutcome: "refuse",
+        bpKind: row.bpKind || parsed.bpKind,
+        bpDoneAt: row.bpDoneAt || parsed.bpDoneAt,
+        bpRefuseNotifiedAt: row.bpRefuseNotifiedAt || now.toISOString()
+      });
+      arr[i] = row;
+      changed = true;
+    }
+  }
+  if (changed) {
+    snap.subscriptions = arr;
+    snap.count = arr.length;
+    try { await putSnap_(env, "listSubscriptions", snap); } catch (ePut) {}
+  }
+  return {
+    wouldArchive: wouldArchive,
+    wouldRefuse: wouldRefuse,
+    notified: notified.length,
+    refused: send ? wouldRefuse.length : 0,
+    changed: changed
+  };
+}
+
 async function forceSurveyRemindD1_(params, env, ctx) {
-  if (!hasTelegramToken_(env)) {
+  if (!hasTelegramToken_(env) && String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
     const live = await gasProxy_("forceSurveyRemind", params || {}, env, { write: true });
     if (live && typeof live === "object") {
       live.cutover = true;
@@ -33826,7 +34154,9 @@ async function forceSurveyRemindD1_(params, env, ctx) {
       skipped.push({ nick: nick, reason: "no_target" });
       continue;
     }
-    const kindKey = /final/i.test(String(obj.kind || "")) ? "survey_final" : "survey_bp2";
+    const kindRawF = String(obj.kind || obj.templateId || "").toLowerCase();
+    const phaseF = /week2|w2/.test(kindRawF) ? "week2" : "week1";
+    const kindKey = phaseF === "week2" ? "survey_week2" : "survey_week1";
     const dedupe = normalizeMatchKey_(nick) + "|" + kindKey + "|" + due + "|" + tid;
     if (already[dedupe]) {
       skipped.push({ nick: nick, reason: "already_day", tid: tid });
@@ -33834,25 +34164,32 @@ async function forceSurveyRemindD1_(params, env, ctx) {
     }
     const body =
       tplBody(obj.templateId, nick) ||
-      tplBody(kindKey, nick) ||
-      ("Опросник для " + nick);
-    const kindLabel = kindKey === "survey_final" ? "После БП" : "БП";
+      tplBody(phaseF === "week2" ? "survey_final" : "survey_bp2", nick) ||
+      ("Опросник для " + nick + ": выбери исход ниже.");
+    const kindLabel = phaseF === "week2" ? "БП · 2-я неделя" : "БП · 1-я неделя";
     const text =
       "📋 Опросник · " +
       kindLabel +
-      "\nКому отправить: " +
+      "\nКлиент: " +
       nick +
       "\n" +
       (obj.stage ? "Этап: " + obj.stage + "\n" : "") +
       "Дата: " +
       (due || today) +
-      "\n⚡ forceSurveyRemind · worker\n\nТекст опросника:\n" +
+      "\n⚡ forceSurveyRemind · worker\n\n" +
       body;
     let markup = null;
     if (obj.id) {
-      markup = {
-        inline_keyboard: [[{ text: "✅ Отправлено", callback_data: ("svsent:" + String(obj.id)).slice(0, 64) }]]
-      };
+      const sid = String(obj.id).slice(0, 40);
+      const rows = phaseF === "week2"
+        ? [[{ text: "→ ПП", callback_data: ("svchoice:" + sid + ":pp").slice(0, 64) },
+            { text: "Отказ", callback_data: ("svchoice:" + sid + ":refuse").slice(0, 64) }],
+           [{ text: "✅ Отправлено", callback_data: ("svsent:" + sid).slice(0, 64) }]]
+        : [[{ text: "→ ПП", callback_data: ("svchoice:" + sid + ":pp").slice(0, 64) },
+            { text: "2-я нед.", callback_data: ("svchoice:" + sid + ":week2").slice(0, 64) }],
+           [{ text: "Отказ", callback_data: ("svchoice:" + sid + ":refuse").slice(0, 64) },
+            { text: "✅ Отправлено", callback_data: ("svsent:" + sid).slice(0, 64) }]];
+      markup = { inline_keyboard: rows };
     }
     const sendRes = await telegramSendTextWorker_(env, tid, text, markup);
     already[dedupe] = 1;
@@ -38738,7 +39075,7 @@ async function stageGApplyUpdate_(env, update, opts) {
   if (cq && cq.data) {
     const inDm = botStaffButtonInDm_(cq);
     const known = botCallbackKind_(cq.data);
-    if (known === "svsent" || known === "ppafk" || known === "defdone") {
+    if (known === "svsent" || known === "svchoice" || known === "ppafk" || known === "defdone") {
       const handled = await stageNCallback_(env, cq, send);
       if (handled) return handled;
     }
@@ -39467,16 +39804,20 @@ async function stageNSurvey_(env, opts) {
       skipped.off++;
       continue;
     }
-    const kindKey = /final/i.test(String(obj.kind || obj.templateId || "")) ? "survey_final" : "survey_bp2";
-    const kindLabel = kindKey === "survey_final" ? "ПП (финал)" : "БП2";
-    const body = stageNSurveyBody_(templates, obj.templateId || kindKey, nick) || stageNSurveyBody_(templates, kindKey, nick);
+    /* t516u-clients #10: без БП2/ФИНАЛ; кнопки выбора ПП / 2-я неделя / отказ. */
+    const kindRaw = String(obj.kind || obj.templateId || "").toLowerCase();
+    const phase = /week2|w2/.test(kindRaw) ? "week2" : "week1";
+    const kindKey = phase === "week2" ? "survey_week2" : "survey_week1";
+    const kindLabel = phase === "week2" ? "БП · 2-я неделя" : "БП · 1-я неделя";
+    const body = stageNSurveyBody_(templates, obj.templateId || (phase === "week2" ? "survey_final" : "survey_bp2"), nick) ||
+      ("Опросник для " + nick + ": выбери исход ниже.");
     const text =
       "📋 Опросник · " + kindLabel + "\n" +
-      "Кому отправить: " + nick + "\n" +
+      "Клиент: " + nick + "\n" +
       (obj.stage ? "Этап: " + obj.stage + "\n" : "") +
       "Дата: " + due + "\n" +
       "Ваше время: " + local.slot.replace("T", " ") + " (" + tz + ")\n\n" +
-      "Текст опросника:\n" + body;
+      body;
     let any = false;
     for (let t = 0; t < targets.length; t++) {
       const to = targets[t];
@@ -39492,9 +39833,21 @@ async function stageNSurvey_(env, opts) {
       any = true;
       if (!send) continue;
       already[key] = 1;
-      const markup = obj.id
-        ? { inline_keyboard: [[{ text: "✅ Отправлено", callback_data: ("svsent:" + String(obj.id)).slice(0, 64) }]] }
-        : null;
+      let markup = null;
+      if (obj.id) {
+        const sid = String(obj.id).slice(0, 40);
+        const rows = phase === "week2"
+          ? [[{ text: "→ ПП", callback_data: ("svchoice:" + sid + ":pp").slice(0, 64) },
+              { text: "Отказ", callback_data: ("svchoice:" + sid + ":refuse").slice(0, 64) }]]
+          : [[{ text: "→ ПП", callback_data: ("svchoice:" + sid + ":pp").slice(0, 64) },
+              { text: "2-я нед.", callback_data: ("svchoice:" + sid + ":week2").slice(0, 64) }],
+             [{ text: "Отказ", callback_data: ("svchoice:" + sid + ":refuse").slice(0, 64) },
+              { text: "✅ Отправлено", callback_data: ("svsent:" + sid).slice(0, 64) }]];
+        if (phase === "week2") {
+          rows.push([{ text: "✅ Отправлено", callback_data: ("svsent:" + sid).slice(0, 64) }]);
+        }
+        markup = { inline_keyboard: rows };
+      }
       try { await telegramSendTextWorker_(env, to, text, markup); } catch (eSend) {}
     }
     if (any && send && (st === "planned" || st === "due" || st === "open")) {
@@ -39669,9 +40022,33 @@ async function stageNCallback_(env, cq, send) {
   const data = String((cq && cq.data) || "");
   const def = data.match(/^defdone:(.+)$/i);
   const sv = data.match(/^svsent:(.+)$/i);
+  const svc = data.match(/^svchoice:([^:]+):(pp|week2|refuse)$/i);
   const afk = data.match(/^ppafk:(.+)$/i);
-  if (!def && !sv && !afk) return null;
-  if (!send) return { kind: def ? "defdone" : sv ? "svsent" : "ppafk", sent: false };
+  if (!def && !sv && !svc && !afk) return null;
+  if (!send) return { kind: def ? "defdone" : sv ? "svsent" : svc ? "svchoice" : "ppafk", sent: false };
+  if (svc) {
+    /* t516u-clients #10: кнопки ПП / 2-я неделя / отказ в боте. */
+    const sid = svc[1];
+    const choice = String(svc[2] || "").toLowerCase();
+    let nick = "";
+    try {
+      const snap = (await getSnapRaw_(env, "listSurvey")) || { items: [] };
+      (snap.items || []).forEach(function (row) {
+        if (String(row.id) === sid) nick = String(row.nick || "");
+      });
+    } catch (eFind) {}
+    const applied = await applyBpSurveyChoiceD1_({
+      surveyId: sid,
+      nick: nick,
+      choice: choice,
+      ownerTelegramId: cq && cq.from ? String(cq.from.id || "") : ""
+    }, env, null);
+    try {
+      await telegramAnswerCallbackWorker_(env, cq.id, choice === "pp" ? "В ПП" : (choice === "week2" ? "2-я неделя" : "Отказ"));
+    } catch (eA) {}
+    try { await stageNClearMarkup_(env, cq); } catch (eM) {}
+    return { kind: "svchoice", sent: true, choice: choice, applied: applied };
+  }
   if (def) {
     const id = def[1];
     const snap = (await getSnapRaw_(env, "listDeficit")) || { items: [] };
@@ -39736,10 +40113,17 @@ async function stageNTick_(env, when) {
     await reconcileTodayCourier_(env);
   } catch (eCour) {}
   const armed = (await stageNMeta_(env, "notify_cron_live")) === "1";
-  if (!armed) return { skipped: "not_armed" };
   const now = stageNNow_(when);
   const parts = stageNParts_(now, "Europe/Minsk");
-  const out = { deferred: await stageNDeferred_(env, { send: true, now: now }) };
+  /* t516u-clients #10: архив БП крутим всегда (не ждём notify_cron_live). */
+  const out = {
+    bpLifecycle: await stageNBpLifecycle_(env, { send: true, now: now })
+  };
+  if (!armed) {
+    out.skipped = "not_armed";
+    return out;
+  }
+  out.deferred = await stageNDeferred_(env, { send: true, now: now });
   if (parts.minute === 0 || parts.minute === 30) {
     out.survey = await stageNSurvey_(env, { send: true, now: now });
   }

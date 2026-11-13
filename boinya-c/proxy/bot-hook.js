@@ -52,6 +52,7 @@ export function botCallbackKind_(data) {
   if (s === "access_req") return "access_req";
   if (s === "costpub") return "costpub";
   if (/^svsent:/i.test(s)) return "svsent";
+  if (/^svchoice:/i.test(s)) return "svchoice";
   if (/^mtrack:/i.test(s)) return "mtrack";
   if (/^mpay:/i.test(s)) return "mpay";
   if (/^ppafk:/i.test(s)) return "ppafk";
