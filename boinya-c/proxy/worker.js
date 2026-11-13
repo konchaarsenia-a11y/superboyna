@@ -1720,6 +1720,7 @@ function isWriteAction_(a) {
   if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|poll|warehousePreview|checkOrderWarehouse)/i.test(a)) return false;
   if (a === "startDesktopAuth") return false;
   if (a === "previewMintInitData") return false;
+  if (a === "previewHeartNormalize") return true;
   if (a === "previewBpTick") return true;
   if (
     a === "getMyAccess" ||
@@ -2310,7 +2311,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      deployMarker: "clients-bp-lifecycle-h1",
+      deployMarker: "clients-heart-lomtiki-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -2318,6 +2319,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
   /* Preview-only: подпись initData без TELEGRAM_BOT_TOKEN у агента. */
   if (/^previewMintInitData$/i.test(a)) {
     return previewMintInitData_(params, env);
+  }
+  /* Preview-only: массовая замена сердца «Целое»→«Ломтики» на копии D1. */
+  if (/^previewHeartNormalize$/i.test(a)) {
+    return previewHeartNormalize_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
@@ -22122,6 +22127,9 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^previewMintInitData$/i.test(a)) {
       return previewMintInitData_(params, env);
     }
+    if (/^previewHeartNormalize$/i.test(a)) {
+      return previewHeartNormalize_(params, env);
+    }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
       const staffRes = await gasProxy_(a, params, env, { write: true });
@@ -33873,6 +33881,176 @@ function bpDoneAtMsD1_(row, nowMs) {
   if (isFinite(n) && n > 1e9 && n < 1e11) return n * 1000;
   const t = Date.parse(String(raw || ""));
   return isFinite(t) ? t : 0;
+}
+
+/** Preview-only: сердце «Целое»→«Ломтики» по всем карточкам копии D1. */
+function heartWholeHitsOnSub_(sub) {
+  const hits = [];
+  if (!sub || typeof sub !== "object") return hits;
+  const keys = ["basket", "basket2", "basketBp1", "basketBp2"];
+  for (let ki = 0; ki < keys.length; ki++) {
+    const k = keys[ki];
+    const arr = sub[k];
+    if (!Array.isArray(arr)) continue;
+    for (let i = 0; i < arr.length; i++) {
+      const it = arr[i];
+      if (!it || typeof it !== "object") continue;
+      const main = String(it.main || it.name || "");
+      const subFrac = String(it.sub || "").trim();
+      if (!/сердц/i.test(main)) continue;
+      if (!/^цел/i.test(subFrac)) continue;
+      hits.push({
+        nick: String(sub.nick || sub.label || ""),
+        sheet: String(sub.sheet || ""),
+        basketKey: k,
+        index: i,
+        main: main,
+        sub: subFrac
+      });
+    }
+  }
+  return hits;
+}
+
+function nonHeartBasketFingerprint_(subs) {
+  const out = [];
+  const list = Array.isArray(subs) ? subs : [];
+  for (let si = 0; si < list.length; si++) {
+    const sub = list[si];
+    if (!sub) continue;
+    const keys = ["basket", "basket2", "basketBp1", "basketBp2"];
+    for (let ki = 0; ki < keys.length; ki++) {
+      const arr = sub[keys[ki]];
+      if (!Array.isArray(arr)) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const it = arr[i];
+        if (!it || typeof it !== "object") continue;
+        const main = String(it.main || it.name || "");
+        if (/сердц/i.test(main)) continue;
+        out.push([
+          String(sub.nick || ""),
+          String(sub.sheet || ""),
+          keys[ki],
+          i,
+          main,
+          String(it.sub || ""),
+          String(it.val != null ? it.val : it.value != null ? it.value : "")
+        ].join("|"));
+      }
+    }
+  }
+  return out.sort().join("\n");
+}
+
+async function previewHeartNormalize_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only", cutover: true };
+  }
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true };
+  }
+  const mode = String((params && params.mode) || "dry-run").toLowerCase();
+  const backupKey = "heartLomtikiBackup";
+  if (mode === "rollback") {
+    const bak = await getSnapRaw_(env, backupKey);
+    if (!bak || !Array.isArray(bak.subscriptions)) {
+      return { status: "error", message: "no_backup", cutover: true };
+    }
+    await putSnap_(env, "listSubscriptions", {
+      status: "success",
+      subscriptions: bak.subscriptions,
+      cachedAt: new Date().toISOString(),
+      restoredFrom: backupKey,
+      restoredAt: bak.at || null
+    });
+    return {
+      status: "success",
+      mode: "rollback",
+      cutover: true,
+      restored: bak.subscriptions.length,
+      affectedBefore: (bak.affected || []).length,
+      previewOnly: true
+    };
+  }
+  const list = (await getSnapRaw_(env, "listSubscriptions")) || { subscriptions: [] };
+  const subs = Array.isArray(list.subscriptions) ? list.subscriptions : [];
+  const affected = [];
+  for (let i = 0; i < subs.length; i++) {
+    const hits = heartWholeHitsOnSub_(subs[i]);
+    if (!hits.length) continue;
+    affected.push({
+      nick: String(subs[i].nick || subs[i].label || ""),
+      sheet: String(subs[i].sheet || ""),
+      hits: hits
+    });
+  }
+  if (mode === "dry-run" || mode === "verify") {
+    const still = affected.length;
+    return {
+      status: "success",
+      mode: mode,
+      cutover: true,
+      previewOnly: true,
+      totalSubs: subs.length,
+      affectedCards: affected.length,
+      affected: affected,
+      remainingWholeHearts: still,
+      nonHeartFp: nonHeartBasketFingerprint_(subs).slice(0, 64)
+    };
+  }
+  if (mode !== "apply") {
+    return { status: "error", message: "bad_mode", cutover: true };
+  }
+  const beforeFp = nonHeartBasketFingerprint_(subs);
+  await putSnap_(env, backupKey, {
+    at: new Date().toISOString(),
+    subscriptions: JSON.parse(JSON.stringify(subs)),
+    affected: affected,
+    nonHeartFp: beforeFp
+  });
+  let changedCards = 0;
+  let changedLines = 0;
+  for (let i = 0; i < subs.length; i++) {
+    const sub = subs[i];
+    const hits = heartWholeHitsOnSub_(sub);
+    if (!hits.length) continue;
+    const keys = ["basket", "basket2", "basketBp1", "basketBp2"];
+    for (let ki = 0; ki < keys.length; ki++) {
+      if (Array.isArray(sub[keys[ki]])) {
+        sub[keys[ki]] = normalizeHeartWholeBasketD1_(sub[keys[ki]]);
+      }
+    }
+    changedCards += 1;
+    changedLines += hits.length;
+  }
+  await putSnap_(env, "listSubscriptions", {
+    status: "success",
+    subscriptions: subs,
+    cachedAt: new Date().toISOString(),
+    heartLomtikiAt: new Date().toISOString(),
+    heartLomtikiChanged: changedCards
+  });
+  const afterList = (await getSnapRaw_(env, "listSubscriptions")) || { subscriptions: [] };
+  const afterSubs = Array.isArray(afterList.subscriptions) ? afterList.subscriptions : [];
+  const remaining = [];
+  for (let j = 0; j < afterSubs.length; j++) {
+    const hits2 = heartWholeHitsOnSub_(afterSubs[j]);
+    if (hits2.length) remaining.push({ nick: afterSubs[j].nick, sheet: afterSubs[j].sheet, hits: hits2 });
+  }
+  const afterFp = nonHeartBasketFingerprint_(afterSubs);
+  return {
+    status: "success",
+    mode: "apply",
+    cutover: true,
+    previewOnly: true,
+    changedCards: changedCards,
+    changedLines: changedLines,
+    remainingWholeHearts: remaining.length,
+    remaining: remaining,
+    nonHeartUnchanged: beforeFp === afterFp,
+    backupKey: backupKey,
+    affected: affected
+  };
 }
 
 async function previewMintInitData_(params, env) {
