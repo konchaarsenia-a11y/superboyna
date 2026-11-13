@@ -105,8 +105,19 @@ test("карточка БП пишется в D1 на обоих путях", ()
   assert.match(worker, /ensureBpFromOrder/);
   assert.match(worker, /sheet: "БП"/);
   assert.match(worker, /bpToPpConversions/);
+  assert.match(worker, /recordBpToPpConversionD1_/);
   assert.match(worker, /normalizeHeartWholeBasketD1_/);
   assert.match(worker, /stageNBpLifecycle_/);
   assert.match(worker, /applyBpSurveyChoiceD1_/);
   assert.match(worker, /svchoice:/);
+});
+
+test("recordBpToPpConversion — D1 write, не sheets_finish_only skip", () => {
+  var worker = fs.readFileSync(path.join(here, "../proxy/worker.js"), "utf8");
+  assert.match(worker, /if \(\/\^recordBpToPpConversion\$\/i\.test\(a\)\) return true/);
+  assert.match(worker, /return recordBpToPpConversionD1_\(params, env/);
+  assert.doesNotMatch(
+    worker.slice(worker.indexOf("async function recordBpToPpConversionD1_")),
+    /sheetsFinishOnlySkip_\(\s*[\"']recordBpToPp/
+  );
 });

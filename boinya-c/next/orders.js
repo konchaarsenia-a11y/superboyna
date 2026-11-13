@@ -2194,6 +2194,8 @@
     eng().applyState(state);
     var nick = String(state.client || "").trim();
     var has = !!(eng().buildOrderSaveBasket_() || []).length;
+    /* t516u-clients #29: «На потом» без корзины — ок, если есть ник (черновик).
+       Без ника и без корзины откладывать нечего. Полный цикл теста — с непустой корзиной. */
     if (!nick && !has) { sh().toast("Укажи ник или корзину"); return; }
     var picked = await sh().pickRemindAt({
       title: "На потом",

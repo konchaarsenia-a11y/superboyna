@@ -57,7 +57,7 @@ jobs:
           PARTNER_OWNER_TIDS = "827494606,650923866"
           PARTNER_OWNER_USERNAMES = "one_more_person_228"
           PREVIEW_ISOLATED = "1"
-          PREVIEW_MARKER = "clients-heart-lomtiki-h1"
+          PREVIEW_MARKER = "clients-fix2-preview-h1"
           SHEETS_FINISH_ONLY = "1"
           SHEETS_MODE = "finish-only"
           AUTH_ENFORCE = "1"
@@ -74,4 +74,4 @@ jobs:
           TOML
           npx wrangler@4 deploy -c wrangler.preview-eabc.toml
           curl -fsSL --max-time 30 "https://boinya-c-preview-eabc.konchaarsenia.workers.dev/?action=ping&cutover=1" | tee /tmp/preview-ping.json
-          node -e 'const j=require("/tmp/preview-ping.json"); if(j.deployMarker!=="clients-heart-lomtiki-h1"||j.previewIsolated!==true){console.error(j); process.exit(1)}'
+          node -e 'const j=require("/tmp/preview-ping.json"); if(j.deployMarker!=="clients-fix2-preview-h1"||j.previewIsolated!==true){console.error(j); process.exit(1)}'

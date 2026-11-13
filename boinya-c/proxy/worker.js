@@ -1722,6 +1722,8 @@ function isWriteAction_(a) {
   if (a === "previewMintInitData") return false;
   if (a === "previewHeartNormalize") return true;
   if (a === "previewBpTick") return true;
+  /* t516u-clients #2: record* — D1-write, не Sheets. */
+  if (/^recordBpToPpConversion$/i.test(a)) return true;
   if (
     a === "getMyAccess" ||
     a === "telegramStatus" ||
@@ -2311,7 +2313,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      deployMarker: "clients-heart-lomtiki-h1",
+      deployMarker: "clients-fix2-preview-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -21288,31 +21290,18 @@ async function handleCutover_(a, params, env, ctx) {
                 const fromBp = fromSh === "БП" || fromSh === "BP";
                 const toPp = toSh === "ПП" || toSh === "PP";
                 if (fromBp && toPp && env && env.DB) {
-                  const convSnap = (await getSnapRaw_(env, "bpToPpConversions")) || { items: [] };
                   const nickConv = String(params.nick || params.label || (gasMove && gasMove.nick) || "").trim();
                   if (nickConv) {
-                    const mk = normalizeMatchKey_(nickConv);
-                    const monthKey = new Date().toISOString().slice(0, 7);
-                    const already = (convSnap.items || []).some(function (it) {
-                      return (
-                        normalizeMatchKey_(it.nick || it.label || "") === mk &&
-                        String(it.monthKey || "").slice(0, 7) === monthKey
-                      );
-                    });
-                    if (!already) {
-                      convSnap.items = (convSnap.items || []).concat([
-                        {
-                          nick: nickConv,
-                          label: params.label || nickConv,
-                          subId: (gasMove && gasMove.subId) || params.subId || "",
-                          at: new Date().toISOString(),
-                          monthKey: monthKey,
-                          source: "moveSubscription"
-                        }
-                      ]);
-                      await putSnap_(env, "bpToPpConversions", convSnap);
-                    }
-                    bpToPpCounted = true;
+                    const convMove = await recordBpToPpConversionD1_(
+                      {
+                        nick: nickConv,
+                        label: params.label || nickConv,
+                        subId: (gasMove && gasMove.subId) || params.subId || ""
+                      },
+                      env,
+                      "moveSubscription"
+                    );
+                    bpToPpCounted = !!(convMove && convMove.bpToPpCounted);
                   }
                 }
               } catch (eConvMove) {}
@@ -22114,6 +22103,10 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^applyBpSurveyChoice$/i.test(a)) {
       return applyBpSurveyChoiceD1_(params, env, ctx);
     }
+    /* t516u-clients #2: БП→ПП в статистику — только D1, Sheets не нужен. */
+    if (/^recordBpToPpConversion$/i.test(a)) {
+      return recordBpToPpConversionD1_(params, env, "recordBpToPpConversion");
+    }
     /* Preview/time-warp: прогон архива БП + опросников с now=… */
     if (/^previewBpTick$/i.test(a)) {
       if (String((env && env.PREVIEW_ISOLATED) || "") !== "1" && !toBool_(params && params.allowDanger)) {
@@ -22183,13 +22176,8 @@ async function handleCutover_(a, params, env, ctx) {
       return partnerSetSuggestionStatusWorker_(params, env);
     }
     if (sheetsOrdersReadonly_(env) && /^(markBpTouch|recordBpToPpConversion|materializeWeek|saveClientProfile)$/i.test(a)) {
-      if (/^recordBpToPpConversion$/i.test(a) && env && env.DB) {
-        try {
-          await upsertSubscription_(
-            Object.assign({}, params, { sheet: "ПП", fromSheet: params.fromSheet || "БП", toSheet: "ПП", action: "moveSubscription" }),
-            env
-          );
-        } catch (eConv) {}
+      if (/^recordBpToPpConversion$/i.test(a)) {
+        return recordBpToPpConversionD1_(params, env, "recordBpToPpConversion");
       }
       if (/^markBpTouch$/i.test(a) && env && env.DB) {
         try {
@@ -34102,6 +34090,59 @@ async function previewMintInitData_(params, env) {
   };
 }
 
+/** t516u-clients #2: учёт БП→ПП в D1 (snap bpToPpConversions). Sheets не нужен. */
+async function recordBpToPpConversionD1_(params, env, source) {
+  const nick = String((params && (params.nick || params.label || params.client)) || "").trim();
+  if (!nick) return { status: "error", message: "need_nick", cutover: true, d1Verified: false };
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true, d1Verified: false };
+  }
+  const src = String(source || (params && params.source) || "recordBpToPpConversion");
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const mk = normalizeMatchKey_(nick);
+  const convSnap = (await getSnapRaw_(env, "bpToPpConversions")) || { items: [] };
+  const items = Array.isArray(convSnap.items) ? convSnap.items.slice() : [];
+  const already = items.some(function (it) {
+    return (
+      normalizeMatchKey_(it.nick || it.label || "") === mk &&
+      String(it.monthKey || "").slice(0, 7) === monthKey
+    );
+  });
+  let counted = false;
+  if (!already) {
+    items.push({
+      nick: nick,
+      label: String((params && params.label) || nick),
+      subId: String((params && params.subId) || ""),
+      at: new Date().toISOString(),
+      monthKey: monthKey,
+      source: src
+    });
+    convSnap.items = items;
+    convSnap.cachedAt = new Date().toISOString();
+    await putSnap_(env, "bpToPpConversions", convSnap);
+    counted = true;
+  }
+  return {
+    status: "success",
+    cutover: true,
+    d1Verified: true,
+    fromD1: true,
+    fromGas: false,
+    sheetsFinishOnly: isSheetsFinishOnly_(env),
+    sheetsReadonly: sheetsOrdersReadonly_(env),
+    skippedSheet: true,
+    bpToPpCounted: true,
+    counted: counted,
+    already: already,
+    monthKey: monthKey,
+    nick: nick,
+    itemsN: items.length,
+    action: "recordBpToPpConversion",
+    source: src
+  };
+}
+
 async function applyBpSurveyChoiceD1_(params, env, ctx) {
   const nick = String((params && (params.nick || params.client)) || "").trim();
   const choice = String((params && params.choice) || "").trim().toLowerCase();
@@ -34180,14 +34221,25 @@ async function applyBpSurveyChoiceD1_(params, env, ctx) {
   } catch (eMv) {
     moved = { status: "error", message: String(eMv) };
   }
+  let conv = null;
   try {
-    const convSnap = (await getSnapRaw_(env, "bpToPpConversions")) || { items: [] };
-    const items = Array.isArray(convSnap.items) ? convSnap.items : [];
-    items.push({ nick: nick, at: Date.now(), source: "survey_choice" });
-    convSnap.items = items;
-    await putSnap_(env, "bpToPpConversions", convSnap);
-  } catch (eConv) {}
-  return { status: "success", cutover: true, choice: "pp", marked: marked, moved: moved };
+    conv = await recordBpToPpConversionD1_(
+      { nick: nick, label: nick, subId: (moved && moved.subId) || "" },
+      env,
+      "survey_choice"
+    );
+  } catch (eConv) {
+    conv = { status: "error", message: String(eConv) };
+  }
+  return {
+    status: "success",
+    cutover: true,
+    choice: "pp",
+    marked: marked,
+    moved: moved,
+    bpToPpCounted: !!(conv && conv.bpToPpCounted),
+    conversion: conv
+  };
 }
 
 async function stageNBpLifecycle_(env, opts) {
