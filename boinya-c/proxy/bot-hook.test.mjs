@@ -76,6 +76,7 @@ test("callback kinds leave the partner button alone", function () {
   assert.equal(botCallbackKind_("access_req"), "access_req");
   assert.equal(botCallbackKind_("costpub"), "costpub");
   assert.equal(botCallbackKind_("svsent:abc"), "svsent");
+  assert.equal(botCallbackKind_("svchoice:abc:pp"), "svchoice");
   assert.equal(botCallbackKind_("mtrack:tok"), "mtrack");
   assert.equal(botCallbackKind_("mpay:y:tok"), "mpay");
   assert.equal(botCallbackKind_("mpay:n:tok"), "mpay");

@@ -97,7 +97,7 @@ const pieceKeys = [
   "AORTA",
   "ZHILA_PALK",
   "LOP_HRYASH",
-  "KOPYTO",
+  /* KOPYTO retired (SKU retire) — не в piece-check */
   "NOSY",
   "UTINYE_SHEI"
 ];

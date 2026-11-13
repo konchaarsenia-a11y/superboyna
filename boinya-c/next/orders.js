@@ -62,6 +62,8 @@
       doorCode: "",
       floor: "",
       flat: "",
+      /* t516u-clients #5: встретит у подъезда — код/этаж/квартира не обязательны. */
+      meetAtDoor: false,
       deliveryDate: "",
       day: "",
       deliveryAfter: "",
@@ -595,9 +597,16 @@
         html += '<div class="nx-pair" style="margin-top:8px">' + field("dog1", state.dogNames[1], "кличка 1") + field("dog2", state.dogNames[2], "кличка 2") + "</div>";
       }
       html += '<p class="kicker">Телефон</p>' + field("phone", state.phone, "+375", 'inputmode="tel"');
+      /* t516u-clients #5: обязательные поля доставки + тумблер «встретит у подъезда». */
+      html += '<div class="b-row" style="margin-top:8px"><span class="b-grow b-note" style="margin:0">Встретит у подъезда</span><div class="b-seg" style="flex:none">' +
+        segBtn("meet0", "Нет", !state.meetAtDoor) + segBtn("meet1", "Да", !!state.meetAtDoor) + "</div></div>";
       html += '<button type="button" class="nx-link" data-act="fold-details">' + (folds.details ? "Скрыть подъезд" : "Подъезд и детали") + "</button>";
-      if (folds.details) {
-        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") + field("doorCode", state.doorCode, "код подъезда") + field("floor", state.floor, "этаж") + field("flat", state.flat, "квартира") + "</div>";
+      if (folds.details || !state.meetAtDoor) {
+        folds.details = true;
+        html += '<div class="nx-fold nx-pair">' + field("entrance", state.entrance, "подъезд") +
+          (state.meetAtDoor ? "" : field("doorCode", state.doorCode, "код подъезда")) +
+          (state.meetAtDoor ? "" : field("floor", state.floor, "этаж")) +
+          (state.meetAtDoor ? "" : field("flat", state.flat, "квартира")) + "</div>";
       }
       html += '<p class="kicker">Почта</p><div class="b-row"><span class="b-grow b-note" style="margin:0">Отправка почтой</span><div class="b-seg" style="flex:none">' +
         segBtn("mail0", "Нет", !state.mailOn) + segBtn("mail1", "Да", !!state.mailOn) + "</div></div>";
@@ -1932,6 +1941,33 @@
     }
     if (!clientName) { await sh().alert({ text: "Введите имя клиента" }); return; }
     if (!state.deliveryDate) { await sh().alert({ text: "Укажите дату доставки" }); return; }
+    /* t516u-clients #5: адрес и телефон всегда; код/этаж/квартира — если не встретит у подъезда. */
+    if (!String(state.address || "").trim()) {
+      await sh().alert({ text: "Укажите адрес доставки" });
+      return;
+    }
+    if (!String(state.phone || "").trim()) {
+      folds.more = true;
+      paint();
+      await sh().alert({ text: "Укажите телефон" });
+      return;
+    }
+    if (!state.meetAtDoor) {
+      folds.more = true;
+      folds.details = true;
+      if (!String(state.entrance || "").trim() || !String(state.doorCode || "").trim() ||
+          !String(state.floor || "").trim() || !String(state.flat || "").trim()) {
+        paint();
+        await sh().alert({ text: "Заполните подъезд, код домофона, этаж и квартиру — или включите «Встретит у подъезда»" });
+        return;
+      }
+    } else if (!String(state.entrance || "").trim()) {
+      folds.more = true;
+      folds.details = true;
+      paint();
+      await sh().alert({ text: "Укажите подъезд" });
+      return;
+    }
     eng().applyState(state);
     if (!eng().buildOrderSaveBasket_().length) { await sh().alert({ text: "Корзина пуста" }); return; }
     if (state.orderType === "partner") {
@@ -2158,6 +2194,8 @@
     eng().applyState(state);
     var nick = String(state.client || "").trim();
     var has = !!(eng().buildOrderSaveBasket_() || []).length;
+    /* t516u-clients #29: «На потом» без корзины — ок, если есть ник (черновик).
+       Без ника и без корзины откладывать нечего. Полный цикл теста — с непустой корзиной. */
     if (!nick && !has) { sh().toast("Укажи ник или корзину"); return; }
     var picked = await sh().pickRemindAt({
       title: "На потом",
@@ -2281,6 +2319,8 @@
     if (act === "cal-day") { sh().closeTop("ok"); selectDate(node.getAttribute("data-iso")); return true; }
     if (act === "seg") return onSeg(node.getAttribute("data-seg"));
     if (act === "fold-details") { folds.details = !folds.details; paint(); return true; }
+    if (act === "meet0") { state.meetAtDoor = false; folds.details = true; paint(); return true; }
+    if (act === "meet1") { state.meetAtDoor = true; paint(); return true; }
     if (act === "fold-ig") { folds.checklist = !folds.checklist; paint(); return true; }
     if (act === "method") {
       state.deliveryMethod = node.getAttribute("data-method");

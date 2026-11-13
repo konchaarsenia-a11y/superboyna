@@ -208,9 +208,11 @@ test("карточка БП тот же список без степпера", a
   ctx.C.onAct("cl-open", node({ "data-nick": "luna", "data-sub": "2", "data-sheet": "БП" }));
   await new Promise(function (r) { setImmediate(r); });
   const html = ctx.paints[ctx.paints.length - 1];
-  assert.ok(html.includes("Сердце · Целое · 60 гр"));
+  /* t516u-clients #7: Целое → Ломтики на открытии. */
+  assert.ok(/Сердце · [Лл]омтики · 60 гр/.test(html) || html.includes("Сердце · Ломтики · 60 гр"));
   assert.equal(html.includes("b-step"), false);
   assert.equal(ctx.basket[0].value, 60);
+  assert.equal(ctx.basket[0].sub, "Ломтики");
 });
 
 test("карточка БП не показывает второй состав и не затирает его при сохранении", async () => {
@@ -230,11 +232,11 @@ test("карточка БП не показывает второй состав 
   ctx.C.onAct("cl-open", node({ "data-nick": "luna", "data-sub": "2", "data-sheet": "БП" }));
   await new Promise(function (r) { setImmediate(r); });
   const html = ctx.paints[ctx.paints.length - 1];
-  assert.ok(html.includes("Сердце · Целое · 60 гр"));
+  assert.ok(/Сердце · [Лл]омтики · 60 гр/.test(html) || html.includes("Сердце · Ломтики · 60 гр"));
   assert.equal(html.includes("Почки"), false);
   assert.equal(html.includes("Ещё состав"), false);
   assert.equal(html.includes("БП2"), false);
-  assert.match(html, /Статус<\/p><p class="b-note">БП<\/p>/);
+  assert.match(html, /Статус<\/p><p class="b-note">БП/);
   ctx.C.onAct("cl-del-line", node({ "data-i": "0" }));
   ctx.C.onAct("cl-save", node({}));
   await new Promise(function (r) { setImmediate(r); });
