@@ -196,17 +196,17 @@ const ui = { sheet: null, edit: null, cut: null, asm: null, cour: null, pp: null
 
 async function openPartnerSheet() {
   // Prefer live API client injected into week openRow
-  const hit = await page.evaluate(async (prod, initData, date) => {
-    const res = await fetch(prod + "/", {
+  const hit = await page.evaluate(async (opts) => {
+    const res = await fetch(opts.prod + "/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "getClients",
         cutover: 1,
         day: "Воскресенье",
-        date: date,
+        date: opts.date,
         force: "1",
-        initData: initData
+        initData: opts.initData
       })
     });
     const j = await res.json();
@@ -231,7 +231,7 @@ async function openPartnerSheet() {
       bp: bp || null,
       retail: retail || null
     };
-  }, PROD, init, DATE);
+  }, { prod: PROD, initData: init, date: DATE });
 
   report.uiApi = { status: hit.status, n: hit.n, hasPartner: !!hit.partner };
 
@@ -303,7 +303,7 @@ async function prodSurface(seg, shotName) {
   );
   await page.waitForTimeout(3500);
   // select Sunday / date if controls exist
-  await page.evaluate(async (prod, initData, date, partner) => {
+  await page.evaluate((opts) => {
     const mix = window.BoinyaCrumbMix;
     const pretty = (window.BoinyaOrderEngine && window.BoinyaOrderEngine.prettyProductName) || null;
     const host = document.querySelector("#nxMain") || document.body;
@@ -314,13 +314,13 @@ async function prodSurface(seg, shotName) {
       box.style.cssText = "padding:12px;background:#fff;border-top:2px solid #333;position:relative;z-index:5";
       host.prepend(box);
     }
-    if (partner) {
+    if (opts.partner) {
       box.innerHTML =
         "<p class='b-lbl'>Партнёр RO</p><div class='mix-list'>" +
-        mix.linesHtml(partner.basket || [], pretty) +
+        mix.linesHtml(opts.partner.basket || [], pretty) +
         "</div>";
     }
-  }, PROD, init, DATE, hit.partner);
+  }, { partner: hit.partner });
   await page.waitForTimeout(400);
   const txt = await page.locator("body").innerText();
   await page.screenshot({ path: path.join(OUT, shotName), fullPage: false });
