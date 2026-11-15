@@ -2313,7 +2313,7 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      deployMarker: "clients-fix2-preview-h1",
+      deployMarker: String((env && env.PREVIEW_MARKER) || "") || "partner-qty-grams-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -2784,6 +2784,10 @@ function parseBasket_(raw) {
   try {
     arr = normalizeHeartWholeBasketD1_(arr);
   } catch (eH) {}
+  /* t747 basket-canon: qty/alt → val+value на чтении (D1 не переписываем). */
+  try {
+    arr = normalizeBasketAmountsD1_(arr);
+  } catch (eAmt) {}
   return arr;
 }
 
@@ -10727,7 +10731,7 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       const name = cuttingNameFromBasketItem_(it);
       if (!name) return;
       if (/^КРОШКА/i.test(name) && isCrumbBasketItemD1_(it)) return;
-      const val = Number(it.value != null ? it.value : it.val) || 0;
+      const val = basketItemAmountD1_(it) || 0;
       if (!(val > 0)) return;
       // Хрящ лопаточный: «ЛОП ХРЯЩ» / «ЛОП ХРЯЩ ШТ.» / «лопаточные хрящи» — один ключ, штуки суммируем.
       // Остальные SKU — прежний ключ name.toUpperCase() (фракции трахеи/уха/аорты не схлопываем).
@@ -12808,9 +12812,19 @@ function partnerRowMatchesOrder_(row, order) {
   return partnerPointKey_(row.client || row.name || "") === key;
 }
 
+/** t747 basket-canon: Varka qty → Boinya val/value (+ map SKU). */
+function partnerBasketForClients_(basket) {
+  const mapped = partnerTreatsToPpBasket_(basket);
+  if (mapped.length) return normalizeBasketAmountsD1_(mapped);
+  return normalizeBasketAmountsD1_(basket).filter(function (line) {
+    return basketItemAmountD1_(line) > 0;
+  });
+}
+
 function partnerClientFromOrder_(order, day) {
   const name = String((order && (order.locationName || order.userName)) || "Партнёр").trim() || "Партнёр";
-  const basket = Array.isArray(order && order.basket) ? order.basket : [];
+  const rawBasket = Array.isArray(order && order.basket) ? order.basket : [];
+  const basket = partnerBasketForClients_(rawBasket);
   const price = order && order.totalByn != null && order.totalByn !== "" ? order.totalByn : "";
   return {
     name: name,
@@ -13433,9 +13447,58 @@ async function getCourier_(params, env) {
   return hit;
 }
 
+/* t747 basket-canon: зеркало boinya-c/next/basket-amount.js (Worker без import). */
+function basketItemAmountRawD1_(it) {
+  if (!it || typeof it !== "object") return { raw: null, key: null, warn: null };
+  if (it.val != null && it.val !== "") return { raw: it.val, key: "val", warn: null };
+  if (it.value != null && it.value !== "") return { raw: it.value, key: "value", warn: null };
+  if (it.qty != null && it.qty !== "") return { raw: it.qty, key: "qty", warn: null };
+  const alts = ["grams", "amount", "quantity", "count", "n"];
+  for (let i = 0; i < alts.length; i++) {
+    const k = alts[i];
+    if (it[k] != null && it[k] !== "") return { raw: it[k], key: k, warn: "alt_key:" + k };
+  }
+  return { raw: null, key: null, warn: null };
+}
+
+function basketItemAmountD1_(it) {
+  const p = basketItemAmountRawD1_(it);
+  if (p.warn) {
+    try {
+      console.warn("[basket-amount] " + String((it && (it.name || it.main || it.id)) || "?") + " " + p.warn);
+    } catch (eW) {}
+  }
+  return Number(p.raw) || 0;
+}
+
+function normalizeBasketItemAmountD1_(it) {
+  if (!it || typeof it !== "object") return it;
+  const p = basketItemAmountRawD1_(it);
+  if (p.raw == null || p.raw === "") return it;
+  const n = Number(p.raw);
+  if (!isFinite(n)) {
+    const bad = Object.assign({}, it);
+    bad._amountWarn = "non_numeric:" + (p.key || "?");
+    try {
+      console.warn("[basket-amount] non_numeric " + String(it.name || it.main || it.id || "?"));
+    } catch (eN) {}
+    return bad;
+  }
+  const out = Object.assign({}, it);
+  out.val = n;
+  out.value = n;
+  if (p.warn) out._amountWarn = p.warn;
+  return out;
+}
+
+function normalizeBasketAmountsD1_(basket) {
+  if (!Array.isArray(basket)) return [];
+  return basket.map(normalizeBasketItemAmountD1_);
+}
+
 function crumbFingerprint_(it) {
   if (!isCrumbBasketItemD1_(it)) return "";
-  const grams = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+  const grams = Math.round(basketItemAmountD1_(it) || 0);
   const src = (Array.isArray(it.sources) ? it.sources : []).map(function (s) {
     return String((s && (s.name || s.main)) || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
   }).filter(Boolean).sort().join("+");
@@ -13470,7 +13533,7 @@ function enrichAssemblyCrumbBasket_(basket, liveBasket, card) {
   var changed = false;
   var next = (basket || []).map(function (it) {
     if (!it || !isCrumbBasketItemD1_(it) || crumbPartCountD1_(it) > 0) return it;
-    var grams = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+    var grams = Math.round(basketItemAmountD1_(it) || 0);
     if (!(grams > 0)) return it;
     var hit = null;
     (liveBasket || []).forEach(function (live) {
@@ -13586,7 +13649,7 @@ function applyCuttingItemNotes_(items, people) {
         if (!it) return;
         const nm = it.name || it.main || "";
         if (!noteLineMatch_(n.item, nm, it.sub || "")) return;
-        qty += Number(it.val != null ? it.val : it.value) || 0;
+        qty += basketItemAmountD1_(it) || 0;
         if (!hitName) hitName = nm;
       });
       const key = noteCutKey_(hitName || n.item);
@@ -13773,6 +13836,15 @@ async function upsertOrderRow_(env, row, opts) {
         row = mergeOrderRowsKeepNonEmpty_(existing, row, opts.params || {});
       }
     } catch (eKeepUp) {}
+  }
+  /* t747 basket-canon: новые/обновляемые заказы пишут val+value (qty не теряем). */
+  if (row && !opts.skipBasketAmountCanon) {
+    try {
+      let b = parseBasket_(row.basket_json != null ? row.basket_json : row.basket);
+      b = normalizeBasketAmountsD1_(b);
+      row.basket = b;
+      row.basket_json = JSON.stringify(b);
+    } catch (eCanon) {}
   }
   await env.DB.prepare(
     `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
@@ -18289,12 +18361,28 @@ const PARTNER_VARKA_DELIVERY_BYN = 4;
 /** Минимум граммов сердца и лёгкого. Аллергики (countMin: false) не считаются. 0 г — можно. */
 const PARTNER_VARKA_MIN_TREAT_GRAMS = 100;
 
+function partnerTreatMapForLine_(line) {
+  const byId = PARTNER_TREAT_PP_MAP_[String((line && line.id) || "").trim()];
+  if (byId) return byId;
+  const nm = String((line && (line.name || line.main)) || "")
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!nm) return null;
+  if (/БАРАНЬ?Е?\s*ЛЕГК|ЛЕГК.*БАРАН/.test(nm)) return PARTNER_TREAT_PP_MAP_.vr_t_lamb_lung;
+  if (/СЕРДЦ/.test(nm)) return PARTNER_TREAT_PP_MAP_.vr_t_heart;
+  if (/ЛЕГК/.test(nm)) return PARTNER_TREAT_PP_MAP_.vr_t_lung;
+  if (/ИНДЕЙК/.test(nm)) return PARTNER_TREAT_PP_MAP_.vr_t_turkey;
+  return null;
+}
+
 function partnerTreatsToPpBasket_(basket) {
   const out = [];
   const arr = Array.isArray(basket) ? basket : [];
   for (let i = 0; i < arr.length; i++) {
     const line = arr[i] || {};
-    const map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    const map = partnerTreatMapForLine_(line);
     if (!map) continue;
     const qty = Number(line.qty != null ? line.qty : line.val != null ? line.val : line.value) || 0;
     if (!(qty > 0)) continue;
@@ -18327,7 +18415,7 @@ function partnerTreatGrams_(basket) {
   const arr = Array.isArray(basket) ? basket : [];
   for (let i = 0; i < arr.length; i++) {
     const line = arr[i] || {};
-    const map = PARTNER_TREAT_PP_MAP_[String(line.id || "").trim()];
+    const map = partnerTreatMapForLine_(line);
     if (!map || map.countMin === false) continue;
     const qty = Number(line.qty != null ? line.qty : line.val != null ? line.val : line.value) || 0;
     if (qty > 0) sum += qty;

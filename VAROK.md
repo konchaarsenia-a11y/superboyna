@@ -63,6 +63,15 @@ https://konchaarsenia-a11y.github.io/superboyna/varka/app.html
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
+### Контракт корзины Varka ↔ Бойня (t747 basket-canon)
+
+| Кто | Поле количества | С каких пор |
+|-----|-----------------|-------------|
+| Mini App Varka / бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) | `qty` (+ `unit`) в строке `{ id, type, name, qty, unit }` | **2026-10-11**, PR `#488` / commit `fe50d8b5` (платные лакомства). До этого qty уже был в UI чипах; в payload состава для Бойни закрепился именно тогда. |
+| Бойня (заказы ПП/БП/розница, UI, нарезка) | канон **`val` + `value`** | всегда |
+
+Worker при цене/маппинге (`partnerTreatsToPpBasket_`) и при показе в конвейере (`partnerBasketForClients_` / `parseBasket_` → `normalizeBasketAmountsD1_`) приводит `qty` → `val`/`value`. Фронт читает только через `BoinyaBasketAmount` (`boinya-c/next/basket-amount.js`). Снимок `partnerOrders` в D1 может хранить сырой Varka-`qty` — массово не переписываем; миграция при желании: normalize каждого `basket[]` в `partnerOrders` (только описано, не запускать без «да»).
+
 **Wipe историй заявок (one-shot, owner):** после merge + Worker Deploy + clasp `Code.gs` —
 
 ```

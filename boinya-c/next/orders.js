@@ -441,7 +441,10 @@
       if (e && e.isChewCrumbSource_ && e.isChewCrumbSource_(s)) return false;
       return true;
     }) : [];
-    var grams = it.value != null ? it.value : it.val;
+    /* t747 basket-canon */
+    var grams = (root.BoinyaBasketAmount && root.BoinyaBasketAmount.itemAmount)
+      ? root.BoinyaBasketAmount.itemAmount(it)
+      : ((mix && mix.itemAmount) ? mix.itemAmount(it) : (it.value != null ? it.value : (it.val != null ? it.val : it.qty)));
     var name = eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name);
     var sub = "";
     if (crumb && srcs.length >= 2) {
@@ -2646,14 +2649,24 @@
         return row;
       }
     }
+    /* t747 basket-canon: loadFromClient → val+value */
+    var norm = (root.BoinyaBasketAmount && root.BoinyaBasketAmount.normalizeItem)
+      ? root.BoinyaBasketAmount.normalizeItem(g)
+      : g;
+    var amt = (root.BoinyaBasketAmount && root.BoinyaBasketAmount.itemAmount)
+      ? root.BoinyaBasketAmount.itemAmount(norm)
+      : ((root.BoinyaCrumbMix && root.BoinyaCrumbMix.itemAmount)
+        ? root.BoinyaCrumbMix.itemAmount(norm)
+        : (norm.val != null ? norm.val : (norm.value != null ? norm.value : norm.qty)));
     var plain = {
-      cat: g.cat || "other",
-      main: g.name || g.main,
-      name: g.name || g.main,
-      sub: g.sub || "",
-      value: g.val != null ? g.val : g.value,
-      dog: g.dog ? Number(g.dog) : 0,
-      frac: g.frac || ""
+      cat: norm.cat || g.cat || "other",
+      main: norm.name || norm.main || g.name || g.main,
+      name: norm.name || norm.main || g.name || g.main,
+      sub: norm.sub || g.sub || "",
+      value: amt,
+      val: amt,
+      dog: (norm.dog || g.dog) ? Number(norm.dog || g.dog) : 0,
+      frac: norm.frac || g.frac || ""
     };
     if (root.BoinyaCutFrac) root.BoinyaCutFrac.keep(plain);
     else if (plain.frac != null) delete plain.frac;
