@@ -3,6 +3,10 @@ name: partner-qty-prod-ro
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/partner-qty-prod-ro.yml
+      - scripts/partner-qty-prod-ro.mjs
 
 permissions:
   contents: read

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Prod RO only: Varka Шевченко 1 / 2026-11-16 grams + D1 write-guard. No saves. */
+/** Prod RO only: Varka Шевченко 1 / 2026-11-16 grams + D1 write-guard. No saves. (trigger) */
 import { createRequire } from "node:module";
 import { createHmac } from "node:crypto";
 import fs from "node:fs";
