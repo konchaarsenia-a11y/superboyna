@@ -1,0 +1,40 @@
+# Prod RO: Varka grams on 2026-11-16 after #747. No D1 writes.
+name: partner-qty-prod-ro
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install playwright
+        run: |
+          npm install --prefix /tmp playwright@1.49.1
+          npx --prefix /tmp playwright install chromium --with-deps
+      - name: Prod RO UI + D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          OUT_DIR: ${{ github.workspace }}/artifacts/partner-qty-prod-ro
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          mkdir -p "$OUT_DIR"
+          node scripts/partner-qty-prod-ro.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: partner-qty-prod-ro
+          path: artifacts/partner-qty-prod-ro/
+          if-no-files-found: warn
