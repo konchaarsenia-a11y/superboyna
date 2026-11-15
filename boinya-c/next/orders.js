@@ -2512,6 +2512,10 @@
   }
 
   function onSeg(id) {
+    /* t561s2624-meet: «Встретит у подъезда» рисуется через segBtn→data-act=seg,
+       а не meet0/meet1 — иначе клик Да/Нет молча ничего не делает. */
+    if (id === "meet0") { state.meetAtDoor = false; folds.details = true; paint(); return true; }
+    if (id === "meet1") { state.meetAtDoor = true; folds.details = true; paint(); return true; }
     if (id === "mail0") { state.mailOn = false; if (state.deliveryMethod !== "courier") state.deliveryMethod = null; paint(); return true; }
     if (id === "mail1") { state.mailOn = true; if (!state.deliveryMethod || state.deliveryMethod === "courier") state.deliveryMethod = "euro"; folds.more = true; paint(); return true; }
     if (id === "dog0") { state.dogCount = 1; state.activeDog = 1; paint(); return true; }
