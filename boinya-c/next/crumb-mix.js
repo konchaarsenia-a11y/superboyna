@@ -121,17 +121,26 @@
     return floors;
   }
 
+  /** Граммы/кол-во строки: ПП/БП/Р пишут val|value, Varka/партнёры — qty. */
+  function itemAmount(g) {
+    if (!g) return null;
+    if (g.val != null && g.val !== "") return g.val;
+    if (g.value != null && g.value !== "") return g.value;
+    if (g.qty != null && g.qty !== "") return g.qty;
+    return null;
+  }
+
   function componentQtyList(g, sources) {
     var list = sources || [];
     var n = list.length;
-    var total = Math.round(Number(g && (g.val != null ? g.val : g.value)) || 0);
+    var total = Math.round(Number(itemAmount(g)) || 0);
     if (!(total > 0) || !n) return list.map(function () { return 0; });
     var own = [];
     var ownSum = 0;
     var ownAll = true;
     var i;
     for (i = 0; i < n; i++) {
-      var v = Number(list[i] && (list[i].val != null ? list[i].val : list[i].value));
+      var v = Number(itemAmount(list[i]));
       if (isFinite(v) && v > 0) {
         var r = Math.round(v);
         own.push(r);
@@ -307,7 +316,7 @@
     var src = sourcesOf(g);
     var kind4 = mix4KindOf(g);
     var schemeKind = kind4 || mix3KindOf(g);
-    var rawG = g.val != null ? g.val : g.value;
+    var rawG = itemAmount(g);
     var bit = rawG != null && rawG !== "" ? (" — " + rawG + " г") : "";
     if (src.length === 1) {
       var oneQty = componentQtyList(g, src);
@@ -420,7 +429,7 @@
     var schemeKind = kind4 || mix3KindOf(g);
     /* Несколько источников — заголовок микса + доли (сборка/карточка). */
     if (isCrumb(g) && src.length >= 2) {
-      var total = Number(g.val != null ? g.val : g.value);
+      var total = Number(itemAmount(g));
       var head = kind4 ? mix4Title(kind4) : (schemeKind ? mix3Title(schemeKind) : "Крошка микс");
       if (isFinite(total) && total > 0) head += " — " + total + " " + (g.unit || "г");
       var qtyMix = componentQtyList(g, src);
@@ -436,7 +445,7 @@
       return "<div>" + esc(crumbLineLabel(g, pretty)) + "</div>";
     }
     var nm = titleOf(g.name || g.main || "", pretty);
-    var v = g.val != null ? g.val : g.value;
+    var v = itemAmount(g);
     var unit = g.unit || "";
     var word = "";
     var cut = typeof globalThis !== "undefined" ? globalThis.BoinyaCutFrac : null;
@@ -558,7 +567,7 @@
       if (cat === "chew" || cat === "chews" || cat === "other" || cat === "veg" || cat === "crumb") return;
       var name = it.name || it.main || "";
       if (cat !== "dressura" && !organKey(name)) return;
-      var grams = Number(it.val != null ? it.val : it.value) || 0;
+      var grams = Number(itemAmount(it)) || 0;
       if (!(grams > 0)) return;
       var word = "";
       if (cut && cut.phrase && cut.applies(it)) word = cut.phrase(it);
@@ -603,7 +612,7 @@
         });
         return;
       }
-      var v = Number(g.val != null ? g.val : g.value) || 0;
+      var v = Number(itemAmount(g)) || 0;
       var key2 = organKey(g.name || g.main);
       if (!key2 || !(v > 0)) return;
       out.push({ key: key2, grams: v, sub: g.sub || "—", name: g.name || g.main });
@@ -615,6 +624,7 @@
     parseLine: parseLine,
     parseText: parseText,
     partQty: partQty,
+    itemAmount: itemAmount,
     linesHtml: linesHtml,
     rowHtml: lineHtml,
     singleLabel: singleLabel,

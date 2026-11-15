@@ -441,7 +441,7 @@
       if (e && e.isChewCrumbSource_ && e.isChewCrumbSource_(s)) return false;
       return true;
     }) : [];
-    var grams = it.value != null ? it.value : it.val;
+    var grams = (mix && mix.itemAmount) ? mix.itemAmount(it) : (it.value != null ? it.value : (it.val != null ? it.val : it.qty));
     var name = eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name);
     var sub = "";
     if (crumb && srcs.length >= 2) {
@@ -2646,12 +2646,16 @@
         return row;
       }
     }
+    var amt = (root.BoinyaCrumbMix && root.BoinyaCrumbMix.itemAmount)
+      ? root.BoinyaCrumbMix.itemAmount(g)
+      : (g.val != null ? g.val : (g.value != null ? g.value : g.qty));
     var plain = {
       cat: g.cat || "other",
       main: g.name || g.main,
       name: g.name || g.main,
       sub: g.sub || "",
-      value: g.val != null ? g.val : g.value,
+      value: amt,
+      val: amt,
       dog: g.dog ? Number(g.dog) : 0,
       frac: g.frac || ""
     };

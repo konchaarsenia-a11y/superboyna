@@ -108,7 +108,7 @@
     var i;
     for (i = 0; i < count; i++) sumR += Number(ratio[i]) || 0;
     if (!(sumR > 0)) return null;
-    var grams = Number(g.val != null ? g.val : g.value) || 0;
+    var grams = Number(itemAmount_(g)) || 0;
     if (!(grams > 0)) return null;
     var part = (Number(ratio[index]) || 0) / sumR;
     if (!(part > 0)) return null;
@@ -195,11 +195,20 @@
     var name = String(it.name || it.main || "");
     var crumb = cat === "crumb" || it.crumbKind || (Array.isArray(it.sources) && it.sources.length) || /^крошк/i.test(name);
     if (!crumb) return "";
-    var grams = Math.round(Number(it.val != null ? it.val : it.value) || 0);
+    var grams = Math.round(Number(itemAmount_(it)) || 0);
     var src = (Array.isArray(it.sources) ? it.sources : []).map(function (s) {
       return String((s && (s.name || s.main)) || "").toUpperCase().replace(/Ё/g, "Е").trim();
     }).filter(Boolean).sort().join("+");
     return grams + "|" + (src || String(it.sub || "").toUpperCase());
+  }
+
+  function itemAmount_(g) {
+    if (!g) return null;
+    if (root.BoinyaCrumbMix && root.BoinyaCrumbMix.itemAmount) return root.BoinyaCrumbMix.itemAmount(g);
+    if (g.val != null && g.val !== "") return g.val;
+    if (g.value != null && g.value !== "") return g.value;
+    if (g.qty != null && g.qty !== "") return g.qty;
+    return null;
   }
 
   function viewBasket(c) {
@@ -232,7 +241,7 @@
     return (basket || []).map(function (g) {
       if (!g) return "";
       var nm = prettyName(g.name || g.main || "");
-      var val = g.val != null ? g.val : g.value;
+      var val = itemAmount_(g);
       var unit = g.unit || "";
       var word = "";
       var cut = root.BoinyaCutFrac;
@@ -905,7 +914,7 @@
         if (!cut.isChew(it)) return;
         var nm = prettyName(it.name || it.main || "");
         var word = cut.phrase(it) || "";
-        var n = Number(it.val != null ? it.val : it.value) || 0;
+        var n = Number(itemAmount_(it)) || 0;
         if (!nm || !(n > 0)) return;
         var key = nm + "\n" + word;
         if (!groups[key]) {
