@@ -48,10 +48,13 @@ function loadPartnerFns() {
     extractConstObject(src, "PARTNER_TREAT_PP_MAP_"),
     extractFn(src, "partnerTreatMapForLine_"),
     extractFn(src, "partnerTreatsToPpBasket_"),
-    extractFn(src, "partnerBasketForClients_"),
-    extractFn(src, "basketItemAmountD1_")
+    extractFn(src, "basketItemAmountRawD1_"),
+    extractFn(src, "basketItemAmountD1_"),
+    extractFn(src, "normalizeBasketItemAmountD1_"),
+    extractFn(src, "normalizeBasketAmountsD1_"),
+    extractFn(src, "partnerBasketForClients_")
   ];
-  const ctx = createContext({});
+  const ctx = createContext({ console });
   runInContext(parts.join("\n"), ctx);
   return ctx;
 }

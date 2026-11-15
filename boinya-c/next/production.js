@@ -202,9 +202,13 @@
     return grams + "|" + (src || String(it.sub || "").toUpperCase());
   }
 
+  /* t747 basket-canon: только через BoinyaBasketAmount / crumb-mix. */
   function itemAmount_(g) {
-    if (!g) return null;
+    if (root.BoinyaBasketAmount && root.BoinyaBasketAmount.itemAmount) {
+      return root.BoinyaBasketAmount.itemAmount(g);
+    }
     if (root.BoinyaCrumbMix && root.BoinyaCrumbMix.itemAmount) return root.BoinyaCrumbMix.itemAmount(g);
+    if (!g) return null;
     if (g.val != null && g.val !== "") return g.val;
     if (g.value != null && g.value !== "") return g.value;
     if (g.qty != null && g.qty !== "") return g.qty;

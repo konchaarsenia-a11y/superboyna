@@ -121,8 +121,10 @@
     return floors;
   }
 
-  /** Граммы/кол-во строки: ПП/БП/Р пишут val|value, Varka/партнёры — qty. */
+  /* t747 basket-canon: делегируем в BoinyaBasketAmount (единый канон). */
   function itemAmount(g) {
+    var api = typeof globalThis !== "undefined" ? globalThis.BoinyaBasketAmount : null;
+    if (api && api.itemAmount) return api.itemAmount(g);
     if (!g) return null;
     if (g.val != null && g.val !== "") return g.val;
     if (g.value != null && g.value !== "") return g.value;

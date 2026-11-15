@@ -25,7 +25,10 @@ function extractFn(src, name) {
 function cuttingFixture() {
   const src = readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
   const names = [
+    "basketItemAmountRawD1_",
     "basketItemAmountD1_",
+    "normalizeBasketItemAmountD1_",
+    "normalizeBasketAmountsD1_",
     "catalogAliasNameD1_",
     "isCrumbBasketItemD1_",
     "crumbTierOrFractionSubD1_",
@@ -45,7 +48,7 @@ function cuttingFixture() {
     "isChewCrumbSourceD1_",
     "normalizeBasketItemAliasesD1_"
   ];
-  const ctx = createContext({});
+  const ctx = createContext({ console });
   runInContext(
     names.map((n) => extractFn(src, n)).join("\n") +
       "\nfunction fracGridWordD1_(){return \"\";}\nfunction igFractionWordD1_(){return \"\";}\n",

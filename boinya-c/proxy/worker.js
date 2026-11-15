@@ -2784,6 +2784,10 @@ function parseBasket_(raw) {
   try {
     arr = normalizeHeartWholeBasketD1_(arr);
   } catch (eH) {}
+  /* t747 basket-canon: qty/alt → val+value на чтении (D1 не переписываем). */
+  try {
+    arr = normalizeBasketAmountsD1_(arr);
+  } catch (eAmt) {}
   return arr;
 }
 
@@ -12808,21 +12812,13 @@ function partnerRowMatchesOrder_(row, order) {
   return partnerPointKey_(row.client || row.name || "") === key;
 }
 
-/** Varka пишет qty; UI/нарезка ждут val|value. Маппинг id → ПП-имя, иначе qty→val. */
+/** t747 basket-canon: Varka qty → Boinya val/value (+ map SKU). */
 function partnerBasketForClients_(basket) {
   const mapped = partnerTreatsToPpBasket_(basket);
-  if (mapped.length) return mapped;
-  const out = [];
-  (Array.isArray(basket) ? basket : []).forEach(function (line) {
-    if (!line || typeof line !== "object") return;
-    const qty = Number(line.qty != null ? line.qty : line.val != null ? line.val : line.value);
-    if (!(isFinite(qty) && qty > 0)) return;
-    const row = Object.assign({}, line);
-    if (row.val == null) row.val = qty;
-    if (row.value == null) row.value = qty;
-    out.push(row);
+  if (mapped.length) return normalizeBasketAmountsD1_(mapped);
+  return normalizeBasketAmountsD1_(basket).filter(function (line) {
+    return basketItemAmountD1_(line) > 0;
   });
-  return out;
 }
 
 function partnerClientFromOrder_(order, day) {
@@ -13451,10 +13447,53 @@ async function getCourier_(params, env) {
   return hit;
 }
 
+/* t747 basket-canon: зеркало boinya-c/next/basket-amount.js (Worker без import). */
+function basketItemAmountRawD1_(it) {
+  if (!it || typeof it !== "object") return { raw: null, key: null, warn: null };
+  if (it.val != null && it.val !== "") return { raw: it.val, key: "val", warn: null };
+  if (it.value != null && it.value !== "") return { raw: it.value, key: "value", warn: null };
+  if (it.qty != null && it.qty !== "") return { raw: it.qty, key: "qty", warn: null };
+  const alts = ["grams", "amount", "quantity", "count", "n"];
+  for (let i = 0; i < alts.length; i++) {
+    const k = alts[i];
+    if (it[k] != null && it[k] !== "") return { raw: it[k], key: k, warn: "alt_key:" + k };
+  }
+  return { raw: null, key: null, warn: null };
+}
+
 function basketItemAmountD1_(it) {
-  if (!it) return 0;
-  const raw = it.val != null ? it.val : it.value != null ? it.value : it.qty;
-  return Number(raw) || 0;
+  const p = basketItemAmountRawD1_(it);
+  if (p.warn) {
+    try {
+      console.warn("[basket-amount] " + String((it && (it.name || it.main || it.id)) || "?") + " " + p.warn);
+    } catch (eW) {}
+  }
+  return Number(p.raw) || 0;
+}
+
+function normalizeBasketItemAmountD1_(it) {
+  if (!it || typeof it !== "object") return it;
+  const p = basketItemAmountRawD1_(it);
+  if (p.raw == null || p.raw === "") return it;
+  const n = Number(p.raw);
+  if (!isFinite(n)) {
+    const bad = Object.assign({}, it);
+    bad._amountWarn = "non_numeric:" + (p.key || "?");
+    try {
+      console.warn("[basket-amount] non_numeric " + String(it.name || it.main || it.id || "?"));
+    } catch (eN) {}
+    return bad;
+  }
+  const out = Object.assign({}, it);
+  out.val = n;
+  out.value = n;
+  if (p.warn) out._amountWarn = p.warn;
+  return out;
+}
+
+function normalizeBasketAmountsD1_(basket) {
+  if (!Array.isArray(basket)) return [];
+  return basket.map(normalizeBasketItemAmountD1_);
 }
 
 function crumbFingerprint_(it) {
@@ -13797,6 +13836,15 @@ async function upsertOrderRow_(env, row, opts) {
         row = mergeOrderRowsKeepNonEmpty_(existing, row, opts.params || {});
       }
     } catch (eKeepUp) {}
+  }
+  /* t747 basket-canon: новые/обновляемые заказы пишут val+value (qty не теряем). */
+  if (row && !opts.skipBasketAmountCanon) {
+    try {
+      let b = parseBasket_(row.basket_json != null ? row.basket_json : row.basket);
+      b = normalizeBasketAmountsD1_(b);
+      row.basket = b;
+      row.basket_json = JSON.stringify(b);
+    } catch (eCanon) {}
   }
   await env.DB.prepare(
     `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
