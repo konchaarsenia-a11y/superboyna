@@ -34190,6 +34190,15 @@ async function previewSeedPartnerCutPlan_(params, env) {
   const dateDmy = "16.11.2026";
   const now = new Date().toISOString();
 
+  // partner-cut-plan-h1: preview D1 часто с копией прода — без очистки after даёт 500+230=730, не 330
+  try {
+    await env.DB.prepare(
+      "UPDATE orders SET status='deleted', updated_at=?1 WHERE date_iso=?2 AND status='active'"
+    )
+      .bind(now, dateIso)
+      .run();
+  } catch (eClr) {}
+
   const people = [
     {
       id: "PREV:POLOTNO:2026-11-16",
