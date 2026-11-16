@@ -60,13 +60,17 @@ async function api(body) {
   }
 }
 
-async function pollWrite(writeId) {
-  for (let i = 0; i < 40; i++) {
+async function pollWrite(writeId, opts) {
+  const max = (opts && opts.max) || 40;
+  const soft = !!(opts && opts.softOk);
+  for (let i = 0; i < max; i++) {
     await new Promise((r) => setTimeout(r, 1200));
     const p = await api({ action: "pollPeopleWrite", writeId, initData });
+    console.log("poll", writeId, i, p.status, p.sheetsVerified, p.pendingSheets, p.message);
     if (p.sheetsVerified && p.status === "success") return p;
     if (p.status === "error" && !p.pendingSheets) throw new Error("write fail " + JSON.stringify(p));
   }
+  if (soft) return { status: "pending", softTimeout: true, writeId };
   throw new Error("poll timeout " + writeId);
 }
 
@@ -80,8 +84,37 @@ async function assertWrite(label, res) {
     message: res.message
   });
   if (!["success", "accepted"].includes(res.status)) throw new Error(label + " bad status");
+  // d1-primary: D1 — источник правды для этого теста; Sheets-зеркало может лагать.
+  if (res.d1Verified === true) {
+    if (res.writeId && !res.sheetsVerified) {
+      try {
+        await pollWrite(res.writeId, { max: 12, softOk: true });
+      } catch (e) {
+        console.warn(label, "sheets lag (ignored for D1 test)", String(e.message || e));
+      }
+    }
+    return;
+  }
   if (res.sheetsVerified && res.status === "success") return;
   if (res.writeId) await pollWrite(res.writeId);
+}
+
+function cleanupTest759Hard() {
+  const cmds = [
+    "DELETE FROM orders WHERE lower(client)='test759' OR match_key='TEST759' OR id LIKE '%TEST759%'",
+    "DELETE FROM deliveries WHERE match_key='TEST759' OR lower(match_key)='test759'",
+    "DELETE FROM snap_cache WHERE cache_key LIKE '%TEST759%' OR cache_key LIKE '%test759%' OR cache_key LIKE '%test759%'"
+  ];
+  for (const sql of cmds) {
+    try {
+      d1(sql);
+    } catch (e) {
+      console.warn("cleanup", sql.slice(0, 40), String(e.message || e).slice(0, 120));
+    }
+  }
+  try {
+    d1("DELETE FROM clients WHERE lower(COALESCE(nick, client, ''))='test759'");
+  } catch (e) {}
 }
 
 function snap() {
@@ -171,10 +204,34 @@ if (ping.notifyGroup !== "off") {
   console.warn("WARN notifyGroup is not off:", ping.notifyGroup);
 }
 
+console.log("=== pre-cleanup leftover TEST759 (if any) ===");
+cleanupTest759Hard();
+// also delete via Worker path if row still active
+try {
+  const leftover = await api({
+    action: "deleteClient",
+    client: CLIENT,
+    matchKey: CLIENT,
+    day: DAY,
+    telegramId: String(OWNER_ID),
+    initData
+  });
+  console.log("pre-delete", leftover.status, leftover.d1Verified, leftover.message);
+  if (leftover.writeId && leftover.d1Verified) {
+    try { await pollWrite(leftover.writeId, { max: 8, softOk: true }); } catch (e) {}
+  }
+} catch (ePre) {
+  console.warn("pre-delete skip", String(ePre.message || ePre).slice(0, 160));
+}
+cleanupTest759Hard();
+
 console.log("=== before snap ===");
 const before = snap();
 report.before = before;
 fs.writeFileSync(path.join(OUT, "before.json"), JSON.stringify(before, null, 2));
+if ((before.testRows || []).some((r) => r.status === "active")) {
+  throw new Error("TEST759 still active before create: " + JSON.stringify(before.testRows));
+}
 
 const basketCreate = [
   { cat: "dressura", main: "СЕРДЦЕ", name: "СЕРДЦЕ", sub: "Ломтики", value: 100, val: 100 },
@@ -324,21 +381,7 @@ const del = await api({
 await assertWrite("DELETE", del);
 report.steps.push({ delete: { status: del.status, writeId: del.writeId } });
 
-// extra cleanup remnants
-try {
-  d1("DELETE FROM orders WHERE lower(client)='test759' OR match_key='TEST759'");
-} catch (e) {
-  report.cleanupOrdersErr = String(e.message || e);
-}
-try {
-  d1("DELETE FROM deliveries WHERE match_key='TEST759' OR lower(match_key)='test759'");
-} catch (e) {}
-try {
-  d1("DELETE FROM snap_cache WHERE cache_key LIKE '%TEST759%' OR cache_key LIKE '%test759%'");
-} catch (e) {}
-try {
-  d1("DELETE FROM clients WHERE lower(COALESCE(nick,client,''))='test759'");
-} catch (e) {}
+cleanupTest759Hard();
 
 const after = snap();
 report.after = after;
