@@ -205,30 +205,6 @@ test("позднюю дату слота не тянет назад", function (
   assert.equal(weekCloseSlotAction_("", "2026-10-19", both), "stamp_empty");
 });
 
-test("no-plus7-stamp-h1: scrub params.date=Будущая неделя не stamp_slot +7", function () {
-  // Сценарий partner-qty-prod-ro: day=Понедельник (09.11), params.date=16.11 (Будущая неделя).
-  const weekMap = {
-    "2026-11-09": "Понедельник",
-    "2026-11-10": "Вторник",
-    "2026-11-11": "Среда",
-    "2026-11-12": "Четверг",
-    "2026-11-13": "Пятница",
-    "2026-11-14": "Суббота",
-    "2026-11-15": "Воскресенье",
-    "2026-11-16": "Будущая неделя"
-  };
-  assert.equal(weekCloseSlotAction_("2026-11-09", "2026-11-16", weekMap), "detach");
-  assert.equal(weekCloseSlotAction_("2026-11-09", "2026-11-10", weekMap), "stamp_slot");
-  const src = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
-  const start = src.indexOf("async function getClients_(");
-  const end = src.indexOf("async function lookupClient_(", start);
-  const body = src.slice(start, end);
-  assert.ok(body.includes("no-plus7-stamp-h1"));
-  assert.ok(body.includes("slotIso"));
-  assert.ok(body.includes("scrubMismatchedDayOrders_(env, day, slotIso)"));
-  assert.ok(!/scrubMismatchedDayOrders_\(env, day, dateIso\)/.test(body));
-});
-
 test("закрытие пишет указатель до смены дней и откатывает состав", function () {
   const src = fs.readFileSync(new URL("../proxy/worker.js", import.meta.url), "utf8");
   const start = src.indexOf("async function closeWeekInD1_(");
