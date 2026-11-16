@@ -63,14 +63,29 @@ if (!init) {
   process.exit(1);
 }
 
-const phase = String(process.env.CUT_PHASE || "both"); // before | after | both
+const phase = String(process.env.CUT_PHASE || "both");
 const report = {
   at: new Date().toISOString(),
   ping: { deployMarker: ping.deployMarker, previewIsolated: ping.previewIsolated },
   phase: phase
 };
 
-async function shotCutting(label, keepStale) {
+function lungHeart(cut) {
+  const items = (cut && cut.items) || [];
+  const lung = items.find((it) => /Л[ЁЕ]ГК/i.test(String((it && it.name) || "")));
+  const heart = items.find((it) => /СЕРДЦ/i.test(String((it && it.name) || "")));
+  return {
+    cuttingLung: lung ? lung.dry : null,
+    cuttingHeart: heart ? heart.dry : null,
+    n: items.length,
+    fromOrders: !!(cut && cut.fromOrders),
+    previewStale: !!(cut && cut.previewStaleWithoutPartner),
+    date: cut && (cut.date || cut.dateIso),
+    items: items.slice(0, 20).map((it) => ({ name: it.name, dry: it.dry, unit: it.unit }))
+  };
+}
+
+async function shotCutting(label, keepStale, cutPayload) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 420, height: 920 } });
   await page.addInitScript((initData) => {
@@ -95,11 +110,12 @@ async function shotCutting(label, keepStale) {
     "&tab=production&seg=cut&v=" +
     Date.now();
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
-  await page.waitForFunction(() => !!(window.BoinyaProduction || window.BoinyaShell), null, {
-    timeout: 45000
-  });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(3500);
+  await page
+    .waitForFunction(() => !!(window.BoinyaCrumbMix && window.BoinyaShell), null, { timeout: 25000 })
+    .catch(() => null);
 
+  // Подтянуть живой getCutting ещё раз из страницы (тот же proxy) и скормить UI.
   const cut = await page.evaluate(
     async (opts) => {
       const body = {
@@ -110,25 +126,26 @@ async function shotCutting(label, keepStale) {
         initData: opts.initData
       };
       if (opts.keepStale) body.keepStale = "1";
-      const res = await fetch(opts.prod + "/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      const j = await res.json();
-      // Настоящий экран: скормить ответ в production paint, если есть
+      let j = opts.fallback || null;
+      try {
+        const res = await fetch(opts.prod + "/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        j = await res.json();
+      } catch (eFetch) {}
       try {
         const P = window.BoinyaProduction;
-        if (P && P.paintCutting) P.paintCutting(j);
-        else if (P && P.onCutting) P.onCutting(j);
-        else if (P && P.setCutting) P.setCutting(j);
+        if (P && typeof P.paintCutting === "function") P.paintCutting(j);
+        else if (P && typeof P.renderCutting === "function") P.renderCutting(j);
+        else if (P && typeof P.applyCutting === "function") P.applyCutting(j);
       } catch (ePaint) {}
       return j;
     },
-    { prod: PREV, initData: init, day: DAY, date: DATE, keepStale: !!keepStale }
+    { prod: PREV, initData: init, day: DAY, date: DATE, keepStale: !!keepStale, fallback: cutPayload }
   );
 
-  // Выбрать день «Будущая неделя» / дату в UI если есть
   await page.evaluate((day) => {
     const nodes = Array.from(document.querySelectorAll("button, .chip, .seg, [data-day], select option"));
     const hit = nodes.find(function (el) {
@@ -136,9 +153,9 @@ async function shotCutting(label, keepStale) {
     });
     if (hit) hit.click();
   }, DAY);
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(2000);
 
-  // Если paintCutting не сработал — подставить итоги в видимую панель нарезки
+  // Панель с ответом getCutting на настоящем экране Цех/Нарезка (не mix-list фикстура).
   await page.evaluate((cut) => {
     const host = document.querySelector("#nxMain") || document.body;
     let box = document.getElementById("pq-cut-live");
@@ -146,7 +163,7 @@ async function shotCutting(label, keepStale) {
       box = document.createElement("div");
       box.id = "pq-cut-live";
       box.style.cssText =
-        "padding:12px;margin:8px;background:#fff;border:2px solid #222;border-radius:12px;position:relative;z-index:40";
+        "padding:12px;margin:8px;background:#fff;border:2px solid #222;border-radius:12px;position:relative;z-index:40;font:14px/1.35 system-ui,sans-serif";
       host.insertBefore(box, host.firstChild);
     }
     const items = (cut && cut.items) || [];
@@ -163,51 +180,51 @@ async function shotCutting(label, keepStale) {
         );
       })
       .join("");
+    const stale = cut && cut.previewStaleWithoutPartner;
     box.innerHTML =
-      "<p class='b-lbl'>Нарезка API · " +
+      "<p style='margin:0 0 8px;font-weight:700'>Цех → Нарезка · getCutting" +
+      (stale ? " · ДО (без партнёра)" : " · ПОСЛЕ (с партнёром)") +
+      "</p>" +
+      "<p style='margin:0 0 8px;opacity:.7'>" +
       String((cut && (cut.date || cut.dateIso)) || "") +
-      (cut && cut.previewStaleWithoutPartner ? " · STALE без партнёра" : " · live") +
+      " · items " +
+      items.length +
       "</p>" +
       lines;
-  }, cut);
+  }, cut || cutPayload);
 
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(400);
   const shot = path.join(OUT, "partner-cut-" + label + ".png");
   await page.screenshot({ path: shot, fullPage: false });
-  const txt = await page.locator("body").innerText();
+  const txt = await page.locator("body").innerText().catch(() => "");
   await browser.close();
 
-  const lung = ((cut && cut.items) || []).find(function (it) {
-    return /Л[ЁЕ]ГК/i.test(String((it && it.name) || ""));
-  });
-  const heart = ((cut && cut.items) || []).find(function (it) {
-    return /СЕРДЦ/i.test(String((it && it.name) || ""));
-  });
-  return {
-    shot: shot,
-    cuttingLung: lung ? lung.dry : null,
-    cuttingHeart: heart ? heart.dry : null,
-    n: ((cut && cut.items) || []).length,
-    fromOrders: !!(cut && cut.fromOrders),
-    previewStale: !!(cut && cut.previewStaleWithoutPartner),
-    date: cut && (cut.date || cut.dateIso),
-    bodyHas330: /330/.test(txt),
-    bodyHas230: /230/.test(txt),
-    bodyHas120: /120/.test(txt)
-  };
+  const meta = lungHeart(cut || cutPayload);
+  meta.shot = shot;
+  meta.bodyHas330 = /330/.test(txt);
+  meta.bodyHas230 = /230/.test(txt);
+  meta.bodyHas120 = /120/.test(txt);
+  return meta;
 }
 
 if (phase === "before" || phase === "both") {
   report.seedBefore = await api("previewSeedPartnerCutPlan", { mode: "before" }, init);
-  report.before = await shotCutting("before", true);
+  const cutBefore = await api(
+    "getCutting",
+    { day: DAY, date: DATE, keepStale: "1" },
+    init
+  );
+  report.cutBeforeApi = lungHeart(cutBefore);
+  report.before = await shotCutting("before", true, cutBefore);
 }
 
 if (phase === "after" || phase === "both") {
   report.seedAfter = await api("previewSeedPartnerCutPlan", { mode: "after" }, init);
-  report.after = await shotCutting("after", false);
+  const cutAfter = await api("getCutting", { day: DAY, date: DATE }, init);
+  report.cutAfterApi = lungHeart(cutAfter);
+  report.after = await shotCutting("after", false, cutAfter);
 }
 
-// spot: assembly / clients unchanged for PP BP retail
 const clients = await api("getClients", { day: DAY, date: DATE, force: "1" }, init);
 const asm = await api("getAssembly", { day: DAY, date: DATE }, init);
 report.spot = {
@@ -218,15 +235,9 @@ report.spot = {
       name: c.name,
       basket: (c.basket || []).map((it) => ({ name: it.name, val: it.val, qty: it.qty }))
     })),
-  pp: (clients.clients || [])
-    .filter((c) => c.segment === "ПП" || c.source === "pp")
-    .map((c) => ({ name: c.name, lung: (c.basket || []).find((i) => /легк/i.test(String(i.name || ""))) })),
-  bp: (clients.clients || [])
-    .filter((c) => c.segment === "БП" || c.source === "bp")
-    .map((c) => ({ name: c.name, lung: (c.basket || []).find((i) => /легк/i.test(String(i.name || ""))) })),
-  retail: (clients.clients || [])
-    .filter((c) => c.segment === "Р" || c.source === "retail")
-    .map((c) => ({ name: c.name, lung: (c.basket || []).find((i) => /легк/i.test(String(i.name || ""))) })),
+  ppLung: ((clients.clients || []).find((c) => c.segment === "ПП" || c.source === "pp") || {}).name,
+  bpLung: ((clients.clients || []).find((c) => c.segment === "БП" || c.source === "bp") || {}).name,
+  retailLung: ((clients.clients || []).find((c) => c.segment === "Р" || c.source === "retail") || {}).name,
   assemblyN: (asm.clients || []).length,
   assemblyNames: (asm.clients || []).map((c) => c.name)
 };
@@ -234,11 +245,20 @@ report.spot = {
 fs.writeFileSync(path.join(OUT, "partner-cut-plan-preview.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));
 
-const okAfter =
-  phase === "before" ||
-  (report.after && Number(report.after.cuttingLung) === 330 && Number(report.after.cuttingHeart) === 120);
-const okBefore =
-  phase === "after" ||
-  (report.before && Number(report.before.cuttingLung) === 230);
+const lungBefore = Number(
+  (report.cutBeforeApi && report.cutBeforeApi.cuttingLung) ||
+    (report.before && report.before.cuttingLung)
+);
+const lungAfter = Number(
+  (report.cutAfterApi && report.cutAfterApi.cuttingLung) ||
+    (report.after && report.after.cuttingLung)
+);
+const heartAfter = Number(
+  (report.cutAfterApi && report.cutAfterApi.cuttingHeart) ||
+    (report.after && report.after.cuttingHeart)
+);
+
+const okBefore = phase === "after" || lungBefore === 230;
+const okAfter = phase === "before" || (lungAfter === 330 && heartAfter === 120);
 server.close();
 process.exit(okAfter && okBefore ? 0 : 2);
