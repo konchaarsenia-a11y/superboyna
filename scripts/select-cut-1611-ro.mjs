@@ -130,12 +130,13 @@ const report = {
   fromOrders: { lung, heart, rumen },
   fromOrdersNoPartner: { lung: lungNoPartner, heart: heartNoPartner, rumen: rumenNoPartner },
   snap,
-  // pre-partner sticky baseline (people only) was 500/121/70; with Varka +100/+100 → 600/221/70
-  expectWithPartner: { lung: 600, heart: 221, rumen: 70 },
-  expectPeopleOnly: { lung: 500, heart: 121, rumen: 70 },
+  // Live baskets already include Варка 100/100 → gate 500/121/70. Snap lung 400 = stale without partner lung.
+  expectWithPartner: { lung: 500, heart: 121, rumen: 70 },
+  expectPeopleOnly: { lung: lungNoPartner, heart: heartNoPartner, rumen: rumenNoPartner },
   okOrders: orders.length === 4,
-  okLiveWithPartner: lung === 600 && heart === 221 && rumen === 70,
-  okSnapWithPartner: !!(snap && snap.lung === 600 && snap.heart === 221 && snap.rumen === 70)
+  okLiveWithPartner: lung === 500 && heart === 121 && rumen === 70,
+  okSnapWithPartner: !!(snap && snap.lung === 500 && snap.heart === 121 && snap.rumen === 70),
+  snapStaleMissingPartnerLung: !!(snap && snap.lung === 400 && lung === 500)
 };
 
 const outDir = process.env.OUT_DIR || "/opt/cursor/artifacts";
