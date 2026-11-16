@@ -1,22 +1,24 @@
 # Emergency prod D1 repair: restore 3 stamped date_iso (Arseny «да» 16.11.2026).
-# Runs only on this feature branch path push / workflow_dispatch. Never on main schedule.
+# Also SELECT-only baskets for 16.11. Never scheduled on main.
 name: repair-stamp-plus7
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: inspect (SELECT only) or repair
+        description: inspect | repair | select1611
         required: true
-        default: inspect
+        default: select1611
         type: choice
         options:
           - inspect
           - repair
+          - select1611
   push:
     branches: [cursor/no-plus7-stamp-eabc]
     paths:
       - scripts/repair-stamp-plus7.mjs
+      - scripts/select-1611-baskets.mjs
       - .github/workflows/repair-stamp-plus7.yml
 
 permissions:
@@ -31,7 +33,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Inspect then repair (prod D1)
+      - name: D1 inspect / repair / select 16.11
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -40,18 +42,17 @@ jobs:
           set -euo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
           mkdir -p "$OUT_DIR"
-          MODE="${{ github.event.inputs.mode || 'repair' }}"
-          # On push always inspect first; then repair only if inspect finds the 3 stamped rows
-          echo "::group::inspect"
-          REPAIR_MODE=inspect node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/inspect-stdout.json"
-          echo "::endgroup::"
-          if [ "$MODE" = "inspect" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "inspect-only dispatch"
-            exit 0
+          MODE="${{ github.event.inputs.mode || '' }}"
+          if [ -z "$MODE" ]; then MODE=select1611; fi
+          echo "MODE=$MODE"
+          if [ "$MODE" = "inspect" ] || [ "$MODE" = "repair" ]; then
+            REPAIR_MODE=inspect node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/inspect-stdout.json"
           fi
-          echo "::group::repair"
-          REPAIR_MODE=repair node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/repair-stdout.json"
-          echo "::endgroup::"
+          if [ "$MODE" = "repair" ]; then
+            REPAIR_MODE=repair node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/repair-stdout.json"
+          fi
+          # Always SELECT 16.11 baskets (read-only) for cutting recalc
+          node scripts/select-1611-baskets.mjs | tee "$OUT_DIR/select-1611-baskets.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

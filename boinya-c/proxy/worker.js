@@ -9291,7 +9291,9 @@ async function getClients_(params, env) {
   let dateDmy = "";
   if (day) {
     const info = await dayDateInfo_(env, day);
-    if (!dateIso && info && info.iso) dateIso = info.iso;
+    const slotIso = String((info && info.iso) || "");
+    // no-plus7-stamp-h1: ответ/фильтр может брать params.date, но scrub — только дата слота дня.
+    if (!dateIso && slotIso) dateIso = slotIso;
     if (info && info.date) dateDmy = info.date;
     const q = await env.DB.prepare(
       "SELECT * FROM orders WHERE day_name = ? AND status = 'active' ORDER BY client"
@@ -9300,8 +9302,9 @@ async function getClients_(params, env) {
       .all();
     rows = q.results || [];
     // сироты: чужой date_iso на слоте — снять day_name, не штамповать +7
-    if (dateIso && rows.length) {
-      await scrubMismatchedDayOrders_(env, day, dateIso);
+    // no-plus7-stamp-h1: никогда не scrub-ить к params.date, если она ≠ дате слота.
+    if (slotIso && rows.length) {
+      await scrubMismatchedDayOrders_(env, day, slotIso);
       const q2 = await env.DB.prepare(
         "SELECT * FROM orders WHERE day_name = ? AND status = 'active' ORDER BY client"
       )
