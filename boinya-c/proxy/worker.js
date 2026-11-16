@@ -2313,7 +2313,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      deployMarker: String((env && env.PREVIEW_MARKER) || "") || "partner-qty-grams-h1",
+      // no-plus7-stamp-h1 + redeploy after #752 race (old sha overwrite tip): hardcoded so ping proves tip
+      deployMarker: "no-plus7-stamp-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
