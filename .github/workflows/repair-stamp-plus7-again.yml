@@ -1,0 +1,58 @@
+# STEP1 Arseny «да» 16.11 17:38: restore 3 restamped date_iso. No other prod writes.
+# Trigger only on this branch. marker no-plus7-stamp-h2
+name: repair-stamp-plus7-again
+
+on:
+  push:
+    branches: [cursor/d1-restore-stamp2-eabc]
+    paths:
+      - scripts/repair-stamp-plus7-again.mjs
+      - .github/workflows/repair-stamp-plus7-again.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: inspect | repair
+        required: true
+        default: repair
+        type: choice
+        options: [inspect, repair]
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Preflight — RO workflow must be gone
+        run: |
+          set -euo pipefail
+          test ! -f .github/workflows/partner-qty-prod-ro.yml
+          test ! -f scripts/partner-qty-prod-ro.mjs
+          echo "RO files absent OK"
+      - name: D1 inspect then repair (3 rows only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OUT_DIR: ${{ github.workspace }}/artifacts/repair-stamp-plus7-again
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          mkdir -p "$OUT_DIR"
+          MODE="${{ github.event.inputs.mode || 'repair' }}"
+          echo "MODE=$MODE"
+          REPAIR_MODE=inspect node scripts/repair-stamp-plus7-again.mjs | tee "$OUT_DIR/inspect-stdout.json"
+          if [ "$MODE" = "repair" ]; then
+            REPAIR_MODE=repair node scripts/repair-stamp-plus7-again.mjs | tee "$OUT_DIR/repair-stdout.json"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repair-stamp-plus7-again
+          path: artifacts/repair-stamp-plus7-again/
+          if-no-files-found: warn
