@@ -1876,13 +1876,11 @@
     }
     /**
      * month-compose-once-h1 (правило 03.11): список для текста «Ваш состав на месяц…».
-     * N2 = один состав (доставка дважды). Не склеивать basket∥basket2 в письмо —
-     * иначе дубли строк при полной копии слотов (50+50 выглядит как half от 100).
-     * Одинаковые / auto слоты → basket1; ручное разное (ppManualDist) → merge один раз.
-     * Цены/формулы/cardBasketList_ не трогает — только отображение состава.
+     * N2 = один суммарный список как у N1: одинаковые позиции (товар+фракция)
+     * обеих доставок складываются. Не склеивать basket∥basket2 строками —
+     * иначе дубли. Цены/формулы/cardBasketList_ не трогает — только отображение.
      */
-    function monthComposeListForMessageUi_(basket, basket2, deliveriesN, opts) {
-      opts = opts || {};
+    function monthComposeListForMessageUi_(basket, basket2, deliveriesN) {
       var n = Math.max(1, Math.round(Number(deliveriesN) || 1));
       var b1 = (basket || []).map(function (it) {
         return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
@@ -1891,11 +1889,7 @@
         return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
       }).filter(function (it) { return Number(it.value) > 0; });
       if (n < 2 || !ppBasketHasQtyUi_(b2)) return b1;
-      if (ppQtyMapsEqualUi_(ppQtyMapUi_(b1), ppQtyMapUi_(b2))) return b1;
-      if (parsePpManualDistUi_(opts.ppManualDist)) {
-        return ppMergeBasketsAsMonthlyUi_(b1, b2);
-      }
-      return b1;
+      return ppMergeBasketsAsMonthlyUi_(b1, b2);
     }
     function resolvePpPerDeliverySuggestUi_(opts) {
       opts = opts || {};
