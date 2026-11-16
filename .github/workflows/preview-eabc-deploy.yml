@@ -9,6 +9,7 @@ on:
       - cursor/partner-qty-grams-eabc
       - cursor/deploy-secret-race-eabc
       - cursor/deploy-conc-split-eabc
+      - cursor/no-plus7-stamp2-eabc
     paths:
       - boinya-c/proxy/worker.js
       - boinya-c/proxy/*.js

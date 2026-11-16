@@ -48,7 +48,14 @@ export function weekCloseSlotAction_(haveIso, wantIso, weekMap) {
   if (!have) return "stamp_empty";
   if (have === want) return "keep";
   if (have > want) return "keep";
-  if (weekMap && weekMap[have] && weekMap[want]) return "stamp_slot";
+  if (weekMap && weekMap[have] && weekMap[want]) {
+    // no-plus7-stamp-h1: stamp_slot запрещён на «Будущая неделя» и на сдвиг ровно +7 дней
+    // (даты слотов двигает только finishFullWeek / closeWeekInD1_).
+    const wantDay = String(weekMap[want] || "");
+    if (wantDay === "Будущая неделя") return "detach";
+    if (weekCloseAddDays_(have, 7) === want) return "detach";
+    return "stamp_slot";
+  }
   return "detach";
 }
 
