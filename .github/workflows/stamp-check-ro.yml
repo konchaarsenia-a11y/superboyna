@@ -5,6 +5,8 @@ on:
     paths:
       - scripts/select-stamp-check-ro.mjs
       - scripts/select-cut-1611-ro.mjs
+      - scripts/select-prod-ro.mjs
+      - scripts/prod-ro-api.mjs
       - .github/workflows/stamp-check-ro.yml
 permissions:
   contents: read
@@ -16,24 +18,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: SELECT stamp + cutting check
+      - name: SELECT + webhook/API RO
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           OUT_DIR: ${{ github.workspace }}/artifacts
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
           mkdir -p artifacts
           node scripts/select-stamp-check-ro.mjs | tee artifacts/select-stamp-check-ro.json
-          node scripts/select-cut-1611-ro.mjs | tee artifacts/select-cut-1611-ro.json
-          cp -f /opt/cursor/artifacts/select-cut-1611-ro.json artifacts/select-cut-1611-ro.json 2>/dev/null || true
+          node scripts/select-prod-ro.mjs | tee artifacts/select-prod-ro.json
+          node scripts/prod-ro-api.mjs | tee artifacts/prod-ro-api.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: stamp-check-ro
           path: artifacts/
 
-# bump 1794850200
-
-# bump 1794850253
+# bump 1794852100
