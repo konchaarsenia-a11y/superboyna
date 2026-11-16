@@ -67,6 +67,8 @@ jobs:
         run: node --test boinya-c/next/partner-month.test.mjs
       - name: basket amount canon (Varka qty → val)
         run: node --test boinya-c/next/basket-amount.test.mjs boinya-c/next/partner-qty-grams.test.mjs boinya-c/next/crumb-mix.test.mjs
+      - name: partner cut plan includes qty grams
+        run: node --test boinya-c/next/partner-cut-plan.test.mjs
       - name: calendar day clean matches stats
         run: node --test boinya-c/next/cal-day-money.test.mjs
       - name: PP N2 monthly fact = basket1+basket2
