@@ -1,0 +1,60 @@
+# Emergency prod D1 repair: restore 3 stamped date_iso (Arseny «да» 16.11.2026).
+# Runs only on this feature branch path push / workflow_dispatch. Never on main schedule.
+name: repair-stamp-plus7
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: inspect (SELECT only) or repair
+        required: true
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - repair
+  push:
+    branches: [cursor/no-plus7-stamp-eabc]
+    paths:
+      - scripts/repair-stamp-plus7.mjs
+      - .github/workflows/repair-stamp-plus7.yml
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Inspect then repair (prod D1)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OUT_DIR: ${{ github.workspace }}/artifacts/repair-stamp-plus7
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          mkdir -p "$OUT_DIR"
+          MODE="${{ github.event.inputs.mode || 'repair' }}"
+          # On push always inspect first; then repair only if inspect finds the 3 stamped rows
+          echo "::group::inspect"
+          REPAIR_MODE=inspect node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/inspect-stdout.json"
+          echo "::endgroup::"
+          if [ "$MODE" = "inspect" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "inspect-only dispatch"
+            exit 0
+          fi
+          echo "::group::repair"
+          REPAIR_MODE=repair node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/repair-stdout.json"
+          echo "::endgroup::"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repair-stamp-plus7
+          path: artifacts/repair-stamp-plus7/
+          if-no-files-found: warn
