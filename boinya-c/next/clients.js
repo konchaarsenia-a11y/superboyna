@@ -3034,8 +3034,14 @@
     if (!card) return;
     var nCard = monthN((document.getElementById("cxN") || {}).value || card.deliveries);
     card.deliveries = nCard;
-    var list = (card.basket || []).concat(nCard >= 2 ? (card.basket2 || []) : []);
-    var retail = eng().calcRetailBasketTotal(list, { deliveriesN: nCard });
+    /* retail/fact как раньше (cardBasketList_/concat) — цены не трогаем */
+    var retailList = (card.basket || []).concat(nCard >= 2 ? (card.basket2 || []) : []);
+    var retail = eng().calcRetailBasketTotal(retailList, { deliveriesN: nCard });
+    /* month-compose-once-h1 (правило 03.11): N2 — один состав в тексте, не basket∥basket2 */
+    var eMsg = eng();
+    var list = (eMsg && typeof eMsg.monthComposeListForMessage_ === "function")
+      ? eMsg.monthComposeListForMessage_(card.basket, card.basket2, nCard, { ppManualDist: card.ppManualDist })
+      : (card.basket || []).slice();
     var sub = Number(String(card.statedCost || card.calcFactCost || "").replace(",", ".")) || 0;
     var msg = P().composePpClientMessage(list, nCard, card.wishes, retail.total, sub, card.scheme || "RAW26", { statedTouched: card.statedTouched });
     sh().openSheet({

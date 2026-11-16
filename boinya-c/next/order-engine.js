@@ -1874,6 +1874,29 @@
       if (!split.ok) return { ok: false, reason: split.reason || "split_fail", detail: split };
       return { ok: true, skipped: false, delivery1: split.delivery1, delivery2: split.delivery2, monthly: split.monthly, ppManualDist: false };
     }
+    /**
+     * month-compose-once-h1 (правило 03.11): список для текста «Ваш состав на месяц…».
+     * N2 = один состав (доставка дважды). Не склеивать basket∥basket2 в письмо —
+     * иначе дубли строк при полной копии слотов (50+50 выглядит как half от 100).
+     * Одинаковые / auto слоты → basket1; ручное разное (ppManualDist) → merge один раз.
+     * Цены/формулы/cardBasketList_ не трогает — только отображение состава.
+     */
+    function monthComposeListForMessageUi_(basket, basket2, deliveriesN, opts) {
+      opts = opts || {};
+      var n = Math.max(1, Math.round(Number(deliveriesN) || 1));
+      var b1 = (basket || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      var b2 = (basket2 || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      if (n < 2 || !ppBasketHasQtyUi_(b2)) return b1;
+      if (ppQtyMapsEqualUi_(ppQtyMapUi_(b1), ppQtyMapUi_(b2))) return b1;
+      if (parsePpManualDistUi_(opts.ppManualDist)) {
+        return ppMergeBasketsAsMonthlyUi_(b1, b2);
+      }
+      return b1;
+    }
     function resolvePpPerDeliverySuggestUi_(opts) {
       opts = opts || {};
       var n = Math.max(1, Math.round(Number(opts.deliveriesN) || 1));
@@ -2029,6 +2052,7 @@
     parsePpManualDist_: parsePpManualDistUi_,
     inferPpManualDistribution_: inferPpManualDistributionUi_,
     materializePpAutoSplit_: materializePpAutoSplitUi_,
+    monthComposeListForMessage_: monthComposeListForMessageUi_,
     resolvePpPerDeliverySuggest_: resolvePpPerDeliverySuggestUi_,
     PRICE_RETAIL_DELIVERY_BYN: function () { return PRICE_RETAIL_DELIVERY_BYN; },
     PRICE_RETAIL_FREE_FROM: function () { return PRICE_RETAIL_FREE_FROM; },
