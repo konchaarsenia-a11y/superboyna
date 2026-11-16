@@ -1,5 +1,5 @@
-# Emergency Worker rollback to last known-good version (no D1 writes).
-# Triggered by push to this branch. Promotes CF version from #747 deploy.
+# Emergency: redeploy Worker from known-good git SHA #747 (91256ca8). No D1 writes.
+# Old version promote failed: secrets changed (need fresh deploy).
 name: worker-rollback-urgent
 
 on:
@@ -8,11 +8,6 @@ on:
     paths:
       - .github/workflows/worker-rollback-urgent.yml
   workflow_dispatch:
-    inputs:
-      version_id:
-        description: Worker version ID @100%
-        required: true
-        default: 47670d0c-b89f-4308-95cb-4fbd6aceb5a1
 
 permissions:
   contents: read
@@ -20,22 +15,41 @@ permissions:
 jobs:
   rollback:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 91256ca83175359fb285b7eb95aed1a56a670a3e
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Promote last-good Worker version (#747)
+      - name: Redeploy Worker from #747 SHA + promote 100%
         working-directory: boinya-c/proxy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CLIENT_BOT_TOKEN: ${{ secrets.CLIENT_BOT_TOKEN }}
+          PARTNER_BOT_TOKEN: ${{ secrets.PARTNER_BOT_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
-          VER="${{ github.event.inputs.version_id || '47670d0c-b89f-4308-95cb-4fbd6aceb5a1' }}"
-          echo "Promoting $VER @100% (urgent rollback after #749)"
-          npx wrangler@4 versions deploy "${VER}@100" -y --message "urgent rollback to #747 after #749"
+          out=$(npx wrangler@4 deploy --message "urgent rollback redeploy from 91256ca8 (#747)" 2>&1 | tee /dev/stderr)
+          ver=$(echo "$out" | sed -n 's/.*Current Version ID: \([^ ]*\).*/\1/p' | tail -1)
+          test -n "$ver"
+          echo "Promoting version $ver to 100%"
+          npx wrangler@4 versions deploy "${ver}@100" -y --message "urgent rollback promote redeploy #747"
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+            echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+            printf '%s' "$TELEGRAM_BOT_TOKEN" | npx wrangler@4 secret put TELEGRAM_BOT_TOKEN || echo "::warning::TELEGRAM_BOT_TOKEN put failed"
+          fi
+          if [ -n "${CLIENT_BOT_TOKEN:-}" ]; then
+            echo "::add-mask::$CLIENT_BOT_TOKEN"
+            printf '%s' "$CLIENT_BOT_TOKEN" | npx wrangler@4 secret put CLIENT_BOT_TOKEN || echo "::warning::CLIENT_BOT_TOKEN put failed"
+          fi
+          if [ -n "${PARTNER_BOT_TOKEN:-}" ]; then
+            echo "::add-mask::$PARTNER_BOT_TOKEN"
+            printf '%s' "$PARTNER_BOT_TOKEN" | npx wrangler@4 secret put PARTNER_BOT_TOKEN || echo "::warning::PARTNER_BOT_TOKEN put failed"
+          fi
           curl -fsSL --max-time 30 "https://boinya-c.konchaarsenia.workers.dev/?action=ping&cutover=1" | tee /tmp/ping.json
-          python3 -c "import json;d=json.load(open('/tmp/ping.json')); assert d.get('live') is True and d.get('d1') is True; print('OK marker', d.get('deployMarker'), 'tg', d.get('hasTelegramToken'), 'auth', d.get('authMode'))"
+          python3 -c "import json;d=json.load(open('/tmp/ping.json')); assert d.get('live') is True and d.get('d1') is True and d.get('hasTelegramToken') is True; print('OK', d.get('deployMarker'), d.get('authMode'))"
