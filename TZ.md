@@ -1,3 +1,4 @@
+- [~] **hook-secret-stable-h1 2026-11-16:** бот-хук — секрет только при изменении (GH `TELEGRAM_WEBHOOK_SECRET`/`CLIENT_WEBHOOK_SECRET`); skip put если probe ок; put fail не трогает Worker (soft exit при здоровом webhook); wait без параллели с любым worker-deploy; `versions secret put`. PR.
 - [x] **deploy-conc-split-h1 2026-11-16:** после `#752` deadlock (bot-hook ждал deploy в одной concurrency). Очереди разведены: deploy / secrets / bot-hook / klient отдельно. Secret put по-прежнему не на каждый deploy. Merge `#753`.
 - [x] **deploy-secret-race-h1 2026-11-16:** деплой Worker без `secret put` на каждый run; secrets отдельно; dry alreadyLocked≠fail. Merge `#752`.
 - [x] **no-plus7-stamp-h1 2026-11-16:** scrub по дате слота + ban stamp «Будущая неделя»/+7; без partner-qty-prod-ro. Re-land `#754` + redeploy `#755` после race `#752`. marker `no-plus7-stamp-h1` → далее `partner-cut-plan-h1`.
