@@ -61,4 +61,8 @@ const report = {
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 2));
 process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-if (report.alreadyLocked) process.exit(1);
+// deploy-secret-race-h1: alreadyLocked — нормальный dry-результат (не слать), не красный CI
+if (report.alreadyLocked) {
+  process.stdout.write(JSON.stringify({ dryOk: true, reason: "alreadyLocked" }) + "\n");
+  process.exit(0);
+}

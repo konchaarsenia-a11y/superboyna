@@ -88,8 +88,15 @@ async function main() {
     process.exit(1);
   }
   const secret = randomBytes(24).toString("hex");
-  let put = putHookSecret(secret);
-  put = { exit: put.exit, text: put.text.split(secret).join("[secret]") };
+  // deploy-secret-race-h1: retry secret put on concurrent modify (не ронять прод)
+  let put = { exit: 1, text: "" };
+  for (let i = 1; i <= 5; i++) {
+    put = putHookSecret(secret);
+    put = { exit: put.exit, text: put.text.split(secret).join("[secret]") };
+    if (put.exit === 0) break;
+    say({ status: "retry", message: "hook_secret_put_retry", attempt: i, put: put.text.slice(-200) });
+    spawnSync("sleep", [String(i * 4)], { encoding: "utf8" });
+  }
   if (put.exit !== 0) {
     say({ status: "error", message: "hook_secret_put_failed", put: put.text });
     process.exit(1);
