@@ -3,9 +3,9 @@
  * ВАЖНО: next.html / next/*.js / bridge / config — только сеть (no-store).
  * Старый cache-first + ignoreSearch залипал на мёртвом JS → delete/move / PP coef «не работают».
  */
-const SW_VER = "boinya-c-sw-v18-71125460";
-const SHELL = "boinya-c-shell-v18-71125460";
-const API_CACHE = "boinya-c-api-v18-71125460";
+const SW_VER = "boinya-c-sw-v18-71125461";
+const SHELL = "boinya-c-shell-v18-71125461";
+const API_CACHE = "boinya-c-api-v18-71125461";
 
 const PRECACHE = ["./sw.js"];
 
