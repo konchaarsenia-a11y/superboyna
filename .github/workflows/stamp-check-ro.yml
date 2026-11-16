@@ -4,6 +4,7 @@ on:
     branches: [cursor/stamp-check-ro-eabc]
     paths:
       - scripts/select-stamp-check-ro.mjs
+      - scripts/select-cut-1611-ro.mjs
       - .github/workflows/stamp-check-ro.yml
 permissions:
   contents: read
@@ -15,7 +16,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: SELECT stamp check
+      - name: SELECT stamp + cutting check
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -25,16 +26,12 @@ jobs:
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
           mkdir -p artifacts
           node scripts/select-stamp-check-ro.mjs | tee artifacts/select-stamp-check-ro.json
+          node scripts/select-cut-1611-ro.mjs | tee artifacts/select-cut-1611-ro.json
+          cp -f /opt/cursor/artifacts/select-cut-1611-ro.json artifacts/select-cut-1611-ro.json 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: stamp-check-ro
           path: artifacts/
 
-# bump 1794848566
-
-# bump 1794849183
-
-# bump 1794849865
-
-# bump 1794850005
+# bump 1794850200
