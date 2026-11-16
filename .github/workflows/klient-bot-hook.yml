@@ -23,9 +23,9 @@ permissions:
   contents: read
   actions: read
 
-# deploy-secret-race-h1: та же очередь, что Worker deploy / boinya-bot-hook
+# deploy-conc-split-h1: своя очередь — не делить с Worker deploy
 concurrency:
-  group: boinya-c-worker-mutate
+  group: klient-bot-hook
   cancel-in-progress: false
 
 jobs:

@@ -23,9 +23,9 @@ permissions:
   contents: read
   actions: read
 
-# deploy-secret-race-h1: не параллелить secret put с Worker deploy
+# deploy-conc-split-h1: своя очередь хука — НЕ boinya-c-worker-deploy (deadlock wait↔deploy)
 concurrency:
-  group: boinya-c-worker-mutate
+  group: boinya-bot-hook
   cancel-in-progress: false
 
 jobs:

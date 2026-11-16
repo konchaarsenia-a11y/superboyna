@@ -16,9 +16,9 @@ on:
       - "boinya-c/proxy/**"
       - ".github/workflows/boinya-c-worker-deploy.yml"
 
-# Одна очередь на mutate Worker (deploy + secret put + bot-hook). Не отменять mid-flight.
+# deploy-conc-split-h1: своя очередь только на deploy (не делить с bot-hook — иначе deadlock)
 concurrency:
-  group: boinya-c-worker-mutate
+  group: boinya-c-worker-deploy
   cancel-in-progress: false
 
 jobs:
