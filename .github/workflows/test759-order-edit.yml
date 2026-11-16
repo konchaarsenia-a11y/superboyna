@@ -4,6 +4,12 @@ name: test759-order-edit
 
 on:
   workflow_dispatch:
+  # also on push — gh dispatch 403 for this integration; Arseny «ДА» on TEST759 live
+  push:
+    branches: [main]
+    paths:
+      - "scripts/test759-order-edit-row.mjs"
+      - ".github/workflows/test759-order-edit.yml"
 
 permissions:
   contents: read
