@@ -51,7 +51,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Wait until worker deploy on this sha finishes
+      - name: Wait until no active worker-deploy (hook-secret-stable-h1)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -60,37 +60,41 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           sha = os.environ["GITHUB_SHA"]
           token = os.environ["GH_TOKEN"]
-          deadline = time.time() + 20 * 60
+          headers = {"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "hook-secret-stable-h1"}
           active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          deadline = time.time() + 20 * 60
+          # hook-secret-stable-h1: ждать пока нет активных deploy (любой sha)
           while time.time() < deadline:
               req = urllib.request.Request(
-                  "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=100" % (repo, sha),
-                  headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "User-Agent": "klient-bot-hook"},
+                  "https://api.github.com/repos/%s/actions/workflows/boinya-c-worker-deploy.yml/runs?per_page=20" % repo,
+                  headers=headers,
               )
               with urllib.request.urlopen(req, timeout=30) as resp:
                   runs = json.load(resp).get("workflow_runs") or []
-              mine = [r for r in runs if r.get("name") == "boinya-c-worker-deploy"]
-              if not mine:
-                  print("worker-deploy: ещё нет", flush=True)
+              busy = [r for r in runs if r.get("status") in active]
+              if busy:
+                  print("worker-deploy active:", [str(r.get("head_sha") or "")[:8] for r in busy], flush=True)
                   time.sleep(15)
                   continue
-              if any(r.get("status") in active for r in mine):
-                  print("worker-deploy: ещё идёт", flush=True)
-                  time.sleep(15)
-                  continue
-              last = sorted(mine, key=lambda r: r.get("created_at") or "")[-1]
-              print("worker-deploy: " + str(last.get("conclusion")), flush=True)
-              if last.get("conclusion") != "success":
-                  raise SystemExit("worker-deploy не зелёный")
+              same = [r for r in runs if r.get("head_sha") == sha]
+              if same:
+                  last = sorted(same, key=lambda r: r.get("created_at") or "")[-1]
+                  print("worker-deploy this sha:", last.get("conclusion"), flush=True)
+                  if last.get("conclusion") not in (None, "success", "skipped", "cancelled") and last.get("status") not in active:
+                      if last.get("conclusion") != "success":
+                          raise SystemExit("worker-deploy на этом sha не зелёный: " + str(last.get("conclusion")))
+              else:
+                  print("worker-deploy: на этом sha нет (только hook) — ок", flush=True)
               break
           else:
-              raise SystemExit("worker-deploy не дождались")
+              raise SystemExit("worker-deploy очередь не освободилась")
           PY
       - name: Secret, webhook, menu, probe /start
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLIENT_BOT_TOKEN: ${{ secrets.CLIENT_BOT_TOKEN }}
+          CLIENT_WEBHOOK_SECRET: ${{ secrets.CLIENT_WEBHOOK_SECRET }}
           KLIENT_HOOK_OUT: ${{ github.workspace }}/artifacts/klient-bot-hook
         run: |
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
