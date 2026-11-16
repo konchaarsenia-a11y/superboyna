@@ -773,8 +773,11 @@
     var wk = String(opts.weekKey || "");
     var fetched = !!opts.fetched;
     var sheetMonday = String(opts.sheetMonday || "");
+    var serverWeekKey = String(opts.serverWeekKey || opts.bannerWeekKey || "");
     var sheetAhead = !!(sheetMonday && wk && sheetMonday > wk);
-    var serverFinished = !!opts.finished;
+    // week-banner-stale-h1: finished только если snap.weekKey == текущая неделя;
+    // иначе баннер «Неделя завершена» гаснет сам при смене Пн (не залипает с прошлой).
+    var serverFinished = !!(opts.finished && serverWeekKey && serverWeekKey === wk);
     var clearLocal = fetched && !serverFinished && !sheetAhead;
     var realClosed = fetched ? (sheetAhead || serverFinished) : false;
     var hideFin = clearLocal ? "" : String(opts.hideFin || "");

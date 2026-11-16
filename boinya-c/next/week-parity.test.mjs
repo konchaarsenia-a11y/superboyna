@@ -39,6 +39,42 @@ test("баннер закрытия не верит локальной поме�
   assert.equal(L.finishPendingActive(Date.now() - 1000, Date.now()), false);
 });
 
+test("week-banner-stale-h1: finished чужой weekKey не показывает «Неделя завершена»", () => {
+  const stale = L.finishBannerState({
+    weekKey: "2026-11-16",
+    fetched: true,
+    finished: true,
+    serverWeekKey: "2026-11-02",
+    sheetMonday: "2026-11-09"
+  });
+  assert.equal(stale.realClosed, false);
+  assert.equal(stale.showFinish, true);
+  assert.equal(stale.clearLocal, true);
+  const sameWeek = L.finishBannerState({
+    weekKey: "2026-11-02",
+    fetched: true,
+    finished: true,
+    serverWeekKey: "2026-11-02",
+    sheetMonday: "2026-11-09"
+  });
+  assert.equal(sameWeek.realClosed, true);
+  assert.equal(sameWeek.showFinish, false);
+  const noKey = L.finishBannerState({
+    weekKey: "2026-11-16",
+    fetched: true,
+    finished: true,
+    serverWeekKey: "",
+    sheetMonday: ""
+  });
+  assert.equal(noKey.realClosed, false);
+  const weekJs = fs.readFileSync(path.join(dir, "week.js"), "utf8");
+  const logicJs = fs.readFileSync(path.join(dir, "week-logic.js"), "utf8");
+  assert.match(logicJs, /week-banner-stale-h1/);
+  assert.match(weekJs, /week-banner-stale-h1/);
+  assert.match(weekJs, /serverWeekKey/);
+  assert.match(weekJs, /mondayIsoFromCounts/);
+});
+
 test("подсветка дня: от 4 зелёный, от 6 оранжевый, от 8 красный", () => {
   assert.equal(L.dayLoadMark(0), "");
   assert.equal(L.dayLoadMark(3), "");

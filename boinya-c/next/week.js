@@ -549,8 +549,23 @@
     view.counts = (res && res.items) || [];
   }
 
+  function mondayIsoFromCounts(items) {
+    var list = items || view.counts || [];
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].day || "") !== "Понедельник") continue;
+      var iso = String(list[i].dateIso || "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+      var raw = String(list[i].date || "");
+      var dm = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (dm) return dm[3] + "-" + ("0" + dm[2]).slice(-2) + "-" + ("0" + dm[1]).slice(-2);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw.slice(0, 10);
+    }
+    return "";
+  }
+
   async function loadBanners() {
     // orders-pack2: #25 — баннер владельцу и finishWeekScreen
+    // week-banner-stale-h1: сверка snap.weekKey с currentWeekKey (+ sheetAhead по Пн из counts)
     if (!canFinishWeek()) { view.banner = null; return; }
     var wk = logic().currentWeekKey();
     var hideFin = "";
@@ -564,12 +579,14 @@
       st = await api().apiGet({ action: "getWeekBannerState", weekKey: wk }, { timeoutMs: 12000, cacheTtlMs: 30000 });
     } catch (e2) { st = null; }
     var fetched = !!(st && st.status === "success");
+    var sheetMonday = (st && (st.sheetMonday || st.mondayIso)) || mondayIsoFromCounts(view.counts) || "";
     var decided = logic().finishBannerState({
       weekKey: wk,
       fetched: fetched,
       finished: !!(st && st.finished),
       pulled: !!(st && st.pulled),
-      sheetMonday: (st && (st.sheetMonday || st.mondayIso)) || "",
+      serverWeekKey: (st && st.weekKey) || "",
+      sheetMonday: sheetMonday,
       hideFin: hideFin,
       hidePull: hidePull
     });
