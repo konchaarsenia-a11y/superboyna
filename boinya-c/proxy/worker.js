@@ -1108,7 +1108,7 @@ async function resolveActor_(params, env) {
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -2313,8 +2313,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      // no-plus7-stamp-h1 + redeploy after #752 race (old sha overwrite tip): hardcoded so ping proves tip
-      deployMarker: "no-plus7-stamp-h1",
+      // partner-cut-plan-h1 (STEP4); ping hardcoded after #752 race so tip is provable (no-plus7-stamp-h1 already in code)
+      deployMarker: "partner-cut-plan-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -2326,6 +2326,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
   /* Preview-only: массовая замена сердца «Целое»→«Ломтики» на копии D1. */
   if (/^previewHeartNormalize$/i.test(a)) {
     return previewHeartNormalize_(params, env);
+  }
+  /* Preview-only: сид 16.11 + липкий snap нарезки без партнёра (до/после partner-cut-plan-h1). */
+  if (/^previewSeedPartnerCutPlan$/i.test(a)) {
+    return previewSeedPartnerCutPlan_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
@@ -6979,7 +6983,8 @@ function snapClientIs_(c, mk, name) {
 function basketForCutting_(p) {
   if (!p) return [];
   if (p.noCut || p.skipAssemble || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || ""))) return [];
-  const basket = Array.isArray(p.basket) ? p.basket : [];
+  // partner-cut-plan-h1: qty/val/value → одно чтение через normalizeBasketAmountsD1_.
+  const basket = normalizeBasketAmountsD1_(Array.isArray(p.basket) ? p.basket : []);
   let keys = p.cutItemKeys;
   if (typeof keys === "string") keys = keys.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   if (!Array.isArray(keys)) keys = [];
@@ -10889,13 +10894,25 @@ async function cuttingSnapNeedsAssemblyRebuild_(env, day, snap) {
   } catch (eW) {
     wh = [];
   }
-  let want = [];
+  const people = (live && live.clients) || [];
+  let wantAsm = [];
+  let wantCut = [];
   try {
-    want = cuttingItemsMatchingAssembly_((live && live.clients) || [], wh);
+    wantAsm = cuttingItemsMatchingAssembly_(people, wh);
   } catch (eWant) {
-    return false;
+    wantAsm = [];
   }
-  return cuttingSnapMissesAssembly_(snap.items, want);
+  try {
+    // partner-cut-plan-h1: полный план нарезки (вкл. партнёров из appendPartnerOrdersForDate_),
+    // не только «как сборка» — иначе липкий fromOrders-snap без Varka не пересобирается.
+    wantCut = cuttingItemsFromPeople_(people, wh);
+  } catch (eCutWant) {
+    wantCut = [];
+  }
+  return (
+    cuttingSnapMissesAssembly_(snap.items, wantAsm) ||
+    cuttingSnapMissesAssembly_(snap.items, wantCut)
+  );
 }
 
 function cutNameKey_(name) {
@@ -12560,6 +12577,8 @@ async function rebuildCuttingDay_(env, day) {
   }
   let items = [];
   try {
+    // partner-cut-plan-h1: live.clients уже с appendPartnerOrdersForDate_ (Varka и др.);
+    // cuttingItemsFromPeople_ суммирует граммы через basketItemAmountD1_/normalize.
     items = cuttingItemsFromPeople_(live.clients || [], wh);
     try {
       items = unionCuttingKeepAssembly_(items, cuttingItemsMatchingAssembly_(live.clients || [], wh));
@@ -12678,7 +12697,16 @@ function partnerOrderIsClosed_(order) {
 }
 
 function partnerOrderDate_(order) {
-  return String((order && order.deliverDateIso) || "").slice(0, 10);
+  // partner-cut-plan-h1: день доставки — deliverDateIso или dateIso (Varka часто пишет dateIso).
+  return String(
+    (order &&
+      (order.deliverDateIso ||
+        order.dateIso ||
+        order.date ||
+        order.deliveryDate ||
+        order.delivery_date)) ||
+      ""
+  ).slice(0, 10);
 }
 
 async function openDatedPartnerOrders_(env) {
@@ -13724,6 +13752,18 @@ async function getCutting_(params, env) {
     const dateOk = cuttingSnapDateOk_(wantDate, snapDate);
     const staleDone = !!(hit && hit.completion && wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
     if (!dateOk || staleDone) hit = null;
+  }
+  // partner-cut-plan-h1 preview: keepStale=1 отдаёт посаженный snap без Varka (скрин «до»).
+  if (
+    hit &&
+    hit.previewStaleWithoutPartner &&
+    String((params && params.keepStale) || "") === "1" &&
+    String((env && env.PREVIEW_ISOLATED) || "") === "1"
+  ) {
+    try {
+      hit.items = normalizeCuttingItems_(hit.items || []);
+    } catch (eKeep) {}
+    return hit;
   }
   async function finishHit_(snap) {
     if (snap && Array.isArray(snap.items)) {
@@ -22214,6 +22254,9 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (/^previewHeartNormalize$/i.test(a)) {
       return previewHeartNormalize_(params, env);
+    }
+    if (/^previewSeedPartnerCutPlan$/i.test(a)) {
+      return previewSeedPartnerCutPlan_(params, env);
     }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
@@ -34131,6 +34174,235 @@ async function previewHeartNormalize_(params, env) {
     backupKey: backupKey,
     affected: affected
   };
+}
+
+/** Preview-only: заказы 16.11 + partner qty; mode=before сажает липкий cutting snap без Varka. */
+async function previewSeedPartnerCutPlan_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only", cutover: true };
+  }
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true };
+  }
+  const mode = String((params && params.mode) || "seed").toLowerCase();
+  const day = "Будущая неделя";
+  const dateIso = "2026-11-16";
+  const dateDmy = "16.11.2026";
+  const now = new Date().toISOString();
+
+  // partner-cut-plan-h1: preview D1 часто с копией прода — без очистки after даёт 500+230=730, не 330
+  try {
+    await env.DB.prepare(
+      "UPDATE orders SET status='deleted', updated_at=?1 WHERE date_iso=?2 AND status='active'"
+    )
+      .bind(now, dateIso)
+      .run();
+  } catch (eClr) {}
+
+  const people = [
+    {
+      id: "PREV:POLOTNO:2026-11-16",
+      client: "polotno_an",
+      match_key: "POLOTNOAN",
+      segment: "ПП",
+      source: "pp",
+      basket: [
+        { name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", val: 180, value: 180, cat: "dressura", sub: "Средний кубик" },
+        { name: "ПОЧКИ", main: "ПОЧКИ", val: 40, value: 40, cat: "dressura" },
+        { name: "ИНДЕЙКА", main: "ИНДЕЙКА", val: 40, value: 40, cat: "other" },
+        { name: "ЯБЛОКИ", main: "ЯБЛОКИ", val: 40, value: 40, cat: "veg" },
+        { name: "ТЫКВА", main: "ТЫКВА", val: 40, value: 40, cat: "veg" }
+      ]
+    },
+    {
+      id: "PREV:NATNAILS:2026-11-16",
+      client: "Natnails_minsk",
+      match_key: "NATNAILSMINSK",
+      segment: "БП",
+      source: "bp",
+      basket: [
+        { name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", val: 30, value: 30, cat: "dressura" },
+        { name: "СЕРДЦЕ", main: "СЕРДЦЕ", val: 10, value: 10, cat: "dressura" },
+        { name: "РУБЕЦ Т", main: "РУБЕЦ Т", val: 10, value: 10, cat: "dressura" },
+        { name: "ПОЧКИ", main: "ПОЧКИ", val: 10, value: 10, cat: "dressura" }
+      ]
+    },
+    {
+      id: "PREV:LEROOO:2026-11-16",
+      client: "Lerooo_",
+      match_key: "LEROOO",
+      segment: "Р",
+      source: "retail",
+      basket: [
+        { name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", val: 20, value: 20, cat: "dressura" },
+        { name: "СЕРДЦЕ", main: "СЕРДЦЕ", val: 10, value: 10, cat: "dressura" },
+        { name: "РУБЕЦ Т", main: "РУБЕЦ Т", val: 10, value: 10, cat: "dressura" }
+      ]
+    },
+    {
+      id: "Будущая неделя:ВАРКА ШЕВЧЕНКО 1",
+      client: "Varka Шевченко 1",
+      match_key: "ВАРКА ШЕВЧЕНКО 1",
+      segment: "ПАРТНЁР",
+      source: "partner",
+      basket: [
+        { name: "СЕРДЦЕ", main: "СЕРДЦЕ", val: 100, value: 100, cat: "dressura", sub: "Ломтики" },
+        { name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", val: 100, value: 100, cat: "dressura", sub: "Ломтики" }
+      ],
+      meta: { partnerOrderId: "po_mwbtybgtheuh" }
+    }
+  ];
+
+  for (let i = 0; i < people.length; i++) {
+    const p = people[i];
+    await upsertOrderRow_(
+      env,
+      {
+        id: p.id,
+        client: p.client,
+        match_key: p.match_key,
+        day_name: day,
+        date_iso: dateIso,
+        status: "active",
+        segment: p.segment,
+        source: p.source,
+        basket_json: JSON.stringify(p.basket),
+        address: p.client.indexOf("Varka") === 0 ? "ул. Шевченко 1" : "Минск",
+        note: "",
+        phone: "",
+        meta_json: JSON.stringify(p.meta || {}),
+        updated_at: now
+      },
+      { touch: true }
+    );
+  }
+
+  const partnerPack = {
+    status: "success",
+    orders: [
+      {
+        id: "po_mwbtybgtheuh",
+        dateIso: dateIso,
+        deliverDateIso: dateIso,
+        locationId: "pt_varka_shevchenko_1",
+        locationName: "Varka Шевченко 1",
+        networkId: "net_varka",
+        status: "open",
+        basket: [
+          { id: "vr_t_heart", name: "Сердце", qty: 100, unit: "г" },
+          { id: "vr_t_lung", name: "Лёгкое", qty: 100, unit: "г" }
+        ],
+        totalByn: 24
+      }
+    ]
+  };
+  await putSnap_(env, "partnerOrders", partnerPack);
+
+  // дата слота «Будущая неделя» = 16.11
+  try {
+    let counts = (await getSnapRaw_(env, "weekDayCounts")) || { status: "success", items: [] };
+    const items = Array.isArray(counts.items) ? counts.items.slice() : [];
+    let found = false;
+    for (let ci = 0; ci < items.length; ci++) {
+      if (String(items[ci].day || "") === day) {
+        items[ci] = Object.assign({}, items[ci], {
+          day: day,
+          date: dateDmy,
+          dateIso: dateIso,
+          count: people.length
+        });
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      items.push({ day: day, date: dateDmy, dateIso: dateIso, count: people.length });
+    }
+    counts.items = items;
+    counts.status = "success";
+    await putSnap_(env, "weekDayCounts", counts);
+  } catch (eCnt) {}
+
+  const withoutPartner = people.filter(function (p) {
+    return p.source !== "partner";
+  });
+  const clientsForCut = withoutPartner.map(function (p) {
+    return {
+      name: p.client,
+      basket: p.basket,
+      segment: p.segment,
+      source: p.source
+    };
+  });
+  const staleItems = cuttingItemsFromPeople_(clientsForCut, []);
+  const liveItems = cuttingItemsFromPeople_(
+    people.map(function (p) {
+      return { name: p.client, basket: p.basket, segment: p.segment, source: p.source };
+    }),
+    []
+  );
+
+  if (mode === "before" || mode === "seed-before") {
+    // липкий fromOrders-snap без партнёра — как на проде до фикса
+    await putSnap_(env, "cutting:" + day, {
+      status: "success",
+      day: day,
+      date: dateDmy,
+      dateIso: dateIso,
+      items: normalizeCuttingItems_(staleItems),
+      session: {},
+      cutter: null,
+      completion: null,
+      sandbox: false,
+      source: "d1",
+      fromD1: true,
+      fromOrders: true,
+      fromGas: false,
+      flagsTouchedAt: Date.now(),
+      previewStaleWithoutPartner: true
+    });
+  } else {
+    await delSnap_(env, "cutting:" + day);
+    try {
+      await rebuildCuttingDay_(env, day);
+    } catch (eReb) {}
+  }
+
+  // Сборку/курьера не трогаем — только план нарезки (partner-cut-plan-h1).
+
+  const cutParams = { day: day };
+  if (mode === "before" || mode === "seed-before") cutParams.keepStale = "1";
+  const cut = await getCutting_(cutParams, env);
+  const lung = ((cut && cut.items) || []).find(function (it) {
+    return /Л[ЁЕ]ГК/i.test(String((it && it.name) || ""));
+  });
+  const heart = ((cut && cut.items) || []).find(function (it) {
+    return /СЕРДЦ/i.test(String((it && it.name) || ""));
+  });
+
+  return {
+    status: "success",
+    cutover: true,
+    previewOnly: true,
+    mode: mode,
+    day: day,
+    dateIso: dateIso,
+    seeded: people.length,
+    staleLung: dryOfPreview_(staleItems, /Л[ЁЕ]ГК/),
+    liveLung: dryOfPreview_(liveItems, /Л[ЁЕ]ГК/),
+    cuttingLung: lung ? lung.dry : null,
+    cuttingHeart: heart ? heart.dry : null,
+    fromOrders: !!(cut && cut.fromOrders),
+    previewStale: !!(cut && cut.previewStaleWithoutPartner),
+    marker: "partner-cut-plan-h1"
+  };
+}
+
+function dryOfPreview_(items, re) {
+  for (let i = 0; i < (items || []).length; i++) {
+    if (re.test(String((items[i] && items[i].name) || ""))) return Number(items[i].dry) || 0;
+  }
+  return 0;
 }
 
 async function previewMintInitData_(params, env) {
