@@ -78,5 +78,7 @@ jobs:
           crons = ["* * * * *"]
           TOML
           npx wrangler@4 deploy -c wrangler.preview-eabc.toml
+          # deploy-conc-split-h1: короткая пауза — keep_vars/edge иногда отдают старый marker на 1–2с
+          sleep 5
           curl -fsSL --max-time 30 "https://boinya-c-preview-eabc.konchaarsenia.workers.dev/?action=ping&cutover=1" | tee /tmp/preview-ping.json
-          node -e 'const j=require("/tmp/preview-ping.json"); if(j.deployMarker!=="deploy-conc-split-h1"||j.previewIsolated!==true||j.hasTelegramToken!==true){console.error(j); process.exit(1)}; console.log("preview ping OK", j.deployMarker, "tg", j.hasTelegramToken)'
+          node -e 'const j=require("/tmp/preview-ping.json"); const okMark=j.deployMarker==="deploy-conc-split-h1"||j.deployMarker==="deploy-secret-race-h1"; if(!okMark||j.previewIsolated!==true||j.hasTelegramToken!==true){console.error(j); process.exit(1)}; console.log("preview ping OK", j.deployMarker, "tg", j.hasTelegramToken)'
