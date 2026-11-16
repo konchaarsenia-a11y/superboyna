@@ -411,6 +411,7 @@ body.nx-kb .nx-sheet__body {
 .nx-line {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--b-sp12);
   padding: var(--b-sp12) 0;
   border-bottom: 1px solid var(--b-line);

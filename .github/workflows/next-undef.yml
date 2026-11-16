@@ -79,3 +79,5 @@ jobs:
         run: node --test boinya-c/next/pp-n2-oneshot-split.test.mjs boinya-c/proxy/pp-per-delivery.test.mjs
       - name: month compose once (N2 message no dup)
         run: node --test boinya-c/next/month-compose-once.test.mjs
+      - name: order edit row delete + frac
+        run: node --test boinya-c/next/order-edit-row-actions.test.mjs
