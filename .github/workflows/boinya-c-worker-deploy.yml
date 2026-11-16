@@ -1,11 +1,11 @@
-# Deploy Бойня C Worker — отдельный workflow (старый boinya-c-worker залип после fail)
+# Deploy Бойня C Worker.
+# deploy-secret-race-h1: деплой НЕ делает secret put — секреты наследуют с прошлой
+# версии. Put секретов только через boinya-c-worker-secrets / bot-hook, в той же
+# concurrency-группе, последовательно. Падение secret put не блокирует live Worker.
+#
 # Secrets (repo Settings → Secrets → Actions):
 #   CLOUDFLARE_API_TOKEN — required
-#   CLOUDFLARE_ACCOUNT_ID — optional if token is account-scoped; empty is OK (unset before wrangler)
-#   PARTNER_BOT_TOKEN — optional; put AFTER successful deploy; skip if empty; failure does not fail the job
-#   PP_COST_BREAKDOWN_PIN — optional; put AFTER successful deploy; skip if empty; failure does not fail the job
-#   TELEGRAM_BOT_TOKEN — optional; бот Бойни (@boyniaGB_bot); put AFTER successful deploy; skip if empty; failure does not fail the job
-#   CLIENT_BOT_TOKEN — optional; бот кабинета (@klientGB_bot); put AFTER successful deploy; skip if empty; failure does not fail the job
+#   CLOUDFLARE_ACCOUNT_ID — optional if token is account-scoped
 name: boinya-c-worker-deploy
 
 on:
@@ -16,118 +16,52 @@ on:
       - "boinya-c/proxy/**"
       - ".github/workflows/boinya-c-worker-deploy.yml"
 
+# Одна очередь на mutate Worker (deploy + secret put + bot-hook). Не отменять mid-flight.
 concurrency:
-  group: boinya-c-worker-deploy
-  cancel-in-progress: true
+  group: boinya-c-worker-mutate
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # wrangler 4.131+: `secret put` fails if latest version is not deployed.
-      # Deploy + promote 100% first; then put secret. Secret must not block deploy.
-      - name: Deploy boinya-c Worker
+      - name: Deploy boinya-c Worker + promote 100%
         working-directory: boinya-c/proxy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          # deploy-secret-race-h1: только upload+promote; secret put здесь запрещён
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
             unset CLOUDFLARE_ACCOUNT_ID
           fi
-          out=$(npx wrangler@4 deploy 2>&1 | tee /dev/stderr)
+          out=$(npx wrangler@4 deploy --message "CI deploy $(git rev-parse --short HEAD)" 2>&1 | tee /dev/stderr)
           ver=$(echo "$out" | sed -n 's/.*Current Version ID: \([^ ]*\).*/\1/p' | tail -1)
           test -n "$ver"
           echo "Promoting version $ver to 100%"
-          npx wrangler@4 versions deploy "${ver}@100" -y --message "CI promote 100%"
-      - name: Put TELEGRAM_BOT_TOKEN on Worker
-        working-directory: boinya-c/proxy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          npx wrangler@4 versions deploy "${ver}@100" -y --message "CI promote 100% $(git rev-parse --short HEAD)"
+          echo "WORKER_VERSION=$ver" >> "$GITHUB_ENV"
+      - name: Smoke ping (Worker must be live even without secret put)
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
-            unset CLOUDFLARE_ACCOUNT_ID
-          fi
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
-            echo "TELEGRAM_BOT_TOKEN missing in GitHub secrets — skip"
-            exit 0
-          fi
-          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
-          if ! printf '%s' "$TELEGRAM_BOT_TOKEN" | npx wrangler@4 secret put TELEGRAM_BOT_TOKEN; then
-            echo "::warning::TELEGRAM_BOT_TOKEN put failed after deploy — worker is already live"
-            exit 0
-          fi
-      - name: Put CLIENT_BOT_TOKEN on Worker
-        working-directory: boinya-c/proxy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLIENT_BOT_TOKEN: ${{ secrets.CLIENT_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
-            unset CLOUDFLARE_ACCOUNT_ID
-          fi
-          if [ -z "${CLIENT_BOT_TOKEN:-}" ]; then
-            echo "CLIENT_BOT_TOKEN missing in GitHub secrets — skip"
-            exit 0
-          fi
-          echo "::add-mask::$CLIENT_BOT_TOKEN"
-          if ! printf '%s' "$CLIENT_BOT_TOKEN" | npx wrangler@4 secret put CLIENT_BOT_TOKEN; then
-            echo "::warning::CLIENT_BOT_TOKEN put failed after deploy — worker is already live"
-            exit 0
-          fi
-      - name: Put PARTNER_BOT_TOKEN on Worker
-        working-directory: boinya-c/proxy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PARTNER_BOT_TOKEN: ${{ secrets.PARTNER_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
-            unset CLOUDFLARE_ACCOUNT_ID
-          fi
-          if [ -z "${PARTNER_BOT_TOKEN:-}" ]; then
-            echo "PARTNER_BOT_TOKEN missing in GitHub secrets — skip"
-            exit 0
-          fi
-          if ! printf '%s' "$PARTNER_BOT_TOKEN" | npx wrangler@4 secret put PARTNER_BOT_TOKEN; then
-            echo "::warning::PARTNER_BOT_TOKEN put failed after deploy — worker is already live"
-            exit 0
-          fi
-      - name: Put PP_COST_BREAKDOWN_PIN on Worker
-        working-directory: boinya-c/proxy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PP_COST_BREAKDOWN_PIN: ${{ secrets.PP_COST_BREAKDOWN_PIN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
-            unset CLOUDFLARE_ACCOUNT_ID
-          fi
-          if [ -z "${PP_COST_BREAKDOWN_PIN:-}" ]; then
-            echo "PP_COST_BREAKDOWN_PIN missing in GitHub secrets — skip"
-            exit 0
-          fi
-          if ! printf '%s' "$PP_COST_BREAKDOWN_PIN" | npx wrangler@4 secret put PP_COST_BREAKDOWN_PIN; then
-            echo "::warning::PP_COST_BREAKDOWN_PIN put failed after deploy — worker is already live"
-            exit 0
-          fi
-      - name: Smoke ping
-        run: |
-          curl -fsSL --max-time 30 "https://boinya-c.konchaarsenia.workers.dev/?action=ping&cutover=1" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('live') is True and d.get('d1') is True and d.get('notifyGroup')=='off', d; print('ping OK', d.get('deployMarker'), d.get('notifyGroup'))"
+          # deploy-secret-race-h1: прод жив после promote; hasTelegramToken ожидаем от унаследованных секретов
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --max-time 30 "https://boinya-c.konchaarsenia.workers.dev/?action=ping&cutover=1" | tee /tmp/ping.json; then
+              break
+            fi
+            sleep 3
+          done
+          python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/ping.json"))
+          assert d.get("live") is True and d.get("d1") is True and d.get("notifyGroup")=="off", d
+          assert d.get("hasTelegramToken") is True, d
+          print("ping OK", d.get("deployMarker"), "tg", d.get("hasTelegramToken"), "ver", __import__("os").environ.get("WORKER_VERSION",""))
+          PY
