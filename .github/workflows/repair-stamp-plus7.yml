@@ -19,6 +19,7 @@ on:
     paths:
       - scripts/repair-stamp-plus7.mjs
       - scripts/select-1611-baskets.mjs
+      - scripts/preview-resync-1611-post-repair.mjs
       - .github/workflows/repair-stamp-plus7.yml
 
 permissions:
@@ -51,8 +52,10 @@ jobs:
           if [ "$MODE" = "repair" ]; then
             REPAIR_MODE=repair node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/repair-stdout.json"
           fi
-          # Always SELECT 16.11 baskets (read-only) for cutting recalc
+          # Always SELECT 16.11 baskets (read-only) for cutting recalc — prod
           node scripts/select-1611-baskets.mjs | tee "$OUT_DIR/select-1611-baskets.json"
+          # Preview D1 only: sync 4 real 16.11 orders + rebuild cutting (#748 worker already on preview)
+          node scripts/preview-resync-1611-post-repair.mjs | tee "$OUT_DIR/preview-resync-1611-post-repair.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
