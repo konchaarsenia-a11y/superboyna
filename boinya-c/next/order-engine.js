@@ -1874,6 +1874,23 @@
       if (!split.ok) return { ok: false, reason: split.reason || "split_fail", detail: split };
       return { ok: true, skipped: false, delivery1: split.delivery1, delivery2: split.delivery2, monthly: split.monthly, ppManualDist: false };
     }
+    /**
+     * month-compose-once-h1 (правило 03.11): список для текста «Ваш состав на месяц…».
+     * N2 = один суммарный список как у N1: одинаковые позиции (товар+фракция)
+     * обеих доставок складываются. Не склеивать basket∥basket2 строками —
+     * иначе дубли. Цены/формулы/cardBasketList_ не трогает — только отображение.
+     */
+    function monthComposeListForMessageUi_(basket, basket2, deliveriesN) {
+      var n = Math.max(1, Math.round(Number(deliveriesN) || 1));
+      var b1 = (basket || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      var b2 = (basket2 || []).map(function (it) {
+        return ppCloneRowWithQtyUi_(it, it.value != null ? it.value : it.val);
+      }).filter(function (it) { return Number(it.value) > 0; });
+      if (n < 2 || !ppBasketHasQtyUi_(b2)) return b1;
+      return ppMergeBasketsAsMonthlyUi_(b1, b2);
+    }
     function resolvePpPerDeliverySuggestUi_(opts) {
       opts = opts || {};
       var n = Math.max(1, Math.round(Number(opts.deliveriesN) || 1));
@@ -2029,6 +2046,7 @@
     parsePpManualDist_: parsePpManualDistUi_,
     inferPpManualDistribution_: inferPpManualDistributionUi_,
     materializePpAutoSplit_: materializePpAutoSplitUi_,
+    monthComposeListForMessage_: monthComposeListForMessageUi_,
     resolvePpPerDeliverySuggest_: resolvePpPerDeliverySuggestUi_,
     PRICE_RETAIL_DELIVERY_BYN: function () { return PRICE_RETAIL_DELIVERY_BYN; },
     PRICE_RETAIL_FREE_FROM: function () { return PRICE_RETAIL_FREE_FROM; },
