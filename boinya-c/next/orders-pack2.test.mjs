@@ -126,7 +126,7 @@ test("desktop: долгоживущая сессия ds1", () => {
 });
 
 test("cache bump present", () => {
-  assert.match(nextHtml, /v=7112545\d/);
+  assert.match(nextHtml, /v=71125460/);
 });
 
 /* —— закрепы функций страницы «Заказы» (не ломать следующими правками) —— */
