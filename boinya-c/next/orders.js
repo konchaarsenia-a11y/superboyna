@@ -470,13 +470,23 @@
     }
     var subHtml = crumb && srcs.length >= 2 ? sub : ('<span class="b-sheet__sub">' + sub + esc(price) + "</span>");
     if (crumb && srcs.length >= 2 && price) subHtml += '<span class="b-sheet__sub">' + esc(price) + "</span>";
+    /* order-edit-row-actions-h1: удалить позицию + смена фракции/нарезки (как в legacy). */
+    var fracs = (!crumb && it.cat !== "crumb")
+      ? fractionsWithoutCrumb_(eng().catalogFractionsForUi_(it.cat, it.main || it.name) || [])
+      : [];
+    var fracBtn = fracs.length
+      ? ('<button type="button" class="b-chip" data-act="ifrac" data-i="' + i + '" aria-label="Сменить фракцию">' +
+        esc(it.sub ? (eng().humanFraction(it.main, it.sub) || it.sub) : "Фракция") + "</button>")
+      : "";
+    var delBtn = '<button type="button" class="b-chip" data-act="idel" data-i="' + i + '" aria-label="Удалить позицию">Удалить</button>';
     return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
       subHtml + "</div>" +
       (pieceQty_(it.cat, it.main, unit)
         ? '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
           '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
           '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div>'
-        : gramQtyHtml("step", grams, unit, ' data-i="' + i + '"')) + "</div>";
+        : gramQtyHtml("step", grams, unit, ' data-i="' + i + '"')) +
+      fracBtn + delBtn + "</div>";
   }
 
   function basketLines() {
@@ -739,6 +749,30 @@
     var box = document.getElementById("nxLines");
     if (box) box.innerHTML = basketLines();
     patchMoney();
+  }
+
+  /** order-edit-row-actions-h1: смена фракции/нарезки у строки состава. */
+  async function changeLineFrac_(i) {
+    var list = state.baskets[state.activeDog];
+    var it = list && list[i];
+    if (!it) return;
+    var mix = root.BoinyaCrumbMix;
+    if (mix && mix.isCrumb(it)) { sh().toast("У крошки фракцию не меняют"); return; }
+    var fracs = fractionsWithoutCrumb_(eng().catalogFractionsForUi_(it.cat, it.main || it.name) || []);
+    if (!fracs.length) { sh().toast("Нет фракций"); return; }
+    var picked = await sh().choice({
+      title: eng().prettyProductName(it.main || it.name),
+      text: "Какая фракция?",
+      options: fracs.map(function (f) {
+        return { label: eng().humanFraction(it.main || it.name, f) || f, value: f };
+      })
+    });
+    if (picked == null || picked === "") return;
+    it.sub = picked;
+    syncRetail();
+    schedulePartnerPrice();
+    persistDraft();
+    patchLines();
   }
 
   function applyGramField_(node, commit) {
@@ -2447,6 +2481,23 @@
       }
       syncRetail();
       patchLines();
+      return true;
+    }
+    /* order-edit-row-actions-h1 */
+    if (act === "idel") {
+      var delList = state.baskets[state.activeDog];
+      var delI = Number(node.getAttribute("data-i"));
+      if (delList && delList[delI]) {
+        delList.splice(delI, 1);
+        syncRetail();
+        schedulePartnerPrice();
+        persistDraft();
+        patchLines();
+      }
+      return true;
+    }
+    if (act === "ifrac") {
+      changeLineFrac_(Number(node.getAttribute("data-i")));
       return true;
     }
     if (act === "clear-basket") {
