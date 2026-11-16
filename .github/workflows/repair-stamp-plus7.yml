@@ -1,0 +1,64 @@
+# Emergency prod D1 repair: restore 3 stamped date_iso (Arseny «да» 16.11.2026).
+# Also SELECT-only baskets for 16.11. Never scheduled on main.
+name: repair-stamp-plus7
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: inspect | repair | select1611
+        required: true
+        default: select1611
+        type: choice
+        options:
+          - inspect
+          - repair
+          - select1611
+  push:
+    branches: [cursor/no-plus7-stamp-eabc]
+    paths:
+      - scripts/repair-stamp-plus7.mjs
+      - scripts/select-1611-baskets.mjs
+      - scripts/preview-resync-1611-post-repair.mjs
+      - .github/workflows/repair-stamp-plus7.yml
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: D1 inspect / repair / select 16.11
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OUT_DIR: ${{ github.workspace }}/artifacts/repair-stamp-plus7
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then unset CLOUDFLARE_ACCOUNT_ID; fi
+          mkdir -p "$OUT_DIR"
+          MODE="${{ github.event.inputs.mode || '' }}"
+          if [ -z "$MODE" ]; then MODE=select1611; fi
+          echo "MODE=$MODE"
+          if [ "$MODE" = "inspect" ] || [ "$MODE" = "repair" ]; then
+            REPAIR_MODE=inspect node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/inspect-stdout.json"
+          fi
+          if [ "$MODE" = "repair" ]; then
+            REPAIR_MODE=repair node scripts/repair-stamp-plus7.mjs | tee "$OUT_DIR/repair-stdout.json"
+          fi
+          # Always SELECT 16.11 baskets (read-only) for cutting recalc — prod
+          node scripts/select-1611-baskets.mjs | tee "$OUT_DIR/select-1611-baskets.json"
+          # Preview D1 only: sync 4 real 16.11 orders + rebuild cutting (#748 worker already on preview)
+          node scripts/preview-resync-1611-post-repair.mjs | tee "$OUT_DIR/preview-resync-1611-post-repair.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repair-stamp-plus7
+          path: artifacts/repair-stamp-plus7/
+          if-no-files-found: warn
