@@ -18,7 +18,33 @@ function parseWrangler(text) {
   const raw = String(text || "");
   const at = raw.search(/[\[{]/);
   if (at < 0) throw new Error("wrangler: нет json");
-  return JSON.parse(raw.slice(at));
+  const slice = raw.slice(at);
+  try {
+    return JSON.parse(slice);
+  } catch (eFirst) {
+    // wrangler иногда пишет npm warn после JSON — берём первый полный массив/объект.
+    const open = slice[0];
+    const close = open === "[" ? "]" : "}";
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < slice.length; i++) {
+      const ch = slice[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === open) depth++;
+      else if (ch === close) {
+        depth--;
+        if (depth === 0) return JSON.parse(slice.slice(0, i + 1));
+      }
+    }
+    throw eFirst;
+  }
 }
 function d1(sql) {
   const run = spawnSync(

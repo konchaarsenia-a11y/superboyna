@@ -5,13 +5,27 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import vm from "node:vm";
+import { fileURLToPath } from "node:url";
 
-const require = createRequire("/tmp/package.json");
-const { chromium } = require("playwright");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.resolve(HERE, "..");
+const ROOT = path.join(REPO, "boinya-c");
+function loadPlaywright_() {
+  const paths = ["/tmp/package.json", path.join(REPO, "package.json"), path.join(HERE, "package.json")];
+  let last = null;
+  for (let i = 0; i < paths.length; i++) {
+    try {
+      return createRequire(paths[i])("playwright");
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last || new Error("playwright not found");
+}
+const { chromium } = loadPlaywright_();
 
-const ROOT = "/agent/repos/superboyna/boinya-c";
 const PREV = process.env.PREVIEW_URL || "https://boinya-c-preview-eabc.konchaarsenia.workers.dev";
-const OUT = process.env.OUT_DIR || "/opt/cursor/artifacts/ceh-pack";
+const OUT = process.env.OUT_DIR || path.join(REPO, "artifacts/ceh-pack");
 fs.mkdirSync(OUT, { recursive: true });
 
 async function api(action, params = {}, initData) {
