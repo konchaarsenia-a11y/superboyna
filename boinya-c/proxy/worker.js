@@ -1136,10 +1136,11 @@ const AUTH_TAB_RULES = [
   { re: /^(saveDeferred|cancelDeferred)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen"]) },
   { re: /^setDeferredReminder$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.remind"]) },
   { re: /^(placeTransferTask|notifyMissedDelivery)$/i, tabs: AUTH_TABS_ORDERS.concat(["courierScreen", "deferredScreen.xfer"]) },
-  { re: /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume|listCuttingStaff|saveCuttingCutter)$/i, tabs: ["cuttingScreen"] },
+  // ceh-pack-h1.73: stopCuttingSession убран — нигде не вызывался из next.
+  { re: /^(updateCutting|startCuttingSession|finishCutting|prepareFinishCutting|sendCutterVolume|listCuttingStaff|saveCuttingCutter)$/i, tabs: ["cuttingScreen"] },
   { re: /^listCuttingWages$/i, tabs: ["cuttingScreen", "statsScreen"] },
   { re: /^(setDelivered|sendCourierRoute|prepareCourierRoute|registerCourier)$/i, tabs: ["courierScreen.route"] },
-  { re: /^(setAssembled|setPrinted|saveAssemblyDry)$/i, tabs: ["courierScreen.assembly"] },
+  { re: /^(setAssembled|setPrinted|saveAssemblyDry|saveAssemblyAssembler)$/i, tabs: ["courierScreen.assembly"] },
   { re: /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse|sendDeficit)$/i, tabs: ["warehouseScreen", "cuttingScreen"] },
   { re: /^(saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch)$/i, tabs: AUTH_TABS_ORDERS },
   { re: /^unlockSubs$/i, tabs: ["subsScreen", "subDetailScreen"] },
@@ -1927,6 +1928,7 @@ async function handleAction_(action, params, env, url, ctx, request) {
   if (a === "getStatsMonthSetup") return getStatsMonthSetup_(params, env);
   if (a === "listCuttingStaff") return listCuttingStaff_(params, env);
   if (a === "saveCuttingCutter") return saveCuttingCutter_(params, env, ctx);
+  if (a === "saveAssemblyAssembler") return saveAssemblyAssembler_(params, env, ctx);
   if (a === "saveAssemblyDry") return saveAssemblyDry_(params, env);
   if (a === "listCuttingWages") return listCuttingWages_(params, env);
   if (a === "saveStatsMonthMoney") return saveStatsMonthMoney_(params, env);
@@ -2313,8 +2315,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      // partner-cut-plan-h1 (STEP4); ping hardcoded after #752 race so tip is provable (no-plus7-stamp-h1 already in code)
-      deployMarker: "partner-cut-plan-h1",
+      // ceh-pack-h1: tip marker; preview worker may override via PREVIEW_MARKER.
+      deployMarker: String((env && env.PREVIEW_MARKER) || "ceh-pack-h1"),
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -4035,14 +4037,75 @@ async function saveCuttingCutter_(params, env, ctx) {
   return ok;
 }
 
+async function ensureAssemblyWage_(env) {
+  if (!env || !env.DB) return false;
+  if (env.__assemblyWageReady) return true;
+  // ceh-pack-h1.12: ЗП сборки отдельно от нарезки (3×N).
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS assembly_day_wage (" +
+      "iso TEXT PRIMARY KEY, day_name TEXT NOT NULL DEFAULT '', assembler_id TEXT NOT NULL DEFAULT '', " +
+      "assembler_name TEXT NOT NULL DEFAULT '', n REAL NOT NULL DEFAULT 0, wage REAL NOT NULL DEFAULT 0, " +
+      "updated_at TEXT NOT NULL DEFAULT '')"
+  ).run();
+  env.__assemblyWageReady = true;
+  return true;
+}
+
+async function saveAssemblyAssembler_(params, env, ctx) {
+  if (!(await ensureAssemblyWage_(env))) return { status: "error", message: "нет базы" };
+  const day = String((params && params.day) || "").trim();
+  let iso = String((params && params.iso) || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) && day) {
+    try {
+      const info = await dayDateInfo_(env, day);
+      iso = String((info && info.iso) || "").slice(0, 10);
+    } catch (eIso) { iso = ""; }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { status: "error", message: "need_date" };
+  const id = String((params && (params.assemblerId || params.id)) || "").trim();
+  const name = String((params && (params.assemblerName || params.name)) || "").trim();
+  if (!id && !name) return { status: "error", message: "need_assembler" };
+  const N = Number(params && params.N) || 0;
+  const wage = Math.round(3 * N * 100) / 100;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO assembly_day_wage (iso, day_name, assembler_id, assembler_name, n, wage, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(iso) DO UPDATE SET day_name = excluded.day_name, assembler_id = excluded.assembler_id, " +
+      "assembler_name = excluded.assembler_name, n = excluded.n, wage = excluded.wage, updated_at = excluded.updated_at"
+  ).bind(iso, day, id, name, N, wage, now).run();
+  if (day) {
+    const asm = (await getSnapRaw_(env, "assembly:" + day)) || { status: "success", day: day, clients: [] };
+    asm.assembler = { id: id, name: name, iso: iso, N: N, wage: wage };
+    await putSnap_(env, "assembly:" + day, asm);
+  }
+  return {
+    status: "success",
+    iso: iso,
+    day: day,
+    assembler: { id: id, name: name },
+    N: N,
+    wage: wage,
+    countsInCost: true,
+    countsInProfit: false
+  };
+}
+
 async function listCuttingWages_(params, env) {
   if (!(await ensureCuttingWage_(env))) return { status: "error", message: "нет базы" };
+  await ensureAssemblyWage_(env);
   const month = String((params && (params.month || params.monthKey)) || new Date().toISOString().slice(0, 7)).slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month)) return { status: "error", message: "month" };
   const q = await env.DB.prepare(
     "SELECT iso, day_name, cutter_id, cutter_name, g, p, n, wage FROM cutting_day_wage WHERE iso >= ? AND iso <= ? ORDER BY iso"
   ).bind(month + "-01", month + "-31").all();
   const list = (q && q.results) || [];
+  let asmList = [];
+  try {
+    const aq = await env.DB.prepare(
+      "SELECT iso, day_name, assembler_id, assembler_name, n, wage FROM assembly_day_wage WHERE iso >= ? AND iso <= ? ORDER BY iso"
+    ).bind(month + "-01", month + "-31").all();
+    asmList = (aq && aq.results) || [];
+  } catch (eAsm) { asmList = []; }
   const by = {};
   list.forEach(function (r) {
     const key = String(r.cutter_id || r.cutter_name || "");
@@ -4056,26 +4119,53 @@ async function listCuttingWages_(params, env) {
     by[key].N += Number(r.n) || 0;
     if (r.cutter_name) by[key].name = String(r.cutter_name);
   });
+  // ceh-pack-h1.12: ЗП сборки (3×N) в тот же staff.
+  asmList.forEach(function (r) {
+    const key = String(r.assembler_id || r.assembler_name || "");
+    if (!key) return;
+    if (!by[key]) {
+      by[key] = { id: String(r.assembler_id || ""), name: String(r.assembler_name || ""), wage: 0, days: 0, G: 0, P: 0, N: 0 };
+    }
+    by[key].wage = Math.round((by[key].wage + (Number(r.wage) || 0)) * 100) / 100;
+    by[key].days += 1;
+    by[key].N += Number(r.n) || 0;
+    if (r.assembler_name) by[key].name = String(r.assembler_name);
+  });
+  const daysOut = list.map(function (r) {
+    return {
+      iso: String(r.iso || ""),
+      day: String(r.day_name || ""),
+      role: "cut",
+      cutterId: String(r.cutter_id || ""),
+      cutterName: String(r.cutter_name || ""),
+      G: Number(r.g) || 0,
+      P: Number(r.p) || 0,
+      N: Number(r.n) || 0,
+      wage: Number(r.wage) || 0
+    };
+  });
+  asmList.forEach(function (r) {
+    daysOut.push({
+      iso: String(r.iso || ""),
+      day: String(r.day_name || ""),
+      role: "assembly",
+      cutterId: String(r.assembler_id || ""),
+      cutterName: String(r.assembler_name || ""),
+      G: 0,
+      P: 0,
+      N: Number(r.n) || 0,
+      wage: Number(r.wage) || 0
+    });
+  });
   return {
     status: "success",
     month: month,
-    formula: "2.50×G/100 + 0.50×P + 3.00×N",
+    formula: "cut: 2.50×G/100 + 0.50×P · assembly: 3.00×N",
     countsInCost: true,
     countsInProfit: false,
-    note: "ЗП дня уже внутри себестоимости. В чистую прибыль отдельно не прибавляется.",
+    note: "Нарезка и сборка пишутся отдельно. ЗП дня уже внутри себестоимости. В чистую прибыль отдельно не прибавляется.",
     staff: Object.keys(by).map(function (k) { return by[k]; }),
-    days: list.map(function (r) {
-      return {
-        iso: String(r.iso || ""),
-        day: String(r.day_name || ""),
-        cutterId: String(r.cutter_id || ""),
-        cutterName: String(r.cutter_name || ""),
-        G: Number(r.g) || 0,
-        P: Number(r.p) || 0,
-        N: Number(r.n) || 0,
-        wage: Number(r.wage) || 0
-      };
-    })
+    days: daysOut
   };
 }
 
@@ -21919,7 +22009,8 @@ async function handleCutover_(a, params, env, ctx) {
       }
       return body;
     }
-    if (/^(startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting)$/i.test(a)) {
+    // ceh-pack-h1.73: stopCuttingSession убран (нигде не вызывался из next).
+    if (/^(startCuttingSession|finishCutting|prepareFinishCutting)$/i.test(a)) {
       const day = String((params && params.day) || "").trim() || "Понедельник";
       let cut = (await getSnapRaw_(env, "cutting:" + day)) || {
         status: "success",
@@ -21940,7 +22031,7 @@ async function handleCutover_(a, params, env, ctx) {
             : prevStarted > 0 && prevSess.active
               ? prevStarted
               : now;
-      } else if (/^(stopCuttingSession|finishCutting)$/i.test(a)) {
+      } else if (/^finishCutting$/i.test(a)) {
         startedAt = 0;
       } else {
         // prepareFinishCutting — сохранить старт
@@ -25236,7 +25327,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
   try {
     if (isD1PrimaryCanon_(env)) return;
     if (
-      /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|setDelivered|setAssembled)$/i.test(
+      /^(updateCutting|startCuttingSession|finishCutting|setDelivered|setAssembled)$/i.test(
         a
       )
     ) {

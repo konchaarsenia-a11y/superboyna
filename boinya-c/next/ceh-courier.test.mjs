@@ -162,12 +162,9 @@ test("догрузка Цеха не возвращает Нарезку и от
   assert.match(html, /data-seg="route"[^>]*>Курьер/);
   assert.match(html, /24 BYN/);
   assert.match(html, /Немига 5/);
-  assert.match(html, /п\.2/);
-  assert.match(html, /домофон 55/);
-  assert.match(html, /эт\.3/);
-  assert.match(html, /кв\.10/);
-  assert.match(html, /зелёная дверь/);
-  assert.match(html, /Этаж и квартира/);
+  // ceh-pack-h1.56: детали адреса в раскрытии, не в улице.
+  assert.match(html, /Подъезд, этаж, квартира/);
+  assert.equal(html.includes("домофон 55"), false);
 
   const cold = bootProd({ delays: { getCutting: 400, getAssembly: 400, getCourier: 400, listWarehouses: 400 } });
   const tCold = performance.now();
@@ -234,12 +231,14 @@ test("партнёру видна сумма заказа, рознице пол
     flat: "10",
     addressComment: "зелёная дверь"
   });
+  // ceh-pack-h1.56: розница как все — улица отдельно, детали в details.
   assert.match(retail.street, /Немига 5/);
-  assert.match(retail.street, /п\.2/);
-  assert.match(retail.street, /домофон 55/);
-  assert.match(retail.street, /эт\.3/);
-  assert.match(retail.street, /кв\.10/);
-  assert.match(retail.street, /зелёная дверь/);
+  assert.equal(retail.street.includes("домофон"), false);
+  assert.match(retail.details, /подъезд 2/);
+  assert.match(retail.details, /домофон 55/);
+  assert.match(retail.details, /этаж 3/);
+  assert.match(retail.details, /кв 10/);
+  assert.match(retail.details, /зелёная дверь/);
   assert.equal(retail.street.includes("·"), false);
   const pp = addr({
     segment: "ПП",
@@ -257,7 +256,7 @@ test("партнёру видна сумма заказа, рознице пол
   assert.match(pp.details, /кв 70/);
   assert.match(pp.details, /домофон 55/);
   assert.equal(pp.details.includes("·"), false);
-  assert.match(prodSrc, /Этаж и квартира/);
-  assert.match(prodSrc, /t506/);
+  // ceh-pack-h1.56: единая кнопка раскрытия адреса.
+  assert.match(prodSrc, /Подъезд, этаж, квартира/);
   assert.match(appSrc, /prod\(\)\.warm\(\)/);
 });

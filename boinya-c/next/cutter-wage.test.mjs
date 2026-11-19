@@ -45,3 +45,13 @@ test("ЗП дня по канону и не в чистую прибыль", () 
   const ask = ui.slice(ui.indexOf("title: \"Кто сегодня режет?\""));
   assert.equal(ask.slice(0, 500).includes("·"), false);
 });
+
+test("ceh-pack-h1.12: нарезка без 3×N, сборка только 3×N", () => {
+  assert.equal(prod.cutOnlyWage_(300, 6), 10.5);
+  assert.equal(prod.assemblyOnlyWage_(2), 6);
+  assert.ok(/N\s*=\s*0/.test(ui));
+  assert.ok(ui.includes("Кто сегодня собирает?"));
+  assert.ok(worker.includes("assembly_day_wage"));
+  assert.ok(worker.includes("saveAssemblyAssembler_"));
+  assert.ok(!gs.includes("function handleStopCuttingSession"));
+});
