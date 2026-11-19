@@ -113,8 +113,8 @@ fs.writeFileSync(path.join(OUT, "missed-push-text.txt"), pushText);
 
 const checks = {
   toastCut: /Считаю нарезку…/.test(prodSrc) && !/Считаю нарезку по таблице/.test(prodSrc),
-  noIgAll: !/Все тексты клиентам/.test(prodSrc),
-  noAllMap: !/Все адреса на карте/.test(prodSrc),
+  noIgAll: !/data-act="pr-ig-all"/.test(prodSrc) && !/>Все тексты клиентам</.test(prodSrc),
+  noAllMap: !/data-act="pr-all-map"/.test(prodSrc) && !/>Все адреса на карте</.test(prodSrc),
   dryToggle: /pr-dry-toggle/.test(prodSrc),
   assembler: /Кто сегодня собирает\?/.test(prodSrc),
   cutN0: /N\s*=\s*0/.test(prodSrc),
