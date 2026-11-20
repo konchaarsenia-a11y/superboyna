@@ -2277,9 +2277,7 @@ function doGet(e) {
   if (action === "listCuttingWages") {
     return handleListCuttingWages({ month: e.parameter.month || "" }, callback, false);
   }
-  if (action === "stopCuttingSession") {
-    return handleStopCuttingSession({ day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "" }, callback, false);
-  }
+  // ceh-pack-h1.73: stopCuttingSession убран — нигде не вызывался из next.
   if (action === "finishCutting") {
     return handleFinishCutting(SpreadsheetApp.getActiveSpreadsheet(), {
       day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
@@ -3529,9 +3527,7 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "listCuttingWages") {
     return handleListCuttingWages(json, callback, fromPost);
   }
-  if (action === "stopCuttingSession") {
-    return handleStopCuttingSession(json, callback, fromPost);
-  }
+  // ceh-pack-h1.73: stopCuttingSession убран — нигде не вызывался из next.
   if (action === "getMyAccess") {
     return handleGetMyAccess(json, callback, fromPost);
   }
@@ -4193,23 +4189,7 @@ function handleStartCuttingSession(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-function handleStopCuttingSession(json, callback, fromPost) {
-  var day = String(json.day || "").trim();
-  var existing = getCuttingSession_();
-  var elapsed = 0;
-  if (existing.active && existing.startedAt) {
-    elapsed = Date.now() - existing.startedAt;
-  }
-  if (!day || !existing.day || String(existing.day) === day || !existing.active) {
-    PropertiesService.getScriptProperties().setProperty("CUTTING_SESSION", JSON.stringify({
-      active: false,
-      day: "",
-      startedAt: 0
-    }));
-  }
-  var ok = { status: "success", elapsed: elapsed, session: getCuttingSession_() };
-  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
-}
+// ceh-pack-h1.73: handleStopCuttingSession удалён — UI не вызывал.
 
 function resolveCuttingRow_(cutting, json) {
   var row = Number(json && json.row);

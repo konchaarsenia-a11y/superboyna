@@ -5,19 +5,14 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cursor/clients-sheet-fix-eabc
-      - cursor/partner-qty-grams-eabc
-      - cursor/deploy-secret-race-eabc
-      - cursor/deploy-conc-split-eabc
-      - cursor/no-plus7-stamp2-eabc
-      - cursor/partner-cut-plan-eabc
-      - cursor/redeploy-noplus7-eabc
+      - cursor/ceh-pack-eabc
     paths:
       - boinya-c/proxy/worker.js
       - boinya-c/proxy/*.js
+      - boinya-c/next/**
+      - boinya-c/next.html
+      - scripts/preview-ceh-pack.mjs
       - .github/workflows/preview-eabc-deploy.yml
-      - .github/workflows/boinya-c-worker-deploy.yml
-      - scripts/preview-partner-cut-plan.mjs
 
 permissions:
   contents: read
@@ -25,7 +20,7 @@ permissions:
 jobs:
   deploy-preview:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,7 +61,7 @@ jobs:
           PARTNER_OWNER_TIDS = "827494606,650923866"
           PARTNER_OWNER_USERNAMES = "one_more_person_228"
           PREVIEW_ISOLATED = "1"
-          PREVIEW_MARKER = "partner-cut-plan-h1"
+          PREVIEW_MARKER = "ceh-pack-h1"
           SHEETS_FINISH_ONLY = "1"
           SHEETS_MODE = "finish-only"
           AUTH_ENFORCE = "1"
@@ -82,24 +77,23 @@ jobs:
           crons = ["* * * * *"]
           TOML
           npx wrangler@4 deploy -c wrangler.preview-eabc.toml
-          # keep_vars/edge иногда отдают старый marker на 1–2с
           sleep 5
           curl -fsSL -A "Mozilla/5.0" --max-time 30 "https://boinya-c-preview-eabc.konchaarsenia.workers.dev/?action=ping&cutover=1" | tee /tmp/preview-ping.json
-          node -e 'const j=require("/tmp/preview-ping.json"); const ok=["partner-cut-plan-h1","no-plus7-stamp-h1","deploy-conc-split-h1","deploy-secret-race-h1"].includes(j.deployMarker); if(!ok||j.previewIsolated!==true||j.hasTelegramToken!==true){console.error(j); process.exit(1)}; console.log("preview ping OK", j.deployMarker, "tg", j.hasTelegramToken)'
+          node -e 'const j=require("/tmp/preview-ping.json"); if(j.deployMarker!=="ceh-pack-h1"||j.previewIsolated!==true){console.error(j); process.exit(1)}; console.log("preview ping OK", j.deployMarker)'
       - name: Install playwright
         run: |
           npm install --prefix /tmp playwright@1.49.1
           npx --prefix /tmp playwright install chromium --with-deps
-      - name: Preview Нарезка before/after (16.11)
+      - name: Preview Ceh pack smoke
         env:
-          OUT_DIR: ${{ github.workspace }}/artifacts/partner-cut-plan
+          OUT_DIR: ${{ github.workspace }}/artifacts/ceh-pack
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
-          node scripts/preview-partner-cut-plan.mjs
+          node scripts/preview-ceh-pack.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: partner-cut-plan-preview
-          path: artifacts/partner-cut-plan/
+          name: ceh-pack-preview
+          path: artifacts/ceh-pack/
           if-no-files-found: warn

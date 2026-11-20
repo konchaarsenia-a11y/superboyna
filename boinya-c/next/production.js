@@ -20,6 +20,8 @@
   var asmDaySeen = "";
   var asmDetail = false;
   var asmFlags = Object.create(null);
+  var asmAssembler = null;
+  var dryOpen = false;
   var packOn = { "маленький": true, "средний": true, "большой": true, "целое": true, "крафт": true };
   var cour = [];
   var courDetail = false;
@@ -267,9 +269,25 @@
 
   function weekday(offset) {
     var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-    var d = new Date();
-    d.setDate(d.getDate() + (offset || 0));
-    return names[d.getDay()];
+    // ceh-pack-h1.8: день по календарю Europe/Minsk, не по часам устройства.
+    var base = new Date();
+    try {
+      var parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Minsk",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(base);
+      var y = "", mo = "", da = "";
+      parts.forEach(function (p) {
+        if (p.type === "year") y = p.value;
+        if (p.type === "month") mo = p.value;
+        if (p.type === "day") da = p.value;
+      });
+      if (y && mo && da) base = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(da)));
+    } catch (eTz) {}
+    base.setUTCDate(base.getUTCDate() + (offset || 0));
+    return names[base.getUTCDay()];
   }
 
   function lsGet(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
@@ -278,6 +296,18 @@
   function dayOf(kind) {
     if (kind === "cut") return lsGet("opsDayCutting") || weekday(1);
     return lsGet("opsDayCourier") || lsGet("opsDayAssembly") || weekday(0);
+  }
+
+  /* ceh-pack-h1.8: при входе во вкладку — Нарезка=завтра, Сборка/Курьер=сегодня (как legacy forceSmart). */
+  function forceSmartDay(kind) {
+    if (kind === "cut") {
+      var cutDay = weekday(1);
+      rememberDay("cut", cutDay);
+      return cutDay;
+    }
+    var opsDay = weekday(0);
+    rememberDay("route", opsDay);
+    return opsDay;
   }
 
   function rememberDay(kind, day) {
@@ -572,11 +602,13 @@
     cutSession.day = active ? day : "";
   }
 
-  async function loadCut(ticket) {
+  async function loadCut(ticket, attempt) {
     if (ticket == null) ticket = showTicket;
+    attempt = Number(attempt) || 0;
     var day = currentDay("nxCutDay", "cut");
     if (warmFresh(warmCut, day)) {
       var cached = warmCut.res;
+      // ceh-pack-h1.8: calendar-stub в warm не считаем готовыми данными.
       if (!(cached && cached.fromCalendar && !cached.fromGas && !cached.fromOrders)) {
         takeCutPayload(cached, day);
         if (liveSeg(ticket, "cut")) paintCut();
@@ -588,7 +620,10 @@
     }
     var res = null;
     try {
-      res = await api().apiGet({ action: "getCutting", day: day }, { timeoutMs: 28000, cacheTtlMs: 8000 });
+      res = await api().apiGet(
+        { action: "getCutting", day: day },
+        { timeoutMs: 28000, cacheTtlMs: attempt ? 0 : 8000 }
+      );
     } catch (e) {
       if (liveSeg(ticket, "cut")) {
         sh().toast("Не обновилось");
@@ -596,11 +631,20 @@
       }
       return;
     }
-    if (res) warmCut = { day: day, res: res, at: Date.now() };
     if (res && res.fromCalendar && !res.fromGas && !res.fromOrders) {
-      if (liveSeg(ticket, "cut")) sh().toast("Считаю нарезку по таблице…");
+      // ceh-pack-h1.8 + ceh-pack-h1.23: stub не кладём в warm; ретрай, иначе экран пустой.
+      if (liveSeg(ticket, "cut")) sh().toast("Считаю нарезку…");
+      if (attempt < 4 && liveSeg(ticket, "cut")) {
+        setTimeout(function () {
+          if (liveSeg(ticket, "cut")) loadCut(ticket, attempt + 1);
+        }, 1200 + attempt * 800);
+      } else if (liveSeg(ticket, "cut")) {
+        takeCutPayload(res, day);
+        paintCut();
+      }
       return;
     }
+    if (res) warmCut = { day: day, res: res, at: Date.now() };
     takeCutPayload(res, day);
     if (liveSeg(ticket, "cut")) paintCut();
   }
@@ -688,6 +732,19 @@
     return Math.round(wage * 100) / 100;
   }
 
+  /* ceh-pack-h1.12: нарезчику только нарезка (без 3×N); сборщику только сборка 3×N. Ставки те же. */
+  function cutOnlyWage_(G, P) {
+    var lib = root.BoinyaFormulas;
+    if (lib && lib.formulaParts_) return lib.formulaParts_({ G: G, P: P, N: 0 }).cut;
+    return cutterWage_(G, P, 0);
+  }
+
+  function assemblyOnlyWage_(N) {
+    var lib = root.BoinyaFormulas;
+    if (lib && lib.formulaParts_) return lib.formulaParts_({ G: 0, P: 0, N: N }).assembly;
+    return Math.round(3 * (Number(N) || 0) * 100) / 100;
+  }
+
   async function deliveriesOfDay_(day) {
     try {
       var res = await api().apiGet({ action: "getClients", day: day }, { timeoutMs: 20000, cacheTtlMs: 15000 });
@@ -703,7 +760,7 @@
     }
   }
 
-  function askCutter() {
+  function askStaffPerson_(title, hint) {
     return api().apiGet({ action: "listCuttingStaff" }, { timeoutMs: 12000, cacheTtlMs: 0 }).catch(function () {
       return null;
     }).then(function (staff) {
@@ -712,7 +769,7 @@
       var def = staff.defaultCutter || {};
       var defId = String(def.id || "");
       if (!people.length && (defId || def.name)) {
-        people = [{ id: defId, name: def.name || "Нарезчик" }];
+        people = [{ id: defId, name: def.name || "Сотрудник" }];
       }
       if (defId && !people.some(function (p) { return String(p.id || "") === defId; })) {
         people.unshift({ id: defId, name: def.name || defId });
@@ -721,7 +778,7 @@
         return new Promise(function (resolve) {
           cutterWait = resolve;
           sh().openSheet({
-            title: "Кто сегодня режет?",
+            title: title,
             html: '<p class="b-note">Список сотрудников пуст. Впишите имя.</p>' +
               '<label class="b-field"><span class="b-note">Имя</span><input class="b-field__input" id="nxCutterManual" placeholder="Имя"></label>' +
               '<button type="button" class="b-btn b-btn--main" data-act="pr-cutter-ok" style="margin-top:12px">Это он</button>',
@@ -742,8 +799,8 @@
       return new Promise(function (resolve) {
         cutterWait = resolve;
         sh().openSheet({
-          title: "Кто сегодня режет?",
-          html: '<p class="b-note">Один раз на этот день. По умолчанию тот, кто назначен нарезчиком на месяц.</p>' +
+          title: title,
+          html: '<p class="b-note">' + esc(hint || "Один раз на этот день.") + "</p>" +
             '<label class="b-field"><span class="b-note">Сотрудник</span><select class="b-field__input" id="nxCutterPick">' + opts + "</select></label>" +
             '<button type="button" class="b-btn b-btn--main" data-act="pr-cutter-ok" style="margin-top:12px">Это он</button>',
           onClose: function () {
@@ -757,9 +814,14 @@
     });
   }
 
+  function askCutter() {
+    return askStaffPerson_("Кто сегодня режет?", "Один раз на этот день. По умолчанию тот, кто назначен нарезчиком на месяц.");
+  }
+
   async function saveCutter(day, picked) {
     var vol = cutVolumes_(cutItems);
-    var N = await deliveriesOfDay_(day);
+    // ceh-pack-h1.12: N=0 — в ЗП нарезчика не входит 3×доставки (это сборка).
+    var N = 0;
     var res = null;
     try {
       res = await api().apiGet({
@@ -778,11 +840,49 @@
       id: (res.cutter && res.cutter.id) || picked.id || "",
       name: (res.cutter && res.cutter.name) || picked.name || "",
       iso: res.iso || "",
-      wage: res.wage != null ? res.wage : cutterWage_(vol.G, vol.P, N),
+      wage: res.wage != null ? res.wage : cutOnlyWage_(vol.G, vol.P),
       G: vol.G,
       P: vol.P,
       N: N
     };
+  }
+
+  function askAssembler() {
+    // ceh-pack-h1.12
+    return askStaffPerson_("Кто сегодня собирает?", "Один раз на этот день. По умолчанию тот, кто назначен нарезчиком-сборщиком на месяц.");
+  }
+
+  async function saveAssembler(day, picked) {
+    var N = await deliveriesOfDay_(day);
+    var res = null;
+    try {
+      res = await api().apiGet({
+        action: "saveAssemblyAssembler",
+        day: day,
+        assemblerId: picked.id || "",
+        assemblerName: picked.name || "",
+        N: String(N),
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+    } catch (e) { res = null; }
+    if (!res || res.status !== "success") return null;
+    return {
+      id: (res.assembler && res.assembler.id) || picked.id || "",
+      name: (res.assembler && res.assembler.name) || picked.name || "",
+      iso: res.iso || "",
+      wage: res.wage != null ? res.wage : assemblyOnlyWage_(N),
+      N: N
+    };
+  }
+
+  function needAssemblerAsk_(who) {
+    return !(who && (String(who.id || "").trim() || String(who.name || "").trim()));
+  }
+
+  function assemblerLineHtml() {
+    var who = asmAssembler && (asmAssembler.name || asmAssembler.id) ? (asmAssembler.name || asmAssembler.id) : "не выбран";
+    // ceh-pack-h1.12: выбор «кто сегодня собирает».
+    return '<p class="b-note">Сегодня собирает ' + esc(who) + ' · <button type="button" class="nx-link" data-act="pr-assembler">Сменить</button></p>';
   }
 
   async function startCut() {
@@ -1000,7 +1100,14 @@
   function dryWeightsHtml() {
     var rows = (asm && asm.dryWeights) || [];
     if (!rows.length) return "";
-    var html = '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Вес после сушки</p>' +
+    // ceh-pack-h1.27: по умолчанию компактная строка, по нажатию — ввод.
+    if (!dryOpen) {
+      return '<article class="b-card" style="margin-top:12px">' +
+        '<button type="button" class="b-btn b-btn--sec" data-act="pr-dry-toggle" style="width:100%">Вес после сушки · ' +
+        rows.length + " поз.</button></article>";
+    }
+    var html = '<article class="b-card" style="margin-top:12px"><p class="b-lbl">Вес после сушки' +
+      ' · <button type="button" class="nx-link" data-act="pr-dry-toggle">Свернуть</button></p>' +
       '<p class="b-note">Граммы сухого продукта. Сырьё = вес ÷ коэффициент усушки. Пустое поле — считаем по плану.</p>';
     rows.forEach(function (row) {
       var key = String(row.key || "");
@@ -1068,6 +1175,7 @@
   function paintAsm() {
     var day = dayOf("pack");
     var html = segBar() + dayField("nxAsmDay", day);
+    html += assemblerLineHtml();
     html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-asm-reload" style="margin-top:8px">Посчитать пакеты</button>';
     html += dryWeightsHtml();
     var res = asm;
@@ -1196,6 +1304,7 @@
       if (o.printed !== undefined) c.printed = !!o.printed;
     });
     asm = res;
+    if (res.assembler && (res.assembler.id || res.assembler.name)) asmAssembler = res.assembler;
   }
 
   async function loadAsm(force, ticket) {
@@ -1242,6 +1351,22 @@
     var c = findAsm(name);
     var day = currentDay("nxAsmDay", "pack");
     if (!c || !day) return;
+    // ceh-pack-h1.12: перед первой сборкой дня — кто собирает.
+    if (patch.assembled && needAssemblerAsk_(asmAssembler)) {
+      var picked = await askAssembler();
+      if (!picked || (!picked.id && !picked.name)) {
+        sh().toast("Сборка без сборщика не отмечена");
+        paintAsm();
+        return;
+      }
+      var saved = await saveAssembler(day, picked);
+      if (!saved) {
+        sh().toast("Не записалось, кто собирает");
+        paintAsm();
+        return;
+      }
+      asmAssembler = saved;
+    }
     var key = String(asmTitle(c) || c.name || "").toUpperCase();
     var prev = { assembled: !!c.assembled, printed: !!c.printed };
     if (patch.assembled !== undefined) c.assembled = !!patch.assembled;
@@ -1503,27 +1628,14 @@
     return segName === "Р" || segName === "РОЗНИЦА" || segName === "RETAIL" || segName === "R";
   }
 
-  /* Розница: улица и все дополнения сразу. Кнопка «Этаж и квартира» остаётся. */
+  /* ceh-pack-h1.56: у всех типов одинаково — улица + раскрытие подъезда/этажа/кв/кода. */
   function courierAddressLine(c) {
     var bits = addrBits(c);
-    if (!retailClient_(c)) return bits;
-    var pay = root.BoinyaOrderPayload;
-    var full = pay && pay.showAddress ? String(pay.showAddress(c, eng()) || "").trim() : "";
     var comment = String((c && (c.addressComment || c.addrComment || c.addressNote)) || "").trim();
-    // t506: в курьере без «·»
-    if (comment && full.indexOf(comment) < 0) full = full ? (full + ", " + comment) : comment;
-    var raw = String((c && c.address) || "").trim();
-    if (!full) full = raw || bits.street;
-    else if (raw) {
-      var compact = function (s) {
-        return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/gi, "");
-      };
-      var a = compact(full);
-      var b = compact(raw);
-      if (b && a.indexOf(b) < 0 && b.indexOf(a) < 0) full = full + ", " + raw;
-      else if (b.length > a.length) full = raw;
+    if (comment && String(bits.details || "").indexOf(comment) < 0) {
+      bits.details = bits.details ? (bits.details + ", " + comment) : comment;
     }
-    return { street: courierFmtStreet_(full || bits.street), details: bits.details };
+    return bits;
   }
 
   function partnerOrderMoney_(c) {
@@ -1703,12 +1815,14 @@
       var details = "";
       if (addr.details) {
         details = '<button type="button" class="nx-link" data-act="pr-open" data-i="' + idx + '">' +
-          (courOpen[idx] ? "Скрыть детали адреса" : "Этаж и квартира") + "</button>" +
+          (courOpen[idx] ? "Скрыть детали адреса" : "Подъезд, этаж, квартира") + "</button>" +
           (courOpen[idx] ? '<p class="b-note">' + esc(addr.details) + "</p>" : "");
       }
+      // ceh-pack-h1.72: отметка сборки на карточке курьера.
+      var asmMark = '<span class="plaque ' + (c.assembled ? "plaque--gold" : "plaque--bad") + '">' + esc(courBadge(c)) + "</span>";
       html += '<article class="b-card' + (c.delivered ? " nx-dim" : "") + '" style="margin-top:12px">' +
         '<div class="nx-nickrow"><div class="nx-nickbox">' + esc(nick) + "</div>" +
-        (kind ? '<span class="nx-type">' + esc(kind) + "</span>" : "") + "</div>" +
+        (kind ? '<span class="nx-type">' + esc(kind) + "</span>" : "") + asmMark + "</div>" +
         (who[1] && dog ? '<p class="b-note" style="margin:6px 0 0">' + esc(dog) + "</p>" : "") +
         (pet ? '<p class="b-note" style="margin:6px 0 0">' + esc(pet) + "</p>" : "") +
         (dogLine ? '<p class="nx-accent">' + esc(dogLine) + "</p>" : "") +
@@ -1869,11 +1983,51 @@
   }
 
   function readDepot() {
-    var h = document.getElementById("nxDepH");
-    var m = document.getElementById("nxDepM");
-    if (rt()) rt().setDepart(h ? h.value : 14, m ? m.value : 0);
+    // ceh-pack-h1.71: поля часа выезда убраны; константа 14:00 остаётся для расчёта маршрута.
+    if (rt()) rt().setDepart(14, 0);
     if (rt()) rt().setCourierCount(couriersN);
     return depotAddr || "Белецкого 10к2";
+  }
+
+  async function resolveMissedStops_(failed) {
+    if (!failed || !failed.length) return { keep: [], drop: [] };
+    var keep = [];
+    var drop = [];
+    var i;
+    for (i = 0; i < failed.length; i++) {
+      var f = failed[i];
+      var ans = await sh().choice({
+        title: "Не найдена точка",
+        text: (f.name || "Клиент") + "\n" + (f.address || "адрес пуст") + "\nУточнить координаты или пропустить?",
+        options: [
+          { label: "Ввести lat,lon", value: "coords" },
+          { label: "Другой адрес", value: "addr" },
+          { label: "Пропустить", value: "skip" },
+          { label: "Отмена сборки", value: "cancel" }
+        ]
+      });
+      if (!ans || ans === "cancel") return { keep: keep, drop: drop, cancel: true };
+      if (ans === "skip") { drop.push(f); continue; }
+      if (ans === "coords") {
+        var raw = await sh().prompt({ title: "Координаты", text: "53.9, 27.56", ok: "Ок" });
+        if (raw == null) { drop.push(f); continue; }
+        var m = String(raw).match(/(-?\d+[.,]\d+)\s*[,;\s]\s*(-?\d+[.,]\d+)/);
+        if (!m) { sh().toast("Не разобрал координаты"); drop.push(f); continue; }
+        f.lat = Number(String(m[1]).replace(",", "."));
+        f.lon = Number(String(m[2]).replace(",", "."));
+        keep.push(f);
+        continue;
+      }
+      if (ans === "addr") {
+        var alt = await sh().prompt({ title: "Адрес", text: f.address || "", ok: "Искать" });
+        if (alt == null || !String(alt).trim()) { drop.push(f); continue; }
+        f.address = String(alt).trim();
+        var geo = await rt().geocodeAddress(rt().normalizeAddressForMaps(f.address), true);
+        if (geo) { f.lat = geo.lat; f.lon = geo.lon; keep.push(f); }
+        else { sh().toast("Снова не нашлось: " + f.name); drop.push(f); }
+      }
+    }
+    return { keep: keep, drop: drop };
   }
 
   async function buildPlan() {
@@ -1892,6 +2046,7 @@
       : await route.geocodeAddress(route.normalizeAddressForMaps(depotAddr), true);
     route.state.depot = depotGeo || { lat: route.MINSK_CENTER.lat, lon: route.MINSK_CENTER.lon };
     var stops = [];
+    var failed = [];
     for (var i = 0; i < withAddr.length; i++) {
       var c = withAddr[i];
       planHtml = '<p class="b-note">Точка ' + (i + 1) + "/" + withAddr.length + "…</p>";
@@ -1922,7 +2077,7 @@
           if (geo) { lat = geo.lat; lon = geo.lon; }
         }
       }
-      stops.push({
+      var stop = {
         name: c.name,
         address: address,
         clientAddress: c.address || "",
@@ -1933,7 +2088,34 @@
         deliveryAfter: c.deliveryAfter || "",
         deliveryBefore: c.deliveryBefore || "",
         clientIndex: (cour || []).indexOf(c)
-      });
+      };
+      // ceh-pack-h1.46: не ставить наугад — явно спросить, если точку не нашло.
+      if (lat == null || lon == null || !isFinite(Number(lat)) || !isFinite(Number(lon))) {
+        failed.push(stop);
+      } else {
+        stops.push(stop);
+      }
+    }
+    if (failed.length) {
+      var names = failed.map(function (f) { return f.name; }).join(", ");
+      planHtml = '<article class="b-card" style="margin-top:8px"><p class="b-lbl">Не найдены точки</p><p class="b-note">' +
+        esc(names) + "</p></article>";
+      paintRoute();
+      var fixed = await resolveMissedStops_(failed);
+      if (fixed.cancel) {
+        planHtml = '<p class="b-note">Сборка маршрута отменена</p>';
+        paintRoute();
+        return;
+      }
+      (fixed.keep || []).forEach(function (s) { stops.push(s); });
+      if (fixed.drop && fixed.drop.length) {
+        sh().toast("Пропущены: " + fixed.drop.map(function (d) { return d.name; }).join(", "));
+      }
+    }
+    if (!stops.length) {
+      planHtml = '<p class="b-note">Нет точек с координатами</p>';
+      paintRoute();
+      return;
     }
     planHtml = '<p class="b-note">Считаю порядок…</p>';
     await route.refreshDriveMatrix(route.state.depot, stops);
@@ -1970,10 +2152,10 @@
         html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-ig" data-r="' + r + '" data-i="' + i + '">Копировать через N мин</button>';
         if (count === 2) html += '<button type="button" class="b-btn b-btn--sec" data-act="pr-move" data-r="' + r + '" data-i="' + i + '">→ ' + ((r === 0 ? 1 : 0) + 1) + "</button>";
       });
+      // ceh-pack-h1.52: кнопка «Все тексты клиентам» убрана.
       html += '<div class="nx-actions" style="margin-top:8px">' +
         '<button type="button" class="b-btn b-btn--main" data-act="pr-ymap" data-r="' + r + '">Карты · порядок · курьер ' + (r + 1) + "</button>" +
-        '<button type="button" class="b-btn b-btn--sec" data-act="pr-send" data-r="' + r + '">Отправить курьеру ' + (r + 1) + " в Telegram</button>" +
-        '<button type="button" class="b-btn b-btn--sec" data-act="pr-ig-all" data-r="' + r + '">Все тексты клиентам</button></div></article>';
+        '<button type="button" class="b-btn b-btn--sec" data-act="pr-send" data-r="' + r + '">Отправить курьеру ' + (r + 1) + " в Telegram</button></div></article>";
     }
     html = '<p class="b-note">Ориентир ' + esc(route.formatMinutes(total)) + "</p>" + html;
     return html;
@@ -2196,6 +2378,28 @@
     }
   }
 
+  function isPreviewHost_() {
+    try {
+      if (root.__BOINYA_PREVIEW__) return true;
+      var h = String((root.location && root.location.hostname) || "");
+      var href = String((root.location && root.location.href) || "");
+      if (/localhost|127\.0\.0\.1|pages\.dev|preview/i.test(h)) return true;
+      if (/[?&]preview=1\b/i.test(href)) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  /* ceh-pack-h1.63: текст пуша менеджеру (не клиенту). */
+  function missedPushText_(client, day, dateText, reason, creatorName, segment) {
+    return "🚚 Не получил доставку\n" +
+      "Клиент: " + String((client && client.name) || "") + "\n" +
+      "Тип: " + (segment || "—") + "\n" +
+      "День: " + (day || dateText || "—") + (dateText ? (" · " + dateText) : "") + "\n" +
+      "Причина: " + (reason || "не получил") + "\n" +
+      (creatorName ? ("От курьера: " + creatorName + "\n") : "") +
+      "\nВ Переносах у менеджера, пока не выставят новую дату.";
+  }
+
   async function missed(index) {
     var client = cour[index];
     var day = currentDay("nxCourDay", "route");
@@ -2218,13 +2422,26 @@
     }
     var u = api().telegramUser() || {};
     var tid = String(u.id || "");
+    var creatorName = [u.first_name, u.last_name].filter(Boolean).join(" ");
+    var dateText = cour._date || "";
+    var pushText = missedPushText_(client, day, dateText, reason, creatorName, client.segment || "");
+    // ceh-pack-h1.63: на preview не шлём реальным людям — только показ полезной нагрузки.
+    if (isPreviewHost_()) {
+      sh().openSheet({
+        title: "Preview · пуш менеджеру",
+        html: '<p class="b-note">Не отправлено (preview). Текст:</p><pre style="white-space:pre-wrap;margin:8px 0 0">' +
+          esc(pushText) + "</pre>"
+      });
+      sh().toast("Preview: пуш не отправлен");
+      return;
+    }
     if (!tid) { sh().toast("Нужен Telegram ID"); return; }
     var body = {
       action: "notifyMissedDelivery",
       telegramId: tid,
       client: client.name,
       day: day,
-      date: cour._date || "",
+      date: dateText,
       reason: reason,
       segment: client.segment || "",
       matchKey: client.matchKey || "",
@@ -2232,7 +2449,8 @@
       address: client.address || "",
       phone: client.phone || "",
       note: client.note || "",
-      createdByName: [u.first_name, u.last_name].filter(Boolean).join(" ")
+      createdByName: creatorName,
+      pushText: pushText
     };
     function ok(r) {
       return !!(r && (r.status === "success" || r.status === "accepted" || r.status === "sent_opaque" || r.d1Verified || r.parked));
@@ -2266,27 +2484,7 @@
     if (url) openLink(url);
   }
 
-  async function allMap() {
-    readDepot();
-    var list = maps() && maps().collectDayMapClients ? maps().collectDayMapClients(cour) : [];
-    if (!list.length) { sh().toast("Нет адресов"); return; }
-    var route = rt();
-    var depotGeo = route.state.depot;
-    if (depotHasCoords()) depotGeo = { lat: depotLat, lon: depotLon };
-    else if (!depotGeo || depotGeo.lat == null) {
-      depotGeo = await route.geocodeAddress(route.normalizeAddressForMaps(depotAddr), true);
-    }
-    route.state.depot = depotGeo || { lat: route.MINSK_CENTER.lat, lon: route.MINSK_CENTER.lon };
-    var points = [{ lat: route.state.depot.lat, lon: route.state.depot.lon }];
-    list.forEach(function (c) {
-      if (c.geo && c.geo.lat != null) points.push({ lat: Number(c.geo.lat), lon: Number(c.geo.lon), address: c.address });
-      else points.push({ address: c.address });
-    });
-    var chunks = maps().splitRouteChunks ? maps().splitRouteChunks(points) : [points];
-    var url = maps().buildYandexRouteUrl(chunks[0] || points);
-    openLink(url);
-    if (chunks.length > 1) sh().toast("Адресов много — открыт первый кусок, всего " + chunks.length);
-  }
+  // ceh-pack-h1.70: «Все адреса на карте» убрано (мёртвый код).
 
   function paint() {
     sh().dock("");
@@ -2302,10 +2500,18 @@
     seg = next;
     if (seg !== "cut" && cutSession.timer) { clearInterval(cutSession.timer); cutSession.timer = null; }
     if (next !== "route") stopCourAsmPoll();
-    paint();
-    if (seg === "cut") await loadCut(ticket);
-    else if (seg === "pack") await loadAsm(false, ticket);
-    else await loadCour(false, ticket);
+    // ceh-pack-h1.8: умный день при каждом входе во вкладку + скелет до load.
+    forceSmartDay(seg === "cut" ? "cut" : "route");
+    if (seg === "cut") {
+      sh().main(segBar() + dayField("nxCutDay", dayOf("cut")) + sh().skeleton(3));
+      await loadCut(ticket);
+    } else if (seg === "pack") {
+      sh().main(segBar() + dayField("nxAsmDay", dayOf("pack")) + assemblerLineHtml() + sh().skeleton(3));
+      await loadAsm(false, ticket);
+    } else {
+      sh().main(segBar() + dayField("nxCourDay", dayOf("route")) + sh().skeleton(3));
+      await loadCour(false, ticket);
+    }
   }
 
   function onAct(act, node, ev) {
@@ -2314,7 +2520,6 @@
       if (id === "nxCutDay") { cutDone = null; cutDetail = false; loadCut(); return true; }
       if (id === "nxAsmDay") { asm = null; asmDaySeen = ""; loadAsm(true); return true; }
       if (id === "nxCourDay") { planHtml = ""; loadCour(true); return true; }
-      if (id === "nxDepH" || id === "nxDepM") { readDepot(); return true; }
       if (node && node.getAttribute && node.getAttribute("data-act") === "pr-laid") {
         var itL = findCut(node.getAttribute("data-key"));
         if (!itL) return true;
@@ -2404,6 +2609,26 @@
       });
       return true;
     }
+    if (act === "pr-assembler") {
+      // ceh-pack-h1.12
+      var dayAsm = currentDay("nxAsmDay", "pack");
+      askAssembler().then(function (picked) {
+        if (!picked || (!picked.id && !picked.name)) return;
+        return saveAssembler(dayAsm, picked).then(function (saved) {
+          if (!saved) { sh().toast("Не записалось, кто собирает"); return; }
+          asmAssembler = saved;
+          sh().toast("Сегодня собирает " + (saved.name || saved.id));
+          paintAsm();
+        });
+      });
+      return true;
+    }
+    if (act === "pr-dry-toggle") {
+      // ceh-pack-h1.27
+      dryOpen = !dryOpen;
+      paintAsm();
+      return true;
+    }
     if (act === "pr-cut-start") { startCut(); return true; }
     if (act === "pr-cut-finish") { finishCut(); return true; }
     if (act === "pr-cut-more") { cutDetail = true; paintCut(); return true; }
@@ -2476,7 +2701,6 @@
     if (act === "pr-cour-back") { courDetail = false; paintRoute(); return true; }
     if (act === "pr-cn") { couriersN = node.getAttribute("data-n") === "2" ? 2 : 1; readDepot(); paintRoute(); return true; }
     if (act === "pr-build") { buildPlan(); return true; }
-    if (act === "pr-allmap") { allMap(); return true; }
     if (act === "pr-open") { var i = Number(node.getAttribute("data-i")); courOpen[i] = !courOpen[i]; paintRoute(); return true; }
     if (act === "pr-tel") { dialPhone(node.getAttribute("data-phone") || "", ev); return true; }
     if (act === "pr-map") { openMap(Number(node.getAttribute("data-i"))); return true; }
@@ -2494,14 +2718,6 @@
       var stops = rt().state.routes[r] || [];
       var text = rt().igMessageForStop(rt().state.depot, stops, si);
       copyText(text).then(function (ok) { sh().toast(ok ? "Скопировано" : text); });
-      return true;
-    }
-    if (act === "pr-ig-all") {
-      var rr = Number(node.getAttribute("data-r"));
-      var all = (rt().state.routes[rr] || []).map(function (s, i) {
-        return s.name + ":\n" + rt().igMessageForStop(rt().state.depot, rt().state.routes[rr], i);
-      }).join("\n\n---\n\n");
-      copyText(all).then(function (ok) { sh().toast(ok ? "Тексты скопированы" : "Пусто"); });
       return true;
     }
     if (act === "pr-move") {
@@ -2542,6 +2758,9 @@
     },
     cutVolumes_: cutVolumes_,
     cutterWage_: cutterWage_,
+    cutOnlyWage_: cutOnlyWage_,
+    assemblyOnlyWage_: assemblyOnlyWage_,
+    missedPushText_: missedPushText_,
     slotLabel: slotLabel,
     clientTypeLabel: clientTypeLabel,
     depotHasCoords: depotHasCoords,
