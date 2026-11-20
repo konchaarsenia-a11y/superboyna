@@ -472,14 +472,16 @@ body.nx-kb .nx-sheet__body {
   flex: 0 0 auto;
 }
 
-/* order-compose-readable-h1 */
+/* order-compose-readable-h1: полное «мелкий кубик» если помещается; ∫ в коде нет */
 #nxLines .nx-compose__frac {
   flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
 }
 
 /* order-compose-readable-h1 */
