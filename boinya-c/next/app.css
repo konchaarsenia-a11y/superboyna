@@ -421,6 +421,80 @@ body.nx-kb .nx-sheet__body {
   border-bottom: 0;
 }
 
+/* order-compose-readable-h1: СОСТАВ — имя на своей строке, управление в одну */
+#nxLines .nx-line--compose {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* order-compose-readable-h1 */
+#nxLines .nx-compose__head {
+  min-width: 0;
+}
+
+/* order-compose-readable-h1: полное имя с переносом, без многоточия */
+#nxLines .nx-compose__name {
+  display: block;
+  font-size: var(--b-f16);
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+}
+
+/* order-compose-readable-h1 */
+#nxLines .nx-compose__note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--b-f12);
+  color: var(--b-text-2);
+}
+
+/* order-compose-readable-h1: qty | фракция | ✕ без переноса */
+#nxLines .nx-compose__ctrl {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+/* order-compose-readable-h1 */
+#nxLines .nx-compose__ctrl .b-step,
+#nxLines .nx-compose__ctrl .b-gram {
+  flex: 0 0 auto;
+}
+
+/* order-compose-readable-h1: полное «мелкий кубик» если помещается; ∫ в коде нет */
+#nxLines .nx-compose__frac {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+}
+
+/* order-compose-readable-h1 */
+#nxLines .nx-compose__del {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
 .nx-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -769,16 +843,20 @@ button.nx-count {
   white-space: nowrap;
 }
 
+/* order-compose-readable-h1: «Итого …» без обрезки */
 #nxDock.nx-dock--order .b-sum__k {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
+  overflow: visible;
+  text-overflow: unset;
+  min-width: auto;
+  flex: 0 1 auto;
 }
 
 #nxDock.nx-dock--order .b-sum__v {
   font-family: inherit;
   letter-spacing: 0;
   flex: none;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 #nxDock.nx-dock--order .nx-actions {
@@ -786,6 +864,28 @@ button.nx-count {
   flex-wrap: nowrap;
   gap: 4px;
   margin: 0;
+}
+
+/* order-compose-readable-h1: на узком экране сумма на всю ширину */
+@media (max-width: 450px) {
+  #nxDock.nx-dock--order .b-dock__act {
+    flex-wrap: wrap;
+  }
+
+  #nxDock.nx-dock--order .b-sum {
+    flex: 1 1 100%;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  #nxDock.nx-dock--order .nx-actions {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  #nxDock.nx-dock--order .nx-actions > .b-btn {
+    flex: 1 1 auto;
+  }
 }
 
 #nxDock.nx-dock--order .nx-actions > .b-btn,

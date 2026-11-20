@@ -446,13 +446,14 @@
       ? root.BoinyaBasketAmount.itemAmount(it)
       : ((mix && mix.itemAmount) ? mix.itemAmount(it) : (it.value != null ? it.value : (it.val != null ? it.val : it.qty)));
     var name = eng().prettyProductName ? eng().prettyProductName(it.main || it.name) : (it.main || it.name);
-    var sub = "";
+    /* order-compose-readable-h1: заметки под именем (микс/розница), без дубля фракции */
+    var noteHtml = "";
     if (crumb && srcs.length >= 2) {
       /* t512: заголовок микса через общую подпись. */
       name = mix.crumbLineLabel
         ? mix.crumbLineLabel(it, eng().prettyProductName)
         : ("Крошка микс — " + grams + " г");
-      sub = '<div class="mix-parts">' + srcs.map(function (s, si) {
+      noteHtml = '<div class="mix-parts">' + srcs.map(function (s, si) {
         var q = mix.partQty(it, s, si, srcs.length);
         var label = String(eng().prettyProductName(s.name || s.main) || s.name || s.main || "").toLowerCase();
         return '<div class="mix-part">' + esc(label + (q ? " — " + q.qty + " г" : "")) + "</div>";
@@ -462,31 +463,32 @@
       name = mix.crumbLineLabel
         ? mix.crumbLineLabel(it, eng().prettyProductName)
         : (grams != null && grams !== "" ? ("Крошка — " + grams + " г") : "Крошка");
-    } else if (it.sub) sub = esc(eng().humanFraction(it.main, it.sub));
-    var price = "";
+    }
     if (state.orderType === "retail") {
       var c = eng().retailLineCost(it.main, it.sub, grams, it.cat, it);
-      if (c && c.found) price = ", " + money(c.cost) + " BYN";
+      if (c && c.found) {
+        noteHtml += '<span class="nx-compose__note">' + esc(money(c.cost) + " BYN") + "</span>";
+      }
     }
-    var subHtml = crumb && srcs.length >= 2 ? sub : ('<span class="b-sheet__sub">' + sub + esc(price) + "</span>");
-    if (crumb && srcs.length >= 2 && price) subHtml += '<span class="b-sheet__sub">' + esc(price) + "</span>";
     /* order-edit-row-actions-h1: удалить позицию + смена фракции/нарезки (как в legacy). */
     var fracs = (!crumb && it.cat !== "crumb")
       ? fractionsWithoutCrumb_(eng().catalogFractionsForUi_(it.cat, it.main || it.name) || [])
       : [];
     var fracBtn = fracs.length
-      ? ('<button type="button" class="b-chip" data-act="ifrac" data-i="' + i + '" aria-label="Сменить фракцию">' +
+      ? ('<button type="button" class="b-chip nx-compose__frac" data-act="ifrac" data-i="' + i + '" aria-label="Сменить фракцию">' +
         esc(it.sub ? (eng().humanFraction(it.main, it.sub) || it.sub) : "Фракция") + "</button>")
       : "";
-    var delBtn = '<button type="button" class="b-chip" data-act="idel" data-i="' + i + '" aria-label="Удалить позицию">Удалить</button>';
-    return '<div class="nx-line"><div class="b-grow"><span class="b-sheet__name">' + esc(name) + "</span>" +
-      subHtml + "</div>" +
-      (pieceQty_(it.cat, it.main, unit)
-        ? '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
-          '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
-          '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div>'
-        : gramQtyHtml("step", grams, unit, ' data-i="' + i + '"')) +
-      fracBtn + delBtn + "</div>";
+    /* order-compose-readable-h1: компактное ✕ вместо «Удалить» */
+    var delBtn = '<button type="button" class="b-chip nx-compose__del" data-act="idel" data-i="' + i + '" aria-label="Удалить позицию" title="Удалить">✕</button>';
+    var qtyHtml = pieceQty_(it.cat, it.main, unit)
+      ? '<div class="b-step" role="group"><button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="-1" aria-label="Меньше">−</button>' +
+        '<span class="b-step__val">' + esc(grams) + " " + esc(unit) + "</span>" +
+        '<button class="b-step__btn" type="button" data-act="step" data-i="' + i + '" data-dir="1" aria-label="Больше">+</button></div>'
+      : gramQtyHtml("step", grams, unit, ' data-i="' + i + '"');
+    /* order-compose-readable-h1: имя целиком → строка qty|frac|✕ */
+    return '<div class="nx-line nx-line--compose" data-i="' + i + '">' +
+      '<div class="nx-compose__head"><span class="nx-compose__name">' + esc(name) + "</span>" + noteHtml + "</div>" +
+      '<div class="nx-compose__ctrl">' + qtyHtml + fracBtn + delBtn + "</div></div>";
   }
 
   function basketLines() {
@@ -1989,21 +1991,21 @@
       await sh().alert({ text: "Укажите телефон" });
       return;
     }
+    /* order-address-soft-required-h1: подъезд/код/этаж/квартира — предупреждение, save не блокируем */
+    var addrSoftMissing = [];
     if (!state.meetAtDoor) {
-      folds.more = true;
-      folds.details = true;
-      if (!String(state.entrance || "").trim() || !String(state.doorCode || "").trim() ||
-          !String(state.floor || "").trim() || !String(state.flat || "").trim()) {
-        paint();
-        await sh().alert({ text: "Заполните подъезд, код домофона, этаж и квартиру — или включите «Встретит у подъезда»" });
-        return;
-      }
+      if (!String(state.entrance || "").trim()) addrSoftMissing.push("подъезд");
+      if (!String(state.doorCode || "").trim()) addrSoftMissing.push("код");
+      if (!String(state.floor || "").trim()) addrSoftMissing.push("этаж");
+      if (!String(state.flat || "").trim()) addrSoftMissing.push("квартира");
     } else if (!String(state.entrance || "").trim()) {
+      addrSoftMissing.push("подъезд");
+    }
+    if (addrSoftMissing.length) {
       folds.more = true;
       folds.details = true;
       paint();
-      await sh().alert({ text: "Укажите подъезд" });
-      return;
+      /* order-address-soft-required-h1: без return — сохранение идёт дальше */
     }
     eng().applyState(state);
     if (!eng().buildOrderSaveBasket_().length) { await sh().alert({ text: "Корзина пуста" }); return; }
@@ -2099,6 +2101,8 @@
     var priceShow = pay().orderPriceOf(state, eng());
     var msg = (state.isEdit ? "Обновить заказ " : "Сохранить заказ ") + clientName + "?";
     if (state.orderType !== "bp" && priceShow != null && !isNaN(Number(priceShow))) msg += "\nЦена: " + Number(priceShow) + " BYN";
+    /* order-address-soft-required-h1: в confirm видно, что поля пустые */
+    if (addrSoftMissing.length) msg += "\nНе заполнено: " + addrSoftMissing.join(", ") + " — сохраним так";
     var ok = await sh().confirm({ title: "Сохранить заказ", text: msg, ok: "Сохранить заказ" });
     if (!ok) return;
     // orders-page-fix: #18 — после успеха закрыть задачу «На потом»
@@ -2157,6 +2161,8 @@
     };
     if (root.BoinyaWeek && root.BoinyaWeek.confirmWrite) root.BoinyaWeek.confirmWrite(res, "сохранено", savedChange);
     else sh().toast(msgOut.text);
+    /* order-address-soft-required-h1: после успеха — явное предупреждение */
+    if (addrSoftMissing.length) sh().toast("Не заполнено: " + addrSoftMissing.join(", ") + " — сохранено");
     if (root.BoinyaWeek && root.BoinyaWeek.noteMonth) root.BoinyaWeek.noteMonth(savedChange);
     if (closeDeferredId) {
       try {
