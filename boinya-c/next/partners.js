@@ -191,19 +191,35 @@
     });
   }
 
+  /* partner-remove-h1: убрать/добавить — только owner/manager (как у добавления) */
+  function canManagePartners() {
+    if (!access) return true;
+    var r = String(access.role || "").toLowerCase();
+    return r === "owner" || r === "manager" || r === "all";
+  }
+
   function paintPointList() {
-    var pts = ((hub && hub.points) || []).filter(function (p) { return p && !L().partnerPointHidden_(p); });
+    // partner-remove-h1: soft-deleted (active:false) скрыты из списка
+    var pts = ((hub && hub.points) || []).filter(function (p) {
+      return L().partnerPointListVisible_ ? L().partnerPointListVisible_(p) : (p && !L().partnerPointHidden_(p) && p.active !== false);
+    });
     var nets = (hub && hub.networks) || [];
+    var manage = canManagePartners();
     var list = pts.length ? pts.map(function (p) {
       var face = L().partnerPointFace_(p);
       var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
-      var inactive = p.active === false;
-      return '<button type="button" class="nx-line" data-act="ph-pt-open" data-id="' + esc(p.id) + '" style="width:100%;text-align:left;background:transparent;border:0;color:inherit;padding:8px 0">' +
-        '<div class="b-grow"><b>' + esc(face.name) + "</b>" + (inactive ? ' <span class="b-note">(выкл)</span>' : "") +
-        '<div class="b-note">' + esc((net && net.name) || "") + (face.address ? (", " + esc(face.address)) : "") + "</div></div></button>";
+      return '<div class="nx-line" style="align-items:flex-start">' +
+        '<button type="button" class="b-grow" data-act="ph-pt-open" data-id="' + esc(p.id) + '" style="text-align:left;background:transparent;border:0;color:inherit;padding:8px 0">' +
+        "<b>" + esc(face.name) + "</b>" +
+        '<div class="b-note">' + esc((net && net.name) || "") + (face.address ? (", " + esc(face.address)) : "") + "</div></button>" +
+        (manage
+          ? '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-del" data-id="' + esc(p.id) + '" data-name="' + esc(face.name || p.name || "") + '">Убрать</button>'
+          : "") +
+        "</div>";
     }).join("") : '<p class="b-note">Нет точек</p>';
     return '<div class="nx-cut-head" style="justify-content:space-between"><p class="b-note" style="margin:0">Точки</p>' +
-      '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-new">+ Точка</button></div>' + list;
+      (manage ? '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-pt-new">+ Точка</button>' : "") +
+      "</div>" + list;
   }
 
   function paintPointCard() {
@@ -246,9 +262,10 @@
         '<option value="accepted"' + (consent === "accepted" ? " selected" : "") + ">Согласны</option>" +
         '<option value="declined"' + (consent === "declined" ? " selected" : "") + ">Отказались</option></select></label>" +
       '<div class="nx-actions" style="margin-top:12px">' +
-        '<button type="button" class="b-btn b-btn--main" data-act="ph-card-save">Сохранить</button>' +
-        (p && inactive ? '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-back" data-id="' + esc(p.id) + '">Вернуть</button>' : "") +
-        (p && !inactive ? '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-del" data-id="' + esc(p.id) + '">Удалить</button>' : "") +
+        (canManagePartners() ? '<button type="button" class="b-btn b-btn--main" data-act="ph-card-save">Сохранить</button>' : "") +
+        // partner-remove-h1: Убрать = soft-delete; Вернуть только для inactive (если открыли архив)
+        (canManagePartners() && p && inactive ? '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-back" data-id="' + esc(p.id) + '">Вернуть</button>' : "") +
+        (canManagePartners() && p && !inactive ? '<button type="button" class="b-btn b-btn--sec" data-act="ph-pt-del" data-id="' + esc(p.id) + '" data-name="' + esc(face.name || p.name || "") + '">Убрать</button>' : "") +
       "</div>";
   }
 
@@ -306,15 +323,14 @@
   }
 
   function paintBp() {
-    var list = bpList.length ? bpList.map(function (p) {
+    // partner-remove-h1: в списке только active (soft-delete скрыт)
+    var visible = bpList.filter(function (p) { return p && p.active !== false; });
+    var list = visible.length ? visible.map(function (p) {
       return '<article class="b-card" style="margin-top:8px"><b>' + esc(p.name) + "</b>" +
-        (p.active === false ? ' <span class="b-note">(выкл)</span>' : "") +
         (p.note ? ('<p class="b-note">' + esc(p.note) + "</p>") : "") +
         '<div class="nx-actions">' +
         '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-bp-edit" data-id="' + esc(p.id) + '">Изменить</button>' +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-bp-toggle" data-id="' + esc(p.id) + '" data-on="' + (p.active === false ? "1" : "0") + '">' +
-        (p.active === false ? "Включить" : "Выключить") + "</button>" +
-        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-bp-del" data-id="' + esc(p.id) + '" data-name="' + esc(p.name || "") + '">Удалить</button></div></article>';
+        '<button type="button" class="b-btn b-btn--sec b-btn--sm" data-act="ph-bp-del" data-id="' + esc(p.id) + '" data-name="' + esc(p.name || "") + '">Убрать</button></div></article>';
     }).join("") : '<p class="b-note">Пока пусто — добавьте первого партнёра выше</p>';
     return '<p class="b-lbl">Партнёры (источник БП)</p>' +
       '<p class="b-note">При заказе БП обязательно указать, кто привёл. Здесь список для выбора (+ «Другое» в заказе).</p>' +
@@ -819,12 +835,45 @@
   }
 
   async function deletePoint(id) {
+    // partner-remove-h1: soft-delete + confirm с именем и числом будущих активных
+    if (!canManagePartners()) { sh().toast("Нужны права владельца или менеджера"); return; }
     var p = ((hub && hub.points) || []).filter(function (x) { return x.id === id; })[0];
-    var ok = await sh().confirm({ title: "Точка", text: "Удалить точку «" + ((p && p.name) || id) + "»? Из мини-аппа пропадёт (можно вернуть).", ok: "Удалить" });
+    var face = p ? L().partnerPointFace_(p) : { name: id };
+    var name = face.name || (p && p.name) || id;
+    var future = { futureOrders: 0, futureSubs: 0, futureActive: 0 };
+    try {
+      var dry = await api().apiGet({
+        action: "partnerDeletePoint",
+        telegramId: tid(),
+        id: id,
+        dry: "1",
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      if (dry && dry.status === "success") {
+        future = {
+          futureOrders: Number(dry.futureOrders) || 0,
+          futureSubs: Number(dry.futureSubs) || 0,
+          futureActive: Number(dry.futureActive) || 0
+        };
+      }
+    } catch (eDry) {}
+    var text = L().partnerRemoveConfirmText_
+      ? L().partnerRemoveConfirmText_(name, future)
+      : ("Убрать партнёра «" + name + "»?");
+    var ok = await sh().confirm({ title: "Партнёр", text: text, ok: "Убрать" });
     if (!ok) return;
-    var res = await api().apiGet({ action: "partnerDeletePoint", telegramId: tid(), id: id, _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не удалилось — Deploy Code.gs?"); return; }
-    sh().toast("Точка удалена");
+    var res = await api().apiGet({
+      action: "partnerDeletePoint",
+      telegramId: tid(),
+      id: id,
+      _: String(Date.now())
+    }, { timeoutMs: 15000, cacheTtlMs: 0 });
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Не убралось");
+      return;
+    }
+    sh().toast("Партнёр убран");
+    cardId = "";
     hub = null;
     await loadHub({ force: 1 });
   }
@@ -904,10 +953,15 @@
   }
 
   async function deleteBp(id, name) {
-    var ok = await sh().confirm({ title: "Партнёр", text: "Убрать партнёра «" + name + "» из списка?", ok: "Убрать" });
+    // partner-remove-h1: soft-delete через deletePartner (active:false), без TG
+    if (!canManagePartners()) { sh().toast("Нужны права владельца или менеджера"); return; }
+    var text = L().partnerRemoveConfirmText_
+      ? L().partnerRemoveConfirmText_(name || id, { futureActive: 0 })
+      : ("Убрать партнёра «" + (name || id) + "» из списка?");
+    var ok = await sh().confirm({ title: "Партнёр", text: text, ok: "Убрать" });
     if (!ok) return;
     var res = await api().apiGet({ action: "deletePartner", id: id, name: name, telegramId: tid(), force: "1", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
-    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не удалилось"); await loadBp({ force: 1 }); return; }
+    if (!res || res.status !== "success") { sh().toast((res && res.message) || "Не убралось"); await loadBp({ force: 1 }); return; }
     if (Array.isArray(res.partners)) bpList = res.partners;
     await loadBp({ force: 1 });
   }

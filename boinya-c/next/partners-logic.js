@@ -29,6 +29,79 @@
     return false;
   }
 
+  /* partner-remove-h1: soft-gone точка не в списке и не в выборе новых заказов */
+  function partnerPointSoftGone_(p) {
+    return !!(p && p.active === false);
+  }
+
+  function partnerPointListVisible_(p) {
+    return !!(p && !partnerPointHidden_(p) && !partnerPointSoftGone_(p));
+  }
+
+  function partnerPointKeyLoose_(raw) {
+    return String(raw || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase()
+      .replace(/Ё/g, "Е")
+      .replace(/\bVARKA\b/g, "ВАРКА");
+  }
+
+  function partnerPointMatchesRef_(point, ref) {
+    if (!point || ref == null) return false;
+    var id = String(point.id || "").trim();
+    var nameKey = partnerPointKeyLoose_(point.name || "");
+    var face = partnerPointFace_(point);
+    var faceKey = partnerPointKeyLoose_(face && face.name);
+    var raw = String(ref || "").trim();
+    if (!raw) return false;
+    if (id && raw === id) return true;
+    var key = partnerPointKeyLoose_(raw);
+    if (nameKey && key === nameKey) return true;
+    if (faceKey && key === faceKey) return true;
+    if (nameKey && key.indexOf(nameKey) >= 0) return true;
+    if (faceKey && key.indexOf(faceKey) >= 0) return true;
+    return false;
+  }
+
+  /* partner-remove-h1: будущие/открытые заявки и подписки точки (только счёт, без мутаций) */
+  function partnerPointFutureActives_(point, pack, opts) {
+    opts = opts || {};
+    var today = opts.today || partnerMinskToday_();
+    var orders = 0;
+    var subs = 0;
+    ((pack && pack.orders) || []).forEach(function (o) {
+      if (!o) return;
+      var st = String(o.status || o.orderStatus || "").toLowerCase();
+      if (st === "delivered" || st === "cancelled" || st === "canceled") return;
+      var locId = String(o.locationId || o.pointId || "").trim();
+      var locName = o.locationName || o.userName || o.client || "";
+      if (!partnerPointMatchesRef_(point, locId) && !partnerPointMatchesRef_(point, locName)) return;
+      var date = String(o.deliverDateIso || o.dateIso || o.date || "").slice(0, 10);
+      if (date && date < today) return;
+      orders += 1;
+    });
+    ((pack && pack.subscriptions) || []).forEach(function (s) {
+      if (!s) return;
+      var st = String(s.status || s.ppStatus || "").toLowerCase();
+      if (/архив|отказ|refuse|archive|done|закрыт/.test(st)) return;
+      if (s.active === false) return;
+      var ref = s.ppPartner || s.partner || s.partnerName || "";
+      if (!partnerPointMatchesRef_(point, ref)) return;
+      subs += 1;
+    });
+    return { futureOrders: orders, futureSubs: subs, futureActive: orders + subs };
+  }
+
+  function partnerRemoveConfirmText_(name, future) {
+    var n = future && future.futureActive != null ? Number(future.futureActive) : 0;
+    var text = "Убрать партнёра «" + String(name || "") + "» из списка и выбора при новых заказах?";
+    if (n > 0) {
+      text += " Сейчас у него " + n + " будущих активных заказов/подписок — их не трогаем.";
+    }
+    return text;
+  }
+
   function partnerPointFace_(p) {
     p = p || {};
     var nm = p.name || p.id;
@@ -142,6 +215,11 @@
     partnerSuggestStatusRu_: partnerSuggestStatusRu_,
     partnerHubAccessGone_: partnerHubAccessGone_,
     partnerPointHidden_: partnerPointHidden_,
+    partnerPointSoftGone_: partnerPointSoftGone_,
+    partnerPointListVisible_: partnerPointListVisible_,
+    partnerPointMatchesRef_: partnerPointMatchesRef_,
+    partnerPointFutureActives_: partnerPointFutureActives_,
+    partnerRemoveConfirmText_: partnerRemoveConfirmText_,
     partnerPointFace_: partnerPointFace_,
     partnerAccessOpen_: partnerAccessOpen_,
     partnerMinskToday_: partnerMinskToday_,

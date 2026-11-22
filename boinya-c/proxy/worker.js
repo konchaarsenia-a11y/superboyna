@@ -2313,8 +2313,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      // partner-cut-plan-h1 (STEP4); ping hardcoded after #752 race so tip is provable (no-plus7-stamp-h1 already in code)
-      deployMarker: "partner-cut-plan-h1",
+      // partner-remove-h1; ping tip for preview/prod RO
+      deployMarker: "partner-remove-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -12724,6 +12724,55 @@ async function openDatedPartnerOrders_(env) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
     return date >= today;
   });
+}
+
+/** partner-remove-h1: счёт будущих/открытых заявок и подписок точки (без мутаций, без notify). */
+async function partnerPointFutureActivesCount_(env, point) {
+  const today = minkTodayIso_();
+  const id = String((point && point.id) || "").trim();
+  const nameKey = partnerPointKey_((point && point.name) || "");
+  let futureOrders = 0;
+  let futureSubs = 0;
+  function matchLoc(o) {
+    if (!o) return false;
+    const locId = String(o.locationId || o.pointId || "").trim();
+    if (id && locId === id) return true;
+    const locKey = partnerPointKey_(o.locationName || o.userName || o.client || "");
+    return !!(nameKey && locKey && locKey === nameKey);
+  }
+  try {
+    const pack = await getSnapRaw_(env, "partnerOrders");
+    ((pack && pack.orders) || []).forEach(function (o) {
+      if (!o || partnerOrderIsClosed_(o)) return;
+      if (!matchLoc(o)) return;
+      const date = partnerOrderDate_(o);
+      if (date && date < today) return;
+      futureOrders += 1;
+    });
+  } catch (ePo) {}
+  try {
+    const list = await getSnapRaw_(env, "listSubscriptions");
+    const subs = (list && (list.subscriptions || list.items)) || [];
+    subs.forEach(function (s) {
+      if (!s) return;
+      const st = String(s.status || s.ppStatus || s.stage || "").toLowerCase();
+      if (/архив|отказ|refuse|archive|закрыт/.test(st)) return;
+      if (s.active === false) return;
+      const ref = String(s.ppPartner || s.partner || s.partnerName || "").trim();
+      if (!ref) return;
+      if (id && ref === id) {
+        futureSubs += 1;
+        return;
+      }
+      const refKey = partnerPointKey_(ref);
+      if (nameKey && refKey && (refKey === nameKey || refKey.indexOf(nameKey) >= 0)) futureSubs += 1;
+    });
+  } catch (eSub) {}
+  return {
+    futureOrders: futureOrders,
+    futureSubs: futureSubs,
+    futureActive: futureOrders + futureSubs
+  };
 }
 
 /** Точка партнёра целиком. «Varka Цвирко» и «Varka Шевченко» — разные люди, не один handle VARKA. */
@@ -28122,18 +28171,25 @@ async function mutatePartners_(action, params, env) {
   const nameIn = String((params && params.name) || "").trim();
   const nameKey = nameIn.toLowerCase();
   if (action === "deletePartner") {
-    const before = arr.length;
-    arr = arr.filter(function (p) {
+    // partner-remove-h1: soft-delete (active:false), строка остаётся для истории/статистики
+    let wrote = 0;
+    let softId = idIn;
+    arr = arr.map(function (p) {
       const hit = partnerRowMatchId_(p, idIn, nameKey);
-      if (hit) {
-        const rid = String(p.id || "").trim();
-        if (rid && deletedIds.indexOf(rid) < 0) deletedIds.push(rid);
-      }
-      return !hit;
+      if (!hit) return p;
+      wrote = 1;
+      softId = String(p.id || idIn || "").trim();
+      if (softId && deletedIds.indexOf(softId) < 0) deletedIds.push(softId);
+      return Object.assign({}, p, {
+        active: false,
+        archivedAt: new Date().toISOString()
+      });
     });
     list.partners = arr;
     list.items = arr;
-    list.count = arr.length;
+    list.count = arr.filter(function (p) {
+      return p && p.active !== false;
+    }).length;
     list._deletedIds = deletedIds;
     list._d1TouchedAt = Date.now();
     list.status = "success";
@@ -28142,11 +28198,16 @@ async function mutatePartners_(action, params, env) {
     return {
       status: "success",
       sandbox: false,
-      wrote: before - arr.length,
+      wrote: wrote,
       deleted: true,
-      id: idIn,
-      partners: arr,
-      d1Verified: true
+      soft: true,
+      active: false,
+      id: softId,
+      partners: arr.filter(function (p) {
+        return p && p.active !== false;
+      }),
+      d1Verified: true,
+      notified: false
     };
   }
   let idx = -1;
@@ -35445,6 +35506,8 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerSavePoint$/i.test(a)) {
+    // partner-remove-h1: те же права, что у убрать — owner/manager
+    if (!partnerCanWriteAccess_(params)) return { status: "error", message: "owner_manager_only" };
     const name = String((params && params.name) || "").trim();
     const networkId = String((params && params.networkId) || "").trim();
     if (!name || !networkId) return { status: "error", message: "need_name_network" };
@@ -35475,6 +35538,8 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerDeletePoint$/i.test(a)) {
+    // partner-remove-h1: soft-delete (active:false), dry=1 только счёт, без TG/notify, заказы не трогаем
+    if (!partnerCanWriteAccess_(params)) return { status: "error", message: "owner_manager_only" };
     const id = String((params && params.id) || "").trim();
     if (!id) return { status: "error", message: "need_id" };
     let hit = -1;
@@ -35486,16 +35551,45 @@ async function mutatePartnerD1_(action, params, env) {
     }
     if (hit < 0) return { status: "error", message: "not_found" };
     const prev = admin.points[hit];
-    admin.points[hit] = Object.assign({}, prev, { active: false });
+    const future = await partnerPointFutureActivesCount_(env, prev);
+    const dry =
+      params &&
+      (params.dry === true ||
+        params.dry === 1 ||
+        params.dry === "1" ||
+        params.preview === true ||
+        params.preview === "1");
+    if (dry) {
+      return {
+        status: "success",
+        id: id,
+        dry: true,
+        name: prev.name || "",
+        networkId: prev.networkId || "",
+        futureOrders: future.futureOrders,
+        futureSubs: future.futureSubs,
+        futureActive: future.futureActive,
+        d1Verified: true
+      };
+    }
+    admin.points[hit] = Object.assign({}, prev, {
+      active: false,
+      archivedAt: new Date().toISOString()
+    });
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     return {
       status: "success",
       id: id,
       deleted: true,
+      soft: true,
       active: false,
       name: prev.name || "",
       networkId: prev.networkId || "",
-      d1Verified: true
+      futureOrders: future.futureOrders,
+      futureSubs: future.futureSubs,
+      futureActive: future.futureActive,
+      d1Verified: true,
+      notified: false
     };
   }
 
