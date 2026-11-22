@@ -1,0 +1,41 @@
+# Только чтение D1 + calcPrice. Ничего не пишет в БД/Sheets.
+name: pp-audit-cont-read
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/pp-audit-cont-read.yml
+      - scripts/pp-audit-cont-read.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Audit PP cont (read-only 29 + madmazelka + indix lines)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          PP_AUDIT_OUT: ${{ github.workspace }}/artifacts/pp-audit-cont
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          node scripts/pp-audit-cont-read.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pp-audit-cont
+          path: artifacts/pp-audit-cont/
+          if-no-files-found: warn
