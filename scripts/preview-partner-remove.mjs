@@ -1,6 +1,6 @@
 /**
- * Preview partner-remove-h1: add test point → soft-remove → gone from list/picker;
- * RO counts for real Varka points stay unchanged. Cleanup test point.
+ * Preview partner-remove-h1: seed → add test point → soft-remove → gone from list/picker;
+ * RO counts for Цвирко/Шевченко unchanged; cleanup; UI shots of Убрать + confirm.
  */
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -16,6 +16,10 @@ const OUT = process.env.OUT_DIR || "/opt/cursor/artifacts";
 const PORT = 8797;
 const TEST_NAME = "zzz_test_partner_remove_h1";
 const TEST_ADDR = "preview-only street 1";
+const REAL = [
+  { id: "pt_varka_tsvirko_100", name: "Varka Цвирко 100" },
+  { id: "pt_varka_shevchenko_1", name: "Varka Шевченко 1" }
+];
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -38,7 +42,6 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": contentType(fp), "Cache-Control": "no-store" });
   fs.createReadStream(fp).pipe(res);
 });
-
 await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
 
 async function api(action, params = {}, initData) {
@@ -55,32 +58,18 @@ async function api(action, params = {}, initData) {
   return res.json();
 }
 
-function pointByName(admin, name) {
-  return ((admin && admin.points) || []).find((p) => p && String(p.name || "") === name) || null;
-}
-
-function countOrdersForPoint(pack, point) {
-  const id = String((point && point.id) || "");
-  const name = String((point && point.name) || "");
-  let n = 0;
-  ((pack && pack.orders) || []).forEach((o) => {
-    if (!o) return;
-    const locId = String(o.locationId || o.pointId || "");
-    const locName = String(o.locationName || "");
-    if ((id && locId === id) || (name && locName === name)) n += 1;
-  });
-  return n;
-}
-
-function countSubsForPartner(list, name) {
-  let n = 0;
-  const key = String(name || "").toUpperCase();
-  ((list && (list.subscriptions || list.items)) || []).forEach((s) => {
-    const ref = String((s && (s.ppPartner || s.partner)) || "").toUpperCase();
-    if (key && ref && ref.indexOf(key.replace(/^VARKA\s*/, "VARKA ")) >= 0) n += 1;
-    else if (key && ref.indexOf(key) >= 0) n += 1;
-  });
-  return n;
+async function futureFor(id, init) {
+  const dry = await api(
+    "partnerDeletePoint",
+    { telegramId: "650923866", id, dry: "1", _: String(Date.now()) },
+    init
+  );
+  return {
+    status: dry.status,
+    futureOrders: Number(dry.futureOrders) || 0,
+    futureSubs: Number(dry.futureSubs) || 0,
+    futureActive: Number(dry.futureActive) || 0
+  };
 }
 
 const ping = await api("ping");
@@ -97,46 +86,39 @@ const report = {
   marker: "partner-remove-h1"
 };
 
-const beforeAdmin = await api("partnerListAdmin", { telegramId: "650923866" }, init);
-const beforeOrders = await api("partnerListMyOrders", { telegramId: "650923866", force: "1" }, init).catch(() => ({ orders: [] }));
-const beforePack = { orders: (beforeOrders && beforeOrders.orders) || [] };
-// partnerOrders snap via list — fallback empty
-let partnerOrdersSnap = beforePack;
-try {
-  const raw = await api("partnerListAdmin", { telegramId: "650923866", _: String(Date.now()) }, init);
-  report.adminPointsBefore = ((raw && raw.points) || []).filter((p) => p && p.active !== false).length;
-} catch (e) {
-  report.adminPointsBefore = ((beforeAdmin && beforeAdmin.points) || []).filter((p) => p && p.active !== false).length;
+const seed = await api("previewSeedPartnerRemove", { _: String(Date.now()) }, init);
+report.seed = {
+  status: seed.status,
+  points: seed.points,
+  futureOrdersCvirko: seed.futureOrdersCvirko,
+  futureOrdersShev: seed.futureOrdersShev,
+  message: seed.message
+};
+if (seed.status !== "success") {
+  fs.writeFileSync(path.join(OUT, "partner-remove-report.json"), JSON.stringify(report, null, 2));
+  console.error("seed failed", seed);
+  process.exit(1);
 }
 
-const realNames = ["Цвирко", "Шевченко"];
+const beforeAdmin = await api("partnerListAdmin", { telegramId: "650923866", force: "1", _: String(Date.now()) }, init);
+report.adminOk = beforeAdmin.status === "success";
+report.activeBefore = ((beforeAdmin && beforeAdmin.points) || []).filter((p) => p && p.active !== false).length;
+
 const realBefore = {};
-((beforeAdmin && beforeAdmin.points) || []).forEach((p) => {
-  if (!p || p.active === false) return;
-  const nm = String(p.name || "");
-  if (!realNames.some((x) => nm.indexOf(x) >= 0)) return;
-  realBefore[p.id] = {
-    id: p.id,
-    name: nm,
-    active: p.active !== false,
-    orders: countOrdersForPoint(partnerOrdersSnap, p)
-  };
-});
+for (const r of REAL) {
+  realBefore[r.id] = Object.assign({ name: r.name }, await futureFor(r.id, init));
+}
 report.realBefore = realBefore;
 
-// cleanup leftover test point
-const leftover = ((beforeAdmin && beforeAdmin.points) || []).filter((p) => p && String(p.name || "") === TEST_NAME);
-for (const p of leftover) {
-  await api(
-    "partnerDeletePoint",
-    { telegramId: "650923866", id: p.id, _: String(Date.now()) },
-    init
-  );
+// cleanup leftover test
+for (const p of (beforeAdmin && beforeAdmin.points) || []) {
+  if (p && String(p.name || "") === TEST_NAME) {
+    await api("partnerDeletePoint", { telegramId: "650923866", id: p.id, _: String(Date.now()) }, init);
+  }
 }
 
 const nets = (beforeAdmin && beforeAdmin.networks) || [];
-const netId = (nets.find((n) => n && n.active !== false) || nets[0] || {}).id || "net_varka";
-
+const netId = (nets.find((n) => n && n.id === "net_varka") || nets.find((n) => n && n.active !== false) || nets[0] || {}).id;
 const saved = await api(
   "partnerSavePoint",
   {
@@ -158,20 +140,11 @@ if (saved.status !== "success" || !saved.id) {
 const testId = saved.id;
 
 const midAdmin = await api("partnerListAdmin", { telegramId: "650923866", force: "1", _: String(Date.now()) }, init);
-const midHit = pointByName(midAdmin, TEST_NAME);
-report.listedAfterAdd = !!(midHit && midHit.active !== false && midHit.id === testId);
+const midHit = ((midAdmin && midAdmin.points) || []).find((p) => p && p.id === testId);
+report.listedAfterAdd = !!(midHit && midHit.active !== false);
 
-const dry = await api(
-  "partnerDeletePoint",
-  { telegramId: "650923866", id: testId, dry: "1", _: String(Date.now()) },
-  init
-);
-report.dry = {
-  status: dry.status,
-  futureActive: dry.futureActive,
-  futureOrders: dry.futureOrders,
-  futureSubs: dry.futureSubs
-};
+const dry = await futureFor(testId, init);
+report.dry = dry;
 
 const removed = await api(
   "partnerDeletePoint",
@@ -190,31 +163,45 @@ const afterAdmin = await api("partnerListAdmin", { telegramId: "650923866", forc
 const afterPts = (afterAdmin && afterAdmin.points) || [];
 const afterHit = afterPts.find((p) => p && p.id === testId);
 report.hiddenAfterRemove = !afterHit || afterHit.active === false;
-report.visibleActiveHasTest = afterPts.some((p) => p && p.active !== false && p.id === testId);
-
-const pickerPts = afterPts.filter((p) => p && p.active !== false);
-report.pickerHasTest = pickerPts.some((p) => p.id === testId || p.name === TEST_NAME);
+report.visibleActiveHasTest = afterPts.some((p) => p && p.active !== false && (p.id === testId || p.name === TEST_NAME));
+report.pickerHasTest = afterPts
+  .filter((p) => p && p.active !== false)
+  .some((p) => p.id === testId || p.name === TEST_NAME);
 
 const realAfter = {};
-afterPts.forEach((p) => {
-  if (!p) return;
-  const nm = String(p.name || "");
-  if (!realNames.some((x) => nm.indexOf(x) >= 0)) return;
-  realAfter[p.id] = {
-    id: p.id,
-    name: nm,
-    active: p.active !== false,
-    orders: countOrdersForPoint(partnerOrdersSnap, p)
-  };
-});
+for (const r of REAL) {
+  realAfter[r.id] = Object.assign({ name: r.name }, await futureFor(r.id, init));
+}
 report.realAfter = realAfter;
-report.realUnchanged = Object.keys(realBefore).every((id) => {
-  const a = realBefore[id];
-  const b = realAfter[id];
-  return b && a.active === b.active && a.orders === b.orders && a.name === b.name;
+report.realUnchanged = REAL.every((r) => {
+  const a = realBefore[r.id];
+  const b = realAfter[r.id];
+  return (
+    a &&
+    b &&
+    a.status === "success" &&
+    b.status === "success" &&
+    a.futureOrders === b.futureOrders &&
+    a.futureSubs === b.futureSubs &&
+    a.futureActive === b.futureActive
+  );
 });
 
-// UI screenshots from local next + preview Worker (?proxy=)
+// UI: re-add → open Партнёры → Убрать → confirm shot
+const uiSave = await api(
+  "partnerSavePoint",
+  {
+    telegramId: "650923866",
+    name: TEST_NAME,
+    networkId: netId,
+    address: TEST_ADDR,
+    active: "yes",
+    _: String(Date.now())
+  },
+  init
+);
+const uiId = uiSave.id;
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 await page.addInitScript((initData) => {
@@ -242,54 +229,35 @@ await page.addInitScript((initData) => {
   };
 }, init);
 
-// re-add for UI confirm shot, then remove via UI
-const uiSave = await api(
-  "partnerSavePoint",
-  {
-    telegramId: "650923866",
-    name: TEST_NAME,
-    networkId: netId,
-    address: TEST_ADDR,
-    active: "yes",
-    _: String(Date.now())
-  },
-  init
-);
-const uiId = uiSave.id;
-
 try {
   const url =
-    "http://127.0.0.1:" +
-    PORT +
-    "/next.html?cutover=1&proxy=" +
-    encodeURIComponent(PREV) +
-    "&v=" +
-    Date.now();
+    "http://127.0.0.1:" + PORT + "/next.html?cutover=1&proxy=" + encodeURIComponent(PREV) + "&v=" + Date.now();
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(2500);
-  await page.waitForFunction(() => !!(window.BoinyaPartners && window.BoinyaShell), null, { timeout: 25000 }).catch(() => {});
+  await page.waitForFunction(() => !!(window.BoinyaPartners && window.BoinyaShell), null, { timeout: 25000 });
   await page.evaluate(() => {
-    if (window.BoinyaPartners && window.BoinyaPartners.show) {
-      window.BoinyaPartners.bind({ role: "owner", telegramId: "650923866", access: "active" });
-      window.BoinyaPartners.show("points");
-    }
+    window.BoinyaPartners.bind({ role: "owner", telegramId: "650923866", access: "active" });
+    window.BoinyaPartners.show("points");
   });
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(3000);
 
   const removeBtn = page.locator(`[data-act="ph-pt-del"][data-id="${uiId}"]`).first();
   if (await removeBtn.count()) {
+    await removeBtn.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(OUT, "partner-remove-list-btn.png"), fullPage: true });
     await removeBtn.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1200);
     await page.screenshot({ path: path.join(OUT, "partner-remove-confirm.png"), fullPage: true });
-    const okBtn = page.locator(".b-sheet button.b-btn--main, [data-act='confirm-ok'], button:has-text('Убрать')").last();
+    const confirmText = await page.locator(".b-sheet, [data-sheet], .sheet").first().innerText().catch(() => "");
+    report.confirmText = String(confirmText || "").slice(0, 400);
+    const okBtn = page.locator(".b-sheet button.b-btn--main, button:has-text('Убрать')").last();
     if (await okBtn.count()) await okBtn.click();
     await page.waitForTimeout(2000);
     await page.screenshot({ path: path.join(OUT, "partner-remove-after.png"), fullPage: true });
     report.uiShots = true;
   } else {
     report.uiShots = false;
-    report.uiNote = "remove button not found; API path verified";
+    report.uiNote = "remove button not found";
     await page.screenshot({ path: path.join(OUT, "partner-remove-fallback.png"), fullPage: true });
     await api("partnerDeletePoint", { telegramId: "650923866", id: uiId, _: String(Date.now()) }, init);
   }
@@ -301,7 +269,7 @@ try {
 await browser.close();
 server.close();
 
-// final cleanup
+// final cleanup of test name
 const finalAdmin = await api("partnerListAdmin", { telegramId: "650923866", force: "1", _: String(Date.now()) }, init);
 for (const p of (finalAdmin && finalAdmin.points) || []) {
   if (p && String(p.name || "") === TEST_NAME && p.active !== false) {
@@ -310,6 +278,7 @@ for (const p of (finalAdmin && finalAdmin.points) || []) {
 }
 
 report.ok =
+  report.seed.status === "success" &&
   report.listedAfterAdd === true &&
   report.hiddenAfterRemove === true &&
   report.visibleActiveHasTest === false &&
@@ -318,7 +287,8 @@ report.ok =
   report.remove &&
   report.remove.status === "success" &&
   report.remove.soft === true &&
-  report.remove.notified === false;
+  report.remove.notified === false &&
+  report.uiShots === true;
 
 fs.writeFileSync(path.join(OUT, "partner-remove-report.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));

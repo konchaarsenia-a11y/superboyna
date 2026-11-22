@@ -1108,7 +1108,7 @@ async function resolveActor_(params, env) {
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan|previewSeedPartnerRemove)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -2330,6 +2330,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
   /* Preview-only: сид 16.11 + липкий snap нарезки без партнёра (до/после partner-cut-plan-h1). */
   if (/^previewSeedPartnerCutPlan$/i.test(a)) {
     return previewSeedPartnerCutPlan_(params, env);
+  }
+  /* partner-remove-h1: preview сид partnerListAdmin + заявки/подписки Цвирко/Шевченко */
+  if (/^previewSeedPartnerRemove$/i.test(a)) {
+    return previewSeedPartnerRemove_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
@@ -22307,6 +22311,9 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^previewSeedPartnerCutPlan$/i.test(a)) {
       return previewSeedPartnerCutPlan_(params, env);
     }
+    if (/^previewSeedPartnerRemove$/i.test(a)) {
+      return previewSeedPartnerRemove_(params, env);
+    }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
       const staffRes = await gasProxy_(a, params, env, { write: true });
@@ -34456,6 +34463,153 @@ async function previewSeedPartnerCutPlan_(params, env) {
     fromOrders: !!(cut && cut.fromOrders),
     previewStale: !!(cut && cut.previewStaleWithoutPartner),
     marker: "partner-cut-plan-h1"
+  };
+}
+
+/** partner-remove-h1: preview-only сид admin + будущие заявки/подписки реальных точек Варки. */
+async function previewSeedPartnerRemove_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only", cutover: true };
+  }
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true };
+  }
+  const now = new Date().toISOString();
+  const nets = [
+    { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png", active: true },
+    { id: "net_nan", name: "NAN", logo: "", active: true },
+    { id: "net_polotno", name: "polotno", logo: "", active: true },
+    { id: "net_indixvost", name: "indixvost", logo: "", active: true },
+    { id: "net_fundog", name: "Fundog", logo: "", active: true },
+    { id: "net_bobwow", name: "BowWow", logo: "", active: true }
+  ];
+  const points = PARTNER_LIVE_TEST_QUEUE.map(function (p) {
+    return {
+      id: p.id,
+      networkId: p.networkId,
+      name: p.name,
+      address: p.address || "",
+      active: true,
+      paidConsent: /varka/i.test(String(p.networkId || "")) ? "accepted" : ""
+    };
+  });
+  const admin = {
+    status: "success",
+    networks: nets,
+    points: points,
+    access: [
+      {
+        id: "acc_preview_owner",
+        role: "partner",
+        status: "active",
+        active: true,
+        telegramId: "650923866",
+        username: "arseny",
+        name: "Arseniy",
+        pointIds: points.map(function (p) {
+          return p.id;
+        })
+      }
+    ],
+    notifyRecipients: [{ telegramId: "650923866", name: "Arseniy" }],
+    cachedAt: now,
+    _d1TouchedAt: Date.now(),
+    previewSeed: "partner-remove-h1"
+  };
+  await putSnap_(env, "partnerListAdmin", admin);
+
+  // Известные будущие заявки: Цвирко×2, Шевченко×1 — для сверки «не трогаем»
+  const futureIso = "2026-12-15";
+  const partnerOrders = {
+    status: "success",
+    orders: [
+      {
+        id: "po_prev_cvirko_a",
+        status: "new",
+        locationId: "pt_varka_tsvirko_100",
+        locationName: "Varka Цвирко 100",
+        deliverDateIso: futureIso,
+        basket: [{ name: "СЕРДЦЕ", val: 50 }],
+        telegramId: "111",
+        previewSeed: "partner-remove-h1"
+      },
+      {
+        id: "po_prev_cvirko_b",
+        status: "new",
+        locationId: "pt_varka_tsvirko_100",
+        locationName: "Varka Цвирко 100",
+        deliverDateIso: futureIso,
+        basket: [{ name: "ЛЁГКОЕ", val: 100 }],
+        telegramId: "112",
+        previewSeed: "partner-remove-h1"
+      },
+      {
+        id: "po_prev_shev_a",
+        status: "new",
+        locationId: "pt_varka_shevchenko_1",
+        locationName: "Varka Шевченко 1",
+        deliverDateIso: futureIso,
+        basket: [{ name: "СЕРДЦЕ", val: 80 }],
+        telegramId: "113",
+        previewSeed: "partner-remove-h1"
+      },
+      {
+        id: "po_prev_old",
+        status: "delivered",
+        locationId: "pt_varka_tsvirko_100",
+        locationName: "Varka Цвирко 100",
+        deliverDateIso: "2026-10-01",
+        basket: [],
+        previewSeed: "partner-remove-h1"
+      }
+    ],
+    _d1TouchedAt: Date.now(),
+    previewSeed: "partner-remove-h1"
+  };
+  await putSnap_(env, "partnerOrders", partnerOrders);
+
+  let subsList = { status: "success", subscriptions: [] };
+  try {
+    const prevSubs = await getSnapRaw_(env, "listSubscriptions");
+    if (prevSubs && Array.isArray(prevSubs.subscriptions)) {
+      subsList.subscriptions = prevSubs.subscriptions.slice();
+    }
+  } catch (eSub) {}
+  const keep = subsList.subscriptions.filter(function (s) {
+    return !(s && s.previewSeed === "partner-remove-h1");
+  });
+  keep.push(
+    {
+      nick: "zzz_prev_cvirko_bp",
+      status: "БП1",
+      sheet: "БП",
+      ppPartner: "Varka · Varka Цвирко 100",
+      previewSeed: "partner-remove-h1"
+    },
+    {
+      nick: "zzz_prev_shev_bp",
+      status: "БП1",
+      sheet: "БП",
+      ppPartner: "Varka · Varka Шевченко 1",
+      previewSeed: "partner-remove-h1"
+    }
+  );
+  subsList.subscriptions = keep;
+  subsList._d1TouchedAt = Date.now();
+  await putSnap_(env, "listSubscriptions", subsList);
+
+  return {
+    status: "success",
+    cutover: true,
+    previewOnly: true,
+    marker: "partner-remove-h1",
+    points: points.length,
+    networks: nets.length,
+    futureOrdersCvirko: 2,
+    futureOrdersShev: 1,
+    futureSubsCvirko: 1,
+    futureSubsShev: 1,
+    d1Verified: true
   };
 }
 

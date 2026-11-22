@@ -57,6 +57,7 @@ test("partner-remove-h1: счёт будущих заявок/подписок �
 test("partner-remove-h1: Worker soft-delete + dry, без notify", () => {
   assert.match(worker, /partner-remove-h1/);
   assert.match(worker, /function partnerPointFutureActivesCount_/);
+  assert.match(worker, /function previewSeedPartnerRemove_/);
   assert.match(worker, /deployMarker: "partner-remove-h1"/);
   const delStart = worker.indexOf("if (/^partnerDeletePoint$/i.test(a))");
   assert.ok(delStart > 0);
