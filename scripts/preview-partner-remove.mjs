@@ -10,7 +10,7 @@ import path from "node:path";
 const require = createRequire("/tmp/package.json");
 const { chromium } = require("playwright");
 
-const ROOT = path.resolve("/agent/repos/superboyna/boinya-c");
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../boinya-c");
 const PREV = process.env.PREVIEW_URL || "https://boinya-c-preview-eabc.konchaarsenia.workers.dev";
 const OUT = process.env.OUT_DIR || "/opt/cursor/artifacts";
 const PORT = 8797;
