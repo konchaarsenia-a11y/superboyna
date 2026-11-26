@@ -91,13 +91,20 @@
     });
   }
 
-  async function refresh() {
-    var res = await api().apiGet({
+  async function refresh(opts) {
+    opts = opts || {};
+    var force = !!opts.force;
+    var req = {
       action: "listDeferred",
       telegramId: tid(),
       status: "open",
-      light: "1"
-    }, { timeoutMs: 12000, cacheTtlMs: 8000 });
+      light: force ? "0" : "1"
+    };
+    if (force) {
+      req.force = "1";
+      req._ = String(Date.now());
+    }
+    var res = await api().apiGet(req, { timeoutMs: 15000, cacheTtlMs: force ? 0 : 8000 });
     items = (res && res.items) || [];
     if (root.__nxTasksCount) root.__nxTasksCount(openItems().filter(function (it) {
       return allowed(L().tasksSub(it));
@@ -112,7 +119,7 @@
     access = acc;
     filter = "all";
     sh().openSheet({ title: "Задачи", html: sh().skeleton(3) });
-    try { await refresh(); } catch (e) { items = []; }
+    try { await refresh({ force: true }); } catch (e) { items = []; }
     paintSheet();
   }
 
@@ -123,6 +130,56 @@
     }
     if (!pl || typeof pl !== "object") pl = {};
     return pl.text || pl.note || (it && (it.note || it.client)) || "";
+  }
+
+  /* moves-info-h1: карточка переноса — кто, состав, откуда/причина, дата, адрес, сумма */
+  function xferInfoHtml(it, pl) {
+    pl = pl || {};
+    var who = String(it.clientNick || pl.client || it.client || "").trim() || "—";
+    var reason = String(pl.reason || "").trim();
+    var fromLabel = "";
+    if (pl.parked || /не получил/i.test(String(it.title || ""))) {
+      fromLabel = "Не получил" + (reason ? " · " + reason : "");
+    } else if (/цех|нарез|сборк/i.test(String(it.title || "") + " " + reason)) {
+      fromLabel = "Перенос из цеха" + (reason ? " · " + reason : "");
+    } else {
+      fromLabel = reason || String(it.title || "Перенос");
+    }
+    var dateRaw = String(pl.dateIso || pl.date || pl.oldDate || "").trim();
+    var dayName = String(pl.day || pl.oldDay || "").trim();
+    var when = [dayName, dateRaw].filter(Boolean).join(" · ") || "—";
+    var addr = String(pl.address || "").trim() || "—";
+    var basket = Array.isArray(pl.basket) ? pl.basket : [];
+    var lines = basket.map(function (row) {
+      if (!row) return "";
+      var nm = String(row.name || row.main || "").trim();
+      var val = row.val != null ? row.val : (row.value != null ? row.value : (row.qty != null ? row.qty : ""));
+      var unit = String(row.unit || "").trim();
+      var sub = String(row.sub || "").trim();
+      var bit = nm;
+      if (val !== "" && val != null) bit += " " + val + (unit ? " " + unit : "");
+      if (sub) bit += " (" + sub + ")";
+      return bit;
+    }).filter(Boolean);
+    var sum = "";
+    if (pl.orderPrice != null && pl.orderPrice !== "") sum = String(pl.orderPrice);
+    else if (pl.totalByn != null && pl.totalByn !== "") sum = String(pl.totalByn);
+    else if (pl.clientPrice != null && pl.clientPrice !== "") sum = String(pl.clientPrice);
+    var html = "";
+    html += '<p class="b-lbl" style="margin-top:0">Клиент</p><p class="b-note" style="color:var(--b-text)">' + esc(who) + "</p>";
+    html += '<p class="b-lbl">Откуда / причина</p><p class="b-note" style="color:var(--b-text)">' + esc(fromLabel) + "</p>";
+    html += '<p class="b-lbl">Исходная дата</p><p class="b-note" style="color:var(--b-text)">' + esc(when) + "</p>";
+    html += '<p class="b-lbl">Адрес</p><p class="b-note" style="color:var(--b-text)">' + esc(addr) + "</p>";
+    html += '<p class="b-lbl">Состав</p>';
+    if (lines.length) {
+      html += '<ul class="b-note" style="margin:0;padding-left:18px;color:var(--b-text)">';
+      lines.forEach(function (ln) { html += "<li>" + esc(ln) + "</li>"; });
+      html += "</ul>";
+    } else html += '<p class="b-note">Состав не указан</p>';
+    if (sum) html += '<p class="b-lbl">Сумма</p><p class="b-note" style="color:var(--b-text)">' + esc(sum) + " BYN</p>";
+    var note = String(pl.note || pl.text || "").trim();
+    if (note && note !== reason) html += '<p class="b-lbl">Заметка</p><p class="b-note" style="white-space:pre-wrap">' + esc(note) + "</p>";
+    return html;
   }
 
   async function actions(id) {
@@ -185,9 +242,12 @@
       var cancelLabel = mode === "partner" ? "Скрыть" : (sub === "remind" ? "Готово" : ((sub === "xfer" || sub === "buy") ? "Закрыть" : "Отменить"));
       buttons += '<button class="b-btn b-btn--sec" type="button" data-act="task-cancel" data-id="' + esc(id) + '" style="margin-top:8px">' + cancelLabel + "</button>";
     }
+    var bodyHtml = sub === "xfer"
+      ? xferInfoHtml(it, pl)
+      : '<p class="b-note" style="margin-top:0;white-space:pre-wrap">' + esc(note) + "</p>";
     sh().openSheet({
       title: it.title || "Задача",
-      html: '<p class="b-note" style="margin-top:0;white-space:pre-wrap">' + esc(note) + "</p>" + buttons
+      html: bodyHtml + buttons
     });
   }
 
@@ -479,5 +539,5 @@
     }
   }
 
-  root.BoinyaTasks = { open: open, onAct: onAct, refresh: refresh, bind: bind };
+  root.BoinyaTasks = { open: open, onAct: onAct, refresh: refresh, bind: bind, actions: actions };
 })(window);

@@ -1108,7 +1108,7 @@ async function resolveActor_(params, env) {
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan|previewSeedPartnerRemove)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan|previewSeedPartnerRemove|previewSeedT602u)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -1964,6 +1964,9 @@ async function handleAction_(action, params, env, url, ctx, request) {
   if (a === "saveWarehouse") return saveWarehouse_(params, actor, env);
   if (a === "deleteWarehouse") return deleteWarehouse_(params, env);
   if (a === "setDepartureWarehouse") return setDepartureWarehouse_(params, env);
+  /* settings-req-h1 / courier-req-h1 */
+  if (a === "getPayRequisitesTemplate") return getPayRequisitesTemplate_(env);
+  if (a === "savePayRequisitesTemplate") return savePayRequisitesTemplate_(params, actor, env);
   if (a === "listGoals") return listGoals_(env, actor);
   if (a === "saveGoal") return saveGoal_(params, env, actor);
   if (a === "deleteGoal") return deleteGoal_(params, env, actor);
@@ -2313,8 +2316,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      // partner-remove-h1; ping tip for preview/prod RO
-      deployMarker: "partner-remove-h1",
+      // t602u pack markers; ping tip for preview/prod RO
+      deployMarker: "ceh-move-nocut-h1|ceh-cut-finish-h1|courier-notgot-h1|moves-info-h1|courier-req-h1|settings-req-h1|tg-dates-msg-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -2334,6 +2337,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
   /* partner-remove-h1: preview сид partnerListAdmin + заявки/подписки Цвирко/Шевченко */
   if (/^previewSeedPartnerRemove$/i.test(a)) {
     return previewSeedPartnerRemove_(params, env);
+  }
+  /* t602u: preview сид курьера/шаблона реквизитов для live-copy проверок */
+  if (/^previewSeedT602u$/i.test(a)) {
+    return previewSeedT602u_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
@@ -4872,6 +4879,58 @@ async function listWarehouses_(env) {
   }
 }
 
+/* settings-req-h1: шаблон реквизитов в D1 snap payRequisitesTemplate */
+function defaultPayRequisitesTemplate_() {
+  return "Здравствуйте! К оплате {amount} BYN.\n\nРеквизиты для оплаты:\n[укажите реквизиты в Настройках]";
+}
+
+async function getPayRequisitesTemplate_(env) {
+  let tpl = "";
+  try {
+    const snap = await getSnapRaw_(env, "payRequisitesTemplate");
+    if (snap && snap.template) tpl = String(snap.template);
+  } catch (e) {}
+  if (!tpl) tpl = defaultPayRequisitesTemplate_();
+  return {
+    status: "success",
+    template: tpl,
+    placeholder: "{amount}",
+    fromD1: true,
+    deployMarker: "settings-req-h1"
+  };
+}
+
+async function savePayRequisitesTemplate_(params, actor, env) {
+  if (!(actor && (actor.isOwner || actor.role === "owner" || actor.role === "manager"))) {
+    return { status: "error", message: "forbidden" };
+  }
+  let text = params && params.template != null ? String(params.template) : "";
+  text = text.replace(/\r\n/g, "\n").trim();
+  if (!text) return { status: "error", message: "Пустой шаблон" };
+  if (text.length > 2000) return { status: "error", message: "Шаблон длиннее 2000 знаков" };
+  if (!/\{amount\}/i.test(text)) {
+    return { status: "error", message: "Добавьте плейсхолдер {amount} для суммы" };
+  }
+  const snap = {
+    template: text,
+    updatedAt: new Date().toISOString(),
+    updatedBy: String((actor && actor.telegramId) || (params && params.telegramId) || ""),
+    deployMarker: "settings-req-h1"
+  };
+  try {
+    await putSnap_(env, "payRequisitesTemplate", snap);
+  } catch (ePut) {
+    return { status: "error", message: "Не записалось в D1" };
+  }
+  return {
+    status: "success",
+    template: text,
+    fromD1: true,
+    d1Verified: true,
+    deployMarker: "settings-req-h1"
+  };
+}
+
 async function saveWarehouse_(params, actor, env) {
   if (!env || !env.DB) return { status: "error", message: "нет базы" };
   await ensureWarehouses_(env);
@@ -6934,8 +6993,15 @@ function moveCutSpec_(params) {
       topUp = true;
     }
   } else {
+    // ceh-move-nocut-h1: Без нарезки — skipAssemble из UI-вопроса «Нужна ли сборка?»
     noCut = true;
-    skipAssemble = explicit && (toBool_(params.skipAssemble) || String(params.assemble || "") === "0");
+    skipAssemble =
+      explicit &&
+      (toBool_(params.skipAssemble) || String(params.assemble || "") === "0");
+    if (toBool_(params.assemble) && String(params.assemble) !== "0") {
+      skipAssemble = false;
+    }
+    if (String(params.skipAssemble || "") === "0") skipAssemble = false;
     keys = [];
     labels = [];
   }
@@ -7282,8 +7348,33 @@ async function ensureCourierDay_(env, day) {
   } catch (eHit) {
     hit = null;
   }
+  /* preview seed (t602u): не затирать тестового курьера сверкой с getClients,
+     но courier-notgot-h1: parked «не получил» всё равно выкинуть */
+  if (hit && hit.previewSeed && String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+    try {
+      let infoSeed = null;
+      try {
+        infoSeed = await dayDateInfo_(env, day);
+      } catch (eInfoS) {
+        infoSeed = null;
+      }
+      const missedSeed = await openMissedParkedAliasSet_(
+        env,
+        day,
+        (infoSeed && infoSeed.iso) || hit.dateIso || ""
+      );
+      const beforeN = ((hit.clients) || []).length;
+      hit.clients = ((hit.clients) || []).filter(function (c) {
+        return !clientInAliasSet_(c, missedSeed);
+      });
+      if (((hit.clients) || []).length !== beforeN) {
+        await putSnap_(env, "courier:" + day, hit);
+      }
+    } catch (eMissSeed) {}
+    return { rebuilt: false, day: day, n: ((hit.clients) || []).length, previewSeed: true };
+  }
   const live = await getClients_({ day: day }, env);
-  const clients = (live && live.clients) || [];
+  let clients = (live && live.clients) || [];
   let info = null;
   try {
     info = await dayDateInfo_(env, day);
@@ -7291,6 +7382,14 @@ async function ensureCourierDay_(env, day) {
     info = null;
   }
   const want = String((info && (info.date || info.iso)) || "");
+  // courier-notgot-h1: в сверке live↔snap не считаем parked «не получил» «пропавшими»
+  let missedSet = Object.create(null);
+  try {
+    missedSet = await openMissedParkedAliasSet_(env, day, (info && info.iso) || "");
+    clients = clients.filter(function (c) {
+      return !clientInAliasSet_(c, missedSet);
+    });
+  } catch (eMissEns) {}
   const snapDate = String((hit && hit.date) || "");
   const dateBad = !!(want && snapDate && !sameCutDate_(snapDate, want));
   const by = indexByMatchAliases_((hit && hit.clients) || []);
@@ -7348,6 +7447,49 @@ async function reconcileTodayCourier_(env) {
   }
 }
 
+/** courier-notgot-h1: открытые «не получил» / parked transfer — не возвращать в курьер дня. */
+async function openMissedParkedAliasSet_(env, day, dateIso) {
+  const out = Object.create(null);
+  if (!env) return out;
+  let list = null;
+  try {
+    list = await getSnapRaw_(env, "listDeferred");
+  } catch (eList) {
+    list = null;
+  }
+  const wantDay = String(day || "").trim();
+  const wantIso = String(dateIso || "").slice(0, 10);
+  ((list && list.items) || []).forEach(function (it) {
+    if (!it) return;
+    if (String(it.status || "open").toLowerCase() !== "open") return;
+    const mode = String(it.mode || (it.payload && it.payload.mode) || "").toLowerCase();
+    if (mode !== "transfer") return;
+    const pl = it.payload && typeof it.payload === "object" ? it.payload : {};
+    const parked = !!(pl.parked || /не получил/i.test(String(it.title || "")));
+    if (!parked) return;
+    const plDay = String(pl.day || "").trim();
+    const plIso = String(pl.dateIso || pl.date || "").slice(0, 10);
+    if (wantDay && plDay && plDay !== wantDay) return;
+    if (wantIso && /^\d{4}-\d{2}-\d{2}$/.test(plIso) && plIso !== wantIso) return;
+    const nick = String(pl.client || it.clientNick || it.client || "").trim();
+    matchKeyAliases_(pl.matchKey || nick)
+      .concat(matchKeyAliases_(nick))
+      .forEach(function (k) {
+        if (k) out[k] = true;
+      });
+  });
+  return out;
+}
+
+function clientInAliasSet_(c, set) {
+  if (!c || !set) return false;
+  const aliases = matchKeyAliases_((c && (c.matchKey || c.name)) || "").concat(matchKeyAliases_((c && c.name) || ""));
+  for (let i = 0; i < aliases.length; i++) {
+    if (aliases[i] && set[aliases[i]]) return true;
+  }
+  return false;
+}
+
 /** Курьер «не получил»: мягкий park в D1 без тяжёлого invalidateDays_ (иначе CF/UI «Ошибка сети»). */
 async function parkMissedDeliveryD1_(params, env, proxied) {
   params = params || {};
@@ -7402,6 +7544,11 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
   } catch (eDrop) {}
 
   try {
+    // courier-notgot-h1: снять cancel-tombstone, иначе finalizeListDeferred выкинет новый park
+    try {
+      await clearDeferredCancelTombstone_(env, xferId, mk);
+      await clearDeferredCancelTombstone_(env, "", mk);
+    } catch (eTombClr) {}
     let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
     let arr = Array.isArray(list.items) ? list.items.slice() : [];
     arr = arr.filter(function (it) {
@@ -7416,6 +7563,14 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
       if (mk && nk && mk === nk) return false;
       return true;
     });
+    const orderPrice =
+      params.orderPrice != null
+        ? params.orderPrice
+        : rowMeta.orderPrice != null
+          ? rowMeta.orderPrice
+          : row && row.meta_json
+            ? (parseMeta_(row.meta_json) || {}).orderPrice
+            : null;
     arr.unshift({
       id: xferId,
       mode: "transfer",
@@ -7426,7 +7581,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
       payload: {
         mode: "transfer",
         parked: true,
-        reason: String(params.reason || ""),
+        reason: String(params.reason || "не получил"),
         day: day,
         date: dateRaw,
         dateIso: dateIso,
@@ -7439,6 +7594,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
         phone: phone,
         note: note,
         noCut: noCut,
+        orderPrice: orderPrice,
         createdByName: String(params.createdByName || "")
       }
     });
@@ -7449,6 +7605,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
     }).length;
     list.fromD1 = true;
     list.sandbox = false;
+    list.cachedAt = new Date().toISOString();
     await putSnap_(env, "listDeferred", list);
   } catch (eDef) {}
 
@@ -7465,7 +7622,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
     note: note,
     matchKey: String(params.matchKey || mk || ""),
     noCut: noCut,
-    deployMarker: "2026-09-15 fix-move-network-sheets-h1"
+    deployMarker: "courier-notgot-h1"
   };
 }
 
@@ -12222,9 +12379,17 @@ async function rebuildCourierDay_(env, day) {
     } catch (eAsm) {}
   }
   const infoIso = info.iso || "";
+  // courier-notgot-h1: не возвращать «не получил» из переносов обратно в маршрут
+  let missedSet = Object.create(null);
+  try {
+    missedSet = await openMissedParkedAliasSet_(env, day, infoIso);
+  } catch (eMiss) {
+    missedSet = Object.create(null);
+  }
   const clients = [];
   for (let ci = 0; ci < (live.clients || []).length; ci++) {
     const c = live.clients[ci];
+    if (clientInAliasSet_(c, missedSet)) continue;
     const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
     const asm = lookupByMatchAliases_(asmBy, c.matchKey || c.name);
     const merged = Object.assign({}, c, {
@@ -12565,6 +12730,13 @@ async function rebuildCuttingDay_(env, day) {
   const info = await dayDateInfo_(env, day);
   const prev = await getSnapRaw_(env, "cutting:" + day);
   const sameDate = sameCutDate_(prev && prev.date, info.date);
+  // ceh-cut-finish-h1: не сносить finished completion фоновым rebuild (race notgot→invalidate)
+  const keepFinished = !!(
+    prev &&
+    prev.completion &&
+    prev.session &&
+    prev.session.finished
+  );
   let wh = [];
   try {
     const wsnap = await getSnapRaw_(env, "warehouse");
@@ -12611,16 +12783,26 @@ async function rebuildCuttingDay_(env, day) {
     date: info.date || "",
     dateIso: info.iso || "",
     items: normalizeCuttingItems_(items),
-    session: sameDate ? (prev && prev.session) || {} : {},
-    cutter: sameDate ? (prev && prev.cutter) || null : null,
-    completion: sameDate ? (prev && prev.completion) || null : null,
+    session: keepFinished
+      ? Object.assign({}, prev.session || {}, { finished: true, active: false })
+      : sameDate
+        ? (prev && prev.session) || {}
+        : {},
+    cutter: sameDate || keepFinished ? (prev && prev.cutter) || null : null,
+    completion: keepFinished
+      ? prev.completion
+      : sameDate
+        ? (prev && prev.completion) || null
+        : null,
     transferOnly: transferOnly,
     sandbox: true,
     source: "d1",
     fromD1: true,
     fromOrders: true,
     fromGas: !!(sameDate && prev && prev.fromGas),
-    flagsTouchedAt: sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0
+    flagsTouchedAt:
+      keepFinished || sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0,
+    previewSeed: keepFinished ? prev.previewSeed || null : sameDate ? prev && prev.previewSeed : null
   };
   try {
     stripCuttingNotesAbsent_(payload, (live && live.clients) || []);
@@ -13507,6 +13689,13 @@ async function overlayCourierByDate_(env, day, hit) {
       list.push(c);
     });
   } catch (ePart) {}
+  // courier-notgot-h1: overlay по date_iso тоже не возвращает parked «не получил»
+  try {
+    const missedSet = await openMissedParkedAliasSet_(env, day, iso);
+    list = (list || []).filter(function (c) {
+      return !clientInAliasSet_(c, missedSet);
+    });
+  } catch (eMissOv) {}
   return Object.assign({}, hit, {
     clients: list,
     date: isoToDmy_(iso) || (hit && hit.date) || "",
@@ -13528,7 +13717,22 @@ async function getCourier_(params, env) {
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
   try { await refreshCourierAskPaid_(env, hit); } catch (eAsk) {}
   try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
-  try { hit = await overlayCourierByDate_(env, day, hit); } catch (eDate) {}
+  /* preview seed: overlay по date_iso не должен возвращать zzz_test_*,
+     но parked «не получил» фильтруем всегда (courier-notgot-h1) */
+  if (!(hit && hit.previewSeed && String((env && env.PREVIEW_ISOLATED) || "") === "1")) {
+    try { hit = await overlayCourierByDate_(env, day, hit); } catch (eDate) {}
+  } else {
+    try {
+      const missedPrev = await openMissedParkedAliasSet_(
+        env,
+        day,
+        hit.dateIso || ""
+      );
+      hit.clients = ((hit.clients) || []).filter(function (c) {
+        return !clientInAliasSet_(c, missedPrev);
+      });
+    } catch (eMissPrev) {}
+  }
   return hit;
 }
 
@@ -13804,7 +14008,13 @@ async function getCutting_(params, env) {
     const snapDate = String((hit && (hit.date || hit.dateIso)) || "");
     const dateOk = cuttingSnapDateOk_(wantDate, snapDate);
     const staleDone = !!(hit && hit.completion && wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
-    if (!dateOk || staleDone) hit = null;
+    // ceh-cut-finish-h1: завершённый день не выкидывать из‑за формата даты
+    const keepFinished = !!(
+      hit.completion &&
+      hit.session &&
+      hit.session.finished
+    );
+    if ((!dateOk || staleDone) && !keepFinished) hit = null;
   }
   // partner-cut-plan-h1 preview: keepStale=1 отдаёт посаженный snap без Varka (скрин «до»).
   if (
@@ -21973,6 +22183,7 @@ async function handleCutover_(a, params, env, ctx) {
       return body;
     }
     if (/^(startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting)$/i.test(a)) {
+      // ceh-cut-finish-h1: completion пишем в D1 сразу, не ждём GAS — иначе после F5 «завершение» пропадает
       const day = String((params && params.day) || "").trim() || "Понедельник";
       let cut = (await getSnapRaw_(env, "cutting:" + day)) || {
         status: "success",
@@ -21993,6 +22204,7 @@ async function handleCutover_(a, params, env, ctx) {
             : prevStarted > 0 && prevSess.active
               ? prevStarted
               : now;
+        cut.completion = null;
       } else if (/^(stopCuttingSession|finishCutting)$/i.test(a)) {
         startedAt = 0;
       } else {
@@ -22011,25 +22223,59 @@ async function handleCutover_(a, params, env, ctx) {
       cut.session = sess;
       cut.status = "success";
       cut.day = day;
+      let completionOut = null;
+      if (/^finishCutting$/i.test(a)) {
+        const items = Array.isArray(cut.items) ? cut.items.slice() : [];
+        const readyList = parseFinishReadyList_(params, {});
+        if (readyList.length) {
+          items.forEach(function (it) {
+            if (!it) return;
+            const hit = readyList.some(function (r) {
+              const rowHit = isCuttingSheetRow_(r.row) && Number(it.row) === Number(r.row);
+              const nameHit = !!(r.name && cutNameKey_(r.name) === cutNameKey_(it.name));
+              return rowHit || nameHit;
+            });
+            if (hit) {
+              it.done = true;
+              it.laid = true;
+            }
+          });
+        }
+        cut.items = items;
+        completionOut = {
+          day: day,
+          dateText: cut.date || "",
+          date: cut.date || cut.dateIso || "",
+          elapsedMs: Number(params && params.elapsed) || 0,
+          finishedAt: new Date().toISOString(),
+          count: items.length,
+          items: items
+        };
+        cut.completion = completionOut;
+        cut.flagsTouchedAt = now;
+        cut.fromD1 = true;
+      }
       await putSnap_(env, "cutting:" + day, cut);
       const okSess = {
         status: "success",
         action: a,
         day: day,
         session: sess,
+        completion: completionOut || cut.completion || undefined,
         cutover: true,
         fromD1: true,
         fromGas: false,
         sandbox: false,
         d1Verified: true,
-        pendingSheets: true
+        pendingSheets: true,
+        deployMarker: "ceh-cut-finish-h1"
       };
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasProxy_(a, params, env, { write: true })
             .then(async function (live) {
               try {
-                await syncOpsWriteToD1_(a, params, env, live || {});
+                await syncOpsWriteToD1_(a, params, env, live || { status: "success", completion: completionOut });
               } catch (e) {}
             })
             .catch(function () {
@@ -22313,6 +22559,9 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (/^previewSeedPartnerRemove$/i.test(a)) {
       return previewSeedPartnerRemove_(params, env);
+    }
+    if (/^previewSeedT602u$/i.test(a)) {
+      return previewSeedT602u_(params, env);
     }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
@@ -23011,7 +23260,13 @@ async function handleCutover_(a, params, env, ctx) {
           : !!(wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
       const staleDone =
         a === "getCutting" && fast.completion && wantDate && (!snapDate || !sameCutDate_(snapDate, wantDate));
-      if (dateMismatch || staleDone) {
+      const keepCutFinished = !!(
+        a === "getCutting" &&
+        fast.completion &&
+        fast.session &&
+        fast.session.finished
+      );
+      if ((dateMismatch || staleDone) && !keepCutFinished) {
         if (a === "getCutting") {
           try {
             const rebuilt = await rebuildCuttingDay_(env, params.day);
@@ -23029,6 +23284,31 @@ async function handleCutover_(a, params, env, ctx) {
           fast.fromGas = false;
           fast.cutover = true;
           fast.swr = true;
+          return fast;
+        }
+        /* preview seed: не сносить courier snap из-за dateMismatch;
+           courier-notgot-h1: всё равно выкинуть parked */
+        if (
+          a === "getCourier" &&
+          fast &&
+          fast.previewSeed &&
+          String((env && env.PREVIEW_ISOLATED) || "") === "1"
+        ) {
+          if (wantDate) fast.date = info.date || fast.date;
+          if (info && info.iso) fast.dateIso = info.iso;
+          try {
+            const missedFast = await openMissedParkedAliasSet_(
+              env,
+              params.day,
+              (info && info.iso) || fast.dateIso || ""
+            );
+            fast.clients = ((fast.clients) || []).filter(function (c) {
+              return !clientInAliasSet_(c, missedFast);
+            });
+          } catch (eMissFast) {}
+          fast.cutover = true;
+          fast.swr = true;
+          fast.fromGas = false;
           return fast;
         }
         await delSnap_(env, (a === "getCourier" ? "courier:" : "assembly:") + params.day);
@@ -23108,6 +23388,16 @@ async function handleCutover_(a, params, env, ctx) {
         if (a !== "getCutting") live.fromGas = true;
         live.swr = true;
         return live;
+      }
+      if (live && live.sheetsFinishOnly && fast) {
+        return Object.assign({}, fast, {
+          cutover: true,
+          swr: true,
+          fromGas: false,
+          fromD1: true,
+          sandbox: false,
+          empty: !((fast.clients && fast.clients.length) || (fast.items && fast.items.length))
+        });
       }
     } catch (eCut) {}
   }
@@ -23370,6 +23660,13 @@ async function handleCutover_(a, params, env, ctx) {
   try {
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
+      // finish-only: GAS skip — не отдавать sheets_finish_only вместо курьера/нарезки/сборки
+      if (
+        live.sheetsFinishOnly &&
+        (a === "getCourier" || a === "getCutting" || a === "getAssembly" || a === "getClients")
+      ) {
+        return cutoverEmptyRead_(a, params);
+      }
       if (a === "getClients" && params && params.day) {
         await sanitizeGasClientsPayload_(env, params.day, live);
       }
@@ -32800,7 +33097,7 @@ async function telegramSendPhotoWorker_(env, chatId, photoBase64, caption) {
   }
 }
 
-async function telegramSendTextWorker_(env, chatId, text, markup) {
+async function telegramSendTextWorker_(env, chatId, text, markup, opts) {
   const token = getTelegramTokenWorker_(env);
   const id = chatId != null ? String(chatId).trim() : "";
   if (!id) {
@@ -32816,7 +33113,8 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
       stubOnly: !allow,
       chat_id: id,
       text: String(text || "").slice(0, 500),
-      hasMarkup: !!markup
+      hasMarkup: !!markup,
+      parse_mode: opts && opts.parse_mode ? String(opts.parse_mode) : ""
     };
     try {
       const prev = (await getSnapRaw_(env, "previewTgStub:last")) || { items: [] };
@@ -32834,6 +33132,7 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
     text: String(text || "").slice(0, 3500),
     disable_web_page_preview: false
   };
+  if (opts && opts.parse_mode) payload.parse_mode = String(opts.parse_mode);
   if (markup) payload.reply_markup = markup;
   try {
     const res = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
@@ -34467,6 +34766,231 @@ async function previewSeedPartnerCutPlan_(params, env) {
 }
 
 /** partner-remove-h1: preview-only сид admin + будущие заявки/подписки реальных точек Варки. */
+/** t602u preview: платящий клиент в курьере + шаблон реквизитов (только PREVIEW_ISOLATED). */
+async function previewSeedT602u_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only", cutover: true };
+  }
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true };
+  }
+  const day = String((params && params.day) || "Пятница");
+  const info = await dayDateInfo_(env, day).catch(function () {
+    return { date: "", iso: "" };
+  });
+  let iso = String((info && info.iso) || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    try {
+      iso = todayIsoMinskD1_();
+    } catch (eIso) {
+      iso = "2099-01-03";
+    }
+  }
+  const nick = "zzz_test_t602u";
+  const nick2 = "zzz_test_t602u_pp2";
+  const mk = normalizeMatchKey_(nick);
+  const mk2 = normalizeMatchKey_(nick2);
+  // courier-notgot-h1: старые cancel-tombstones / open xfer не должны глотать seed в курьере
+  try {
+    await clearDeferredCancelTombstone_(env, "", mk);
+    await clearDeferredCancelTombstone_(env, "", mk2);
+  } catch (eTomb) {}
+  try {
+    await putSnap_(env, "deferredCancelTombstones", { items: [], previewSeed: "t602u-pack-h1" });
+  } catch (eTomb2) {}
+  try {
+    const def = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+    const kept = ((def.items) || []).filter(function (it) {
+      if (!it) return false;
+      const nick = String(
+        it.clientNick ||
+          it.client ||
+          (it.payload && (it.payload.client || it.payload.clientNick)) ||
+          ""
+      );
+      if (/zzz_test_t602u/i.test(nick)) return false;
+      if (/zzz_test_t602u/i.test(String(it.title || ""))) return false;
+      return true;
+    });
+    if (kept.length !== ((def.items) || []).length) {
+      def.items = kept;
+      def.openCount = kept.filter(function (it) {
+        return String((it && it.status) || "open").toLowerCase() === "open";
+      }).length;
+      def.previewSeed = "t602u-pack-h1";
+      await putSnap_(env, "listDeferred", def);
+    }
+  } catch (eDefClr) {}
+  const basket = [
+    { name: "Сердце", val: 100, unit: "г" },
+    { name: "Лёгкое", val: 50, unit: "г" }
+  ];
+  const orderId = "ord_preview_t602u_" + day;
+  const orderId2 = "ord_preview_t602u_pp2_" + day;
+  try {
+    await upsertOrderRow_(
+      env,
+      {
+        id: orderId,
+        date_iso: iso,
+        day_name: day,
+        client: nick,
+        match_key: mk,
+        address: "Белецкого 10к2, preview",
+        note: "preview-t602u",
+        phone: "+375290000000",
+        basket_json: JSON.stringify(basket),
+        segment: "ПП",
+        source: "preview-t602u",
+        status: "active",
+        updated_at: new Date().toISOString(),
+        meta_json: JSON.stringify({ orderPrice: 42.5, ppSlot: "1", previewSeed: "t602u-pack-h1" })
+      },
+      { allowEmptyOverwrite: true }
+    );
+  } catch (eOrd) {}
+  try {
+    await upsertOrderRow_(
+      env,
+      {
+        id: orderId2,
+        date_iso: iso,
+        day_name: day,
+        client: nick2,
+        match_key: mk2,
+        address: "Белецкого 10к2, preview-pp2",
+        note: "preview-t602u-pp2",
+        phone: "+375290000001",
+        basket_json: JSON.stringify([{ name: "Сердце", val: 50, unit: "г" }]),
+        segment: "ПП",
+        source: "preview-t602u",
+        status: "active",
+        updated_at: new Date().toISOString(),
+        meta_json: JSON.stringify({ orderPrice: 20, ppSlot: "2", previewSeed: "t602u-pack-h1" })
+      },
+      { allowEmptyOverwrite: true }
+    );
+  } catch (eOrd2) {}
+  const client = {
+    name: nick,
+    client: nick,
+    matchKey: mk,
+    segment: "ПП",
+    ppSlot: "1",
+    orderPrice: 42.5,
+    payDue: 42.5,
+    address: "Белецкого 10к2, preview",
+    phone: "+375290000000",
+    note: "preview-t602u",
+    delivered: false,
+    basket: basket,
+    orderId: orderId,
+    dateIso: iso
+  };
+  const clientPp2 = {
+    name: nick2,
+    client: nick2,
+    matchKey: mk2,
+    segment: "ПП",
+    ppSlot: "2",
+    deliverySlot: 2,
+    orderPrice: 20,
+    payDue: 0,
+    address: "Белецкого 10к2, preview-pp2",
+    phone: "+375290000001",
+    note: "preview-t602u-pp2",
+    delivered: false,
+    basket: [{ name: "Сердце", val: 50, unit: "г" }],
+    orderId: orderId2,
+    dateIso: iso
+  };
+  const cour = {
+    status: "success",
+    day: day,
+    date: isoToDmy_(iso) || (info && info.date) || "",
+    dateIso: iso,
+    clients: [client, clientPp2],
+    fromD1: true,
+    previewSeed: "t602u-pack-h1",
+    cachedAt: new Date().toISOString()
+  };
+  await putSnap_(env, "courier:" + day, cour);
+  // ceh-cut-finish-h1: позиции для UI «Завершить нарезку»
+  // date = тот же формат, что dayDateInfo_, иначе rebuildCuttingDay_ считает !sameDate
+  // Повторный seed не сносит уже finished completion (F5/reenter в preview).
+  const cutDate = String((info && info.date) || cour.date || isoToDmy_(iso) || "");
+  let prevCut = null;
+  try {
+    prevCut = await getSnapRaw_(env, "cutting:" + day);
+  } catch (ePrevCut) {
+    prevCut = null;
+  }
+  const keepCutDone = !!(
+    prevCut &&
+    prevCut.completion &&
+    prevCut.session &&
+    prevCut.session.finished
+  );
+  const cut = {
+    status: "success",
+    day: day,
+    date: cutDate,
+    dateIso: iso,
+    items: keepCutDone && Array.isArray(prevCut.items) && prevCut.items.length
+      ? prevCut.items
+      : [
+          {
+            key: "preview-heart",
+            name: "Сердце",
+            label: "Сердце ломтики",
+            qty: 150,
+            unit: "г",
+            done: true,
+            laid: true
+          },
+          {
+            key: "preview-lung",
+            name: "Лёгкое",
+            label: "Лёгкое среднее",
+            qty: 50,
+            unit: "г",
+            done: true,
+            laid: true
+          }
+        ],
+    session: keepCutDone
+      ? Object.assign({}, prevCut.session || {}, { finished: true, active: false })
+      : { active: true, day: day, startedAt: Date.now() - 120000 },
+    completion: keepCutDone ? prevCut.completion : null,
+    fromD1: true,
+    previewSeed: "t602u-pack-h1",
+    cachedAt: new Date().toISOString()
+  };
+  await putSnap_(env, "cutting:" + day, cut);
+  const tpl =
+    "Здравствуйте! К оплате {amount} BYN.\n\nРеквизиты PREVIEW:\nр/с PREVIEW-ONLY (не слать клиентам).";
+  await putSnap_(env, "payRequisitesTemplate", {
+    template: tpl,
+    updatedAt: new Date().toISOString(),
+    previewSeed: "settings-req-h1"
+  });
+  return {
+    status: "success",
+    day: day,
+    dateIso: iso,
+    client: nick,
+    clientPp2: nick2,
+    orderId: orderId,
+    orderPrice: client.orderPrice,
+    template: tpl,
+    cutItems: (cut.items || []).length,
+    deployMarker:
+      "ceh-move-nocut-h1|ceh-cut-finish-h1|courier-notgot-h1|moves-info-h1|courier-req-h1|settings-req-h1|tg-dates-msg-h1",
+    cutover: true,
+    previewIsolated: true
+  };
+}
+
 async function previewSeedPartnerRemove_(params, env) {
   if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
     return { status: "error", message: "preview_only", cutover: true };
@@ -40764,11 +41288,35 @@ async function stageNNudgePack_(env, ymd) {
   return { dateIso: ymd, dateText: stageNDmy_(ymd), pp: pp, bp1: bp1, other: other };
 }
 
+/* tg-dates-msg-h1: ник → HTML-ссылка на Instagram; клиентам бот ничего не шлёт */
+function stageNEscHtml_(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stageNIgHref_(name) {
+  const n = String(name || "").replace(/^@+/, "").trim();
+  if (!n || /\s/.test(n)) return "https://www.instagram.com/";
+  return "https://ig.me/m/" + encodeURIComponent(n);
+}
+
+function stageNNickLink_(name) {
+  const safe = stageNEscHtml_(name);
+  return '<a href="' + stageNIgHref_(name) + '">' + safe + "</a>";
+}
+
+function stageNClientDatesText_() {
+  return "Здравствуйте! Подскажите, пожалуйста, удобные даты следующих доставок — напишите числа, когда удобно принять заказ.";
+}
+
 function stageNNudgeText_(pack, slot) {
   const when = String(slot) === "19" ? "19:00" : "11:00";
   const lines = [];
   lines.push("📅 Подбейте даты доставок");
-  lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП1:");
+  lines.push("Вчера (" + stageNEscHtml_(pack.dateText) + ") с галочкой «доставлен» — ПП и БП1:");
   lines.push("");
   const ppRows = pack.pp || [];
   const bpRows = pack.bp1 || [];
@@ -40778,18 +41326,19 @@ function stageNNudgeText_(pack, slot) {
       lines.push("ПП (" + ppRows.length + "):");
       ppRows.forEach(function (r) {
         const tag = stageNSlotTag_(r.ppSlot);
-        lines.push("• " + r.name + (tag ? " — " + tag : ""));
+        lines.push("• " + stageNNickLink_(r.name) + (tag ? " — " + stageNEscHtml_(tag) : ""));
       });
       lines.push("");
     }
     if (bpRows.length) {
       lines.push("БП1 (" + bpRows.length + "):");
-      bpRows.forEach(function (r) { lines.push("• " + r.name); });
+      bpRows.forEach(function (r) { lines.push("• " + stageNNickLink_(r.name)); });
       lines.push("");
     }
   }
   lines.push("Сверьте следующие даты в Просмотр.");
   lines.push("У ПП — кнопка «В АФК», если клиент хочет перерыв.");
+  lines.push("Кнопка «Текст клиенту» — готовый текст без дат (даты впишете вручную).");
   lines.push("⏰ " + when + " Минск");
   return lines.join("\n");
 }
@@ -40816,7 +41365,10 @@ async function stageNNudge_(env, opts) {
       other: pack.other,
       to: ids,
       already: marked,
-      text: stageNPreview_(text)
+      text: stageNPreview_(text),
+      textHtml: text,
+      clientText: stageNClientDatesText_(),
+      deployMarker: "tg-dates-msg-h1"
     };
     out.push(row);
     if (!opts.send || marked) continue;
@@ -40834,17 +41386,26 @@ async function stageNNudge_(env, opts) {
         } catch (eTok) {}
         keyboard.push([{ text: "⏸ В АФК — " + btnName.slice(0, 28), callback_data: ("ppafk:" + tok).slice(0, 64) }]);
       }
+      /* tg-dates-msg-h1: кнопка готового текста клиенту без дат */
+      keyboard.push([{ text: "📋 Текст клиенту (без дат)", callback_data: "nudgecopy:1" }]);
       const markup = keyboard.length ? { inline_keyboard: keyboard } : null;
+      const htmlOpts = { parse_mode: "HTML" };
       for (let n = 0; n < ids.length; n++) {
         try {
-          const first = await telegramSendTextWorker_(env, ids[n], partsText[0], markup);
-          if (!(first && first.ok) && markup) await telegramSendTextWorker_(env, ids[n], partsText[0], null);
-          for (let pi = 1; pi < partsText.length; pi++) await telegramSendTextWorker_(env, ids[n], partsText[pi], null);
+          const first = await telegramSendTextWorker_(env, ids[n], partsText[0], markup, htmlOpts);
+          if (!(first && first.ok) && markup) {
+            await telegramSendTextWorker_(env, ids[n], partsText[0], null, htmlOpts);
+          }
+          for (let pi = 1; pi < partsText.length; pi++) {
+            await telegramSendTextWorker_(env, ids[n], partsText[pi], null, htmlOpts);
+          }
         } catch (eSend) {}
       }
     }
     try { await stageNSetMeta_(env, key, "1"); } catch (eMark) {}
     row.sent = true;
+    row.clientText = stageNClientDatesText_();
+    row.deployMarker = "tg-dates-msg-h1";
   }
   return { slots: out, sent: opts.send ? out.filter(function (r) { return r.sent; }).length : 0 };
 }
@@ -40872,8 +41433,24 @@ async function stageNCallback_(env, cq, send) {
   const sv = data.match(/^svsent:(.+)$/i);
   const svc = data.match(/^svchoice:([^:]+):(pp|week2|refuse)$/i);
   const afk = data.match(/^ppafk:(.+)$/i);
-  if (!def && !sv && !svc && !afk) return null;
-  if (!send) return { kind: def ? "defdone" : sv ? "svsent" : svc ? "svchoice" : "ppafk", sent: false };
+  const nudgeCopy = data.match(/^nudgecopy:/i);
+  if (!def && !sv && !svc && !afk && !nudgeCopy) return null;
+  if (!send) {
+    return {
+      kind: def ? "defdone" : sv ? "svsent" : svc ? "svchoice" : afk ? "ppafk" : "nudgecopy",
+      sent: false
+    };
+  }
+  /* tg-dates-msg-h1: отдать менеджеру текст клиенту без дат — удобно скопировать */
+  if (nudgeCopy) {
+    const chatId = cq && cq.message && cq.message.chat ? cq.message.chat.id : (cq && cq.from ? cq.from.id : null);
+    const body = stageNClientDatesText_();
+    try { await telegramAnswerCallbackWorker_(env, cq.id, "Текст ниже — скопируйте"); } catch (eA) {}
+    try {
+      if (chatId) await telegramSendTextWorker_(env, chatId, body, null);
+    } catch (eTx) {}
+    return { kind: "nudgecopy", sent: true, text: body, deployMarker: "tg-dates-msg-h1" };
+  }
   if (svc) {
     /* t516u-clients #10: кнопки ПП / 2-я неделя / отказ в боте. */
     const sid = svc[1];

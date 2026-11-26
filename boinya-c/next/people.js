@@ -22,6 +22,8 @@
   var roleSeq = 0;
   var cutPrep = { day: "", lines: [], tried: false };
   var whMsg = "";
+  var payReqTpl = ""; /* settings-req-h1 */
+  var payReqLoaded = false;
   var DAY_NAMES = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
 
   function sh() { return root.BoinyaShell; }
@@ -185,7 +187,53 @@
   }
 
   function paintSettings() {
-    sh().main(backHtml() + warehousesHtml());
+    sh().main(backHtml() + warehousesHtml() + payReqTplHtml());
+  }
+
+  /* settings-req-h1: шаблон реквизитов с {amount}, хранится в D1 */
+  function payReqTplHtml() {
+    var def = (L() && L().defaultPayRequisitesTemplate)
+      ? L().defaultPayRequisitesTemplate()
+      : "Здравствуйте! К оплате {amount} BYN.";
+    var val = payReqTpl || def;
+    var html = '<p class="b-lbl" style="margin-top:16px">Реквизиты для курьера</p>';
+    html += '<article class="b-card">';
+    html += '<p class="b-note">Текст копируется кнопкой «Отправить реквизиты» у платящих клиентов. Подставьте сумму плейсхолдером <code>{amount}</code>.</p>';
+    html += '<label class="b-field"><span class="b-note">Шаблон сообщения</span>';
+    html += '<textarea class="b-field__input" id="payReqTpl" rows="6" style="min-height:120px">' + esc(val) + "</textarea></label>";
+    html += '<button type="button" class="b-btn b-btn--main" data-act="pay-req-save" style="margin-top:8px">Сохранить шаблон</button>';
+    html += "</article>";
+    return html;
+  }
+
+  async function loadPayReqTpl(force) {
+    if (payReqLoaded && !force) return;
+    try {
+      var res = await api().apiGet({ action: "getPayRequisitesTemplate", _: String(Date.now()) }, { timeoutMs: 8000, cacheTtlMs: force ? 0 : 30000 });
+      if (res && res.status === "success") {
+        payReqTpl = String(res.template || "");
+        payReqLoaded = true;
+      }
+    } catch (e) {}
+  }
+
+  async function savePayReqTpl() {
+    var ta = document.getElementById("payReqTpl");
+    var text = ta ? String(ta.value || "") : payReqTpl;
+    var u = api().telegramUser() || {};
+    var res = await api().apiPost({
+      action: "savePayRequisitesTemplate",
+      telegramId: String(u.id || tid()),
+      template: text
+    });
+    if (!res || res.status !== "success") {
+      sh().toast((res && res.message) || "Не сохранилось");
+      return;
+    }
+    payReqTpl = String(res.template != null ? res.template : text);
+    payReqLoaded = true;
+    sh().toast("Шаблон сохранён");
+    paintSettings();
   }
 
   function personWage(p) {
@@ -604,9 +652,14 @@
 
   async function showSettings(force, gen) {
     sh().dock("");
-    if (!warehouses.length) sh().main(sh().skeleton(4));
+    if (!warehouses.length && !payReqLoaded) sh().main(sh().skeleton(4));
     else paintSettings();
-    try { await loadWarehouses(force); } catch (eWh) {}
+    try {
+      await Promise.all([
+        loadWarehouses(force).catch(function () {}),
+        loadPayReqTpl(force).catch(function () {})
+      ]);
+    } catch (eWh) {}
     if (gen !== showGen) return;
     paintSettings();
   }
@@ -839,6 +892,7 @@
     }
     if (act === "p-wh-send") { sendWhMsg(); return true; }
     if (act === "p-roles") { saveRoles(); return true; }
+    if (act === "pay-req-save") { savePayReqTpl(); return true; }
     if (act === "wh-add") { openNewWarehouse(); return true; }
     if (act === "wh-save") { saveWarehouse(); return true; }
     if (act === "wh-del") { openDeleteWarehouse(node.getAttribute("data-id")); return true; }

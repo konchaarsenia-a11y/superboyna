@@ -71,6 +71,8 @@ jobs:
         run: node --test boinya-c/next/partner-cut-plan.test.mjs
       - name: partner soft-remove (Убрать)
         run: node --test boinya-c/next/partner-remove.test.mjs
+      - name: t602u pack (ceh/courier/moves/req/tg)
+        run: node --test boinya-c/next/t602u-pack.test.mjs
       - name: calendar day clean matches stats
         run: node --test boinya-c/next/cal-day-money.test.mjs
       - name: PP N2 monthly fact = basket1+basket2

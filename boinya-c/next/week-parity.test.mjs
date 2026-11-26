@@ -173,7 +173,8 @@ test("перенос дальше будущей недели спрашивае
   assert.match(askBody, /Частичная/);
   assert.match(askBody, /Без нарезки/);
   assert.match(askBody, /ans === "alt2"/);
-  assert.match(askBody, /cutMode:\s*"partial",\s*cutItemKeys:\s*\[\]/);
+  assert.match(askBody, /Нужна ли сборка\?/);
+  assert.match(askBody, /cutMode:\s*"none"/);
   assert.match(body, /askMoveCut/);
   assert.equal(body.includes("if (!calendarOnly)"), false);
   assert.match(body, /cutMode:\s*cut\.cutMode/);

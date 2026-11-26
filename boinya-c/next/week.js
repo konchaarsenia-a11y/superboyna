@@ -972,6 +972,7 @@
   }
 
   async function askMoveCut(c) {
+    // ceh-move-nocut-h1: «Без нарезки» → обязательно спросить «Нужна ли сборка?»
     var ans = await sh().confirm({
       title: "Перенос",
       text: "Нарезка полная или частичная?",
@@ -981,7 +982,24 @@
       cancel: "Отмена"
     });
     if (!ans) return null;
-    if (ans === "alt2") return { cutMode: "partial", cutItemKeys: [], cutItemLabels: [] };
+    if (ans === "alt2") {
+      var asmAns = await sh().confirm({
+        title: "Сборка",
+        text: "Нужна ли сборка?",
+        ok: "Да, нужна",
+        alt: "Нет",
+        cancel: "Отмена"
+      });
+      if (!asmAns) return null;
+      var needAsm = asmAns !== "alt";
+      return {
+        cutMode: "none",
+        cutItemKeys: [],
+        cutItemLabels: [],
+        skipAssemble: !needAsm,
+        noCut: true
+      };
+    }
     if (ans !== "alt") return { cutMode: "full", cutItemKeys: [], cutItemLabels: [] };
     var basket = (c && c.basket) || [];
     var picked = await sh().askChecks({
@@ -998,6 +1016,7 @@
       keys.push(String(i));
       labels.push(logic().cutItemLabel(basket[i]));
     });
+    if (!keys.length) return { cutMode: "none", cutItemKeys: [], cutItemLabels: [], skipAssemble: true, noCut: true };
     return { cutMode: "partial", cutItemKeys: keys, cutItemLabels: labels };
   }
 
@@ -1035,6 +1054,8 @@
       cutMode: cut.cutMode,
       cutItemKeys: cut.cutItemKeys,
       cutItemLabels: cut.cutItemLabels,
+      skipAssemble: cut.skipAssemble,
+      noCut: cut.noCut,
       segment: c.segment || logic().orderTypeToSegment(ot),
       orderType: ot
     });
