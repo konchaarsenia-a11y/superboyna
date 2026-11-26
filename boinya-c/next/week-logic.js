@@ -144,12 +144,13 @@
     return s.split(sep || ",").map(function (x) { return String(x || "").trim(); }).filter(Boolean);
   }
 
-  /** Полная / частичная нарезка. Пустая частичная = сразу курьеру, без нарезки и сборки. */
+  /** Полная / частичная нарезка. Пустая частичная / none = сразу курьеру, без нарезки и сборки.
+   * ceh-move-nocut-h1: при noCut вопрос «нужна ли сборка» не нужен — всегда skipAssemble. */
   function moveCutPlan(opts) {
     opts = opts || {};
     var mode = String(opts.cutMode || "").trim().toLowerCase();
     var explicit = mode === "full" || mode === "partial" || mode === "none";
-    if (!explicit) mode = (opts.cutRaw === "no" || opts.cutRaw === "0") ? "none" : "full";
+    if (!explicit) mode = (opts.cutRaw === "no" || opts.cutRaw === "0" || opts.noCut === "1" || opts.noCut === true) ? "none" : "full";
     var keys = listFromMoveField(opts.cutItemKeys, ",");
     var labels = listFromMoveField(opts.cutItemLabels, "|");
     var noCut = false;
@@ -169,8 +170,11 @@
         topUp = true;
       }
     } else {
+      // ceh-move-nocut-h1: none / Без нарезки — сборка не спрашиваем и не ставим
       noCut = true;
-      skipAssemble = String(opts.skipAssemble || "") === "1" || opts.skipAssemble === true;
+      skipAssemble = true;
+      keys = [];
+      labels = [];
     }
     return {
       cutMode: mode,
@@ -719,6 +723,37 @@
 
   function mailTrackClientText(track) {
     return "Здравствуйте!\nОтправили ваш заказик\nВот трэк код для отслеживания: " + String(track || "").trim();
+  }
+
+  /* courier-req-h1 / settings-req-h1: шаблон реквизитов с {amount} */
+  function defaultPayRequisitesTemplate() {
+    return "Здравствуйте! К оплате {amount} BYN.\n\nРеквизиты для оплаты:\n[укажите реквизиты в Настройках]";
+  }
+
+  function fillPayRequisitesTemplate(tpl, amount) {
+    var n = Number(amount);
+    var money = isFinite(n) ? String(Math.round(n * 100) / 100).replace(".", ",") : String(amount || "0");
+    return String(tpl || defaultPayRequisitesTemplate()).replace(/\{amount\}/gi, money);
+  }
+
+  function igDmUrl(nick) {
+    var n = String(nick || "").replace(/^@+/, "").trim();
+    if (!n || /\s/.test(n)) return "https://www.instagram.com/";
+    return "https://ig.me/m/" + encodeURIComponent(n);
+  }
+
+  /** Платящий стоп: есть сумма к сбору; ПП2 оплату не спрашиваем, но реквизиты — если сумма > 0. */
+  function courierShowRequisites(c) {
+    if (!c || c.delivered) return false;
+    var due = courierStopMoney(c);
+    if (!(Number(due) > 0)) return false;
+    if (courierMailMethod(c)) return false;
+    return true;
+  }
+
+  /* tg-dates-msg-h1: текст клиенту без дат — Арсений впишет вручную */
+  function nudgeClientDatesText() {
+    return "Здравствуйте! Подскажите, пожалуйста, удобные даты следующих доставок — напишите числа, когда удобно принять заказ.";
   }
 
   function deferredMode(it) {
@@ -1409,6 +1444,12 @@
     NOTIFY_KEYS: NOTIFY_KEYS,
     NOTIFY_DEFAULTS: NOTIFY_DEFAULTS,
     notifyOverride: notifyOverride,
-    basketLine: basketLine
+    basketLine: basketLine,
+    /* courier-req-h1 / settings-req-h1 */
+    defaultPayRequisitesTemplate: defaultPayRequisitesTemplate,
+    fillPayRequisitesTemplate: fillPayRequisitesTemplate,
+    igDmUrl: igDmUrl,
+    courierShowRequisites: courierShowRequisites,
+    nudgeClientDatesText: nudgeClientDatesText
   };
 });

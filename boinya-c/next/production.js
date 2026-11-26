@@ -35,6 +35,7 @@
   var depotLon = null;
   var warehouses = [];
   var couriersN = 1;
+  var payTplCache = { text: "", at: 0 }; /* courier-req-h1 */
 
   function sh() { return root.BoinyaShell; }
   function api() { return root.BoinyaApi; }
@@ -545,15 +546,18 @@
   }
 
   function takeCutPayload(res, day) {
+    // ceh-cut-finish-h1: completion из D1 переживает перезаход/F5
     cutDate = (res && res.date) || cutDate;
     cutCutter = (res && res.cutter && (res.cutter.id || res.cutter.name)) ? res.cutter : null;
     if (res && res.completion) {
       cutDone = res.completion;
       cutItems = ((res.items && res.items.length) ? res.items : (cutDone.items || [])).slice();
       cutSession.active = false;
+      cutSession.day = "";
+      cutSession.startedAt = 0;
       return;
     }
-    cutDone = null;
+    var session = (res && res.session) || {};
     var items = (res && res.items) || [];
     items.forEach(function (it) {
       it.laid = flagOn(it.laid);
@@ -563,7 +567,20 @@
     applyCutLocal(items);
     cutItems = items;
     sortCut();
-    var session = (res && res.session) || {};
+    if (session.finished && !session.active) {
+      cutDone = {
+        day: day,
+        elapsedMs: Number(session.elapsedMs) || 0,
+        count: cutItems.length,
+        items: cutItems.slice(),
+        finishedAt: session.at || session.finishedAt || ""
+      };
+      cutSession.active = false;
+      cutSession.day = "";
+      cutSession.startedAt = 0;
+      return;
+    }
+    cutDone = null;
     var active = !!session.active && (!session.day || String(session.day) === String(day));
     var started = Number(session.startedAt) || 0;
     if (active && (!started || Date.now() - started > 12 * 3600 * 1000)) started = Date.now();
@@ -1723,6 +1740,7 @@
         '<label class="nx-check nx-check--lg"><input type="checkbox" data-act="pr-del" data-i="' + idx + '"' + (c.delivered ? " checked" : "") + "> Доставлен</label>" +
         (addr ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-map" data-i="' + idx + '" style="margin-top:8px">Карта</button>' : "") +
         (!c.delivered ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-miss" data-i="' + idx + '" style="margin-top:8px">Не получил</button>' : "") +
+        (showPayReq(c) ? '<button type="button" class="b-btn b-btn--sec" data-act="pr-pay-req" data-i="' + idx + '" style="margin-top:8px">Отправить реквизиты</button>' : "") +
         (mailPayAsk(c) ? '<button type="button" class="b-btn" data-act="pr-mail-pay" data-i="' + idx + '" style="margin-top:8px">Оплата</button>' : "") +
         (mailPaidLabel(c) ? '<p class="b-note" style="margin-top:8px">' + esc(mailPaidLabel(c)) + "</p>" : "") +
         "</article>";
@@ -2093,6 +2111,49 @@
     return "";
   }
 
+  /* courier-req-h1: платящие (есть сумма к сбору) — копировать реквизиты + открыть IG */
+  function showPayReq(c) {
+    var logic = root.BoinyaWeekLogic;
+    if (logic && logic.courierShowRequisites) return !!logic.courierShowRequisites(c);
+    if (!c || c.delivered) return false;
+    var due = cardMoney(c);
+    return Number(due) > 0;
+  }
+
+  async function loadPayTpl() {
+    if (payTplCache.at && Date.now() - payTplCache.at < 60000 && payTplCache.text) return payTplCache.text;
+    var logic = root.BoinyaWeekLogic;
+    var fallback = logic && logic.defaultPayRequisitesTemplate
+      ? logic.defaultPayRequisitesTemplate()
+      : "Здравствуйте! К оплате {amount} BYN.";
+    try {
+      var res = await api().apiGet({ action: "getPayRequisitesTemplate", _: String(Date.now()) }, { timeoutMs: 8000, cacheTtlMs: 30000 });
+      if (res && res.status === "success" && res.template) {
+        payTplCache = { text: String(res.template), at: Date.now() };
+        return payTplCache.text;
+      }
+    } catch (eTpl) {}
+    payTplCache = { text: fallback, at: Date.now() };
+    return fallback;
+  }
+
+  async function sendPayRequisites(index) {
+    var client = cour[index];
+    if (!client || !showPayReq(client)) return;
+    var logic = root.BoinyaWeekLogic;
+    var due = cardMoney(client);
+    var tpl = await loadPayTpl();
+    var text = logic && logic.fillPayRequisitesTemplate
+      ? logic.fillPayRequisitesTemplate(tpl, due)
+      : String(tpl).replace(/\{amount\}/gi, String(due || "0"));
+    var ok = false;
+    try { ok = await copyText(text); } catch (eCopy) { ok = false; }
+    var nick = String(client.name || "").split(/\s*[·•]\s*/).pop() || client.name || "";
+    var url = logic && logic.igDmUrl ? logic.igDmUrl(nick) : ("https://ig.me/m/" + encodeURIComponent(String(nick).replace(/^@+/, "")));
+    openLink(url);
+    sh().toast(ok ? "Реквизиты скопированы · Instagram" : "Скопируйте вручную · Instagram");
+  }
+
   async function markMailPaid(index) {
     var day = currentDay("nxCourDay", "route");
     var client = cour[index];
@@ -2219,6 +2280,7 @@
     var u = api().telegramUser() || {};
     var tid = String(u.id || "");
     if (!tid) { sh().toast("Нужен Telegram ID"); return; }
+    var dueMiss = cardMoney(client);
     var body = {
       action: "notifyMissedDelivery",
       telegramId: tid,
@@ -2232,6 +2294,7 @@
       address: client.address || "",
       phone: client.phone || "",
       note: client.note || "",
+      orderPrice: dueMiss != null ? dueMiss : (client.orderPrice != null ? client.orderPrice : ""),
       createdByName: [u.first_name, u.last_name].filter(Boolean).join(" ")
     };
     function ok(r) {
@@ -2481,6 +2544,7 @@
     if (act === "pr-tel") { dialPhone(node.getAttribute("data-phone") || "", ev); return true; }
     if (act === "pr-map") { openMap(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-miss") { missed(Number(node.getAttribute("data-i"))); return true; }
+    if (act === "pr-pay-req") { sendPayRequisites(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-mail-pay") { markMailPaid(Number(node.getAttribute("data-i"))); return true; }
     if (act === "pr-ymap") {
       var url = maps() && maps().buildYandexRouteUrl ? maps().buildYandexRouteUrl(pointsOf(Number(node.getAttribute("data-r")))) : "";

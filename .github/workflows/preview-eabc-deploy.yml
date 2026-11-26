@@ -13,15 +13,22 @@ on:
       - cursor/partner-cut-plan-eabc
       - cursor/redeploy-noplus7-eabc
       - cursor/partner-remove-eabc
+      - cursor/t602u-pack-eabc
     paths:
       - boinya-c/proxy/worker.js
       - boinya-c/proxy/*.js
       - boinya-c/next/partners.js
       - boinya-c/next/partners-logic.js
+      - boinya-c/next/production.js
+      - boinya-c/next/people.js
+      - boinya-c/next/tasks.js
+      - boinya-c/next/week-logic.js
+      - boinya-c/next/week.js
       - .github/workflows/preview-eabc-deploy.yml
       - .github/workflows/boinya-c-worker-deploy.yml
       - scripts/preview-partner-cut-plan.mjs
       - scripts/preview-partner-remove.mjs
+      - scripts/preview-t602u-pack.mjs
 
 permissions:
   contents: read
