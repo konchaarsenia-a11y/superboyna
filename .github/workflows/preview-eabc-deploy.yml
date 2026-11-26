@@ -77,7 +77,7 @@ jobs:
           PARTNER_OWNER_TIDS = "827494606,650923866"
           PARTNER_OWNER_USERNAMES = "one_more_person_228"
           PREVIEW_ISOLATED = "1"
-          PREVIEW_MARKER = "partner-remove-h1"
+          PREVIEW_MARKER = "t602u-pack-h1"
           SHEETS_FINISH_ONLY = "1"
           SHEETS_MODE = "finish-only"
           AUTH_ENFORCE = "1"
@@ -96,21 +96,21 @@ jobs:
           # keep_vars/edge иногда отдают старый marker на 1–2с
           sleep 5
           curl -fsSL -A "Mozilla/5.0" --max-time 30 "https://boinya-c-preview-eabc.konchaarsenia.workers.dev/?action=ping&cutover=1" | tee /tmp/preview-ping.json
-          node -e 'const j=require("/tmp/preview-ping.json"); const ok=["partner-remove-h1","partner-cut-plan-h1","no-plus7-stamp-h1","deploy-conc-split-h1","deploy-secret-race-h1"].includes(j.deployMarker); if(!ok||j.previewIsolated!==true||j.hasTelegramToken!==true){console.error(j); process.exit(1)}; console.log("preview ping OK", j.deployMarker, "tg", j.hasTelegramToken)'
+          node -e 'const j=require("/tmp/preview-ping.json"); const m=String(j.deployMarker||""); const need=["ceh-move-nocut-h1","ceh-cut-finish-h1","courier-notgot-h1","moves-info-h1","courier-req-h1","settings-req-h1","tg-dates-msg-h1"]; const miss=need.filter(x=>m.indexOf(x)<0); const legacy=["partner-remove-h1","partner-cut-plan-h1","no-plus7-stamp-h1","deploy-conc-split-h1","deploy-secret-race-h1"].includes(m); if((miss.length&&!legacy)||j.previewIsolated!==true||j.hasTelegramToken!==true){console.error({miss,j}); process.exit(1)}; console.log("preview ping OK", m, "tg", j.hasTelegramToken)'
       - name: Install playwright
         run: |
           npm install --prefix /tmp playwright@1.49.1
           npx --prefix /tmp playwright install chromium --with-deps
-      - name: Preview partner soft-remove
+      - name: Preview t602u pack
         env:
-          OUT_DIR: ${{ github.workspace }}/artifacts/partner-remove
+          OUT_DIR: ${{ github.workspace }}/artifacts/t602u-pack
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
-          node scripts/preview-partner-remove.mjs
+          node scripts/preview-t602u-pack.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: partner-remove-preview
-          path: artifacts/partner-remove/
+          name: t602u-pack-preview
+          path: artifacts/t602u-pack/
           if-no-files-found: warn
