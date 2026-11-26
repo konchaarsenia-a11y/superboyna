@@ -34790,7 +34790,7 @@ async function previewSeedT602u_(params, env) {
   const nick2 = "zzz_test_t602u_pp2";
   const mk = normalizeMatchKey_(nick);
   const mk2 = normalizeMatchKey_(nick2);
-  // courier-notgot-h1: старые cancel-tombstones не должны глотать новый park
+  // courier-notgot-h1: старые cancel-tombstones / open xfer не должны глотать seed в курьере
   try {
     await clearDeferredCancelTombstone_(env, "", mk);
     await clearDeferredCancelTombstone_(env, "", mk2);
@@ -34798,6 +34798,29 @@ async function previewSeedT602u_(params, env) {
   try {
     await putSnap_(env, "deferredCancelTombstones", { items: [], previewSeed: "t602u-pack-h1" });
   } catch (eTomb2) {}
+  try {
+    const def = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+    const kept = ((def.items) || []).filter(function (it) {
+      if (!it) return false;
+      const nick = String(
+        it.clientNick ||
+          it.client ||
+          (it.payload && (it.payload.client || it.payload.clientNick)) ||
+          ""
+      );
+      if (/zzz_test_t602u/i.test(nick)) return false;
+      if (/zzz_test_t602u/i.test(String(it.title || ""))) return false;
+      return true;
+    });
+    if (kept.length !== ((def.items) || []).length) {
+      def.items = kept;
+      def.openCount = kept.filter(function (it) {
+        return String((it && it.status) || "open").toLowerCase() === "open";
+      }).length;
+      def.previewSeed = "t602u-pack-h1";
+      await putSnap_(env, "listDeferred", def);
+    }
+  } catch (eDefClr) {}
   const basket = [
     { name: "Сердце", val: 100, unit: "г" },
     { name: "Лёгкое", val: 50, unit: "г" }

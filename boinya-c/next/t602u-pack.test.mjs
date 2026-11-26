@@ -128,13 +128,13 @@ test("tg-dates-msg-h1: IG HTML-ссылки + текст клиенту без �
   assert.match(worker, /<a href="/);
 });
 
-test("t602u deployMarker + VER 71125474", () => {
+test("t602u deployMarker + VER 71125475", () => {
   assert.match(
     worker,
     /deployMarker: "ceh-move-nocut-h1\|ceh-cut-finish-h1\|courier-notgot-h1\|moves-info-h1\|courier-req-h1\|settings-req-h1\|tg-dates-msg-h1"/
   );
-  assert.match(nextHtml, /71125474/);
-  assert.match(swJs, /71125474/);
+  assert.match(nextHtml, /71125475/);
+  assert.match(swJs, /71125475/);
   assert.match(worker, /function previewSeedT602u_/);
   assert.match(worker, /previewSeedT602u/);
   assert.match(worker, /clearDeferredCancelTombstone_/);

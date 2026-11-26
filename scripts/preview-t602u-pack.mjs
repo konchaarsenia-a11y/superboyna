@@ -17,7 +17,7 @@ const PORT = 8798;
 const OWNER_TG = "650923866";
 const TEST_NICK = "zzz_test_t602u";
 const TEST_PP2 = "zzz_test_t602u_pp2";
-const VER = "71125474";
+const VER = "71125475";
 
 fs.mkdirSync(OUT, { recursive: true });
 
