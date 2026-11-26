@@ -144,8 +144,8 @@
     return s.split(sep || ",").map(function (x) { return String(x || "").trim(); }).filter(Boolean);
   }
 
-  /** Полная / частичная нарезка. Пустая частичная / none = сразу курьеру, без нарезки и сборки.
-   * ceh-move-nocut-h1: при noCut вопрос «нужна ли сборка» не нужен — всегда skipAssemble. */
+  /** Полная / частичная нарезка.
+   * ceh-move-nocut-h1: при «Без нарезки» UI спрашивает «Нужна ли сборка?» и передаёт skipAssemble. */
   function moveCutPlan(opts) {
     opts = opts || {};
     var mode = String(opts.cutMode || "").trim().toLowerCase();
@@ -170,9 +170,12 @@
         topUp = true;
       }
     } else {
-      // ceh-move-nocut-h1: none / Без нарезки — сборка не спрашиваем и не ставим
+      // ceh-move-nocut-h1: none — skipAssemble только если UI/параметр так сказал
       noCut = true;
-      skipAssemble = true;
+      skipAssemble = String(opts.skipAssemble || "") === "1" || opts.skipAssemble === true
+        || String(opts.assemble || "") === "0";
+      if (String(opts.assemble || "") === "1" || opts.assemble === true) skipAssemble = false;
+      if (String(opts.skipAssemble || "") === "0" || opts.skipAssemble === false) skipAssemble = false;
       keys = [];
       labels = [];
     }
@@ -742,12 +745,14 @@
     return "https://ig.me/m/" + encodeURIComponent(n);
   }
 
-  /** Платящий стоп: есть сумма к сбору; ПП2 оплату не спрашиваем, но реквизиты — если сумма > 0. */
+  /** Платящие (сумма к сбору) — реквизиты. ПП2 — нет (courier-req-h1). */
   function courierShowRequisites(c) {
     if (!c || c.delivered) return false;
+    if (courierMailMethod(c)) return false;
+    var slot = courierPaySlot_(c);
+    if (slot >= 2) return false;
     var due = courierStopMoney(c);
     if (!(Number(due) > 0)) return false;
-    if (courierMailMethod(c)) return false;
     return true;
   }
 

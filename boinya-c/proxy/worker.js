@@ -6987,15 +6987,21 @@ function moveCutSpec_(params) {
     if (!keys.length) {
       mode = "none";
       noCut = true;
-      skipAssemble = true; // ceh-move-nocut-h1
+      skipAssemble = true;
       labels = [];
     } else {
       topUp = true;
     }
   } else {
-    // ceh-move-nocut-h1: Без нарезки — сборку не спрашиваем и не ставим
+    // ceh-move-nocut-h1: Без нарезки — skipAssemble из UI-вопроса «Нужна ли сборка?»
     noCut = true;
-    skipAssemble = true;
+    skipAssemble =
+      explicit &&
+      (toBool_(params.skipAssemble) || String(params.assemble || "") === "0");
+    if (toBool_(params.assemble) && String(params.assemble) !== "0") {
+      skipAssemble = false;
+    }
+    if (String(params.skipAssemble || "") === "0") skipAssemble = false;
     keys = [];
     labels = [];
   }
@@ -7517,6 +7523,11 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
   } catch (eDrop) {}
 
   try {
+    // courier-notgot-h1: снять cancel-tombstone, иначе finalizeListDeferred выкинет новый park
+    try {
+      await clearDeferredCancelTombstone_(env, xferId, mk);
+      await clearDeferredCancelTombstone_(env, "", mk);
+    } catch (eTombClr) {}
     let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
     let arr = Array.isArray(list.items) ? list.items.slice() : [];
     arr = arr.filter(function (it) {
@@ -7549,7 +7560,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
       payload: {
         mode: "transfer",
         parked: true,
-        reason: String(params.reason || ""),
+        reason: String(params.reason || "не получил"),
         day: day,
         date: dateRaw,
         dateIso: dateIso,
@@ -7573,6 +7584,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
     }).length;
     list.fromD1 = true;
     list.sandbox = false;
+    list.cachedAt = new Date().toISOString();
     await putSnap_(env, "listDeferred", list);
   } catch (eDef) {}
 
@@ -7589,7 +7601,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
     note: note,
     matchKey: String(params.matchKey || mk || ""),
     noCut: noCut,
-    deployMarker: "2026-09-15 fix-move-network-sheets-h1"
+    deployMarker: "courier-notgot-h1"
   };
 }
 
@@ -34702,12 +34714,23 @@ async function previewSeedT602u_(params, env) {
     }
   }
   const nick = "zzz_test_t602u";
+  const nick2 = "zzz_test_t602u_pp2";
   const mk = normalizeMatchKey_(nick);
+  const mk2 = normalizeMatchKey_(nick2);
+  // courier-notgot-h1: старые cancel-tombstones не должны глотать новый park
+  try {
+    await clearDeferredCancelTombstone_(env, "", mk);
+    await clearDeferredCancelTombstone_(env, "", mk2);
+  } catch (eTomb) {}
+  try {
+    await putSnap_(env, "deferredCancelTombstones", { items: [], previewSeed: "t602u-pack-h1" });
+  } catch (eTomb2) {}
   const basket = [
     { name: "Сердце", val: 100, unit: "г" },
     { name: "Лёгкое", val: 50, unit: "г" }
   ];
   const orderId = "ord_preview_t602u_" + day;
+  const orderId2 = "ord_preview_t602u_pp2_" + day;
   try {
     await upsertOrderRow_(
       env,
@@ -34730,6 +34753,28 @@ async function previewSeedT602u_(params, env) {
       { allowEmptyOverwrite: true }
     );
   } catch (eOrd) {}
+  try {
+    await upsertOrderRow_(
+      env,
+      {
+        id: orderId2,
+        date_iso: iso,
+        day_name: day,
+        client: nick2,
+        match_key: mk2,
+        address: "Белецкого 10к2, preview-pp2",
+        note: "preview-t602u-pp2",
+        phone: "+375290000001",
+        basket_json: JSON.stringify([{ name: "Сердце", val: 50, unit: "г" }]),
+        segment: "ПП",
+        source: "preview-t602u",
+        status: "active",
+        updated_at: new Date().toISOString(),
+        meta_json: JSON.stringify({ orderPrice: 20, ppSlot: "2", previewSeed: "t602u-pack-h1" })
+      },
+      { allowEmptyOverwrite: true }
+    );
+  } catch (eOrd2) {}
   const client = {
     name: nick,
     client: nick,
@@ -34746,17 +34791,67 @@ async function previewSeedT602u_(params, env) {
     orderId: orderId,
     dateIso: iso
   };
+  const clientPp2 = {
+    name: nick2,
+    client: nick2,
+    matchKey: mk2,
+    segment: "ПП",
+    ppSlot: "2",
+    deliverySlot: 2,
+    orderPrice: 20,
+    payDue: 0,
+    address: "Белецкого 10к2, preview-pp2",
+    phone: "+375290000001",
+    note: "preview-t602u-pp2",
+    delivered: false,
+    basket: [{ name: "Сердце", val: 50, unit: "г" }],
+    orderId: orderId2,
+    dateIso: iso
+  };
   const cour = {
     status: "success",
     day: day,
     date: isoToDmy_(iso) || (info && info.date) || "",
     dateIso: iso,
-    clients: [client],
+    clients: [client, clientPp2],
     fromD1: true,
     previewSeed: "t602u-pack-h1",
     cachedAt: new Date().toISOString()
   };
   await putSnap_(env, "courier:" + day, cour);
+  // ceh-cut-finish-h1: позиции для UI «Завершить нарезку»
+  const cut = {
+    status: "success",
+    day: day,
+    date: cour.date,
+    dateIso: iso,
+    items: [
+      {
+        key: "preview-heart",
+        name: "Сердце",
+        label: "Сердце ломтики",
+        qty: 150,
+        unit: "г",
+        done: true,
+        laid: true
+      },
+      {
+        key: "preview-lung",
+        name: "Лёгкое",
+        label: "Лёгкое среднее",
+        qty: 50,
+        unit: "г",
+        done: true,
+        laid: true
+      }
+    ],
+    session: { active: true, day: day, startedAt: Date.now() - 120000 },
+    completion: null,
+    fromD1: true,
+    previewSeed: "t602u-pack-h1",
+    cachedAt: new Date().toISOString()
+  };
+  await putSnap_(env, "cutting:" + day, cut);
   const tpl =
     "Здравствуйте! К оплате {amount} BYN.\n\nРеквизиты PREVIEW:\nр/с PREVIEW-ONLY (не слать клиентам).";
   await putSnap_(env, "payRequisitesTemplate", {
@@ -34769,10 +34864,13 @@ async function previewSeedT602u_(params, env) {
     day: day,
     dateIso: iso,
     client: nick,
+    clientPp2: nick2,
     orderId: orderId,
     orderPrice: client.orderPrice,
     template: tpl,
-    deployMarker: "courier-req-h1|settings-req-h1|courier-notgot-h1",
+    cutItems: (cut.items || []).length,
+    deployMarker:
+      "ceh-move-nocut-h1|ceh-cut-finish-h1|courier-notgot-h1|moves-info-h1|courier-req-h1|settings-req-h1|tg-dates-msg-h1",
     cutover: true,
     previewIsolated: true
   };

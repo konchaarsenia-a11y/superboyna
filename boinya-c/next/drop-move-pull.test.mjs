@@ -40,6 +40,6 @@ test("#26 нет materialize/pull UI", () => {
   assert.doesNotMatch(weekSrc, /data-act="wpull"/);
 });
 
-test("cache bump v71125470", () => {
-  assert.match(nextHtml, /v=71125470/);
+test("cache bump v71125471", () => {
+  assert.match(nextHtml, /v=71125471/);
 });
