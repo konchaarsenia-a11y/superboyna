@@ -13958,7 +13958,13 @@ async function getCutting_(params, env) {
     const snapDate = String((hit && (hit.date || hit.dateIso)) || "");
     const dateOk = cuttingSnapDateOk_(wantDate, snapDate);
     const staleDone = !!(hit && hit.completion && wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
-    if (!dateOk || staleDone) hit = null;
+    // ceh-cut-finish-h1: завершённый день не выкидывать из‑за формата даты
+    const keepFinished = !!(
+      hit.completion &&
+      hit.session &&
+      hit.session.finished
+    );
+    if ((!dateOk || staleDone) && !keepFinished) hit = null;
   }
   // partner-cut-plan-h1 preview: keepStale=1 отдаёт посаженный snap без Varka (скрин «до»).
   if (
@@ -23204,7 +23210,13 @@ async function handleCutover_(a, params, env, ctx) {
           : !!(wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
       const staleDone =
         a === "getCutting" && fast.completion && wantDate && (!snapDate || !sameCutDate_(snapDate, wantDate));
-      if (dateMismatch || staleDone) {
+      const keepCutFinished = !!(
+        a === "getCutting" &&
+        fast.completion &&
+        fast.session &&
+        fast.session.finished
+      );
+      if ((dateMismatch || staleDone) && !keepCutFinished) {
         if (a === "getCutting") {
           try {
             const rebuilt = await rebuildCuttingDay_(env, params.day);

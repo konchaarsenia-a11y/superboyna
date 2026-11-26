@@ -17,7 +17,7 @@ const PORT = 8798;
 const OWNER_TG = "650923866";
 const TEST_NICK = "zzz_test_t602u";
 const TEST_PP2 = "zzz_test_t602u_pp2";
-const VER = "71125471";
+const VER = "71125472";
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -252,19 +252,30 @@ step("courier-notgot-reenter", {
 });
 if (stillAfterRe || !xferHit) fail("notgot-reenter", { stillAfterRe, inTransfers: !!xferHit });
 
-/* cut finish API */
+/* cut finish API — re-seed cutting (notgot мог пересобрать день) */
+await api("previewSeedT602u", { day: dayUsed, _: String(Date.now()) }, init);
 const cutFinish = await api(
   "finishCutting",
   { day: dayUsed, telegramId: OWNER_TG, elapsed: 1200 },
   init
 );
 const cut2 = await api("getCutting", { day: dayUsed, telegramId: OWNER_TG, _: String(Date.now()) }, init);
+const cut2b = await api(
+  "getCutting",
+  { day: dayUsed, telegramId: OWNER_TG, _: String(Date.now() + 1) },
+  init
+);
 step("ceh-cut-finish-api", {
   finish: cutFinish && cutFinish.status,
   hasCompletion: !!(cut2 && (cut2.completion || (cut2.session && cut2.session.finished))),
-  marker: cutFinish && cutFinish.deployMarker
+  hasCompletionReenter: !!(cut2b && (cut2b.completion || (cut2b.session && cut2b.session.finished))),
+  marker: cutFinish && cutFinish.deployMarker,
+  count: cut2 && cut2.completion && cut2.completion.count
 });
-if (!(cut2 && (cut2.completion || (cut2.session && cut2.session.finished)))) {
+if (
+  !(cut2 && (cut2.completion || (cut2.session && cut2.session.finished))) ||
+  !(cut2b && (cut2b.completion || (cut2b.session && cut2b.session.finished)))
+) {
   fail("cut-finish-missing");
 }
 
@@ -378,14 +389,24 @@ try {
   await api("previewSeedT602u", { day: dayUsed, _: String(Date.now()) }, init);
   await page.evaluate((day) => {
     try {
-      localStorage.setItem("nx_cour_day", day);
-      localStorage.setItem("nxCourDay", day);
+      // production.js читает opsDayCourier / opsDayCutting, не nx_cour_day
+      localStorage.setItem("opsDayCourier", day);
+      localStorage.setItem("opsDayAssembly", day);
+      localStorage.setItem("opsDayCutting", day);
     } catch (e) {}
     if (window.BoinyaApp && window.BoinyaApp.go) window.BoinyaApp.go("production");
     // show() принимает id сегмента строкой, не объект
     window.BoinyaProduction.show("route");
   }, dayUsed);
-  await page.waitForTimeout(4500);
+  await page.waitForTimeout(5000);
+  await page.evaluate((day) => {
+    var sel = document.getElementById("nxCourDay");
+    if (sel) {
+      sel.value = day;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }, dayUsed);
+  await page.waitForTimeout(3500);
   await page.waitForSelector("text=Отправить реквизиты", { timeout: 12000 }).catch(() => null);
   await page.screenshot({ path: path.join(OUT, "t602u-courier-req.png"), fullPage: true });
   const reqBtn = await page.locator("text=Отправить реквизиты").count();
@@ -437,7 +458,8 @@ try {
   await api("previewSeedT602u", { day: dayUsed, _: String(Date.now()) }, init);
   await page.evaluate((day) => {
     try {
-      localStorage.setItem("nx_cut_day", day);
+      localStorage.setItem("opsDayCutting", day);
+      localStorage.setItem("opsDayCourier", day);
     } catch (e) {}
     window.BoinyaProduction.show("cut");
   }, dayUsed);
@@ -467,7 +489,7 @@ try {
   await page.waitForFunction(() => !!window.BoinyaProduction, null, { timeout: 30000 });
   await page.evaluate((day) => {
     try {
-      localStorage.setItem("nx_cut_day", day);
+      localStorage.setItem("opsDayCutting", day);
     } catch (e) {}
     window.BoinyaProduction.show("cut");
   }, dayUsed);
@@ -547,7 +569,7 @@ try {
   await page.waitForFunction(() => !!window.BoinyaProduction, null, { timeout: 30000 });
   await page.evaluate((day) => {
     try {
-      localStorage.setItem("nx_cour_day", day);
+      localStorage.setItem("opsDayCourier", day);
     } catch (e) {}
     window.BoinyaProduction.show("route");
   }, dayUsed);
