@@ -23212,6 +23212,20 @@ async function handleCutover_(a, params, env, ctx) {
           fast.swr = true;
           return fast;
         }
+        /* preview seed: не сносить courier snap из-за dateMismatch */
+        if (
+          a === "getCourier" &&
+          fast &&
+          fast.previewSeed &&
+          String((env && env.PREVIEW_ISOLATED) || "") === "1"
+        ) {
+          if (wantDate) fast.date = info.date || fast.date;
+          if (info && info.iso) fast.dateIso = info.iso;
+          fast.cutover = true;
+          fast.swr = true;
+          fast.fromGas = false;
+          return fast;
+        }
         await delSnap_(env, (a === "getCourier" ? "courier:" : "assembly:") + params.day);
         const live = await gasProxy_(a, params, env, { write: false });
         if (live && live.status === "success") {
