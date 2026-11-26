@@ -394,8 +394,18 @@ try {
       localStorage.setItem("opsDayAssembly", day);
       localStorage.setItem("opsDayCutting", day);
     } catch (e) {}
+    var acc = {
+      status: "success",
+      role: "owner",
+      access: "active",
+      telegramId: "650923866",
+      tabs: ["cuttingScreen", "courierScreen", "courierScreen.route", "courierScreen.assembly"]
+    };
+    // без bind segItems() пустой → show("route") падает в "cut"
+    if (window.BoinyaProduction && window.BoinyaProduction.bind) {
+      window.BoinyaProduction.bind(acc);
+    }
     if (window.BoinyaApp && window.BoinyaApp.go) window.BoinyaApp.go("production");
-    // show() принимает id сегмента строкой, не объект
     window.BoinyaProduction.show("route");
   }, dayUsed);
   await page.waitForTimeout(5000);
@@ -408,6 +418,11 @@ try {
   }, dayUsed);
   await page.waitForTimeout(3500);
   await page.waitForSelector("text=Отправить реквизиты", { timeout: 12000 }).catch(() => null);
+  const reqLoc = page.locator("text=Отправить реквизиты").first();
+  if (await reqLoc.count()) {
+    await reqLoc.scrollIntoViewIfNeeded().catch(() => null);
+    await page.waitForTimeout(400);
+  }
   await page.screenshot({ path: path.join(OUT, "t602u-courier-req.png"), fullPage: true });
   const reqBtn = await page.locator("text=Отправить реквизиты").count();
   const bodyTxt = await page.locator("#nxMain, main, body").first().innerText().catch(() => "");
@@ -432,8 +447,22 @@ try {
   if (reqBtn) {
     await page.evaluate(() => {
       window.__openedLink = "";
+      window.__openedLinks = [];
+      var tg = (window.Telegram = window.Telegram || {});
+      tg.WebApp = tg.WebApp || {};
+      tg.WebApp.openLink = function (url) {
+        window.__openedLink = String(url || "");
+        window.__openedLinks.push(window.__openedLink);
+      };
+      var origOpen = window.open;
+      window.open = function (url) {
+        window.__openedLink = String(url || "");
+        window.__openedLinks.push(window.__openedLink);
+        return null;
+      };
+      window.__origOpen = origOpen;
     });
-    await page.locator("text=Отправить реквизиты").first().click();
+    await reqLoc.click();
     await page.waitForTimeout(1000);
     clipboard = await page.evaluate(async () => {
       try {
@@ -442,7 +471,7 @@ try {
         return "";
       }
     });
-    opened = await page.evaluate(() => window.__openedLink || "");
+    opened = await page.evaluate(() => window.__openedLink || (window.__openedLinks && window.__openedLinks[0]) || "");
     const clipOk = /42/.test(clipboard) && /BYN/i.test(clipboard);
     step("requisites-click", {
       clipboardHasAmount: clipOk,
@@ -461,6 +490,14 @@ try {
       localStorage.setItem("opsDayCutting", day);
       localStorage.setItem("opsDayCourier", day);
     } catch (e) {}
+    var acc = {
+      status: "success",
+      role: "owner",
+      access: "active",
+      telegramId: "650923866",
+      tabs: ["cuttingScreen", "courierScreen", "courierScreen.route", "courierScreen.assembly"]
+    };
+    if (window.BoinyaProduction && window.BoinyaProduction.bind) window.BoinyaProduction.bind(acc);
     window.BoinyaProduction.show("cut");
   }, dayUsed);
   await page.waitForTimeout(3500);
@@ -491,6 +528,8 @@ try {
     try {
       localStorage.setItem("opsDayCutting", day);
     } catch (e) {}
+    var acc = { status: "success", role: "owner", access: "active", telegramId: "650923866", tabs: ["cuttingScreen", "courierScreen", "courierScreen.route"] };
+    if (window.BoinyaProduction.bind) window.BoinyaProduction.bind(acc);
     window.BoinyaProduction.show("cut");
   }, dayUsed);
   await page.waitForTimeout(4000);
@@ -571,6 +610,8 @@ try {
     try {
       localStorage.setItem("opsDayCourier", day);
     } catch (e) {}
+    var acc = { status: "success", role: "owner", access: "active", telegramId: "650923866", tabs: ["cuttingScreen", "courierScreen", "courierScreen.route"] };
+    if (window.BoinyaProduction.bind) window.BoinyaProduction.bind(acc);
     window.BoinyaProduction.show("route");
   }, dayUsed);
   await page.waitForTimeout(3500);
