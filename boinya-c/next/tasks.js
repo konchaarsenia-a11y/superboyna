@@ -91,13 +91,20 @@
     });
   }
 
-  async function refresh() {
-    var res = await api().apiGet({
+  async function refresh(opts) {
+    opts = opts || {};
+    var force = !!opts.force;
+    var req = {
       action: "listDeferred",
       telegramId: tid(),
       status: "open",
-      light: "1"
-    }, { timeoutMs: 12000, cacheTtlMs: 8000 });
+      light: force ? "0" : "1"
+    };
+    if (force) {
+      req.force = "1";
+      req._ = String(Date.now());
+    }
+    var res = await api().apiGet(req, { timeoutMs: 15000, cacheTtlMs: force ? 0 : 8000 });
     items = (res && res.items) || [];
     if (root.__nxTasksCount) root.__nxTasksCount(openItems().filter(function (it) {
       return allowed(L().tasksSub(it));
@@ -112,7 +119,7 @@
     access = acc;
     filter = "all";
     sh().openSheet({ title: "Задачи", html: sh().skeleton(3) });
-    try { await refresh(); } catch (e) { items = []; }
+    try { await refresh({ force: true }); } catch (e) { items = []; }
     paintSheet();
   }
 
@@ -532,5 +539,5 @@
     }
   }
 
-  root.BoinyaTasks = { open: open, onAct: onAct, refresh: refresh, bind: bind };
+  root.BoinyaTasks = { open: open, onAct: onAct, refresh: refresh, bind: bind, actions: actions };
 })(window);

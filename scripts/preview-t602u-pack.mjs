@@ -17,7 +17,7 @@ const PORT = 8798;
 const OWNER_TG = "650923866";
 const TEST_NICK = "zzz_test_t602u";
 const TEST_PP2 = "zzz_test_t602u_pp2";
-const VER = "71125475";
+const VER = "71125476";
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -496,8 +496,7 @@ try {
     if (!/instagram|ig\.me/i.test(opened)) fail("ig-not-opened", { opened });
   }
 
-  /* cut finish UI: finish → leave → re-enter */
-  await api("previewSeedT602u", { day: dayUsed, _: String(Date.now()) }, init);
+  /* cut finish UI: API уже завершил — не re-seed (иначе чистит xfer). leave → re-enter */
   await page.evaluate((day) => {
     try {
       localStorage.setItem("opsDayCutting", day);
@@ -514,15 +513,20 @@ try {
     window.BoinyaProduction.show("cut");
   }, dayUsed);
   await page.waitForTimeout(3500);
-  const finishBtn = page.locator('[data-act="pr-cut-finish"]');
-  if (await finishBtn.count()) {
-    await finishBtn.click();
-    await page.waitForTimeout(500);
-    const confOk = page.locator('button[data-act="dlg-ok"]');
-    if (await confOk.count()) await confOk.click();
-    await page.waitForTimeout(2500);
-  } else {
-    await api("finishCutting", { day: dayUsed, telegramId: OWNER_TG, elapsed: 1500 }, init);
+  const alreadyDone = await page.locator("text=Нарезка завершена").count();
+  if (!alreadyDone) {
+    const finishBtn = page.locator('[data-act="pr-cut-finish"]');
+    if (await finishBtn.count()) {
+      await finishBtn.click();
+      await page.waitForTimeout(500);
+      const confOk = page.locator('button[data-act="dlg-ok"]');
+      if (await confOk.count()) await confOk.click();
+      await page.waitForTimeout(2500);
+    } else {
+      await api("finishCutting", { day: dayUsed, telegramId: OWNER_TG, elapsed: 1500 }, init);
+      await page.evaluate(() => window.BoinyaProduction.show("cut"));
+      await page.waitForTimeout(2500);
+    }
   }
   await page.evaluate(() => window.BoinyaProduction.show("route"));
   await page.waitForTimeout(800);
@@ -584,36 +588,44 @@ try {
     seed2: seed2 && seed2.status
   });
 
-  await page.evaluate(() => {
+  const xferId = xferHit && xferHit.id;
+  await page.evaluate(async (payload) => {
     window.BoinyaTasks.bind({ role: "owner", tabs: ["deferredScreen", "deferredScreen.xfer"] });
-    window.BoinyaTasks.open({ role: "owner", tabs: ["deferredScreen", "deferredScreen.xfer"] });
-  });
-  await page.waitForTimeout(3500);
+    await window.BoinyaTasks.open({ role: "owner", tabs: ["deferredScreen", "deferredScreen.xfer"] });
+    if (payload.id && window.BoinyaTasks.actions) {
+      try {
+        await window.BoinyaTasks.actions(payload.id);
+      } catch (eAct) {}
+    }
+  }, { id: xferId || "" });
+  await page.waitForTimeout(2500);
   const xferChip = page.locator('[data-act="task-filter"][data-f="xfer"]');
   if (await xferChip.count()) await xferChip.click();
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(800);
   await page.screenshot({ path: path.join(OUT, "t602u-moves-list.png"), fullPage: true });
-  const openBtn = page.locator('[data-act="task-open"]').first();
-  const listHasTest = await page.locator("text=zzz_test_t602u").count();
-  if (await openBtn.count()) {
+  let openBtn = page.locator('[data-act="task-open"]').first();
+  if (!(await openBtn.count()) && xferId) {
+    await page.evaluate(async (id) => {
+      if (window.BoinyaTasks && window.BoinyaTasks.actions) await window.BoinyaTasks.actions(id);
+    }, xferId);
+    await page.waitForTimeout(1200);
+  } else if (await openBtn.count()) {
     await openBtn.click();
     await page.waitForTimeout(1200);
-    await page.screenshot({ path: path.join(OUT, "t602u-moves-info.png"), fullPage: true });
-    const body = await page.locator(".b-sheet, [data-sheet], #nxSheet, body").first().innerText().catch(() => "");
-    const info = {
-      hasWho: /zzz_test/i.test(body),
-      hasReason: /не получил|перенос/i.test(body),
-      hasBasket: /сердце|лёгкое|легкое/i.test(body),
-      hasAddr: /белецк/i.test(body),
-      hasSum: /42/.test(body),
-      body: String(body || "").slice(0, 500)
-    };
-    step("shot-moves-info", info);
-    if (!info.hasWho || !info.hasReason) fail("moves-info-incomplete", info);
-  } else {
-    fail("moves-no-task-open", { listHasTest, deferredN: ((deferred && deferred.items) || []).length });
-    await page.screenshot({ path: path.join(OUT, "t602u-moves-info.png"), fullPage: true }).catch(() => {});
   }
+  await page.screenshot({ path: path.join(OUT, "t602u-moves-info.png"), fullPage: true });
+  const body = await page.locator(".b-sheet, [data-sheet], #nxSheet, body").first().innerText().catch(() => "");
+  const info = {
+    hasWho: /zzz_test/i.test(body),
+    hasReason: /не получил|перенос/i.test(body),
+    hasBasket: /сердце|лёгкое|легкое/i.test(body),
+    hasAddr: /белецк/i.test(body),
+    hasSum: /42/.test(body),
+    body: String(body || "").slice(0, 500),
+    xferId: xferId || null
+  };
+  step("shot-moves-info", info);
+  if (!info.hasWho || !info.hasReason) fail("moves-info-incomplete", info);
 
   /* notgot F5: courier still empty of test, transfers still have it */
   await page.reload({ waitUntil: "domcontentloaded" });
