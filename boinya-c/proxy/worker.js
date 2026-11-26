@@ -34737,11 +34737,11 @@ async function previewSeedT602u_(params, env) {
     segment: "ПП",
     ppSlot: "1",
     orderPrice: 42.5,
+    payDue: 42.5,
     address: "Белецкого 10к2, preview",
     phone: "+375290000000",
     note: "preview-t602u",
     delivered: false,
-    paid: "no",
     basket: basket,
     orderId: orderId,
     dateIso: iso
