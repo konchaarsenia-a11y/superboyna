@@ -1108,7 +1108,7 @@ async function resolveActor_(params, env) {
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan|previewSeedPartnerRemove)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -2313,8 +2313,8 @@ async function handleActionInner_(action, params, env, url, ctx) {
       sheetsMode: sheetsModeLabel_(env),
       sheetsFinishOnly: isSheetsFinishOnly_(env),
       weekCloseSheets: "d1-then-finishFullWeek-fromD1Close",
-      // partner-cut-plan-h1 (STEP4); ping hardcoded after #752 race so tip is provable (no-plus7-stamp-h1 already in code)
-      deployMarker: "partner-cut-plan-h1",
+      // partner-remove-h1; ping tip for preview/prod RO
+      deployMarker: "partner-remove-h1",
       previewIsolated: String((env && env.PREVIEW_ISOLATED) || "") === "1",
       bpLifecycle: "done7d-archive/refuse14d+survey-choices"
     };
@@ -2330,6 +2330,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
   /* Preview-only: сид 16.11 + липкий snap нарезки без партнёра (до/после partner-cut-plan-h1). */
   if (/^previewSeedPartnerCutPlan$/i.test(a)) {
     return previewSeedPartnerCutPlan_(params, env);
+  }
+  /* partner-remove-h1: preview сид partnerListAdmin + заявки/подписки Цвирко/Шевченко */
+  if (/^previewSeedPartnerRemove$/i.test(a)) {
+    return previewSeedPartnerRemove_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
@@ -12726,6 +12730,55 @@ async function openDatedPartnerOrders_(env) {
   });
 }
 
+/** partner-remove-h1: счёт будущих/открытых заявок и подписок точки (без мутаций, без notify). */
+async function partnerPointFutureActivesCount_(env, point) {
+  const today = minkTodayIso_();
+  const id = String((point && point.id) || "").trim();
+  const nameKey = partnerPointKey_((point && point.name) || "");
+  let futureOrders = 0;
+  let futureSubs = 0;
+  function matchLoc(o) {
+    if (!o) return false;
+    const locId = String(o.locationId || o.pointId || "").trim();
+    if (id && locId === id) return true;
+    const locKey = partnerPointKey_(o.locationName || o.userName || o.client || "");
+    return !!(nameKey && locKey && locKey === nameKey);
+  }
+  try {
+    const pack = await getSnapRaw_(env, "partnerOrders");
+    ((pack && pack.orders) || []).forEach(function (o) {
+      if (!o || partnerOrderIsClosed_(o)) return;
+      if (!matchLoc(o)) return;
+      const date = partnerOrderDate_(o);
+      if (date && date < today) return;
+      futureOrders += 1;
+    });
+  } catch (ePo) {}
+  try {
+    const list = await getSnapRaw_(env, "listSubscriptions");
+    const subs = (list && (list.subscriptions || list.items)) || [];
+    subs.forEach(function (s) {
+      if (!s) return;
+      const st = String(s.status || s.ppStatus || s.stage || "").toLowerCase();
+      if (/архив|отказ|refuse|archive|закрыт/.test(st)) return;
+      if (s.active === false) return;
+      const ref = String(s.ppPartner || s.partner || s.partnerName || "").trim();
+      if (!ref) return;
+      if (id && ref === id) {
+        futureSubs += 1;
+        return;
+      }
+      const refKey = partnerPointKey_(ref);
+      if (nameKey && refKey && (refKey === nameKey || refKey.indexOf(nameKey) >= 0)) futureSubs += 1;
+    });
+  } catch (eSub) {}
+  return {
+    futureOrders: futureOrders,
+    futureSubs: futureSubs,
+    futureActive: futureOrders + futureSubs
+  };
+}
+
 /** Точка партнёра целиком. «Varka Цвирко» и «Varka Шевченко» — разные люди, не один handle VARKA. */
 function partnerPointKey_(raw) {
   return String(raw || "")
@@ -22258,6 +22311,9 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^previewSeedPartnerCutPlan$/i.test(a)) {
       return previewSeedPartnerCutPlan_(params, env);
     }
+    if (/^previewSeedPartnerRemove$/i.test(a)) {
+      return previewSeedPartnerRemove_(params, env);
+    }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
       const staffRes = await gasProxy_(a, params, env, { write: true });
@@ -28122,18 +28178,25 @@ async function mutatePartners_(action, params, env) {
   const nameIn = String((params && params.name) || "").trim();
   const nameKey = nameIn.toLowerCase();
   if (action === "deletePartner") {
-    const before = arr.length;
-    arr = arr.filter(function (p) {
+    // partner-remove-h1: soft-delete (active:false), строка остаётся для истории/статистики
+    let wrote = 0;
+    let softId = idIn;
+    arr = arr.map(function (p) {
       const hit = partnerRowMatchId_(p, idIn, nameKey);
-      if (hit) {
-        const rid = String(p.id || "").trim();
-        if (rid && deletedIds.indexOf(rid) < 0) deletedIds.push(rid);
-      }
-      return !hit;
+      if (!hit) return p;
+      wrote = 1;
+      softId = String(p.id || idIn || "").trim();
+      if (softId && deletedIds.indexOf(softId) < 0) deletedIds.push(softId);
+      return Object.assign({}, p, {
+        active: false,
+        archivedAt: new Date().toISOString()
+      });
     });
     list.partners = arr;
     list.items = arr;
-    list.count = arr.length;
+    list.count = arr.filter(function (p) {
+      return p && p.active !== false;
+    }).length;
     list._deletedIds = deletedIds;
     list._d1TouchedAt = Date.now();
     list.status = "success";
@@ -28142,11 +28205,16 @@ async function mutatePartners_(action, params, env) {
     return {
       status: "success",
       sandbox: false,
-      wrote: before - arr.length,
+      wrote: wrote,
       deleted: true,
-      id: idIn,
-      partners: arr,
-      d1Verified: true
+      soft: true,
+      active: false,
+      id: softId,
+      partners: arr.filter(function (p) {
+        return p && p.active !== false;
+      }),
+      d1Verified: true,
+      notified: false
     };
   }
   let idx = -1;
@@ -34398,6 +34466,153 @@ async function previewSeedPartnerCutPlan_(params, env) {
   };
 }
 
+/** partner-remove-h1: preview-only сид admin + будущие заявки/подписки реальных точек Варки. */
+async function previewSeedPartnerRemove_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only", cutover: true };
+  }
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true };
+  }
+  const now = new Date().toISOString();
+  const nets = [
+    { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png", active: true },
+    { id: "net_nan", name: "NAN", logo: "", active: true },
+    { id: "net_polotno", name: "polotno", logo: "", active: true },
+    { id: "net_indixvost", name: "indixvost", logo: "", active: true },
+    { id: "net_fundog", name: "Fundog", logo: "", active: true },
+    { id: "net_bobwow", name: "BowWow", logo: "", active: true }
+  ];
+  const points = PARTNER_LIVE_TEST_QUEUE.map(function (p) {
+    return {
+      id: p.id,
+      networkId: p.networkId,
+      name: p.name,
+      address: p.address || "",
+      active: true,
+      paidConsent: /varka/i.test(String(p.networkId || "")) ? "accepted" : ""
+    };
+  });
+  const admin = {
+    status: "success",
+    networks: nets,
+    points: points,
+    access: [
+      {
+        id: "acc_preview_owner",
+        role: "partner",
+        status: "active",
+        active: true,
+        telegramId: "650923866",
+        username: "arseny",
+        name: "Arseniy",
+        pointIds: points.map(function (p) {
+          return p.id;
+        })
+      }
+    ],
+    notifyRecipients: [{ telegramId: "650923866", name: "Arseniy" }],
+    cachedAt: now,
+    _d1TouchedAt: Date.now(),
+    previewSeed: "partner-remove-h1"
+  };
+  await putSnap_(env, "partnerListAdmin", admin);
+
+  // Известные будущие заявки: Цвирко×2, Шевченко×1 — для сверки «не трогаем»
+  const futureIso = "2026-12-15";
+  const partnerOrders = {
+    status: "success",
+    orders: [
+      {
+        id: "po_prev_cvirko_a",
+        status: "new",
+        locationId: "pt_varka_tsvirko_100",
+        locationName: "Varka Цвирко 100",
+        deliverDateIso: futureIso,
+        basket: [{ name: "СЕРДЦЕ", val: 50 }],
+        telegramId: "111",
+        previewSeed: "partner-remove-h1"
+      },
+      {
+        id: "po_prev_cvirko_b",
+        status: "new",
+        locationId: "pt_varka_tsvirko_100",
+        locationName: "Varka Цвирко 100",
+        deliverDateIso: futureIso,
+        basket: [{ name: "ЛЁГКОЕ", val: 100 }],
+        telegramId: "112",
+        previewSeed: "partner-remove-h1"
+      },
+      {
+        id: "po_prev_shev_a",
+        status: "new",
+        locationId: "pt_varka_shevchenko_1",
+        locationName: "Varka Шевченко 1",
+        deliverDateIso: futureIso,
+        basket: [{ name: "СЕРДЦЕ", val: 80 }],
+        telegramId: "113",
+        previewSeed: "partner-remove-h1"
+      },
+      {
+        id: "po_prev_old",
+        status: "delivered",
+        locationId: "pt_varka_tsvirko_100",
+        locationName: "Varka Цвирко 100",
+        deliverDateIso: "2026-10-01",
+        basket: [],
+        previewSeed: "partner-remove-h1"
+      }
+    ],
+    _d1TouchedAt: Date.now(),
+    previewSeed: "partner-remove-h1"
+  };
+  await putSnap_(env, "partnerOrders", partnerOrders);
+
+  let subsList = { status: "success", subscriptions: [] };
+  try {
+    const prevSubs = await getSnapRaw_(env, "listSubscriptions");
+    if (prevSubs && Array.isArray(prevSubs.subscriptions)) {
+      subsList.subscriptions = prevSubs.subscriptions.slice();
+    }
+  } catch (eSub) {}
+  const keep = subsList.subscriptions.filter(function (s) {
+    return !(s && s.previewSeed === "partner-remove-h1");
+  });
+  keep.push(
+    {
+      nick: "zzz_prev_cvirko_bp",
+      status: "БП1",
+      sheet: "БП",
+      ppPartner: "Varka · Varka Цвирко 100",
+      previewSeed: "partner-remove-h1"
+    },
+    {
+      nick: "zzz_prev_shev_bp",
+      status: "БП1",
+      sheet: "БП",
+      ppPartner: "Varka · Varka Шевченко 1",
+      previewSeed: "partner-remove-h1"
+    }
+  );
+  subsList.subscriptions = keep;
+  subsList._d1TouchedAt = Date.now();
+  await putSnap_(env, "listSubscriptions", subsList);
+
+  return {
+    status: "success",
+    cutover: true,
+    previewOnly: true,
+    marker: "partner-remove-h1",
+    points: points.length,
+    networks: nets.length,
+    futureOrdersCvirko: 2,
+    futureOrdersShev: 1,
+    futureSubsCvirko: 1,
+    futureSubsShev: 1,
+    d1Verified: true
+  };
+}
+
 function dryOfPreview_(items, re) {
   for (let i = 0; i < (items || []).length; i++) {
     if (re.test(String((items[i] && items[i].name) || ""))) return Number(items[i].dry) || 0;
@@ -35445,6 +35660,8 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerSavePoint$/i.test(a)) {
+    // partner-remove-h1: те же права, что у убрать — owner/manager
+    if (!partnerCanWriteAccess_(params)) return { status: "error", message: "owner_manager_only" };
     const name = String((params && params.name) || "").trim();
     const networkId = String((params && params.networkId) || "").trim();
     if (!name || !networkId) return { status: "error", message: "need_name_network" };
@@ -35475,6 +35692,8 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerDeletePoint$/i.test(a)) {
+    // partner-remove-h1: soft-delete (active:false), dry=1 только счёт, без TG/notify, заказы не трогаем
+    if (!partnerCanWriteAccess_(params)) return { status: "error", message: "owner_manager_only" };
     const id = String((params && params.id) || "").trim();
     if (!id) return { status: "error", message: "need_id" };
     let hit = -1;
@@ -35486,16 +35705,45 @@ async function mutatePartnerD1_(action, params, env) {
     }
     if (hit < 0) return { status: "error", message: "not_found" };
     const prev = admin.points[hit];
-    admin.points[hit] = Object.assign({}, prev, { active: false });
+    const future = await partnerPointFutureActivesCount_(env, prev);
+    const dry =
+      params &&
+      (params.dry === true ||
+        params.dry === 1 ||
+        params.dry === "1" ||
+        params.preview === true ||
+        params.preview === "1");
+    if (dry) {
+      return {
+        status: "success",
+        id: id,
+        dry: true,
+        name: prev.name || "",
+        networkId: prev.networkId || "",
+        futureOrders: future.futureOrders,
+        futureSubs: future.futureSubs,
+        futureActive: future.futureActive,
+        d1Verified: true
+      };
+    }
+    admin.points[hit] = Object.assign({}, prev, {
+      active: false,
+      archivedAt: new Date().toISOString()
+    });
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     return {
       status: "success",
       id: id,
       deleted: true,
+      soft: true,
       active: false,
       name: prev.name || "",
       networkId: prev.networkId || "",
-      d1Verified: true
+      futureOrders: future.futureOrders,
+      futureSubs: future.futureSubs,
+      futureActive: future.futureActive,
+      d1Verified: true,
+      notified: false
     };
   }
 
