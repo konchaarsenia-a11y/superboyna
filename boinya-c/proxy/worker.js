@@ -13667,7 +13667,10 @@ async function getCourier_(params, env) {
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
   try { await refreshCourierAskPaid_(env, hit); } catch (eAsk) {}
   try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
-  try { hit = await overlayCourierByDate_(env, day, hit); } catch (eDate) {}
+  /* preview seed: overlay по date_iso не должен снимать zzz_test_* */
+  if (!(hit && hit.previewSeed && String((env && env.PREVIEW_ISOLATED) || "") === "1")) {
+    try { hit = await overlayCourierByDate_(env, day, hit); } catch (eDate) {}
+  }
   return hit;
 }
 
