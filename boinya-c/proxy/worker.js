@@ -34917,34 +34917,51 @@ async function previewSeedT602u_(params, env) {
   await putSnap_(env, "courier:" + day, cour);
   // ceh-cut-finish-h1: позиции для UI «Завершить нарезку»
   // date = тот же формат, что dayDateInfo_, иначе rebuildCuttingDay_ считает !sameDate
+  // Повторный seed не сносит уже finished completion (F5/reenter в preview).
   const cutDate = String((info && info.date) || cour.date || isoToDmy_(iso) || "");
+  let prevCut = null;
+  try {
+    prevCut = await getSnapRaw_(env, "cutting:" + day);
+  } catch (ePrevCut) {
+    prevCut = null;
+  }
+  const keepCutDone = !!(
+    prevCut &&
+    prevCut.completion &&
+    prevCut.session &&
+    prevCut.session.finished
+  );
   const cut = {
     status: "success",
     day: day,
     date: cutDate,
     dateIso: iso,
-    items: [
-      {
-        key: "preview-heart",
-        name: "Сердце",
-        label: "Сердце ломтики",
-        qty: 150,
-        unit: "г",
-        done: true,
-        laid: true
-      },
-      {
-        key: "preview-lung",
-        name: "Лёгкое",
-        label: "Лёгкое среднее",
-        qty: 50,
-        unit: "г",
-        done: true,
-        laid: true
-      }
-    ],
-    session: { active: true, day: day, startedAt: Date.now() - 120000 },
-    completion: null,
+    items: keepCutDone && Array.isArray(prevCut.items) && prevCut.items.length
+      ? prevCut.items
+      : [
+          {
+            key: "preview-heart",
+            name: "Сердце",
+            label: "Сердце ломтики",
+            qty: 150,
+            unit: "г",
+            done: true,
+            laid: true
+          },
+          {
+            key: "preview-lung",
+            name: "Лёгкое",
+            label: "Лёгкое среднее",
+            qty: 50,
+            unit: "г",
+            done: true,
+            laid: true
+          }
+        ],
+    session: keepCutDone
+      ? Object.assign({}, prevCut.session || {}, { finished: true, active: false })
+      : { active: true, day: day, startedAt: Date.now() - 120000 },
+    completion: keepCutDone ? prevCut.completion : null,
     fromD1: true,
     previewSeed: "t602u-pack-h1",
     cachedAt: new Date().toISOString()

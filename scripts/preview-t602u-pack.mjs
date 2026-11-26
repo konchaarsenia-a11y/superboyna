@@ -17,7 +17,7 @@ const PORT = 8798;
 const OWNER_TG = "650923866";
 const TEST_NICK = "zzz_test_t602u";
 const TEST_PP2 = "zzz_test_t602u_pp2";
-const VER = "71125476";
+const VER = "71125477";
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -537,7 +537,8 @@ try {
   step("ui-cut-finish-reenter", { finishedVisible: cutDoneUi > 0 });
   if (!cutDoneUi) fail("cut-finish-ui-gone");
 
-  /* F5 re-entry cut */
+  /* F5 re-entry cut — добить finish на случай seed между API и UI */
+  await api("finishCutting", { day: dayUsed, telegramId: OWNER_TG, elapsed: 1800 }, init);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForTimeout(2500);
   await page.waitForFunction(() => !!window.BoinyaProduction, null, { timeout: 30000 });
