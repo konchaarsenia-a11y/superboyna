@@ -49,6 +49,9 @@ test("ceh-cut-finish-h1: finishCutting пишет completion в D1 сразу", 
   assert.match(chunk, /putSnap_\(env,\s*"cutting:"/);
   assert.match(prodUi, /ceh-cut-finish-h1/);
   assert.match(prodUi, /session\.finished/);
+  const reb = worker.indexOf("async function rebuildCuttingDay_");
+  assert.ok(reb > 0);
+  assert.match(worker.slice(reb, reb + 2500), /keepFinished/);
 });
 
 test("courier-notgot-h1: openMissedParked + clear tombstone при park", () => {
@@ -122,13 +125,13 @@ test("tg-dates-msg-h1: IG HTML-ссылки + текст клиенту без �
   assert.match(worker, /<a href="/);
 });
 
-test("t602u deployMarker + VER 71125472", () => {
+test("t602u deployMarker + VER 71125473", () => {
   assert.match(
     worker,
     /deployMarker: "ceh-move-nocut-h1\|ceh-cut-finish-h1\|courier-notgot-h1\|moves-info-h1\|courier-req-h1\|settings-req-h1\|tg-dates-msg-h1"/
   );
-  assert.match(nextHtml, /71125472/);
-  assert.match(swJs, /71125472/);
+  assert.match(nextHtml, /71125473/);
+  assert.match(swJs, /71125473/);
   assert.match(worker, /function previewSeedT602u_/);
   assert.match(worker, /previewSeedT602u/);
   assert.match(worker, /clearDeferredCancelTombstone_/);

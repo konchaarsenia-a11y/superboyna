@@ -17,7 +17,7 @@ const PORT = 8798;
 const OWNER_TG = "650923866";
 const TEST_NICK = "zzz_test_t602u";
 const TEST_PP2 = "zzz_test_t602u_pp2";
-const VER = "71125472";
+const VER = "71125473";
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -252,30 +252,43 @@ step("courier-notgot-reenter", {
 });
 if (stillAfterRe || !xferHit) fail("notgot-reenter", { stillAfterRe, inTransfers: !!xferHit });
 
-/* cut finish API — re-seed cutting (notgot мог пересобрать день) */
+/* cut finish API — re-seed cutting (notgot мог пересобрать день) + retry против race invalidate */
 await api("previewSeedT602u", { day: dayUsed, _: String(Date.now()) }, init);
+await new Promise((r) => setTimeout(r, 1500));
 const cutFinish = await api(
   "finishCutting",
   { day: dayUsed, telegramId: OWNER_TG, elapsed: 1200 },
   init
 );
-const cut2 = await api("getCutting", { day: dayUsed, telegramId: OWNER_TG, _: String(Date.now()) }, init);
-const cut2b = await api(
-  "getCutting",
-  { day: dayUsed, telegramId: OWNER_TG, _: String(Date.now() + 1) },
-  init
-);
+async function readCutDone() {
+  const cut = await api(
+    "getCutting",
+    { day: dayUsed, telegramId: OWNER_TG, _: String(Date.now()) },
+    init
+  );
+  return {
+    cut,
+    ok: !!(cut && (cut.completion || (cut.session && cut.session.finished)))
+  };
+}
+let cut2 = await readCutDone();
+if (!cut2.ok) {
+  await new Promise((r) => setTimeout(r, 1200));
+  cut2 = await readCutDone();
+}
+let cut2b = await readCutDone();
+if (!cut2b.ok) {
+  await new Promise((r) => setTimeout(r, 1200));
+  cut2b = await readCutDone();
+}
 step("ceh-cut-finish-api", {
   finish: cutFinish && cutFinish.status,
-  hasCompletion: !!(cut2 && (cut2.completion || (cut2.session && cut2.session.finished))),
-  hasCompletionReenter: !!(cut2b && (cut2b.completion || (cut2b.session && cut2b.session.finished))),
+  hasCompletion: cut2.ok,
+  hasCompletionReenter: cut2b.ok,
   marker: cutFinish && cutFinish.deployMarker,
-  count: cut2 && cut2.completion && cut2.completion.count
+  count: cut2.cut && cut2.cut.completion && cut2.cut.completion.count
 });
-if (
-  !(cut2 && (cut2.completion || (cut2.session && cut2.session.finished))) ||
-  !(cut2b && (cut2b.completion || (cut2b.session && cut2b.session.finished)))
-) {
+if (!cut2.ok || !cut2b.ok) {
   fail("cut-finish-missing");
 }
 

@@ -12709,6 +12709,13 @@ async function rebuildCuttingDay_(env, day) {
   const info = await dayDateInfo_(env, day);
   const prev = await getSnapRaw_(env, "cutting:" + day);
   const sameDate = sameCutDate_(prev && prev.date, info.date);
+  // ceh-cut-finish-h1: не сносить finished completion фоновым rebuild (race notgot→invalidate)
+  const keepFinished = !!(
+    prev &&
+    prev.completion &&
+    prev.session &&
+    prev.session.finished
+  );
   let wh = [];
   try {
     const wsnap = await getSnapRaw_(env, "warehouse");
@@ -12755,16 +12762,26 @@ async function rebuildCuttingDay_(env, day) {
     date: info.date || "",
     dateIso: info.iso || "",
     items: normalizeCuttingItems_(items),
-    session: sameDate ? (prev && prev.session) || {} : {},
-    cutter: sameDate ? (prev && prev.cutter) || null : null,
-    completion: sameDate ? (prev && prev.completion) || null : null,
+    session: keepFinished
+      ? Object.assign({}, prev.session || {}, { finished: true, active: false })
+      : sameDate
+        ? (prev && prev.session) || {}
+        : {},
+    cutter: sameDate || keepFinished ? (prev && prev.cutter) || null : null,
+    completion: keepFinished
+      ? prev.completion
+      : sameDate
+        ? (prev && prev.completion) || null
+        : null,
     transferOnly: transferOnly,
     sandbox: true,
     source: "d1",
     fromD1: true,
     fromOrders: true,
     fromGas: !!(sameDate && prev && prev.fromGas),
-    flagsTouchedAt: sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0
+    flagsTouchedAt:
+      keepFinished || sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0,
+    previewSeed: keepFinished ? prev.previewSeed || null : sameDate ? prev && prev.previewSeed : null
   };
   try {
     stripCuttingNotesAbsent_(payload, (live && live.clients) || []);
@@ -34832,10 +34849,12 @@ async function previewSeedT602u_(params, env) {
   };
   await putSnap_(env, "courier:" + day, cour);
   // ceh-cut-finish-h1: позиции для UI «Завершить нарезку»
+  // date = тот же формат, что dayDateInfo_, иначе rebuildCuttingDay_ считает !sameDate
+  const cutDate = String((info && info.date) || cour.date || isoToDmy_(iso) || "");
   const cut = {
     status: "success",
     day: day,
-    date: cour.date,
+    date: cutDate,
     dateIso: iso,
     items: [
       {
