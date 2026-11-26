@@ -117,6 +117,10 @@ step("courier-before", {
   n: clientsBefore.length,
   pick: pick ? pick.name || pick.client : null
 });
+if (!pick || courBefore.status !== "success") {
+  step("courier-before-fail", { courBefore });
+  report.ok = false;
+}
 
 let missRes = null;
 if (pick) {
@@ -275,11 +279,13 @@ try {
   await page.screenshot({ path: path.join(OUT, "t602u-courier-req.png"), fullPage: true });
   const reqBtn = await page.locator("text=Отправить реквизиты").count();
   step("shot-courier", { ok: true, requisitesButtons: reqBtn });
+  if (!reqBtn) report.ok = false;
   if (reqBtn) {
     await page.locator("text=Отправить реквизиты").first().click();
     await page.waitForTimeout(800);
     const opened = await page.evaluate(() => window.__openedLink || "");
     step("requisites-click", { openedIg: /instagram|ig\.me/i.test(opened), opened });
+    if (!/instagram|ig\.me/i.test(opened)) report.ok = false;
   }
 
   await page.evaluate(() => {
@@ -311,7 +317,7 @@ try {
 await browser.close();
 server.close();
 
-/* cleanup test transfer + courier seed */
+/* cleanup test transfer */
 try {
   const def2 = await api("listDeferred", { telegramId: OWNER_TG, status: "open", light: "1" }, init);
   for (const it of (def2 && def2.items) || []) {
@@ -320,17 +326,7 @@ try {
       await api("cancelDeferred", { telegramId: OWNER_TG, id: it.id, _: String(Date.now()) }, init);
     }
   }
-  await putCleanupCourier();
 } catch (eClean) {}
-
-async function putCleanupCourier() {
-  /* empty courier seed day */
-  await api("previewSeedT602u", { day: dayUsed, _: String(Date.now()) }, init);
-  const empty = await api("getCourier", { day: dayUsed, telegramId: OWNER_TG }, init);
-  if (empty && Array.isArray(empty.clients)) {
-    empty.clients = (empty.clients || []).filter((c) => !/zzz_test_t602u/i.test(String(c.name || "")));
-  }
-}
 
 const tgExample = {
   managerMessage: nudgeText,

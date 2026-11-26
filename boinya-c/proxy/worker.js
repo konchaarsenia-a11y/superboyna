@@ -7342,6 +7342,10 @@ async function ensureCourierDay_(env, day) {
   } catch (eHit) {
     hit = null;
   }
+  /* preview seed (t602u): не затирать тестового курьера сверкой с getClients */
+  if (hit && hit.previewSeed && String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+    return { rebuilt: false, day: day, n: ((hit.clients) || []).length, previewSeed: true };
+  }
   const live = await getClients_({ day: day }, env);
   let clients = (live && live.clients) || [];
   let info = null;
@@ -34672,11 +34676,47 @@ async function previewSeedT602u_(params, env) {
   const info = await dayDateInfo_(env, day).catch(function () {
     return { date: "", iso: "" };
   });
+  let iso = String((info && info.iso) || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    try {
+      iso = todayIsoMinskD1_();
+    } catch (eIso) {
+      iso = "2099-01-03";
+    }
+  }
   const nick = "zzz_test_t602u";
+  const mk = normalizeMatchKey_(nick);
+  const basket = [
+    { name: "Сердце", val: 100, unit: "г" },
+    { name: "Лёгкое", val: 50, unit: "г" }
+  ];
+  const orderId = "ord_preview_t602u_" + day;
+  try {
+    await upsertOrderRow_(
+      env,
+      {
+        id: orderId,
+        date_iso: iso,
+        day_name: day,
+        client: nick,
+        match_key: mk,
+        address: "Белецкого 10к2, preview",
+        note: "preview-t602u",
+        phone: "+375290000000",
+        basket_json: JSON.stringify(basket),
+        segment: "ПП",
+        source: "preview-t602u",
+        status: "active",
+        updated_at: new Date().toISOString(),
+        meta_json: JSON.stringify({ orderPrice: 42.5, ppSlot: "1", previewSeed: "t602u-pack-h1" })
+      },
+      { allowEmptyOverwrite: true }
+    );
+  } catch (eOrd) {}
   const client = {
     name: nick,
     client: nick,
-    matchKey: normalizeMatchKey_(nick),
+    matchKey: mk,
     segment: "ПП",
     ppSlot: "1",
     orderPrice: 42.5,
@@ -34685,16 +34725,15 @@ async function previewSeedT602u_(params, env) {
     note: "preview-t602u",
     delivered: false,
     paid: "no",
-    basket: [
-      { name: "Сердце", val: 100, unit: "г" },
-      { name: "Лёгкое", val: 50, unit: "г" }
-    ]
+    basket: basket,
+    orderId: orderId,
+    dateIso: iso
   };
   const cour = {
     status: "success",
     day: day,
-    date: (info && info.date) || "",
-    dateIso: (info && info.iso) || "",
+    date: isoToDmy_(iso) || (info && info.date) || "",
+    dateIso: iso,
     clients: [client],
     fromD1: true,
     previewSeed: "t602u-pack-h1",
@@ -34711,7 +34750,9 @@ async function previewSeedT602u_(params, env) {
   return {
     status: "success",
     day: day,
+    dateIso: iso,
     client: nick,
+    orderId: orderId,
     orderPrice: client.orderPrice,
     template: tpl,
     deployMarker: "courier-req-h1|settings-req-h1|courier-notgot-h1",
