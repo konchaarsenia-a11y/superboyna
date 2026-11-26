@@ -119,4 +119,6 @@ test("t602u deployMarker + VER 71125470", () => {
   );
   assert.match(nextHtml, /71125470/);
   assert.match(swJs, /71125470/);
+  assert.match(worker, /function previewSeedT602u_/);
+  assert.match(worker, /previewSeedT602u/);
 });

@@ -1108,7 +1108,7 @@ async function resolveActor_(params, env) {
   };
 }
 
-const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan|previewSeedPartnerRemove)$/i;
+const AUTH_PUBLIC_RE = /^(ping|keepWarm|health|getMyAccess|requestAccess|pollNativeAuth|getNativeLinkInfo|submitGoodboyTry|startDesktopAuth|pollDesktopAuth|previewMintInitData|previewSeedPartnerCutPlan|previewSeedPartnerRemove|previewSeedT602u)$/i;
 const AUTH_OWNER_RE = new RegExp(
     "^(listOwnerExpenses|saveOwnerExpense|deleteOwnerExpense|setAccessRole|setAccessTimezone|setAccessTabs|setAccessNotify|listScheduledNotifications|listAccess|listAccessFast|repairWeekMonday|" +
     "closeAllOpenDeficits|forceWeekD1Resync|undeleteWeekFromSheet|healStuckTransfers|restoreWeekFromBookings|" +
@@ -2337,6 +2337,10 @@ async function handleActionInner_(action, params, env, url, ctx) {
   /* partner-remove-h1: preview сид partnerListAdmin + заявки/подписки Цвирко/Шевченко */
   if (/^previewSeedPartnerRemove$/i.test(a)) {
     return previewSeedPartnerRemove_(params, env);
+  }
+  /* t602u: preview сид курьера/шаблона реквизитов для live-copy проверок */
+  if (/^previewSeedT602u$/i.test(a)) {
+    return previewSeedT602u_(params, env);
   }
 
   if (/^repairSubscriptionCards$/i.test(a)) {
@@ -22481,6 +22485,9 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^previewSeedPartnerRemove$/i.test(a)) {
       return previewSeedPartnerRemove_(params, env);
     }
+    if (/^previewSeedT602u$/i.test(a)) {
+      return previewSeedT602u_(params, env);
+    }
     // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
     if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
       const staffRes = await gasProxy_(a, params, env, { write: true });
@@ -23276,6 +23283,16 @@ async function handleCutover_(a, params, env, ctx) {
         live.swr = true;
         return live;
       }
+      if (live && live.sheetsFinishOnly && fast) {
+        return Object.assign({}, fast, {
+          cutover: true,
+          swr: true,
+          fromGas: false,
+          fromD1: true,
+          sandbox: false,
+          empty: !((fast.clients && fast.clients.length) || (fast.items && fast.items.length))
+        });
+      }
     } catch (eCut) {}
   }
   // Подписки CRM: d1-primary — D1 snap; GAS только cold-start (пустой snap).
@@ -23537,6 +23554,13 @@ async function handleCutover_(a, params, env, ctx) {
   try {
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
+      // finish-only: GAS skip — не отдавать sheets_finish_only вместо курьера/нарезки/сборки
+      if (
+        live.sheetsFinishOnly &&
+        (a === "getCourier" || a === "getCutting" || a === "getAssembly" || a === "getClients")
+      ) {
+        return cutoverEmptyRead_(a, params);
+      }
       if (a === "getClients" && params && params.day) {
         await sanitizeGasClientsPayload_(env, params.day, live);
       }
@@ -34636,6 +34660,66 @@ async function previewSeedPartnerCutPlan_(params, env) {
 }
 
 /** partner-remove-h1: preview-only сид admin + будущие заявки/подписки реальных точек Варки. */
+/** t602u preview: платящий клиент в курьере + шаблон реквизитов (только PREVIEW_ISOLATED). */
+async function previewSeedT602u_(params, env) {
+  if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
+    return { status: "error", message: "preview_only", cutover: true };
+  }
+  if (!env || !env.DB) {
+    return { status: "error", message: "no_d1", cutover: true };
+  }
+  const day = String((params && params.day) || "Пятница");
+  const info = await dayDateInfo_(env, day).catch(function () {
+    return { date: "", iso: "" };
+  });
+  const nick = "zzz_test_t602u";
+  const client = {
+    name: nick,
+    client: nick,
+    matchKey: normalizeMatchKey_(nick),
+    segment: "ПП",
+    ppSlot: "1",
+    orderPrice: 42.5,
+    address: "Белецкого 10к2, preview",
+    phone: "+375290000000",
+    note: "preview-t602u",
+    delivered: false,
+    paid: "no",
+    basket: [
+      { name: "Сердце", val: 100, unit: "г" },
+      { name: "Лёгкое", val: 50, unit: "г" }
+    ]
+  };
+  const cour = {
+    status: "success",
+    day: day,
+    date: (info && info.date) || "",
+    dateIso: (info && info.iso) || "",
+    clients: [client],
+    fromD1: true,
+    previewSeed: "t602u-pack-h1",
+    cachedAt: new Date().toISOString()
+  };
+  await putSnap_(env, "courier:" + day, cour);
+  const tpl =
+    "Здравствуйте! К оплате {amount} BYN.\n\nРеквизиты PREVIEW:\nр/с PREVIEW-ONLY (не слать клиентам).";
+  await putSnap_(env, "payRequisitesTemplate", {
+    template: tpl,
+    updatedAt: new Date().toISOString(),
+    previewSeed: "settings-req-h1"
+  });
+  return {
+    status: "success",
+    day: day,
+    client: nick,
+    orderPrice: client.orderPrice,
+    template: tpl,
+    deployMarker: "courier-req-h1|settings-req-h1|courier-notgot-h1",
+    cutover: true,
+    previewIsolated: true
+  };
+}
+
 async function previewSeedPartnerRemove_(params, env) {
   if (String((env && env.PREVIEW_ISOLATED) || "") !== "1") {
     return { status: "error", message: "preview_only", cutover: true };
