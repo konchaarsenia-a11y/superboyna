@@ -43,5 +43,5 @@ test("app.css: compose + dock no-ellipsis (order-compose-readable-h1)", () => {
 });
 
 test("cache VER bumped for phone SW (order-compose-readable-h1)", () => {
-  assert.match(nextHtml, /var VER = "71125473"/);
+  assert.match(nextHtml, /var VER = "71125474"/);
 });

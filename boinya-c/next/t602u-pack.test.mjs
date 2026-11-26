@@ -66,6 +66,9 @@ test("courier-notgot-h1: openMissedParked + clear tombstone при park", () => 
   const parkChunk = worker.slice(park, park + 6500);
   assert.match(parkChunk, /clearDeferredCancelTombstone_/);
   assert.match(parkChunk, /deployMarker: "courier-notgot-h1"/);
+  const ens = worker.indexOf("async function ensureCourierDay_");
+  assert.ok(ens > 0);
+  assert.match(worker.slice(ens, ens + 1800), /missedSeed|openMissedParkedAliasSet_/);
 });
 
 test("moves-info-h1: карточка переноса с составом/причиной/суммой", () => {
@@ -125,13 +128,13 @@ test("tg-dates-msg-h1: IG HTML-ссылки + текст клиенту без �
   assert.match(worker, /<a href="/);
 });
 
-test("t602u deployMarker + VER 71125473", () => {
+test("t602u deployMarker + VER 71125474", () => {
   assert.match(
     worker,
     /deployMarker: "ceh-move-nocut-h1\|ceh-cut-finish-h1\|courier-notgot-h1\|moves-info-h1\|courier-req-h1\|settings-req-h1\|tg-dates-msg-h1"/
   );
-  assert.match(nextHtml, /71125473/);
-  assert.match(swJs, /71125473/);
+  assert.match(nextHtml, /71125474/);
+  assert.match(swJs, /71125474/);
   assert.match(worker, /function previewSeedT602u_/);
   assert.match(worker, /previewSeedT602u/);
   assert.match(worker, /clearDeferredCancelTombstone_/);

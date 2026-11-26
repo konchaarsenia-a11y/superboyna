@@ -7348,8 +7348,29 @@ async function ensureCourierDay_(env, day) {
   } catch (eHit) {
     hit = null;
   }
-  /* preview seed (t602u): не затирать тестового курьера сверкой с getClients */
+  /* preview seed (t602u): не затирать тестового курьера сверкой с getClients,
+     но courier-notgot-h1: parked «не получил» всё равно выкинуть */
   if (hit && hit.previewSeed && String((env && env.PREVIEW_ISOLATED) || "") === "1") {
+    try {
+      let infoSeed = null;
+      try {
+        infoSeed = await dayDateInfo_(env, day);
+      } catch (eInfoS) {
+        infoSeed = null;
+      }
+      const missedSeed = await openMissedParkedAliasSet_(
+        env,
+        day,
+        (infoSeed && infoSeed.iso) || hit.dateIso || ""
+      );
+      const beforeN = ((hit.clients) || []).length;
+      hit.clients = ((hit.clients) || []).filter(function (c) {
+        return !clientInAliasSet_(c, missedSeed);
+      });
+      if (((hit.clients) || []).length !== beforeN) {
+        await putSnap_(env, "courier:" + day, hit);
+      }
+    } catch (eMissSeed) {}
     return { rebuilt: false, day: day, n: ((hit.clients) || []).length, previewSeed: true };
   }
   const live = await getClients_({ day: day }, env);
@@ -13696,9 +13717,21 @@ async function getCourier_(params, env) {
   hit = hit || { status: "success", clients: [], day: day, sandbox: true };
   try { await refreshCourierAskPaid_(env, hit); } catch (eAsk) {}
   try { hit = await stampAssemblyDogs_(env, hit); } catch (eDog) {}
-  /* preview seed: overlay по date_iso не должен снимать zzz_test_* */
+  /* preview seed: overlay по date_iso не должен возвращать zzz_test_*,
+     но parked «не получил» фильтруем всегда (courier-notgot-h1) */
   if (!(hit && hit.previewSeed && String((env && env.PREVIEW_ISOLATED) || "") === "1")) {
     try { hit = await overlayCourierByDate_(env, day, hit); } catch (eDate) {}
+  } else {
+    try {
+      const missedPrev = await openMissedParkedAliasSet_(
+        env,
+        day,
+        hit.dateIso || ""
+      );
+      hit.clients = ((hit.clients) || []).filter(function (c) {
+        return !clientInAliasSet_(c, missedPrev);
+      });
+    } catch (eMissPrev) {}
   }
   return hit;
 }
@@ -23253,7 +23286,8 @@ async function handleCutover_(a, params, env, ctx) {
           fast.swr = true;
           return fast;
         }
-        /* preview seed: не сносить courier snap из-за dateMismatch */
+        /* preview seed: не сносить courier snap из-за dateMismatch;
+           courier-notgot-h1: всё равно выкинуть parked */
         if (
           a === "getCourier" &&
           fast &&
@@ -23262,6 +23296,16 @@ async function handleCutover_(a, params, env, ctx) {
         ) {
           if (wantDate) fast.date = info.date || fast.date;
           if (info && info.iso) fast.dateIso = info.iso;
+          try {
+            const missedFast = await openMissedParkedAliasSet_(
+              env,
+              params.day,
+              (info && info.iso) || fast.dateIso || ""
+            );
+            fast.clients = ((fast.clients) || []).filter(function (c) {
+              return !clientInAliasSet_(c, missedFast);
+            });
+          } catch (eMissFast) {}
           fast.cutover = true;
           fast.swr = true;
           fast.fromGas = false;

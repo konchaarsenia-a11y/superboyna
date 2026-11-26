@@ -26,5 +26,5 @@ test("basketRow: кнопки idel + ifrac (order-edit-row-actions-h1)", () => {
 });
 
 test("cache VER bumped for phone SW", () => {
-  assert.match(nextHtml, /var VER = "71125473"/);
+  assert.match(nextHtml, /var VER = "71125474"/);
 });
